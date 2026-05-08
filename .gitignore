@@ -1,0 +1,11 @@
+# Claude Code & oh-my-claudecode
+.omc/
+.claude/history/
+.claude/sessions/
+.claude/cache/
+.claude/worktrees/
+
+# Owl Code for Version 1 and 2
+v1/
+v2/
+

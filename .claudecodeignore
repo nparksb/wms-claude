@@ -1,0 +1,144 @@
+# ============================================
+# .claudecodeignore - owl monorepo
+# ============================================
+
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*.sw?
+*.suo
+
+# --- IDE ---
+.idea/
+.vscode/
+.fleet/
+.nova/
+.zed/
+.augment/
+.settings/
+*.iml
+*.ipr
+*.iws
+nbproject/
+.project
+.classpath
+.factorypath
+
+# --- Git internals ---
+.git/
+
+# --- Claude Code / OMC runtime ---
+.claude/cache/
+.claude/history/
+.claude/sessions/
+.claude/settings.local.json
+.omc/
+
+# --- Dependencies ---
+node_modules/
+vendor/
+bower_components/
+jspm_packages/
+typings/
+
+# --- Build output ---
+dist/
+dist-ssr/
+build/
+build/Release
+target/
+compiled.php
+
+# --- Nuxt / Next ---
+.nuxt/
+.next/
+.vuepress/dist
+
+# --- Java / Maven / Gradle ---
+*.class
+*.jar
+*.war
+*.ear
+*.sar
+bin/
+tomcat/
+pom.xml.tag
+pom.xml.releaseBackup
+release.properties
+
+# --- PHP / Laravel ---
+/v2/oms-laravel-api/storage/framework/
+/v2/oms-laravel-api/storage/logs/
+/v2/oms-laravel-api/bootstrap/cache/
+composer.lock
+composer.phar
+auth.json
+.phpunit.result.cache
+.phpunit.cache/
+.phpactor.json
+
+# --- ZF2 vendored framework (massive, not project code) ---
+v1/oms/config/package/ZF2/
+
+# --- Vendored frontend libs in OMS ---
+v1/oms/htdocs/api_docs/bower_components/
+v1/oms/htdocs/assets/vendor/
+v1/oms/htdocs/lib/ZxcvbnPhp/vendor/
+
+# --- Logs ---
+*.log
+logs/
+data/logs/
+
+# --- Test coverage / instrumentation ---
+coverage/
+.nyc_output/
+lib-cov/
+
+# --- Runtime / temp ---
+*.pid
+*.pid.lock
+*.seed
+pids/
+*.local
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Archives ---
+*.zip
+*.tar
+*.gz
+*.tgz
+*.rar
+*.7z
+*.iso
+*.dmg
+
+# --- Compiled / binary ---
+*.pyc
+__pycache__/
+*.sqlite*
+
+# --- Package manager ---
+package-lock.json
+yarn.lock
+yarn-error.log
+npm-debug.log
+pnpm-debug.log*
+lerna-debug.log*
+.npm/
+.cache/
+.eslintcache
+.yarn-integrity
+
+# --- Misc generated ---
+sw.*
+var/
+media/clientorderfiles/
+media/reports/
+.serverless/
+.grunt/
