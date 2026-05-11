@@ -7,7 +7,7 @@ scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -205,7 +205,7 @@ Never invent a new code at a call site — add a constant to `WmsConstants` firs
 
 ## 7. OMS Callback
 
-Both flows fire `MessageService.sendStockChangeMessage(List<StockChangeDto>)` when inventory amount changes (any split; full unit-load moves that don't alter stock *amount* don't fire).
+Both flows fire `MessageService.sendStockChangeMessage(List<StockChangeDto>)` when inventory amount changes (any split; full unit-load moves that don't alter stock *amount* don't fire). **SBDEV-2214 (2026-05-10):** the call now delegates to `StockChangeNotificationService.sendAfterCommit(...)` → `OmsNotificationService.sendAfterCommit(urlPath, payload, STOCK_UPDATE)`, which registers a `TransactionSynchronization.afterCommit` listener. The HTTP POST fires post-commit only — rollback silently drops it.
 
 - URL: sysprop `SYSTEM_PROPERTY_WEBSERVICE_STOCK_UPDATE_URL_KEY` (line 113 in `MessageService`)
 - Process type: `MessageProcessType.STOCK_UPDATE`

@@ -5,14 +5,14 @@ ticket_url: "https://app.clickup.com/t/868jj319h"
 type: "bug"
 priority: "high"
 severity: "critical"
-status: "draft — pending review"
+status: "merged"
 project: ["wms2-api"]
 version: "v2"
 requester: "David Oppenheim"
 assignee: "Nam Park"
 created: "2026-05-08"
-updated: "2026-05-08"
-last_updated: "2026-05-08"
+updated: "2026-05-10"
+last_updated: "2026-05-10"
 db_verified: false
 related:
   - "[[260424-oms-notification-rollback-risk-remediation]]"
@@ -30,7 +30,7 @@ tags:
 **Ticket:** [SBDEV-2214](https://app.clickup.com/t/868jj319h)
 **Project:** wms2-api | **Version:** v2 | **Type:** bug
 **Priority:** High | **Severity:** CRITICAL (Tier 1)
-**Status:** draft — pending review
+**Status:** merged to `develop` (2026-05-10) — all 9 phase commits (`87c4164` → `81685c7`) landed via direct fast-forward outside PR #9; PR #9 closed as obsolete on 2026-05-10. Verify-script: `Result: 62 pass, 0 fail, 0 skip` (per §13). Phase 8 manual staging smoke remains as the single non-code follow-up.
 **Date:** 2026-05-08
 
 > **Important framing:** The ticket was filed against v1 line numbers (`CustomerorderService.java:696`, `CustomerorderBatchService.java:233`) and described the v1 **class-level** `@Transactional` annotation as the trigger. On v2, both `CustomerorderService` and `CustomerorderBatchService` use **method-level** `@Transactional` (the class-level annotation was refactored away during the v1→v2 migration), and the two specific methods (`cancelOrder`, `cancelBatch`) **already use the post-commit pattern** via `OmsNotificationService.sendAfterCommit(…)`. The root cause described by the ticket — an OMS HTTP POST executing inside an open `@Transactional` boundary so that a later in-method throw rolls back WMS state without rolling back OMS — is **independent of class-level vs method-level placement of the annotation**. This plan therefore (a) verifies and locks in those existing fixes via regression-guard checks, and (b) extends the same pattern to **adjacent in-tx OMS POST sites discovered by the §0 enumeration** (`ManageOrderService` × 7 methods called from `@Transactional` callers, `MessageService.sendStockChangeMessage` called from 15 `@Transactional` callers) — same root cause, ticket described one instance of a class of bugs.

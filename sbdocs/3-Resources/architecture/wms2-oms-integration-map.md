@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms2
-last_verified: 2026-04-27
+last_verified: 2026-05-10
 ---
 
 # WMS2 ↔ OMS Integration Map
@@ -74,6 +74,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 
 ### 2.1 Order Lifecycle Callbacks (ManageOrderService)
 
+> **SBDEV-2214 (2026-05-10):** all 7 ManageOrderService callbacks below now POST to OMS via `omsNotificationService.sendAfterCommit(urlPath, payload, processType)` — registered as a `TransactionSynchronization.afterCommit` listener. The HTTP POST fires only AFTER the surrounding transaction commits; if the caller transaction rolls back, the POST never happens. `HttpRestService` and `MessageService` are no longer constructor-injected into `ManageOrderService`. The audit `Message` row (SENT / FAILED) is now written by `OmsNotificationService.doSend` on the listener side, not inline at the call-site.
+
 | Sysprop key | Default OMS path | Triggered by | Java method | Payload |
 |------------|-----------------|-------------|-------------|---------|
 | `WEBSERVICE_ORDER_BATCH_HELD` | `/services/call/held` | Warehouse operator puts batch on hold | `ManageOrderService.customerOrderOnHold()` | `OrderBatchDto[]` |
@@ -112,9 +114,20 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 
 | Sysprop key | Default OMS path | Triggered by | Caller | Payload |
 |------------|-----------------|-------------|--------|---------|
-| `WEBSERVICE_STOCK_UPDATE` | `/call/inventory/stockUpdate` | Stock level changes (picks, receives, adjustments) | `MessageService.sendStockChangeMessage()` | `List<StockChangeDto>` |
-| `WEBSERVICE_STOCK_COUNT` | `/call/inventory/stockCountExport` | Scheduled stock export job | `StockSummaryExportJob` | Stock summary JSON |
+| `WEBSERVICE_STOCK_UPDATE` | `/call/inventory/stockUpdate` | Stock level changes (picks, receives, adjustments) | `MessageService.sendStockChangeMessage()` → **delegates to `StockChangeNotificationService.sendAfterCommit(List<StockChangeDto>)`** (SBDEV-2214) — which serializes the payload and calls `OmsNotificationService.sendAfterCommit(urlPath, payload, STOCK_UPDATE)` to defer the HTTP POST until after the caller transaction commits. | `List<StockChangeDto>` |
+| `WEBSERVICE_STOCK_COUNT` | `/call/inventory/stockCountExport` | Scheduled stock export job | `StockSummaryExportJob` | Stock summary JSON — **SBDEV-2219:** payload shape unchanged, but `sendList(chunk)` is now invoked once per chunk (≤ split-size, hard-ceiled at 10K when split-flag off), not once per export. OMS receivers MUST tolerate multiple POSTs per export window. |
 | `WEBSERVICE_STOCK_UPDATE` | `/call/inventory/stockUpdate` | Item/SKU data change in WMS | `ItemDataController` (internal trigger) | Stock update payload |
+
+> **SBDEV-2217 cascade — Q9 wrap pattern.** After SBDEV-2217 made `MessageService.createMessage` declare `throws BusinessException` (checked), the failure-log success/failure paths in `StockSummaryExportJob.sendList` (lines 182, 193), `OmsNotificationService.sendAfterCommit/doSend`, and `ManageOrderService.customerOrder*` × 7 wrap the `messageService.createMessage` call in a local `try/catch BusinessException` that logs and swallows. Rationale: these paths are best-effort failure-log persistence invoked from `afterCommit()` callbacks and `forEach` lambdas where checked exceptions can't propagate. The original `IOException` / cron path's primary error semantics are preserved; only the secondary failure-of-the-failure-log is silenced. See SBDEV-2217 plan §10 Q9 for the full enumeration.
+
+### 2.5.1 Metrics — `wms2.oms.notification.failed` (SBDEV-2214 Fix C)
+
+`OmsNotificationService.doSend` increments a Micrometer `Counter` `wms2.oms.notification.failed` whenever the deferred HTTP POST throws or returns a non-2xx response. Tags:
+
+- `tenant` — current tenant name from `TenantContext.getCurrentTenant()`, or `"unknown"` if the listener fires without a tenant context
+- `processType` — the OMS process-type enum (e.g. `ORDER_BATCH_LOADED_TO_TRUCK`, `STOCK_UPDATE`, `ADVICE_ACCEPT_HUB_AND_SPOKE`, etc.)
+
+Operators consume this counter via `/actuator/metrics/wms2.oms.notification.failed` or via Prometheus scrape. Suggested alert: any non-zero increment in a 5-min window pages the on-call engineer because every failed POST means OMS state is now drifting from WMS state for that tenant + process-type.
 
 ### 2.6 Facility Lookup (BillofladingService — WMS calls OMS to GET data)
 

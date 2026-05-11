@@ -48,6 +48,12 @@ Cherry-picks v1 UI commits forward to v2 (Lane A of the weekly WMS v1→v2 sync 
 - Sync log: `sbdocs/2-Areas/wms-v1-v2-sync/sync-log.md` *(TBD)*
 - Migration plan skill: `owl/.claude/skills/wms-v2-migrate/SKILL.md`
 
+### `verify-*.sh` (plan verification scripts)
+
+Per-plan verification harnesses (`verify-SBDEV-####-*.sh`, `verify-YYMMDD-*-*.sh`). These are generated alongside their plans by the `wms-bugfix-plan`, `wms-feature-plan`, and `wms-v2-migrate` skills, and are owned by the plan they ship with — not stable enough to enumerate here. To find the harness for a plan, match the filename stem (e.g. `verify-SBDEV-2216-*.sh` ↔ `SBDEV-2216-*.md`).
+
+Active scripts include `verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh` (REST inbound idempotency contract — pairs with `sbdocs/1-Projects/wms2/plan/SBDEV-2222-rest-inbound-no-idempotency-contract.md`).
+
 ## Conventions
 
 - All scripts must be idempotent (safe to run twice).

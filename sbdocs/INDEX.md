@@ -2,7 +2,7 @@
 title: "sbdocs — Map of Content"
 type: index
 status: active
-updated: 2026-04-19
+updated: 2026-05-10
 tags: [moc, index]
 ---
 
@@ -24,7 +24,7 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 ### Ongoing areas
 
 - **v1 → v2 sync** → [2-Areas/wms-v1-v2-sync/README.md](2-Areas/wms-v1-v2-sync/README.md) · [sync-log.md](2-Areas/wms-v1-v2-sync/sync-log.md) · [sweeps/](2-Areas/wms-v1-v2-sync/sweeps/)
-- **Runbooks** → [2-Areas/runbooks/README.md](2-Areas/runbooks/README.md) (1 doc — MOC)
+- **Runbooks** → [2-Areas/runbooks/README.md](2-Areas/runbooks/README.md) (2 docs — MOC)
 
 ### Reference material
 
@@ -33,7 +33,7 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 - **Data dictionary** → [3-Resources/data-dictionary/README.md](3-Resources/data-dictionary/README.md) (5 docs — MOC)
 - **Design (module-level)** → [3-Resources/design/README.md](3-Resources/design/README.md) (3 docs — MOC)
 - **ADRs / decisions** → [3-Resources/decisions/](3-Resources/decisions/)
-- **Reports** → [3-Resources/reports/](3-Resources/reports/) *(2 imported reports)*
+- **Reports** → [3-Resources/reports/](3-Resources/reports/) *(5 reports)*
 
 ### Archives
 

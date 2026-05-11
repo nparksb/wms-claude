@@ -7,7 +7,7 @@ scope: cross-cutting
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui
 related:
   - ./wms2-tenant-routing-datasource-topology.md

@@ -7,7 +7,7 @@ scope: receiving-putaway
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-06
+last_verified: 2026-05-10
 verified_by: code read of v2/wms2-api service/AdviceService + ReceivingService + mobile/MobilePutAwayService
 related:
   - ../architecture/wms2-state-machine-catalog.md

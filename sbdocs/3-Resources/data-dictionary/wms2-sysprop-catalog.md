@@ -7,7 +7,7 @@ scope: sysprops
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 verified_by: code read of v2/wms2-api WmsConstants.java:879-1069 and SyspropService.java
 related:
   - ../architecture/wms2-scheduled-jobs-catalog.md
@@ -98,8 +98,10 @@ Format: cron fields are assembled as `{sec} {MINUTE} {HOUR} * * *`. `*` means "e
 |---|---|---|
 | `CLEAN_UP_OLD_MESSAGES_TIMER_MINUTE` | `55` | Cron minute field |
 | `CLEAN_UP_OLD_MESSAGES_TIMER_HOUR` | `2` | Cron hour field (→ 02:55 daily) |
-| `CLEAN_UP_OLD_MESSAGES_PERIOD` | `365` | Days to retain messages |
+| `CLEAN_UP_OLD_MESSAGES_PERIOD` | `365` | Days to retain messages. Parsed via `Integer.parseInt`; malformed value throws `BusinessException.INVALID_SYSPROP_VALUE` (SBDEV-2220) |
 | `CLEAN_UP_OLD_MESSAGES_ACTIVATED` | `false` | Per-job activation |
+| `CLEAN_UP_OLD_MESSAGES_BATCH_SIZE` | `1000` | DELETE batch size per iteration; clamped to [1, 100000] (SBDEV-2220) |
+| `CLEAN_UP_OLD_MESSAGES_BATCH_SLEEP_MS` | `0` | Optional inter-batch sleep in ms; clamped to [0, 5000]; default 0 disables throttling (SBDEV-2220) |
 
 ### 4.4 StockSummaryExportJob
 

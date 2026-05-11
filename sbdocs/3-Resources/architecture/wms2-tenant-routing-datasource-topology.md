@@ -7,7 +7,7 @@ scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-09
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
   - ./wms2-transaction-osiv-boundary-map.md
@@ -229,7 +229,7 @@ Scheduling wiring lives in `schedulejob/SchedulingConfiguration.java` (`@Conditi
 `TenantAwareTaskDecorator` exists at `landlord/config/TenantAwareTaskDecorator.java:1-43` — it captures `TenantContext` at submit time and sets it on the worker thread inside a try/finally. **It is not registered on any `TaskExecutor` in the codebase.** Consequences:
 
 - `@Async` methods do **not** inherit tenant context. Any `@Async` service method that touches tenant data will hit the landlord fallback or a `BOOTSTRAP` resolver result.
-- `parallelStream()` does **not** propagate. Don't use it inside a tenant-scoped service.
+- `parallelStream()` does **not** propagate. Don't use it inside a tenant-scoped service. **SBDEV-2218 added a static guard:** `src/test/java/net/aim_ai/wms/unit/config/ParallelStreamSafetyArchTest.java` is an ArchUnit rule that fails the build if any class in `..service..`, `..controller..`, `..schedulejob..`, `..util..`, or `..repo..` calls `Collection.parallelStream()` or `BaseStream.parallel()`. Mirrors the `OptionalSafetyArchTest` (SBDEV-2116 lineage) pattern. The originating defect (`CustomerorderBatchService.calculateUnitLoadAmounts` parallelStream against Hibernate Session) is documented in commit `74f3c221`.
 - Virtual threads (if introduced) need `ScopedValue`, not ThreadLocal. Today's code is safe only because virtual threads are not enabled.
 
 If you register the decorator on a `ThreadPoolTaskExecutor`, confirm every submitting path holds valid tenant context at the moment of `executor.submit(...)` — otherwise workers inherit `null` and silently use landlord.

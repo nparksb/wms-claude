@@ -7,7 +7,7 @@ scope: cycle-count
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 verified_by: code read of v2/wms2-api CyclecountService + MobileCycleCountService + CycleCountLosController
 related:
   - ../architecture/wms2-state-machine-catalog.md
@@ -164,7 +164,7 @@ When `count != amountbefore`, `countBySKURecount` does three things in one trans
 2. **Stock unit**: one of:
    - `count == 0` → `sendStockUnitToNirvana(stockUnit)` (routes stock to the Nirvana unit load, effectively deleting it from inventory).
    - `count > 0` → `stockunitBusinessService.changeAmount(stockUnit, count, WmsConstants.CODE_CYCLE_COUNT, position.getNumber(), comment)`. `changeAmount()` is `@Transactional("tenantTransactionManager")` at `StockunitBusinessService.java:362`.
-3. **OMS message**: `messageService.sendStockChangeMessage(List<StockChangeDto>)` fires the HTTP POST to `WEBSERVICE_STOCK_UPDATE` (sysprop `SYSTEM_PROPERTY_WEBSERVICE_STOCK_UPDATE_URL_KEY`). Result logged to `message` table as SENT/FAILED.
+3. **OMS message** (SBDEV-2214 deferral, 2026-05-10): `messageService.sendStockChangeMessage(List<StockChangeDto>)` now delegates to `StockChangeNotificationService.sendAfterCommit(...)` → `OmsNotificationService.sendAfterCommit(urlPath, payload, STOCK_UPDATE)`. The HTTP POST to `WEBSERVICE_STOCK_UPDATE` (sysprop `SYSTEM_PROPERTY_WEBSERVICE_STOCK_UPDATE_URL_KEY`) fires only AFTER the surrounding cycle-count transaction commits — rollback silently drops the POST. Result logged to `message` table as SENT/FAILED by `OmsNotificationService.doSend` on the listener side.
 
 Audit: `Stockrecord` is not written directly from this path — `changeAmount()` writes that itself.
 

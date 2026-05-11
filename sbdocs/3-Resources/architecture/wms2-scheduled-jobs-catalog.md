@@ -7,7 +7,7 @@ scope: scheduled-jobs
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-05-08
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 verified_by: code read of v2/wms2-api src/main at commit HEAD (incl. SBDEV-2164 stale club batch cleanup port, commit 57ec70e)
 related:
   - ./wms2-transaction-osiv-boundary-map.md
@@ -188,12 +188,13 @@ try {
 | **Lock ID** | `JobLockId.STOCK_SUMMARY_EXPORT` (100004L) |
 | **Cron** | `0 {STOCK_SUMMARY_EXPORT_TIMER_MINUTE:0} {STOCK_SUMMARY_EXPORT_TIMER_HOUR:3} * * *` (default 03:00 daily) |
 | **Activation sysprop** | `STOCK_SUMMARY_EXPORT_TIMER_ACTIVATED_KEY` |
-| **Batching** | Optional — gated on `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_ACTIVATED_KEY`, batch size `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_AMOUNT_SKU_PER_BATCH_KEY` |
+| **Batching** | Gated on `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_ACTIVATED_KEY`, batch size `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_AMOUNT_SKU_PER_BATCH_KEY`. **SBDEV-2219:** when split-flag is OFF, a hard ceiling `STOCK_SUMMARY_EXPORT_NO_SPLIT_MAX_CHUNK = 10_000` (constant, not sysprop) is enforced to prevent O(rows) heap regression — operator-visible `LOG.warn` cites the safety net. |
 | **Endpoints** | `WEBSERVICE_STOCK_COUNT_URL_KEY` (OMS stock-count receiver), `WMS_INSTANCE_NAME`, `OMS_INSTANCE_NAME` |
-| **Reads** | Aggregated `stockcount` via `warehouseStockReportService.getStockCount()` |
-| **Writes** | `inventoryrecord` (one row per SKU); `message` / `message_archive` (audit of the HTTP POST to OMS) |
-| **Per-step TX** | No job-level `@Transactional`; record/message creation runs through service methods with their own TX |
-| **Error resilience** | Per-tenant try-catch (lines 102–103); HTTP `IOException` caught and logged as HTTP-503 in `message` (lines 179–187) |
+| **Reads** | **SBDEV-2219:** stream-cursored `stockcount` via `warehouseStockReportService.streamStockCount(Consumer<StockCountDto>)`. Replaces the legacy `getStockCount()` (now a `@Deprecated` shim that throws `UnsupportedOperationException`). The streaming path is wrapped in `@Transactional(value="tenantTransactionManager", readOnly=true)` and uses `Stream<StockView>` with `@QueryHints(HINT_FETCH_SIZE=500)` + `try-with-resources` close semantics. Hard cap: `count()` first; throws `BusinessException("BusinessException.StockCountTooLarge")` if `> SYSTEM_PROPERTY_STOCK_SUMMARY_EXPORT_MAX_ROWS_KEY` (default 1,000,000) and increments Micrometer counter `stock_summary_export_aborted_total`. |
+| **Rollback toggle** | **SBDEV-2219:** `STOCK_SUMMARY_EXPORT_STREAMING_ENABLED_KEY` (default `true`). When `false`, `streamStockCount` delegates to a private `legacyGetStockCount()` bridge that calls the original unbounded `findAll()` — preserved as an emergency rollback only; the public no-arg method is hard-fail. |
+| **Writes** | `inventoryrecord` (one row per SKU) via `inventoryRecordService.createEntity` which is `@Transactional(propagation=REQUIRES_NEW)` per SBDEV-2219 — escapes the outer `readOnly=true` tx (without REQUIRES_NEW Postgres would reject every INSERT). `message` / `message_archive` (audit of the HTTP POST to OMS); `messageService.createMessage` failures wrapped locally with Q9 best-effort log-and-swallow per SBDEV-2217 cascade. |
+| **Per-step TX** | No job-level `@Transactional`; record creation uses `REQUIRES_NEW`; outer streaming consumer is `readOnly=true` |
+| **Error resilience** | Per-tenant try-catch (lines 102–103); HTTP `IOException` caught and logged as HTTP-503 in `message`; **SBDEV-2219:** `BusinessException` from cap-trip is caught at the per-tenant boundary so one tenant's runaway data does not abort other-tenant exports |
 
 ### 4.4 `CleanUpOldMessagesJob`
 
@@ -204,11 +205,14 @@ try {
 | **Lock ID** | `JobLockId.CLEAN_UP_MESSAGES` (100003L) |
 | **Cron** | `0 {CLEAN_UP_OLD_MESSAGES_TIMER_MINUTE:55} {CLEAN_UP_OLD_MESSAGES_TIMER_HOUR:2} * * *` (default 02:55 daily) |
 | **Activation sysprop** | `CLEAN_UP_OLD_MESSAGES_ACTIVATED_KEY` (default **`false`** — the only business job off by default beyond the global gate) |
-| **Retention** | `CLEAN_UP_OLD_MESSAGES_PERIOD_KEY` — days |
+| **Retention** | `CLEAN_UP_OLD_MESSAGES_PERIOD_KEY` — days. Parsed via `Integer.parseInt`; malformed value surfaces as `BusinessException.INVALID_SYSPROP_VALUE` (SBDEV-2220 — replaces raw `NumberFormatException`); `null`/blank falls back to default. |
+| **Batch cap** | `CLEAN_UP_OLD_MESSAGES_BATCH_SIZE_KEY` — DELETE batch size, default 1000, clamped to [1, 100000] (SBDEV-2220). |
+| **Throttle** | `CLEAN_UP_OLD_MESSAGES_BATCH_SLEEP_MS_KEY` — optional inter-batch sleep in ms, default 0 (off), clamped to [0, 5000]. Injected via `Sleeper` functional interface (`service/job/Sleeper.java` + `MessageCleanupConfig.java`) for unit-test substitution (SBDEV-2220). |
 | **Reads** | `message` rows older than `today - period_days` |
-| **Writes** | `message_archive` (archive via `messageRepository.archiveMessages(refDate)` line 35), then batched delete from `message` (lines 39–43) until zero rows remain |
-| **Per-step TX** | Repository-level; each delete batch commits independently |
-| **Error resilience** | Per-tenant try-catch (lines 72–74) |
+| **Writes** | `message_archive` (archive via `messageCleanupBatchService.archiveOnce(refDate)`), then batched delete via `messageCleanupBatchService.deleteOnce(refDate, batchSize)` until returned count < batchSize. |
+| **Per-step TX** | **Per-batch `REQUIRES_NEW` on tenant TM** (SBDEV-2220) — `MessageCleanupBatchService.{archiveOnce, deleteOnce}` are annotated `@Transactional(value = "tenantTransactionManager", propagation = Propagation.REQUIRES_NEW, rollbackFor = BusinessException.class)`. Each batch commits independently; a failure mid-loop leaves prior batches durable. Replaces the prior pattern of bare `@Transactional` on `MessageRepository` methods (which silently bound to the landlord TM). |
+| **HAL exposure** | `MessageRepository.{archiveMessages, deleteMessages}` are now `@RestResource(exported = false)` (SBDEV-2220) — previously exposed as `POST /api/message/search/{archiveMessages, deleteMessages}` with no auth check beyond tenant JWT. |
+| **Error resilience** | Per-tenant try-catch (lines 72–74); `BusinessException` from a malformed sysprop on one tenant is logged and the next tenant proceeds. |
 
 ### 4.5 `ReleaseExpiredPickingOrdersFromUserJob`
 
@@ -300,7 +304,7 @@ See §4 of [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-da
 
 6. **No Micrometer timers on any job.** Current telemetry is `System.currentTimeMillis()` deltas written to logs. There are no dashboards; outlier runs are only visible if someone is actively log-diving.
 
-7. **`CleanUpOldMessagesJob` batched delete loop is unbounded.** Lines 39–43 loop `deleteMessages(refDate)` until the returned count is zero. On a first run against a very old table, this can run for hours. No safety cap.
+7. **~~`CleanUpOldMessagesJob` batched delete loop is unbounded.~~** ✅ **Resolved by SBDEV-2220 (2026-05-10).** Batch size is now sysprop-driven (`CLEAN_UP_OLD_MESSAGES_BATCH_SIZE`, default 1000, clamped [1, 100000]), each batch runs in its own REQUIRES_NEW tx, and an optional inter-batch sleep is available via `CLEAN_UP_OLD_MESSAGES_BATCH_SLEEP_MS`. The loop terminates when a batch returns fewer than batchSize rows.
 
 8. **`ReplenishOrderJob.RUNNING` guard is JVM-local.** It protects against two timer fires on the same replica; it does **not** protect across replicas (that's the advisory lock's job). If the lock breaks (landmine #1), the AtomicBoolean is not a safety net.
 

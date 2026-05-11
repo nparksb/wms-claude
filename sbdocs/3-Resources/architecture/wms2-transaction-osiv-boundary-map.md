@@ -7,7 +7,7 @@ scope: transactions
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
   - ../workflows/wms2-replenish-workflow.md
@@ -142,7 +142,7 @@ There is no chained / multi-DS transaction manager. Operations that need both DB
 Bare `@Transactional` on tenant code is a bug.
 
 ### Rule 2 — `REQUIRES_NEW` for job-step isolation
-Use `REQUIRES_NEW` only when each step of a batch must commit independently so the next step sees it (the replenish/release job pattern). All 17 current `REQUIRES_NEW` sites follow this pattern; see §7.
+Use `REQUIRES_NEW` only when each step of a batch must commit independently so the next step sees it (the replenish/release job pattern). All 20 current `REQUIRES_NEW` sites follow this pattern; see §7.
 
 ### Rule 3 — Never open `@Transactional` on a controller
 Controllers in `wms2-api` do not open transactions. Exception-handling at the controller layer (see `PickingController`) is the one acceptable reason the annotation appears there — no method-level `@Transactional` on any current controller.
@@ -179,9 +179,9 @@ Neither `TransactionTemplate` nor direct `PlatformTransactionManager.getTransact
 
 ---
 
-## 7. `REQUIRES_NEW` Inventory (17 sites)
+## 7. `REQUIRES_NEW` Inventory (20 sites)
 
-Every `REQUIRES_NEW` site lives in a scheduled-job service or the message service. The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
+Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service, the sequence-transaction service, the inventory-record service (escapes the `readOnly=true` outer transaction in `WarehouseStockReportService.streamStockCount` per SBDEV-2219), or — as of SBDEV-2220 — the message-cleanup batch service (per-batch tx boundary for the daily message-cleanup loop). The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
 
 | File | Line | Method | Extra attributes |
 |---|---|---|---|
@@ -196,6 +196,9 @@ Every `REQUIRES_NEW` site lives in a scheduled-job service or the message servic
 | `service/job/ReplenishOrderJobService.java` | 264 | `executeReplenishTask` | `rollbackFor = FacadeException` |
 | `service/MessageService.java` | 67 | `sendMessage` | — |
 | `service/SequenceTransactionService.java` | 23 | `getNextSequenceNumber` | — |
+| `service/InventoryRecordService.java` | 29 | `createEntity` | SBDEV-2219 — escapes outer `readOnly=true` tx in `WarehouseStockReportService.streamStockCount`; without REQUIRES_NEW, Postgres rejects every per-row INSERT |
+| `service/job/MessageCleanupBatchService.java` | 41 | `archiveOnce` | SBDEV-2220 — per-batch tx boundary for daily message cleanup (was previously a bare `@Transactional` on `MessageRepository.archiveMessages` binding to landlord TM) |
+| `service/job/MessageCleanupBatchService.java` | 53 | `deleteOnce` | SBDEV-2220 — per-batch tx boundary releases row locks between iterations so concurrent inserts on `message` are not blocked across the entire cleanup run (AC-2/AC-3) |
 
 None uses a non-default isolation level — everything relies on PostgreSQL's `READ_COMMITTED`.
 
@@ -269,7 +272,7 @@ No business-logic scheduler runs in-process. Replenish / release / cron-autoflus
 2. **Scheduled methods see no tenant.** `TenantContext` is ThreadLocal; the scheduler thread never had it set. New cron jobs that need tenant data must enumerate tenants and `set` the context per iteration. Root-cause pattern of `260331-cron-job-autoflush-optimistic-lock-debug-plan.md`.
 3. **`LosSequencenumber` has both `@Version` AND `PESSIMISTIC_WRITE`.** The `@Version` is defensive — the pessimistic lock is the primary mechanism. Don't remove the version field without verifying all call sites route through `findByIdForUpdate()`.
 4. **Most pessimistic locks have no timeout.** Only `CustomerorderBatch` and `Billoflading` use a 5s `jakarta.persistence.lock.timeout`. Under row contention the others will wait for the full Hikari connection-acquire window, which contributes to pool-exhaustion incidents (see `260424-connection-pool-exhaustion-fix-plan.md`).
-5. **`REQUIRES_NEW` ×17 = 17 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
+5. **`REQUIRES_NEW` ×20 = 20 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
 6. **`TenantDynamicRoutingDataSource` falls back to landlord when no context is set** (line 40). A bug that clears the ThreadLocal mid-request would route subsequent writes to landlord without an error until a schema mismatch surfaces downstream.
 7. **Post-commit hooks can silently no-op.** If `TransactionSynchronizationManager.isSynchronizationActive()` is `false` at the call site, the sync is never registered. When a service method that uses `registerSynchronization` is invoked outside a transaction (e.g. from a test or an unusual caller), the side-effect simply drops.
 

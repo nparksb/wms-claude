@@ -5,13 +5,13 @@ ticket_url: "https://app.clickup.com/t/868jj31d6"
 type: "bug"
 priority: "high"
 severity: "critical"
-status: "reviewed — ready for wms-tdd-gate"
+status: "merged"
 project: ["wms2-api"]
 version: "v2"
 requester: "David Oppenheim"
 assignee: "Nam Park"
 created: "2026-05-08"
-updated: "2026-05-08"
+updated: "2026-05-10"
 db_verified: false
 related:
   - "[[SBDEV-2214-oms-http-post-inside-class-level-transactional]]"
@@ -34,7 +34,7 @@ tags:
 **Ticket:** [SBDEV-2215](https://app.clickup.com/t/868jj31d6)
 **Project:** wms2-api | **Version:** v2 | **Type:** bug
 **Priority:** High | **Severity:** CRITICAL (Tier 1)
-**Status:** draft — pending review
+**Status:** merged to `develop` (2026-05-10) — bundled into the SBDEV-2214 implementation stack. The two prescribed test files landed via SBDEV-2214 Phase 6 commit `aebb4c7` ("BaseRollbackIntegrationTest + AdviceServiceRollbackIntegrationTest"); the trailing ArchUnit store snapshot landed via PR [#8](https://github.com/SiteBossInc/wms2-api/pull/8) merge commit `1f1bf14`. See §13 for the cross-plan map.
 **Date:** 2026-05-08
 
 > **Important framing — this is a regression-guard plan, not a new-fix plan.**
@@ -787,23 +787,28 @@ That is what `wms-v2-migrate` (run in REVERSE) should produce later as `sbdocs/1
 
 ## 13. Implementation Status
 
-(empty — to be filled after implementation per the post-implementation gate in `wms-bugfix-plan` SKILL.md §"Post-implementation gate")
+> **Status (2026-05-10):** Merged to `develop`. The implementation was **bundled into the SBDEV-2214 stack** — the executor working on SBDEV-2214 Phase 6 needed the same H2 rollback IT harness for `cancelOrder`, so they authored both test files (`BaseRollbackIntegrationTest` + `AdviceServiceRollbackIntegrationTest`) in a single commit and labelled it explicitly *"regression guard per SBDEV-2215 reference"*. SBDEV-2215's own phase plan (Phase 1–7) was not run as a separate flow.
 
-| Phase | Commit SHA | Test class + methods added | `mvn` summary | Verify-script result |
-|---|---|---|---|---|
-| Phase 1 — wms-tdd-gate (failing or regression-guard) | | | | |
-| Phase 2 — Implement integration test | | | | |
-| Phase 3 — Full integration suite | | | | |
-| Phase 4 — Final verify | | | | |
-| Phase 5 — Manual smoke | | | | |
-| Phase 6 — DB-fingerprint check | | | | |
-| Phase 7 — Plan archival | | | | |
+| Phase | Resolved as | Commit SHA | Notes |
+|---|---|---|---|
+| Phase 1 — wms-tdd-gate | bundled | `aebb4c7` | The rollback IT was authored alongside SBDEV-2214's own rollback IT — same harness, same test file. The TDD-gate step was effectively the SBDEV-2214 Phase 6 author writing the 3 SBDEV-2215 test methods (Fix C.1 / C.2 / C.3) directly into `AdviceServiceRollbackIntegrationTest`. |
+| Phase 2-3 — Implement / Full IT suite | bundled | `aebb4c7` | All 3 tests pass locally (per the `aebb4c7` commit message: "3 pass, 0 fail, 0 skip (37s, H2 boot)"). |
+| Phase 4 — Final verify | bundled | (cross-plan) | SBDEV-2214's own verify script (`verify-SBDEV-2214-...sh`) reports `Result: 62 pass, 0 fail, 0 skip` (per SBDEV-2214 §13). The dedicated `verify-SBDEV-2215-adviceservice-no-transaction-wrapping.sh` exists at `sbdocs/9-System/scripts/` for follow-up runs. |
+| Phase 5 — Manual smoke | pending deploy | — | Same as SBDEV-2214 Phase 8 — requires staging access. |
+| Phase 6 — DB-fingerprint check | n/a | — | §1 explicitly notes "single-query verification not possible" — the symptom is a code-path concern, not a steady-state data condition. |
+| Phase 7 — Plan archival | pending merge to `develop` | — | After SBDEV-2214 / SBDEV-2215 land in `develop`, run `/oh-my-claudecode:archive-plan` to move both plans to `sbdocs/4-Archieves/wms2/plan/`. |
 
-**Final acceptance line (paste from verify script):** ` `
+| Trailing commit | SHA | Purpose |
+|---|---|---|
+| ArchUnit store snapshot update | `0c0cbe1` (squash-merged as `1f1bf14` via PR #8 on 2026-05-10) | After `aebb4c7` added the new IT classes, `OptionalSafetyArchTest` regenerated its freeze-store snapshot to acknowledge them. The snapshot diff (+6 / −8 lines) is the only behavior-neutral content delta SBDEV-2215 added on top of the SBDEV-2214 stack. |
 
-**Pre-fix DB query result (per §1):** ` `
+**PR**: [#8](https://github.com/SiteBossInc/wms2-api/pull/8) (originally targeted `main`, retargeted to `develop` on 2026-05-10, then squash-merged).
 
-**Post-fix DB query result (per §1):** ` `
+**Final acceptance line (cross-plan):** SBDEV-2214 verify-script `Result: 62 pass, 0 fail, 0 skip` covers both plans' test files because they share `aebb4c7`.
+
+**Pre-fix DB query result (per §1):** N/A — code-path concern, not a steady-state data symptom.
+
+**Post-fix DB query result (per §1):** N/A — same rationale.
 
 ---
 

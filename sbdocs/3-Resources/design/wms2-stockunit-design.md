@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 verified_by: Claude (executor)
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
@@ -123,7 +123,9 @@ StockunitService          (orchestration, user-facing — no @Transactional at c
   │     └─► UnitloadBusinessService
   ├─► ReplenishmentOrderMaintenanceService  (recalculateForItem after every stock transfer)
   │     └─► [StockunitRepository, ReplenishorderRepository, …]
-  ├─► MessageService             (OMS stock-change notifications via sendStockChangeMessage)
+  ├─► MessageService             (OMS stock-change notifications via sendStockChangeMessage —
+  │                                SBDEV-2214: delegates to StockChangeNotificationService →
+  │                                OmsNotificationService.sendAfterCommit; POST is post-commit deferred)
   ├─► PrintService               (CUPS label printing)
   ├─► SyspropService             (cached @Cacheable("sysprops") — warehouse name for labels)
   ├─► AccessService              (permission checks, e.g. WEB_UI_ACTION_ADJUST_LOCK_DAMAGED)

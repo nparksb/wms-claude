@@ -4,7 +4,7 @@ type: index
 status: active
 version: v2
 scope: wms2-planning
-updated: 2026-04-19
+updated: 2026-05-10
 tags: [moc, index, wms2]
 ---
 
@@ -31,6 +31,22 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 - [260420-v2-port-plpgsql-functions-to-java.md](260420-v2-port-plpgsql-functions-to-java.md) — *draft; pending review*
 - [260421-v2-replace-pg-advisory-lock.md](260421-v2-replace-pg-advisory-lock.md) — *draft; pending review — sibling of PL/pgSQL plan*
 - [260418-wms-api-v1-v2-sync-batch-plan-2026-04-18.md](260418-wms-api-v1-v2-sync-batch-plan-2026-04-18.md)
+- [260307-inbound-notices-sort-fix.md](260307-inbound-notices-sort-fix.md)
+- [260414-bol-exception-handling-cleanup.md](260414-bol-exception-handling-cleanup.md)
+- [260502-changereservedamount-caller-rebind-fix.md](260502-changereservedamount-caller-rebind-fix.md)
+- [260503-runclubline-transaction-boundary-hardening.md](260503-runclubline-transaction-boundary-hardening.md)
+- [SBDEV-1699-replenish-qty-requested-wrong-upperbound.md](SBDEV-1699-replenish-qty-requested-wrong-upperbound.md)
+- [SBDEV-2116-unguarded-optional-get-fix-plan.md](SBDEV-2116-unguarded-optional-get-fix-plan.md)
+- [SBDEV-2163-prevent-finished-club-batch-lane-reassignment.md](SBDEV-2163-prevent-finished-club-batch-lane-reassignment.md)
+- [SBDEV-2164-stale-club-batch-cleanup-cron.md](SBDEV-2164-stale-club-batch-cleanup-cron.md)
+- [SBDEV-2214-oms-http-post-inside-class-level-transactional.md](SBDEV-2214-oms-http-post-inside-class-level-transactional.md)
+- [SBDEV-2215-adviceservice-no-transaction-wrapping.md](SBDEV-2215-adviceservice-no-transaction-wrapping.md)
+- [SBDEV-2216-finishtransfer-bulk-bol-close-perf.md](SBDEV-2216-finishtransfer-bulk-bol-close-perf.md)
+- [SBDEV-2217-sequence-number-silent-minus-one.md](SBDEV-2217-sequence-number-silent-minus-one.md)
+- [SBDEV-2218-parallelstream-against-hibernate-session.md](SBDEV-2218-parallelstream-against-hibernate-session.md)
+- [SBDEV-2219-warehouse-stock-report-unbounded-findall.md](SBDEV-2219-warehouse-stock-report-unbounded-findall.md)
+- [SBDEV-2220-cleanup-old-messages-batch-cap-and-tx.md](SBDEV-2220-cleanup-old-messages-batch-cap-and-tx.md)
+- [SBDEV-2222-rest-inbound-no-idempotency-contract.md](SBDEV-2222-rest-inbound-no-idempotency-contract.md)
 
 > This list can drift. The Dataview section below is always authoritative in Obsidian; elsewhere run `ls sbdocs/1-Projects/wms2/plan/*.md`.
 

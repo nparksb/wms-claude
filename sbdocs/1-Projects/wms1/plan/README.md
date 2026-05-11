@@ -4,7 +4,7 @@ type: index
 status: active
 version: v1
 scope: wms1-planning
-updated: 2026-04-27
+updated: 2026-05-10
 tags: [moc, index, wms1]
 ---
 
@@ -18,6 +18,7 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 
 ## Current plans (filesystem snapshot)
 
+- [260504-transfer-order-null-transferlane-crash.md](260504-transfer-order-null-transferlane-crash.md)
 - [260429-replenish-unit-load-stale-cache.md](260429-replenish-unit-load-stale-cache.md)
 - [260427-changeReservedAmount-caller-rebind-followup.md](260427-changeReservedAmount-caller-rebind-followup.md) — production replenish broken since `v1.26.29`: 2 BUG + 1 LATENT call sites of `changeReservedAmount` after the `2351004` detach-before-lock fix; rebind `sourceStock` in `MobileReplenishService.finishReplenishmentOrderInternal` (L420/L424) and `stockUnit` in `ReleaseOrderJobService.createPickingForOrder` (L473)
 - [260427-putaway-new-sku-no-location-guidance.md](260427-putaway-new-sku-no-location-guidance.md)

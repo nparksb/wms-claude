@@ -11,8 +11,7 @@ version: "v1"
 requester: ""
 created: "2026-04-29"
 updated: "2026-04-29"
-related:
-  - ""
+related: []
 tags:
   - plan
   - replenish

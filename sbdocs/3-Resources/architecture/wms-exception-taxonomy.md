@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms1+wms2
-last_verified: 2026-05-08
+last_verified: 2026-05-10
 ---
 
 # WMS Exception Taxonomy
@@ -222,6 +222,10 @@ Fallback behaviour: if the bundle or key is missing, the key and parameters are 
 | `BusinessException.MissingField` | `Missing field: %1$s` |
 | `BusinessException.ObjectNotFound` | `Entity %1$s not found` |
 | `BusinessException.ObjectNotUnique` | `Entity %1$s not unique` |
+| `BusinessException.SequenceExhausted` | `Cannot allocate sequence for key=%1$s after %2$s retries` (SBDEV-2217 — `BasicService.getNextSequenceNumber` retry exhaustion, replaces silent `-1` return) |
+| `BusinessException.SequenceInvalid` | `Invalid sequence value=%2$s for key=%1$s` (SBDEV-2217 — caller-side defense-in-depth guard at format-helper sites) |
+| `BusinessException.StockCountTooLarge` | `stock_view row count %1$s exceeds configured cap %2$s` (SBDEV-2219 — `WarehouseStockReportService.streamStockCount` hard-cap safety net; sysprop `STOCK_SUMMARY_EXPORT_MAX_ROWS_KEY`, default 1,000,000) |
+| `BusinessException.InvalidSyspropValue` | `Invalid system property value: %1$s=%2$s` (SBDEV-2220 — surfaces malformed numeric sysprop values as domain errors instead of raw `NumberFormatException`; currently used by `CleanUpOldMessageJobService.readPeriod` for `CLEAN_UP_OLD_MESSAGES_PERIOD`) |
 | `CLIENT_PERMISSION_DENIED` | `No permission for client %1$s` |
 | `ENTITY_NOT_LONGER_PERTINENT` | `Entity no longer pertinent %1$s` |
 | `OUT_OF_RANGE` | `Value out of range` |
