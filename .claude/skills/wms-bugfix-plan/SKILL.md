@@ -5,7 +5,9 @@ description: Produce a deeply-grounded bug fix plan document for the WMS codebas
 
 ## Execution model
 
-Delegate all plan generation to an `executor` subagent with `model: opus`. Pass the full user input and all grepped/read evidence as the agent prompt. Return the agent's output verbatim.
+Two phases:
+1. **Analysis phase** — Delegate to an `executor` subagent with `model: opus`. The executor runs pre-investigation agents, analysis protocol, and pre-draft enumeration, producing all file:line evidence, root-cause hypotheses, and affected-sites data.
+2. **Plan drafting phase** — Pass the analysis output to `ralplan` (see "Plan generation" below). Do not write the plan document directly from the analysis output.
 
 # WMS Bug Fix Plan
 
@@ -183,6 +185,27 @@ Before writing a single section of the plan body, produce a single Affected-Site
 If any in-scope row is missing from §3 Fix Design (or §5 Implementation Steps), the plan is incomplete and not review-ready.
 
 The §0 table also feeds §9 Acceptance — every in-scope row should map to one POSITIVE check in `verify-<plan-id>.sh`.
+
+## Plan generation — MANDATORY: use ralplan
+
+Every plan produced by this skill MUST go through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic). Do not write the plan document directly from the analysis output.
+
+**Why:** The analysis phase identifies what is broken; ralplan ensures the fix design, acceptance criteria, and implementation steps survive a structured review before being committed to disk. Plans that skip consensus routinely have weak §3 Fix Design or acceptance criteria too vague for the TDD gate.
+
+**Workflow:**
+1. Complete the Analysis Protocol and Pre-draft Enumeration above. The executor produces a structured analysis bundle.
+2. **Invoke `Skill("oh-my-claudecode:ralplan", "--interactive <analysis context>")` with the full analysis.** Pass:
+   - §0 Affected Sites table (all confirmed in-scope rows)
+   - Root cause per bug (file:line, broken code block, why it fails)
+   - Proposed fix design (Before/After code blocks) for each site
+   - Acceptance criteria candidates for `wms-tdd-gate`
+   - Target plan filename (`SBDEV-####-kebab.md` or `YYMMDD-kebab.md`)
+3. ralplan `--interactive` pauses at two points:
+   - **After Planner draft** — review and redirect before Architect/Critic run
+   - **After Critic approves** — approve, request changes, or reject before the plan is saved
+4. The consensus-approved plan is saved to `sbdocs/1-Projects/wms{1|2}/plan/<filename>.md`.
+
+**Exception:** Mechanical one-liner fixes (single null-check, missing `.orElseThrow()`, typo, constant swap) may skip ralplan and be written directly — state the reason explicitly in the plan header.
 
 ## Output document
 

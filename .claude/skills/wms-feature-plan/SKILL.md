@@ -5,7 +5,9 @@ description: Produce a reviewable implementation plan document for a new feature
 
 ## Execution model
 
-Delegate all plan generation to an `executor` subagent with `model: opus`. Pass the full user input and all grepped/read evidence as the agent prompt. Return the agent's output verbatim.
+Two phases:
+1. **Analysis phase** — Delegate to an `executor` subagent with `model: opus`. The executor runs pre-investigation agents, analysis protocol, and pre-draft enumeration, producing all file:line evidence, current architecture mapping, callsite enumeration, and design constraints.
+2. **Plan drafting phase** — Pass the analysis output to `ralplan` (see "Plan generation" below). Do not write the plan document directly from the analysis output.
 
 # WMS Feature Implementation Plan
 
@@ -165,6 +167,28 @@ Before writing a single section of the plan body, produce a single Affected-Site
 ```
 
 If any in-scope row is missing from §3 Design (or §5 Phased Implementation Plan), the plan is incomplete. The §0 table also feeds §9 Acceptance — every in-scope row should map to one POSITIVE check in `verify-<plan-id>.sh`.
+
+## Plan generation — MANDATORY: use ralplan
+
+Every plan produced by this skill MUST go through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic). Do not write the plan document directly from the analysis output.
+
+**Why:** Feature plans have a higher rate of scope drift and missing acceptance criteria than bug fixes. ralplan's structured Planner→Architect→Critic loop catches under-specified designs, missing callsites, and backward-compatibility gaps before the plan is written to disk — all of which would stall the TDD gate or the implementation phase.
+
+**Workflow:**
+1. Complete the Analysis Protocol and Pre-draft Enumeration above. The executor produces a structured analysis bundle.
+2. **Invoke `Skill("oh-my-claudecode:ralplan", "--interactive <analysis context>")` with the full analysis.** Pass:
+   - §0 Affected Sites table (all confirmed in-scope rows with phase assignments)
+   - Current architecture mapping (file:line for each component)
+   - Proposed design (per-section: design rationale, code signatures, config keys, data model deltas)
+   - Callsite enumeration with backward-compatibility notes
+   - Acceptance criteria candidates for `wms-tdd-gate`
+   - Target plan filename (`SBDEV-####-kebab.md` or `YYMMDD-kebab.md`)
+3. ralplan `--interactive` pauses at two points:
+   - **After Planner draft** — review and redirect before Architect/Critic run
+   - **After Critic approves** — approve, request changes, or reject before the plan is saved
+4. The consensus-approved plan is saved to `sbdocs/1-Projects/wms{1|2}/plan/<filename>.md`.
+
+**Exception:** Mechanical additions (new `SYSTEM_PROPERTY_*_KEY` following an existing pattern, single endpoint addition to an established controller) may skip ralplan and be written directly — state the reason explicitly in the plan header.
 
 ## Output document
 
