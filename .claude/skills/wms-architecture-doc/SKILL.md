@@ -33,6 +33,25 @@ First, clarify the scope with the user (or from their prompt):
 
 The smaller the scope, the deeper the doc goes. For whole-stack docs, keep each section concise and link out to subsystem docs.
 
+## Pre-investigation phase (specialist agents — run AFTER scope is confirmed, BEFORE analysis)
+
+After scope is confirmed, route to one or more specialist agents to gather primary evidence before the author starts reading files. Their output is folded into §0 Scope Inventory and the body sections — it does NOT replace the analysis protocol below.
+
+**Routing table — invoke when ANY trigger matches:**
+
+| Agent | Invoke when | What to ask for |
+|---|---|---|
+| `architect` | Scope spans ≥2 services or the topology is not well-documented yet — which is almost always for a new architecture doc | Current file:line evidence for each layer (entry points, integrations, cross-cutting concerns), what the code says vs what any existing doc says — fold into §0 and §4–§6 |
+| `analyst` | Scope boundary is still ambiguous after the scope detection step, or the user's request implies two conflicting audiences (e.g., "onboarding doc" vs "deployment topology") | Clarified scope, target audience, what questions the doc must answer and what can be linked out — fold into §1 Overview framing |
+
+**Skip pre-investigation when:**
+- Scope is already a concrete, bounded subsystem the author has recently read (e.g., "update the scheduled-jobs catalog with the new job I just added")
+- The user has explicitly said "just write it"
+
+**Fold findings into the doc:**
+- `architect` findings → §0 Scope Inventory (confirmed entry points, integrations, cross-cutting concerns with file:line), §4 Layered Architecture, §6 Integrations
+- `analyst` findings → §1 Overview (audience + purpose framing), §12 Verification Log (scope decisions recorded)
+
 ## Analysis protocol
 
 Do these BEFORE drafting. An architecture doc written from memory always gets details wrong.

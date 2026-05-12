@@ -29,6 +29,27 @@ A design doc should fit in one engineer's head. Aim for:
 
 If the scope is bigger (e.g., "the whole picking subsystem"), split into multiple design docs linked from an architecture doc.
 
+## Pre-investigation phase (specialist agents — run AFTER scope is confirmed, BEFORE analysis)
+
+After the module scope is confirmed, route to one or more specialist agents to gather primary evidence before the author reads through the module. Their output is folded into §0 Module Inventory and the body sections — it does NOT replace the analysis protocol below.
+
+**Routing table — invoke when ANY trigger matches:**
+
+| Agent | Invoke when | What to ask for |
+|---|---|---|
+| `architect` | Module has external collaborators, the class structure is not well-known, or the doc needs to accurately capture transaction / lock / tenant-routing semantics — applies to nearly every new design doc | File:line evidence for every class in scope and its immediate collaborators, transaction boundaries, pessimistic lock sites, entity FK structure — fold into §0 and §3–§6 |
+| `analyst` | Module scope is ambiguous (overlaps with another module, unclear boundaries), or the user's intent is unclear (designing a NEW module vs documenting an EXISTING one) | Clarified scope, module boundary, what the doc must answer — fold into §1 Purpose and §8 Extension Points |
+| `tracer` | The module has a known concurrency issue, a recurring `StaleObjectStateException` / lock race, or the design doc is being written specifically to diagnose or explain an incident | Ranked hypotheses for the concurrency failure mode, evidence for/against each — fold into §6 Concurrency Semantics and §11 Known Limitations |
+
+**Skip pre-investigation when:**
+- Module is small and already fully in-context (a single service class the author just read)
+- The user has explicitly said "just write it"
+
+**Fold findings into the doc:**
+- `architect` findings → §0 Module Inventory (confirmed class list, entity list, public methods), §3 Key Classes, §4 Data Model, §6 Key Flows
+- `analyst` findings → §1 Purpose (scope boundary, what is explicitly out of scope), §8 Extension Points
+- `tracer` findings → §6 Concurrency Semantics (confirmed lock sites, known race conditions), §11 Known Limitations
+
 ## Analysis protocol
 
 Do every step before drafting. A design doc built from memory always has wrong field names, wrong cardinalities, wrong state values.
