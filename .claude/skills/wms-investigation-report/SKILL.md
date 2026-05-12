@@ -37,6 +37,27 @@ Do these in order. Do not skip to a verdict.
 6. **Write the verdict before the recommendation.** The verdict is what is (probably) true; the recommendation is what to do about it. Conflating them hides uncertainty.
 7. **Call out what you could NOT answer.** Open questions go in a dedicated section, so follow-up work has a scoped starting point.
 
+## Pre-investigation phase (specialist agents — run AFTER pinning the question, BEFORE gathering evidence)
+
+After the investigation question is pinned (step 1 above), route to one or more specialist agents to accelerate hypothesis generation and evidence gathering. Their findings become raw evidence in §5 — they do NOT replace the protocol above.
+
+**Routing table — invoke when ANY trigger matches:**
+
+| Agent | Invoke when | What to ask for |
+|---|---|---|
+| `tracer` | Root cause is unclear, ≥2 competing hypotheses exist, bug involves concurrency / lock contention / race condition / `StaleObjectStateException`, or symptom is intermittent | Ranked competing hypotheses with evidence-for / evidence-against each, uncertainty level, recommended next probe — feed directly into §3 Initial Hypotheses |
+| `analyst` | Investigation question is vague or has scope creep risk, user could reasonably disagree about what "wrong" means, or the question implies an undefined acceptance criterion | Clarified question framing, scope boundary, what a "nothing is wrong" conclusion would look like — feed into §2 Questions |
+| `architect` | Investigation spans ≥3 services, requires understanding transaction / tenant routing / caching architecture, or needs file:line evidence for how a subsystem currently works | Current-state architecture evidence (file:line), which constraints are load-bearing, what the code says vs what the doc says — feed into §4 Method and §5 Evidence |
+
+**Skip pre-investigation when:**
+- The question is already precise and the investigation is a single focused code read or DB query
+- The user has explicitly said "just investigate" / "I know the scope"
+
+**Fold findings into the report:**
+- `tracer` findings → §3 Initial Hypotheses (tracer's ranked list becomes the starting hypothesis table); update confidence after your own evidence pass
+- `analyst` findings → §2 Questions (refined question list); flag any scope risks in §9 Open Questions
+- `architect` findings → §4 Method (add the specific files/queries to consult), §5 Evidence (architecture findings are primary evidence)
+
 ## Pre-draft enumeration (Layer 1 — code-grounding before evidence)
 
 Before drafting §5 Evidence, produce a single Sources-In-Scope table by **enumeration, not memory**:

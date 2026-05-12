@@ -59,6 +59,33 @@ Default question set (adapt — pick the 3-5 most relevant):
 
 Document the answers (or the explicit "use defaults" decision) in the plan's §10 Open Questions / Resolved Decisions — never silently choose for the user on these categories.
 
+## Pre-investigation phase (specialist agents — run BEFORE drafting)
+
+Before writing the plan body, route the input to one or more specialist agents to surface evidence the plan author cannot derive from reading the prompt alone. Each agent returns findings; fold those findings into the plan's §2 (Current Architecture), §3 (Design), and §5 (Phased Implementation Plan).
+
+**Routing table — invoke when ANY trigger matches:**
+
+| Agent | Invoke when | What to ask for |
+|---|---|---|
+| `analyst` | Scope is ambiguous, acceptance criteria are undefined, the feature description is prose without concrete constraints, behavior change where the user could reasonably disagree about correctness, or no measurable "done" criterion exists | Requirements gaps, undefined acceptance criteria, scope risks, questions to resolve before the plan is authoritative |
+| `architect` | Feature spans ≥3 services/modules, touches transaction managers / tenant routing / caching architecture, introduces a new concurrency primitive, or needs second-opinion validation of a proposed design against actual code structure | File:line evidence for how the current system works, which architectural constraints apply, which design alternatives are ruled out and why |
+| `tracer` | Feature work that involves a concurrency primitive (new lock, cache invalidation race, idempotency under retry), or where the motivation is a recurring incident/failure mode that needs root-cause confirmation before designing the fix | Competing hypotheses for why the current approach fails, evidence-for / evidence-against, uncertainty level, what to confirm before designing the new behavior |
+
+**Skip pre-investigation when:**
+- Feature is mechanical: new `SYSTEM_PROPERTY_*_KEY` following an existing pattern, single endpoint addition, config toggle
+- The user has explicitly said "just draft" / "use reasonable defaults"
+
+**Recommended sequences:**
+- New feature with vague scope → `analyst` first; if analyst reveals architectural complexity, follow with `architect`
+- Performance or reliability feature → `analyst` (acceptance criteria) + `architect` (current code path) in parallel
+- Concurrency or idempotency feature → `tracer` (confirm failure mode) → `architect` (design constraints)
+- Large refactor crossing ≥3 services → `architect` alone is often sufficient
+
+**Fold findings into the plan:**
+- `analyst` findings → §10 Open Questions / Resolved Decisions (pre-resolved) and §9 Alternatives Considered; acceptance criteria feed §7 Testing Strategy
+- `architect` findings → §2 Current Architecture (file:line tables), §3 Design (rationale for approach), §9 Alternatives Considered (ruled-out options)
+- `tracer` findings → §1 Problem Statement (confirmed failure mode), §3 Design (constraints the new design must satisfy)
+
 ## Deep analysis mode (sequential-thinking)
 
 For non-trivial features, invoke `mcp__sequential-thinking__sequentialthinking` BEFORE drafting the plan. Use the thinking session to enumerate alternatives, identify every callsite, and validate backward compatibility — these sections get weak treatment without it.

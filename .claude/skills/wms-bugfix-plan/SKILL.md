@@ -58,6 +58,32 @@ Default question set (adapt — pick the 3-5 most relevant):
 
 Document the answers (or the explicit "use defaults" decision) in the plan's §10 Open Questions / Resolved Decisions — never silently choose for the user on these categories.
 
+## Pre-investigation phase (specialist agents — run BEFORE drafting)
+
+Before writing the plan body, route the input to one or more specialist agents to surface evidence that the plan author cannot derive from code reading alone. Each agent returns findings; fold those findings into the plan's §1 (Root Cause), §3 (Fix Design), and §5 (Implementation Steps).
+
+**Routing table — invoke when ANY trigger matches:**
+
+| Agent | Invoke when | What to ask for |
+|---|---|---|
+| `tracer` | Concurrent bug, race condition, `StaleObjectStateException`, `ObjectOptimisticLockingFailureException`, optimistic/pessimistic lock failure, layered bug with ≥2 plausible hypotheses, root cause unclear from the symptom alone | Competing hypotheses ranked by evidence, evidence-for / evidence-against each, uncertainty level, recommended next probe |
+| `analyst` | Feature work or behavior change with ambiguous scope, input has no concrete stack trace / error message, acceptance criteria are undefined, behavior change where the user could reasonably disagree about correctness | Requirements gaps, undefined acceptance criteria, scope risks, questions to resolve before the plan is authoritative |
+| `architect` | Code path crosses ≥3 services/modules, fix touches transaction managers / tenant routing / caching architecture, or a second-opinion is needed after `tracer` to verify hypotheses against actual code structure | File:line evidence for the suspected root cause, which architectural constraints apply, which alternative fixes were ruled out and why |
+
+**Skip pre-investigation when:**
+- Fix is mechanical: single null-check, `.get()` → `.orElseThrow()`, typo, constant swap
+- The user has explicitly said "just draft" / "use reasonable defaults"
+
+**Multi-agent pattern (parallel when independent):**
+- Bug with unclear root cause + complex code path → run `tracer` + `architect` in parallel; both feed §1 (Root Cause Analysis)
+- Feature with vague scope → run `analyst` first; if result reveals architectural complexity, follow with `architect`
+- Do NOT run `analyst` on a concrete bug with a stack trace — it will ask questions instead of finding answers
+
+**Fold findings into the plan:**
+- `tracer` findings → §1 Root Cause sub-sections, especially the "winning" hypothesis and the evidence that ruled out alternatives
+- `analyst` findings → §10 Open Questions / Resolved Decisions (as pre-resolved items) and §8 Acceptance criteria
+- `architect` findings → §3 Fix Design ("why this fix and not alternatives"), §4 Architecture Overview (key file:line table)
+
 ## Deep analysis mode (sequential-thinking)
 
 For non-trivial bug fixes, invoke `mcp__sequential-thinking__sequentialthinking` BEFORE drafting the plan. Use it to work through the analysis protocol step-by-step with explicit hypothesis branching.

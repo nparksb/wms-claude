@@ -145,9 +145,20 @@ Do not proceed to Step 5 until every new test is in the "Correct failure" column
 
 ---
 
-## Step 5 — Human checkpoint (MANDATORY PAUSE)
+## Step 5 — Checkpoint (pause OR auto-proceed)
 
-Present this report and **stop**. Do not write any production code. Do not suggest implementation steps.
+### Auto-proceed criteria (ALL must be true to skip the pause)
+
+1. **≤2 acceptance criteria** in §8
+2. **No concurrency / security / transaction flags** — the plan does not touch `@Transactional`, advisory locks, optimistic/pessimistic locks, `SecurityConfiguration`, auth filters, or race-condition scenarios
+3. **No unexpected passes** from Step 4 — every test failed for the right reason
+4. **No setup adjustments** were needed in Step 4 (clean first run)
+
+If ALL four are true: **skip the pause**, print the baseline report (see format below), and proceed directly to Step 6 (handoff to implementation).
+
+If ANY is false: **pause**. Print the report and wait for "go" or equivalent. Do not write any production code.
+
+### Baseline report format (print in both cases)
 
 ```
 ## TDD Gate Baseline — <plan-id>
@@ -171,9 +182,10 @@ Present this report and **stop**. Do not write any production code. Do not sugge
 ---
 These tests are the implementation contract. When all of them pass, the plan's
 acceptance criteria are satisfied.
-
-Reply "go" to start implementation, or describe any adjustments needed.
 ```
+
+If pausing, append: `Reply "go" to start implementation, or describe any adjustments needed.`
+If auto-proceeding, append: `Auto-proceeding to implementation (≤2 criteria, no concurrency/security flags, clean failures).`
 
 ---
 
@@ -197,7 +209,7 @@ When the user approves:
 2. **Never write tests that always pass.** A test that passes before the fix is not a gate — it is false confidence.
 3. **Do not implement the fix in this step.** If you find yourself editing a service class, stop immediately.
 4. **Do not run the full test suite.** Only run the tests you wrote. Pre-existing failures are outside scope.
-5. **Do not proceed past Step 5 without explicit user approval.** "I think it looks good" is not approval. Wait for "go" or equivalent.
+5. **Do not proceed past Step 5 without explicit user approval — unless auto-proceed criteria are met.** See Step 5 for the four conditions. When in doubt, pause.
 6. **If the plan has no acceptance criteria**, stop at Step 1 and ask for them. A TDD gate without criteria is just test theater.
 
 ---
