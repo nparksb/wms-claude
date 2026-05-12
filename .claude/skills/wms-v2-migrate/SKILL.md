@@ -54,6 +54,26 @@ Migration plans are almost always complex enough to warrant `mcp__sequential-thi
 
 Recommended thought structure: one thought per v1 fix — "does this apply to v2? evidence (v2 file:line)?" — then branch into NEW-N discoveries as they surface. Expect 10–20 thoughts for a consolidated port (≥10 fixes). This mirrors the shape of `V2_Consolidated_Picking_Fixes_Port.md`.
 
+## Pre-investigation phase (specialist agents — run AFTER reading the v1 plan, BEFORE the fix-by-fix analysis)
+
+After the v1 plan is catalogued (Analysis Protocol step 1), route to one or more specialist agents to gather v2-side evidence before starting the per-fix applicability pass. Their findings reduce the rate of false "already done in v2" claims and surface NEW-N issues earlier.
+
+**Routing table — invoke when ANY trigger matches:**
+
+| Agent | Invoke when | What to ask for |
+|---|---|---|
+| `architect` | Port spans ≥5 v1 fixes, or any fix touches transaction managers / tenant routing / caching / constructor injection — which covers almost every non-trivial migration | For each v1 fix category: confirm which v2 file/class owns the equivalent behavior (file:line), whether the v2 code has the same pattern or has already fixed it, and what architectural divergences (extracted services, Jakarta namespace, `AbstractBaseEntity`) affect applicability |
+| `tracer` | One or more v1 fixes address concurrency (pessimistic lock, `@Transactional` boundary, `StaleObjectStateException`, race condition), or the v1 plan has a "Regression Chain" section | For the concurrency fix: does the v2 code have the same race-condition structure? Is the lock/transaction coupling correctly wired on the v2 side? Competing hypotheses if uncertain |
+
+**Skip pre-investigation when:**
+- Port is a single one-liner (config value, pure rename)
+- v1 plan is a typo / pure formatting fix
+- The user has explicitly said "just port it"
+
+**Fold findings into the analysis:**
+- `architect` findings → Analysis Protocol step 3 (per-fix v2 counterpart lookup) — use file:line evidence to confirm/deny each verdict; prevents false "Already done" claims
+- `tracer` findings → Analysis Protocol step 4 (NEW-N v2-only issues) — concurrency findings often surface as high-severity NEW issues; feed into §9 Risk Assessment and Phase 0
+
 ## Analysis protocol
 
 This is the hardest of the three skills — don't shortcut. A bad migration plan claims fixes are "already done in v2" when they're not, or misses v2-only bugs that layered on top of the v1 issue.
