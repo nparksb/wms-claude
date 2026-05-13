@@ -599,7 +599,7 @@ bash sbdocs/9-System/scripts/verify-SBDEV-2228-cron-jobs-unbounded-resultsets.sh
 
 ## 11. Implementation Status
 
-**Implemented:** 2026-05-13 | **PR:** [#12](https://github.com/SiteBossInc/wms2-api/pull/12) | **Branch:** `tasks/SBDEV-2223`
+**Implemented:** 2026-05-13 | **PR:** [#11](https://github.com/SiteBossInc/wms2-api/pull/11) | **Branch:** `tasks/SBDEV-2222`
 
 | Phase | Commit SHA | Tests Added | `mvn` result | Verify script |
 |---|---|---|---|---|
