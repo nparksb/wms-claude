@@ -7,8 +7,8 @@ scope: scheduled-jobs
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-05-08
-last_verified: 2026-05-10
-verified_by: code read of v2/wms2-api src/main at commit HEAD (incl. SBDEV-2164 stale club batch cleanup port, commit 57ec70e)
+last_verified: 2026-05-13
+verified_by: code read of v2/wms2-api src/main at commit HEAD (incl. SBDEV-2228 paginated ReplenishOrderJob, streaming OrderReleaseJob, bulk+decoupled StockSummaryExportJob)
 related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ./wms2-state-machine-catalog.md
@@ -56,6 +56,7 @@ Defined at `net/aim_ai/wms/service/AdvisoryLockService.java:63-71`. These intege
 | `JobLockId.STOCK_SUMMARY_EXPORT` | `100004L` | `StockSummaryExportJob` |
 | `JobLockId.RELEASE_EXPIRED_PICKING` | `100005L` | `ReleaseExpiredPickingOrdersFromUserJob` |
 | `JobLockId.STALE_CLUB_BATCH_CLEANUP` | `100006L` | `StaleClubBatchCleanupJob` (SBDEV-2164) |
+| `JobLockId.CLEANUP_REST_IDEMPOTENCY` | `100007L` | `RestIdempotencyCleanupJob` (SBDEV-2222) |
 
 Infrastructure jobs (`TenantConfigLoader`, `TenantPoolEvictor`) do **not** take advisory locks — they are idempotent cache refreshers and safe to run concurrently on every replica.
 
@@ -146,9 +147,10 @@ try {
 | **Lock ID** | `JobLockId.ORDER_RELEASE` (100001L) |
 | **Cron** | `0 {ORDER_TIMER_MINUTE} {ORDER_TIMER_HOUR} * * *` (defaults `*`/`*` → every minute) |
 | **Activation sysprop** | `ORDER_TIMER_ACTIVATED_KEY` (default `true`) |
-| **Reads** | `customerorderposition` in state `ASSIGNED`; `fixlocationassignment`; warehouse TZ sysprop |
+| **Tunables** | `FIX_LOCATION_PAGE_SIZE` (default 2000), `FIX_LOCATION_PAGE_LIMIT` (default 100) — cap fix-location prefetch pages per run |
+| **Reads** | **SBDEV-2228 Fix A:** stream-cursored `customerorderposition` via `ReleaseOrderJobService.streamOrderPositionsForEach(readOnly=true)` — replaces unbounded `List<OrderReleaseInfoView>` + in-heap bucketing. `@QueryHints(fetchSize=500)`, `ORDER BY co.prio DESC, co.created ASC, co.id ASC, cop.number ASC`. `fixlocationassignment` prefetched via `FIX_LOCATION_PAGE_LIMIT` pages of `FIX_LOCATION_PAGE_SIZE`; warehouse TZ sysprop. |
 | **Writes** | `customerorder` state transitions; `pickingorder` rows (creation); `customerorderposition` state |
-| **Per-step TX** | `ReleaseOrderJobService.releaseOrder(...)` is `@Transactional(value="tenantTransactionManager", propagation=REQUIRES_NEW)` — one TX per order |
+| **Per-step TX** | Outer cursor via `ReleaseOrderJobService.streamOrderPositionsForEach(@Transactional readOnly=true)` — SBDEV-2228 Fix A keeps JDBC cursor alive. Per-order commits via `releaseOrder(REQUIRES_NEW)` suspend the outer tx; one TX per order. |
 | **Error resilience** | Per-order try-catch (`OptimisticLockException` / `FacadeException` / `BusinessException`) at line 286 — one order failure does not abort the run |
 
 **Work:** Walks all `ASSIGNED` customer order positions grouped by customer order, evaluates fixed-location and overstock availability per item, and releases orders that can now be fulfilled. This is the hottest transaction site in the app — ~70 setState calls across hold/release logic. See §7 of [wms2-state-machine-catalog.md](./wms2-state-machine-catalog.md) for the state transitions fired here.
@@ -164,7 +166,7 @@ try {
 | **Cron** | `20 {REPLENISHMENT_TIMER_MINUTE} {REPLENISHMENT_TIMER_HOUR} * * *` (defaults `*`/`*` → every minute at :20) |
 | **Activation sysprop** | `REPLENISHMENT_TIMER_ACTIVATED_KEY` |
 | **Sub-feature gates** | `MERGE_PICKING_ORDERS_KEY`, `FIX_LOCATION_ASSIGNMENT_DELETE_WHEN_EMTPY_KEY` (sic — typo preserved in code) |
-| **Tunables** | `PICKING_BOX_PER_CART_KEY`, `FIX_LOCATION_ASSIGNMENT_DEFAULT_VALUE_UPPER_BOUND_KEY` |
+| **Tunables** | `PICKING_BOX_PER_CART_KEY`, `FIX_LOCATION_ASSIGNMENT_DEFAULT_VALUE_UPPER_BOUND_KEY`, `REPLENISHMENT_PAGE_SIZE` (default 1000), `REPLENISHMENT_PAGE_LIMIT` (default 100) |
 
 **Six sub-operations per run:**
 
@@ -175,7 +177,7 @@ try {
 5. `generateReplenishmentForItemDataWithoutFixedAssignment()` — create new replenish orders
 6. `triggerRegularReplenishment()` + `updateReplenishmentOrderPriority()` + `recalculateReplenishmentOrderWithoutFixedLocationAssignment()` — refill / recalc
 
-**Per-step TX** — all inner service methods are `@Transactional(value="tenantTransactionManager", propagation=REQUIRES_NEW)`. See §7 of [wms2-transaction-osiv-boundary-map.md](./wms2-transaction-osiv-boundary-map.md) — this job alone accounts for ~10 of the 17 `REQUIRES_NEW` sites in the codebase, and is the dominant driver of per-tenant connection-pool pressure during replenish bursts.
+**Per-step TX** — all inner service methods are `@Transactional(value="tenantTransactionManager", propagation=REQUIRES_NEW)`. **SBDEV-2228 Fix B:** each of the 6 sub-ops now uses drain-queue pagination (`PageRequest.of(0, pageSize)` — always page 0) including sub-op 6a (`updateReplenishmentOrderPriority`): the query hardcodes `AND replenishmentOrder.prio != 0` so processed rows leave the result set, making drain-queue safe. Sub-op page size / limit controlled by `REPLENISHMENT_PAGE_SIZE` / `REPLENISHMENT_PAGE_LIMIT` sysprops. See §7 of [wms2-transaction-osiv-boundary-map.md](./wms2-transaction-osiv-boundary-map.md) — this job remains the dominant driver of per-tenant connection-pool pressure during replenish bursts.
 
 **Error resilience** — per-item try-catch for `OptimisticLockException` / `OptimisticLockingFailureException` / generic `Exception` (lines 155–159, 251–258). Per-tenant try-catch (lines 166–169). Job aborts only if advisory lock release fails.
 
@@ -190,10 +192,11 @@ try {
 | **Activation sysprop** | `STOCK_SUMMARY_EXPORT_TIMER_ACTIVATED_KEY` |
 | **Batching** | Gated on `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_ACTIVATED_KEY`, batch size `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_AMOUNT_SKU_PER_BATCH_KEY`. **SBDEV-2219:** when split-flag is OFF, a hard ceiling `STOCK_SUMMARY_EXPORT_NO_SPLIT_MAX_CHUNK = 10_000` (constant, not sysprop) is enforced to prevent O(rows) heap regression — operator-visible `LOG.warn` cites the safety net. |
 | **Endpoints** | `WEBSERVICE_STOCK_COUNT_URL_KEY` (OMS stock-count receiver), `WMS_INSTANCE_NAME`, `OMS_INSTANCE_NAME` |
+| **Tunables** | `OMS_EXPORT_CONSUMER_TIMEOUT_S` (default 120s) — controls BlockingQueue offer timeout, POISON_PILL drain timeout, and consumer thread join deadline. **SBDEV-2228 Fix C:** OMS HTTP POSTs run in a daemon consumer thread decoupled from the Hibernate cursor; this sysprop is the single knob for all three bounded-wait operations. |
 | **Reads** | **SBDEV-2219:** stream-cursored `stockcount` via `warehouseStockReportService.streamStockCount(Consumer<StockCountDto>)`. Replaces the legacy `getStockCount()` (now a `@Deprecated` shim that throws `UnsupportedOperationException`). The streaming path is wrapped in `@Transactional(value="tenantTransactionManager", readOnly=true)` and uses `Stream<StockView>` with `@QueryHints(HINT_FETCH_SIZE=500)` + `try-with-resources` close semantics. Hard cap: `count()` first; throws `BusinessException("BusinessException.StockCountTooLarge")` if `> SYSTEM_PROPERTY_STOCK_SUMMARY_EXPORT_MAX_ROWS_KEY` (default 1,000,000) and increments Micrometer counter `stock_summary_export_aborted_total`. |
 | **Rollback toggle** | **SBDEV-2219:** `STOCK_SUMMARY_EXPORT_STREAMING_ENABLED_KEY` (default `true`). When `false`, `streamStockCount` delegates to a private `legacyGetStockCount()` bridge that calls the original unbounded `findAll()` — preserved as an emergency rollback only; the public no-arg method is hard-fail. |
-| **Writes** | `inventoryrecord` (one row per SKU) via `inventoryRecordService.createEntity` which is `@Transactional(propagation=REQUIRES_NEW)` per SBDEV-2219 — escapes the outer `readOnly=true` tx (without REQUIRES_NEW Postgres would reject every INSERT). `message` / `message_archive` (audit of the HTTP POST to OMS); `messageService.createMessage` failures wrapped locally with Q9 best-effort log-and-swallow per SBDEV-2217 cascade. |
-| **Per-step TX** | No job-level `@Transactional`; record creation uses `REQUIRES_NEW`; outer streaming consumer is `readOnly=true` |
+| **Writes** | `inventoryrecord` (one row per batch) via `inventoryRecordService.createEntitiesBulk(REQUIRES_NEW)` — **SBDEV-2228 Fix C:** replaces per-row `createEntity`. `InventoryRecord` objects buffered inside the stream lambda; bulk-insert triggered at `batchSize` boundary. OMS HTTP POSTs (`sendList`) deferred until AFTER `streamStockCount` returns (cursor tx committed, DB connection released). `message` / `message_archive` (audit); `messageService.createMessage` failures wrapped locally per SBDEV-2217. |
+| **Per-step TX** | No job-level `@Transactional`; bulk record creation uses `REQUIRES_NEW` (escapes outer `readOnly=true`); cursor tx closes before OMS HTTP calls (SBDEV-2228 Fix C). |
 | **Error resilience** | Per-tenant try-catch (lines 102–103); HTTP `IOException` caught and logged as HTTP-503 in `message`; **SBDEV-2219:** `BusinessException` from cap-trip is caught at the per-tenant boundary so one tenant's runaway data does not abort other-tenant exports |
 
 ### 4.4 `CleanUpOldMessagesJob`
@@ -245,6 +248,22 @@ try {
 
 ---
 
+### 4.7 `RestIdempotencyCleanupJob` (SBDEV-2222)
+
+| | |
+|---|---|
+| **File** | `schedulejob/RestIdempotencyCleanupJob.java` |
+| **Wired** | `@Scheduled(cron = "${app.cron.cleanup-rest-idempotency}")` — Spring `@Value` driven (not a DB sysprop) |
+| **Lock ID** | `JobLockId.CLEANUP_REST_IDEMPOTENCY` (100007L — added by SBDEV-2222) |
+| **Cron** | `app.cron.cleanup-rest-idempotency=0 0 2 * * *` (hard default: 02:00 daily) |
+| **Activation** | No per-job sysprop gate — controlled by `app.cron` (class-level Spring guard) only |
+| **Reads** | `rest_idempotency` rows; deletes those with `created_at < NOW() - 7 days` |
+| **Writes** | `RestIdempotencyRepository.deleteOlderThan(Instant)` — bulk DELETE via JPQL |
+| **Per-step TX** | Single `@Transactional("tenantTransactionManager")` DELETE per tenant — no inner REQUIRES_NEW |
+| **Error resilience** | Per-tenant try-catch with `TenantContext.clear()` in `finally`; advisory lock released in outer `finally` |
+
+---
+
 ## 5. Infrastructure `@Scheduled` methods
 
 These run on every replica unconditionally. They do **not** take advisory locks — idempotent cache refreshers and safe to overlap.
@@ -285,6 +304,7 @@ See §4 of [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-da
 | `CleanUpOldMessagesJob` | 100003L | 02:55 daily | `app.cron` + `NEW_CRON_JOB_ACTIVATED_KEY` | `CLEAN_UP_OLD_MESSAGES_ACTIVATED_KEY` (default **false**) | per-batch | per-tenant |
 | `ReleaseExpiredPickingOrdersFromUserJob` | 100005L | every min at :40 (hard-coded) | `app.cron` + `NEW_CRON_JOB_ACTIVATED_KEY` | `PICK_TIME_OUT_SYSTEM_ACTIVATED_KEY` (default **false**) | per-save | per-tenant |
 | `StaleClubBatchCleanupJob` (SBDEV-2164) | 100006L | sysprop-driven cron | `app.cron` + `NEW_CRON_JOB_ACTIVATED_KEY` | `STALE_CLUB_BATCH_CLEANUP_ACTIVATED_KEY` | per-batch TX inside `cleanupStaleBatches()` | per-tenant |
+| `RestIdempotencyCleanupJob` (SBDEV-2222) | 100007L | `0 0 2 * * *` (app.properties) | `app.cron` only | none (no DB sysprop gate) | single DELETE per tenant | per-tenant |
 | `TenantConfigLoader.scheduledRefresh` | — | fixed delay 5m | unconditional | — | read-only | exception logged, cache held |
 | `TenantPoolEvictor.evictIdlePools` | — | fixed delay 5m | unconditional | — | none (no DB TX) | n/a |
 
@@ -348,5 +368,6 @@ Not a runbook, but cross-referenced:
 |---|---|---|---|
 | 2026-04-19 | All `@Scheduled` annotations under `src/main/java`, `AdvisoryLockService.JobLockId` constants, `SchedulingConfiguration` wiring, per-job activation/cron sysprop keys, error-handling shape, TX annotations on each inner service method, `TaskScheduler` bean definition, `SchedulingEnablementConfig` | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-08 | `service/job/*` directory contents (CleanUpOldMessageJobService, ReleaseOrderJobService, ReplenishOrderJobService, **StaleClubBatchCleanupJobService** — added by SBDEV-2164). `schedulejob/` contains 6 business jobs + 1 SchedulingConfiguration. `JobLockId` enum has 6 entries (added `STALE_CLUB_BATCH_CLEANUP = 100006L`). §1 overview, §2 lock-id table, §6 summary, §4.6 added. Group C resolutions (commits in `OrderReleaseJobService` / `ReplenishOrderJobService` re: optimistic-lock catches) confirmed: 9 sites of `OptimisticLockingFailureException` / `OptimisticLockException` catches across these two services per current source tree. | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
+| 2026-05-12 | SBDEV-2222: `RestIdempotencyCleanupJob.java` added to `schedulejob/`; `JobLockId.CLEANUP_REST_IDEMPOTENCY = 100007L` added to `AdvisoryLockService`; cron driven by `app.cron.cleanup-rest-idempotency=0 0 2 * * *` (no DB sysprop gate). §2 lock-id table, §4.7 detail block, §6 summary updated. `schedulejob/` now contains 7 business jobs. | §2 +1 row, §4.7 added, §6 +1 row confirmed against `src/main/java` | Code read (grep-based) |
 
 **Re-verify every 60 days.** Next due: **2026-07-07** — or sooner if `app.cron` is enabled in production, new jobs added, or PgBouncer migration lands (items in §7 will change).

@@ -7,7 +7,7 @@ scope: sysprops
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-10
+last_verified: 2026-05-13
 verified_by: code read of v2/wms2-api WmsConstants.java:879-1069 and SyspropService.java
 related:
   - ../architecture/wms2-scheduled-jobs-catalog.md
@@ -121,6 +121,15 @@ Format: cron fields are assembled as `{sec} {MINUTE} {HOUR} * * *`. `*` means "e
 | `PICK_TIME_OUT_SYSTEM_ACTIVATED` | `false` | Per-job activation |
 | `PICK_TIME_OUT_MOBILE` | `30` | Mobile-side pick countdown (UI) |
 
+### 4.6 RestIdempotencyCleanupJob (SBDEV-2222) — application.properties only
+
+This job does **not** use DB sysprop rows. Its schedule and idempotency enforcement are controlled by `application.properties` entries, not by `los_sysprop` table rows.
+
+| Property | Default | Role |
+|---|---|---|
+| `app.cron.cleanup-rest-idempotency` | `0 0 2 * * *` | Cron expression for nightly dedup-table cleanup (02:00 daily) |
+| `app.idempotency.enforce` | `true` | When `false`, `IdempotencyFilter` passes through all `/rest/**` writes without dedup (dev bypass) |
+
 ---
 
 ## 5. OMS Integration Webservice URLs
@@ -168,6 +177,10 @@ These drive `ReplenishOrderJob` and `ReplenishmentOrderMaintenanceService`.
 | `REPLENISHMENT_SHOW_UNIT_LOAD` | `true` | UI flag — show unit load on replenish screen |
 | `REPLENISHMENT_RECALCULATION_CADENCE_SECONDS` | `0` | Min seconds between recalc passes (`0` = no throttle) |
 | `REPLENISHMENT_CANCEL_THRESHOLD_FRACTION` | `0.0` | Auto-cancel threshold (fraction of outstanding demand) |
+| `REPLENISHMENT_PAGE_SIZE` | `1000` | Page size for paginated drain-queue loops in `ReplenishOrderJob` (all 6 sub-ops). Introduced SBDEV-2228. |
+| `REPLENISHMENT_PAGE_LIMIT` | `100` | Max drain-queue iterations per sub-op (all 6 sub-ops including 6a). All sub-ops use drain-queue; empty-page terminates normally. Introduced SBDEV-2228. |
+| `FIX_LOCATION_PAGE_LIMIT` | `100` | Max pages for the fix-location prefetch loop in `OrderReleaseJob.releaseOrders`. Logs a warning when cap is hit (map may be incomplete). Introduced SBDEV-2228. |
+| `OMS_EXPORT_CONSUMER_TIMEOUT_S` | `120` | Seconds the `StockSummaryExportJob` OMS consumer thread waits to enqueue a chunk, receive the POISON_PILL, and for `join()`. Min 30. Prevents the advisory lock being held indefinitely when OMS is slow. Introduced SBDEV-2228. |
 
 ---
 

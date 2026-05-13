@@ -7,7 +7,7 @@ scope: transactions
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-10
+last_verified: 2026-05-13
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
   - ../workflows/wms2-replenish-workflow.md
@@ -179,9 +179,9 @@ Neither `TransactionTemplate` nor direct `PlatformTransactionManager.getTransact
 
 ---
 
-## 7. `REQUIRES_NEW` Inventory (20 sites)
+## 7. `REQUIRES_NEW` Inventory (21 sites)
 
-Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service, the sequence-transaction service, the inventory-record service (escapes the `readOnly=true` outer transaction in `WarehouseStockReportService.streamStockCount` per SBDEV-2219), or — as of SBDEV-2220 — the message-cleanup batch service (per-batch tx boundary for the daily message-cleanup loop). The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
+Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service, the sequence-transaction service, the inventory-record service (escapes the `readOnly=true` outer transaction in `WarehouseStockReportService.streamStockCount` per SBDEV-2219), the message-cleanup batch service (per-batch tx boundary for the daily message-cleanup loop — SBDEV-2220), or — as of SBDEV-2222 — the idempotency service (`persistResponse` commits the dedup row independently so a handler rollback doesn't wipe the stored response). The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
 
 | File | Line | Method | Extra attributes |
 |---|---|---|---|
@@ -197,8 +197,11 @@ Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service,
 | `service/MessageService.java` | 67 | `sendMessage` | — |
 | `service/SequenceTransactionService.java` | 23 | `getNextSequenceNumber` | — |
 | `service/InventoryRecordService.java` | 29 | `createEntity` | SBDEV-2219 — escapes outer `readOnly=true` tx in `WarehouseStockReportService.streamStockCount`; without REQUIRES_NEW, Postgres rejects every per-row INSERT |
+| `service/InventoryRecordService.java` | — | `createEntitiesBulk` | SBDEV-2228 Fix C — bulk-insert variant replacing per-row `createEntity`; same REQUIRES_NEW rationale; called after cursor tx closes (OMS HTTP calls also deferred post-cursor) |
+| `service/job/ReleaseOrderJobService.java` | — | `streamOrderPositionsForEach` | SBDEV-2228 Fix A — `readOnly=true` outer tx that keeps the JDBC cursor alive during streaming iteration; per-order commits via `releaseOrder` (REQUIRES_NEW) suspend this tx |
 | `service/job/MessageCleanupBatchService.java` | 41 | `archiveOnce` | SBDEV-2220 — per-batch tx boundary for daily message cleanup (was previously a bare `@Transactional` on `MessageRepository.archiveMessages` binding to landlord TM) |
 | `service/job/MessageCleanupBatchService.java` | 53 | `deleteOnce` | SBDEV-2220 — per-batch tx boundary releases row locks between iterations so concurrent inserts on `message` are not blocked across the entire cleanup run (AC-2/AC-3) |
+| `service/RestIdempotencyService.java` | — | `persistResponse` | SBDEV-2222 — commits the dedup row (status + body) independently so a handler rollback does not delete the stored response; OMS replays must get the cached 2xx, not re-execute |
 
 None uses a non-default isolation level — everything relies on PostgreSQL's `READ_COMMITTED`.
 
@@ -211,7 +214,7 @@ None uses a non-default isolation level — everything relies on PostgreSQL's `R
 - **`AbstractBaseEntity.version`** — `net/aim_ai/wms/model/AbstractBaseEntity.java` (MappedSuperclass). **Every tenant entity inherits this**, so every row check participates in optimistic locking.
 - **`LosSequencenumber.version`** — standalone; combined with pessimistic lock below.
 
-### 8.2 Pessimistic — `@Lock(PESSIMISTIC_WRITE)` repository methods (11)
+### 8.2 Pessimistic — `@Lock(PESSIMISTIC_WRITE)` repository methods (12)
 
 | Repository | Line | Entity |
 |---|---|---|
@@ -225,6 +228,7 @@ None uses a non-default isolation level — everything relies on PostgreSQL's `R
 | `CustomerorderRepository` | 25 | `Customerorder` |
 | `CustomerorderBatchRepository` | 26 | `CustomerorderBatch` — **5s `jakarta.persistence.lock.timeout` hint** |
 | `BillofladingRepository` | 26 | `Billoflading` — **5s `jakarta.persistence.lock.timeout` hint** |
+| `CustomerorderPositionRepository` | 24 | `CustomerorderPosition` (sibling-read lock in `confirmPick`/`finishPickingOrder` — SBDEV-2223) |
 
 No `PESSIMISTIC_READ` anywhere — all pessimistic sites take a write lock. Only `CustomerorderBatch` and `Billoflading` bound their wait.
 
@@ -293,8 +297,9 @@ None recorded yet. Candidates that should be written up:
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | OSIV value, both TM beans, routing DS, `@Transactional` / `@Version` / `@Lock` inventories, scheduled methods, retry utility | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
+| 2026-05-12 | §8.2 pessimistic count updated 11→12: added `CustomerorderPositionRepository.findByOrderIdForUpdate` (SBDEV-2223 — sibling-read lock for `confirmPick`/`finishPickingOrder` last-pick detection race) | Count confirmed by grep; `@RestResource(exported=false)` guard added | SBDEV-2223 fix review |
 
-**Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-06-18.
+**Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-07-11.
 
 ---
 

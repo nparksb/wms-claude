@@ -251,6 +251,10 @@ This sysprop is defined in `WmsConstants` and its commented-out provisioning cod
 
 The `WEBSERVICE_BEHAVIOUR` sysprop is declared but **not consulted at runtime**. Setting it has no effect on outbound callback behaviour. All callbacks fire unconditionally. Do not rely on this switch to suppress callbacks in a v2 environment.
 
+### 5.4 REST Inbound Idempotency (`Idempotency-Key` header)
+
+Implemented in SBDEV-2222. OMS retries POST/PUT on network failure; WMS deduplicates using the `Idempotency-Key` header stored in the `rest_idempotency` tenant DB table. A cached 2xx is replayed; a key+hash mismatch returns 409. Dedup rows are cleaned up after 7 days by `RestIdempotencyCleanupJob`. OMS must include `Idempotency-Key: <uuid>` (max 64 chars, `[A-Za-z0-9_-]`) on every mutating `/rest/**` call. Missing header falls through for back-compat. Controlled by `app.idempotency.enforce=true` — set `false` to bypass in dev.
+
 ---
 
 *Source files verified: `controller/rest/OrderRestController.java`, `AdviceRestController.java`, `SkuRestController.java`, `StockCountRestController.java`, `TransactionReportRestController.java`, `AbstractRestController.java`; `service/ManageOrderService.java`, `AdviceService.java`, `BillofladingService.java`, `CustomerorderBatchService.java`, `CustomerorderService.java`, `MessageService.java`, `HttpRestService.java`, `WmsConstants.java` (lines 873–909); `controller/ItemDataController.java`, `AdminActionController.java`; `schedulejob/StockSummaryExportJob.java`. v1 delta verified against `v1/wms-api` equivalents.*

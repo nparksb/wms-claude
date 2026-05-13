@@ -5,14 +5,16 @@ ticket_url: "https://app.clickup.com/t/868jj32rc"
 type: "bug"
 severity: "high"
 priority: "high"
-status: "draft"
+status: "implemented"
+impl_commit: "0373141"
+impl_pr: "https://github.com/SiteBossInc/wms2-api/pull/11"
 project: ["wms2-api"]
 version: "v2"
 requester: "David Oppenheim"
 assignee: "Nam Park"
 created: "2026-05-10"
-updated: "2026-05-10"
-last_updated: "2026-05-10"
+updated: "2026-05-12"
+last_updated: "2026-05-12"
 db_verified: true
 related:
   - "[[wms2-oms-integration-map]]"
@@ -34,15 +36,16 @@ tags:
 **Ticket:** [SBDEV-2222](https://app.clickup.com/t/868jj32rc)
 **Project:** wms2-api | **Version:** v2 | **Type:** bug
 **Priority:** High | **Severity:** HIGH (Tier 2)
-**Status:** draft (2026-05-10) — verify script ships alongside this plan; first implementation pass pending.
-**Date:** 2026-05-10
+**Status:** reviewed (2026-05-12) — REVISE round 1 applied; verify script ships alongside this plan; first implementation pass pending.
+**Date:** 2026-05-12
 
-> **Framing:** The ticket targets v1 AND v2. This is the v2 plan. The shape of the bug is the same on both stacks — inbound `PUT/POST /rest/...` endpoints (`OrderRestController.create`, `AdviceRestController.create`, `SkuRestController.create`/`update`, `OrderRestController.cancelPositions`) perform a `findByExternalNumber` / `findByBatchid` / `findByExternalid` existence check at the start of the handler and proceed to insert with **no idempotency key**. Two simultaneous OMS retries of the same payload both pass the existence check and both proceed to insert. The DB-level unique constraint (verified present in §0 — see DB verification) catches one of the two, but only after partial state has potentially been auto-committed by inner service calls, and OMS receives a confusing 500 instead of the original 2xx it should have received on retry.
+> **Framing:** The ticket targets v1 AND v2. This is the v2 plan. The shape of the bug is the same on both stacks — inbound `PUT/POST /rest/...` endpoints (`OrderRestController.create`, `AdviceRestController.create`, `SkuRestController.create`/`update`, `OrderRestController.cancelPositions`) perform a `findByExternalNumber` / `findByBatchid` / `findByExternalid` existence check at the start of the handler and proceed to insert with **no idempotency key**. Two simultaneous OMS retries of the same payload both pass the existence check and both proceed to insert. The DB-level unique constraint (verified present in §0 — see DB verification) catches one of the two, but only after partial state has potentially been auto-committed by inner service calls, and OMS receives a confusing **400** (the race-loser path: `DataIntegrityViolationException` is caught and wrapped as `WebserviceBusinessExceptionClientSide` → `ResponseEntity.badRequest()`) instead of the original 2xx it should have received on retry.
 >
 > The v2-specific complications are:
 > 1. `OrderRestController.create` mixes `@CacheEvict(value = "itemdata", ...)`-style inner controller behavior (`SkuRestController.update` actually does call into `create` directly) — so a retry of `update` can re-enter `create` and the idempotency layer has to be aware of both call paths.
-> 2. v2 runs **multi-replica**. The dedup table MUST live in the tenant DB (not in-JVM Caffeine) — see §8 Horizontal Scalability row 1 + row 6.
-> 3. v2 uses `tenantTransactionManager` — every `@Transactional` we add MUST specify it (see §9 row 1).
+> 2. v2 runs **multi-replica**. The dedup table MUST live in the tenant DB (not in-JVM Caffeine) — see §7 Horizontal Scalability row 1 + row 6.
+> 3. v2 uses `tenantTransactionManager` — every `@Transactional` we add MUST specify it (see §8 row 1).
+> 4. The proposed `IdempotencyFilter` MUST run **after** Spring Security's OAuth2 resource-server filter; otherwise unauthenticated callers could force tenant DB roundtrips and replay cached 2xx responses (see §3 Fix B placement note, §7 row 11, §9 risk row 9).
 
 ---
 
@@ -51,9 +54,12 @@ tags:
 Greps run against `/home/nampark/dev/wms-claude/v2/wms2-api/src/main/java/net/aim_ai/wms/controller/rest`:
 
 ```
-grep -rn "@PutMapping\|@PostMapping\|@DeleteMapping" controller/rest/*.java
-grep -rn "extends AbstractRestController"           controller/rest/*.java
+grep -rn "@PutMapping\|@PostMapping\|@DeleteMapping\|@RequestMapping" controller/rest/*.java
+grep -rn "extends AbstractRestController"                              controller/rest/*.java
+grep -rn "@RequestMapping\|@PostMapping\|@PutMapping" controller/MessageDummyController.java
 ```
+
+The earlier draft of this table missed `@RequestMapping(method = RequestMethod.POST)` write endpoints in `UtilRestController.java` (which uses the older `@RequestMapping(value=…, method=…)` style instead of `@PostMapping`), and mis-classified `MessageDummyController.java` as outside `/rest/**`. The table below incorporates the re-grep.
 
 | # | Endpoint (HTTP method, path) | Handler (file:line) | Writes state? | In-scope this plan? |
 |---|---|---|---|---|
@@ -63,8 +69,8 @@ grep -rn "extends AbstractRestController"           controller/rest/*.java
 | 4 | `POST /rest/order/finishedQA` | `OrderRestController.java:773-900` | Yes — packages orders | **Yes — Fix A.4** |
 | 5 | `PUT /rest/order/finishedTransfer` | `OrderRestController.java:902-945` | Yes — finishes transfer BOL | **Yes — Fix A.5** |
 | 6 | `PUT /rest/advice/create` | `AdviceRestController.java:121-368` | **Yes** — creates `advice` + `adviceposition` rows (+ optional `receiveGoods` for RETURN type) | **Yes — Fix A.6** |
-| 7 | `PUT /rest/advice/createTransfer` | `AdviceRestController.java:370-486` | Yes — creates transfer advice | **Yes — Fix A.7** |
-| 8 | `PUT /rest/advice/createHubAndSpoke` | `AdviceRestController.java:488-644` | Yes — creates hub-and-spoke advice | **Yes — Fix A.8** |
+| 7 | `PUT /rest/advice/createTransfer` | `AdviceRestController.java:370-486` | Yes — creates transfer advice | **Yes — Fix A.7**. DB-level backstop: `adviceRepository.findByTransferId(transferAdvice.getTransferId())` at L397 (unique on `advice.transfer_id`). Does NOT share `findByExternalid` with row 6 — different identity column. |
+| 8 | `PUT /rest/advice/createHubAndSpoke` | `AdviceRestController.java:488-644` | Yes — creates hub-and-spoke advice | **Yes — Fix A.8**. DB-level backstop: `adviceRepository.findByTransferId(hubAndSpokeAdvice.getTransferId())` at L525 (same unique on `advice.transfer_id` as row 7). Does NOT share `findByExternalid` with row 6 — different identity column. |
 | 9 | `POST /rest/advice/reopen` | `AdviceRestController.java:648-652` | n/a — throws `RuntimeException("method not supported")` | No — dead method, NEGATIVE-check that it stays not supported (out of scope) |
 | 10 | `PUT /rest/sku/create` | `SkuRestController.java:71-189` | **Yes** — creates `itemdata` rows | **Yes — Fix A.9** |
 | 11 | `POST /rest/sku/update` | `SkuRestController.java:192-310` | **Yes** — updates `itemdata` rows (and may recursively call `create` if SKU missing — line 230) | **Yes — Fix A.10** (note the recursive `create()` call path — see §3 nuance) |
@@ -72,10 +78,15 @@ grep -rn "extends AbstractRestController"           controller/rest/*.java
 | 13 | `POST /rest/stockcount/getStockCount` | `StockCountRestController.java:56` | **No** — read-only report | No — read-only |
 | 14 | `POST /rest/transactionreport/getTransactionReport` | `TransactionReportRestController.java:76` | No — read-only report | No — read-only |
 | 15 | `POST /rest/transactionreport/getTransactionDetailedReport` | `TransactionReportRestController.java:178` | No — read-only report | No — read-only |
-| 16 | `controller/UtilRestController.java` (all endpoints) | various | health / util — no business writes | No — out of scope |
-| 17 | `controller/MessageDummyController.java` | dev controller | dev/test only | No — out of scope |
+| 16a | `POST /v3/util/initDB` | `UtilRestController.java:126` | Yes — bootstraps tenant DB | **No** — `UtilRestController` is `@Service`-annotated (not `@RestController`/`@Controller`); Spring does NOT route its `@RequestMapping` methods. It is effectively dead code from a routing perspective AND no class-level `/rest/**` prefix anyway. Excluded with rationale. |
+| 16b | `POST /v3/util/recalculateLocationConstraints` | `UtilRestController.java:696` | Yes — recalculates constraint table | **No** — same `@Service` rationale as 16a. |
+| 16c | `POST /v3/util/populateCaseTypes` | `UtilRestController.java:792` | Yes — bulk-loads case types | **No** — same `@Service` rationale as 16a. |
+| 16d | `POST /v3/util/initAdmin` | `UtilRestController.java:873` | Yes — seeds admin user | **No** — same `@Service` rationale as 16a. |
+| 17 | `POST /rest/stockcount/sendDummyMessageStockCountList` | `MessageDummyController.java:24, :38` | Yes (dev/test only — writes a dev message into `message` table) | **No** — class-level mapping IS `/rest/stockcount`, so the filter WOULD intercept it; but this is a dev/test controller and the body is non-deterministic. **Add `shouldNotFilter` carve-out for `/rest/stockcount/**` in Fix B** (covers both row 13 read-only and row 17 dev/test). |
 
-**Total in-scope sites: 11** (rows 1-8, 10-12). Rows 13-15 are read-only and explicitly excluded; row 9 is dead code.
+**Total in-scope sites: 11** (rows 1-8, 10-12). Rows 13-15 are read-only and excluded by `shouldNotFilter` carve-out (`/rest/stockcount/**`, `/rest/transactionreport/**`, plus GET methods generally). Row 9 is dead code. Rows 16a-d are not routed (`@Service` instead of `@Controller`). Row 17 is dev/test and also covered by the `/rest/stockcount/**` carve-out.
+
+**Carve-out rationale (Fix B `shouldNotFilter`):** the filter will explicitly skip `/rest/stockcount/**` and `/rest/transactionreport/**` (and all GETs) so that (a) dev-only `MessageDummyController` writes don't pollute the dedup table and (b) read-only reports never pay the dedup-roundtrip tax.
 
 **Adjacent-bug rule:** The ticket explicitly named rows 1, 3, 6, 10, 11. The §0 enumeration adds rows 2, 4, 5, 7, 8, 12 because they (a) live in the same controller class, (b) handle the same OMS-→-WMS inbound message family, (c) are also `@Put/@Post` mutating endpoints with no idempotency contract today, and (d) the filter-based fix in §3 Fix B will cover all of them uniformly — splitting the rollout would leave the same bug live on adjacent endpoints with identical blast radius.
 
@@ -105,8 +116,10 @@ Findings:
 
 - Has **already** saved some `customerorder` rows inside its own per-row try/catch that handles `DataAccessException` (line 376) but the outer batch save at line 375 throws and aborts the rest of the iteration.
 - BUT the `messageService.createMessage(...)` audit row at line 479 has **not** been written yet (it sits after the loop).
-- Returns 500 to OMS (or 400 wrapped in `WebserviceBusinessExceptionClientSide` if the JPA wrapper makes it visible).
-- OMS now sees the original request "failed" and may retry **again**, this time when the winning request HAS committed, so the next retry hits the existence check and returns `ENTITY_ALREADY_EXITS` (400) — but to OMS that's still a non-2xx, so OMS reconciliation is now broken.
+- The `DataIntegrityViolationException` is caught by the handler and wrapped into `WebserviceBusinessExceptionClientSide(GENERIC_ERROR)`. `WebserviceBusinessExceptionClientSide` maps to **`ResponseEntity.badRequest()` → HTTP 400** (verified by re-reading `RestExceptionHandler` / `AbstractRestController` error mapping). The race-loser therefore returns **400** to OMS — not 500.
+- OMS now sees the original request "failed" with a 400 and may retry **again**, this time when the winning request HAS committed, so the next retry hits the existence check and returns `ENTITY_ALREADY_EXITS` (also 400) — still a non-2xx, so OMS reconciliation is now broken.
+
+**Consistency note:** earlier drafts of this plan and the original ticket loosely described the race-loser as a "500." That is incorrect for the v2 handlers. v2 wraps `DataIntegrityViolationException` into `WebserviceBusinessExceptionClientSide` → HTTP 400. The OMS-facing UX is "confusing 400-then-400" not "500-then-400," and the fix (replay the 2xx) is identical either way.
 
 **Failure-mode timeline (Order import — ticket §1):**
 
@@ -117,9 +130,10 @@ T1: OMS retry (network blip; OMS sees no response).
 T1: WMS req-2: findByBatchid("B1234") → empty. Begin inserts.
 T2: WMS req-1 reaches customerorderBatchRepository.save() at line 375. Commits.
 T3: WMS req-2 reaches same line. PostgreSQL fires unique-constraint violation
-    on uk_hsst0psb47fsttxg3uw9ot1v5(batchid). Spring wraps as DataAccessException.
+    on uk_hsst0psb47fsttxg3uw9ot1v5(batchid). Spring wraps as DataIntegrityViolationException.
     The handler catches it and throws WebserviceBusinessExceptionClientSide(GENERIC_ERROR)
-    → 400 to OMS.
+    → HTTP 400 to OMS (NOT 500 — v2 wraps the DB-integrity exception into a
+    client-side webservice exception which maps to ResponseEntity.badRequest()).
 
     OMS sees req-1 → no HTTP response (timed out) → req-2 → 400. OMS has no
     record of the order being created, even though req-1 actually succeeded.
@@ -310,41 +324,73 @@ CREATE INDEX index_rest_idempotency_created_at
 ### Fix B — `IdempotencyFilter` (new `OncePerRequestFilter`)
 
 **Files changed:**
-- `src/main/java/net/aim_ai/wms/web/IdempotencyFilter.java` (new)
+- `src/main/java/net/aim_ai/wms/landlord/config/IdempotencyFilter.java` (new — placed alongside `TenantFilter` for consistency, see "Placement rationale" below)
 - `src/main/java/net/aim_ai/wms/repo/jpa/RestIdempotencyRepository.java` (new)
 - `src/main/java/net/aim_ai/wms/model/RestIdempotency.java` (new entity)
 - `src/main/java/net/aim_ai/wms/service/RestIdempotencyService.java` (new — owns the read-then-insert transaction)
-- `src/main/java/net/aim_ai/wms/landlord/config/TenantFilter.java` (no change — but the new filter's `@Order` value MUST be > `Ordered.HIGHEST_PRECEDENCE` so `TenantContext` is set first)
+- `src/main/java/net/aim_ai/wms/SecurityConfiguration.java` (modified — wire `IdempotencyFilter` via `http.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so it runs AFTER OAuth2 resource-server auth)
+
+**Placement rationale:** the new filter lives in `net.aim_ai.wms.landlord.config` next to `TenantFilter` rather than under a fresh `net.aim_ai.wms.web` package because (a) it is conceptually a tenant-scoped infrastructure filter (it reads tenant DB), (b) `TenantFilter` is the only other request-scoped filter in the project and lives there, (c) creating a brand-new `web/` package for a single class is a code-smell the verify script can easily check against, and (d) consistency with existing filters reduces reviewer cognitive load.
+
+**Filter-order contract (security-critical):**
+
+Earlier drafts of this plan placed the filter at `@Order(Ordered.HIGHEST_PRECEDENCE + 10)`, which is **before** Spring Security's `BearerTokenAuthenticationFilter`. That is wrong on two counts:
+
+1. **Unauthenticated DB load.** An anonymous caller hitting `PUT /rest/order/create` with any `Idempotency-Key` header would force the filter to (a) buffer the request body, (b) hash it, (c) do a tenant DB lookup — all *before* Spring Security rejects the request with 401. That's a free DoS amplifier against the tenant DB.
+2. **Unauthenticated replay.** If a stored 2xx response exists for a guessed/leaked key, an anonymous caller could fetch that response body without authenticating. That's a confidentiality bug (response bodies contain order/advice payloads with PII).
+
+**Corrected placement.** The filter MUST run **after** Spring Security's OAuth2 resource-server filter. Implementation options (use option 2 — explicit `SecurityFilterChain.addFilterAfter` — for clarity and to avoid relying on numeric ordering arithmetic):
+
+- Option 1 (annotation-based): `@Order(SecurityProperties.DEFAULT_FILTER_ORDER + 10)` on the filter bean. `SecurityProperties.DEFAULT_FILTER_ORDER` is `-100` by default, so `+10` places us at `-90`, well after the security chain.
+- Option 2 (preferred — explicit wiring): inside `SecurityConfiguration.securityFilterChain(...)`, call `http.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)`. This is explicit, self-documenting, and survives refactors of the ordering constants.
+
+**Defence-in-depth:** in addition to the ordering, the filter MUST explicitly check `SecurityContextHolder.getContext().getAuthentication()` is non-null and `isAuthenticated()` before serving any replay. If unauthenticated, the filter short-circuits to 401 immediately (no DB hit). This guards against accidental future filter-order regressions.
 
 **Behavior contract:**
 
 ```
 HTTP Request arrives:
   1. TenantFilter (Ordered.HIGHEST_PRECEDENCE) sets TenantContext.
-  2. IdempotencyFilter (HIGHEST_PRECEDENCE + 10) runs:
-      a. If request URI is not /rest/** → skip (chain.doFilter).
+  2. Spring Security's BearerTokenAuthenticationFilter runs and populates
+     SecurityContextHolder.getContext().getAuthentication().
+  3. IdempotencyFilter (wired via SecurityFilterChain.addFilterAfter(
+     idempotencyFilter, BearerTokenAuthenticationFilter.class)) runs:
+      a. shouldNotFilter: if URI matches /rest/stockcount/** or
+         /rest/transactionreport/** → skip (read-only carve-out covering
+         StockCountRestController, TransactionReportRestController,
+         and the dev-only MessageDummyController).
+      a'. If request URI is not /rest/** → skip (chain.doFilter).
       b. If method is GET → skip (read-only).
-      c. If header "Idempotency-Key" missing → log warn, chain.doFilter (back-compat
-         for OMS versions that have not yet been upgraded; rely on DB unique constraint).
-      d. Cache request body via ContentCachingRequestWrapper so we can hash + replay.
-      e. SHA-256 hash the body.
-      f. Look up rest_idempotency by key (READ-ONLY tenant tx).
+      c. If SecurityContextHolder.getContext().getAuthentication() is null
+         or !isAuthenticated() → respond 401 immediately (defence-in-depth
+         in case the filter is accidentally re-ordered).
+      d. If header "Idempotency-Key" missing → log warn, chain.doFilter
+         (back-compat for OMS versions that have not yet been upgraded;
+         rely on DB unique constraint).
+      e. Cache request body via ContentCachingRequestWrapper so we can hash + replay.
+      f. SHA-256 hash the body.
+      g. Look up rest_idempotency by key (READ-ONLY tenant tx).
          - If found AND hash matches AND method+path matches:
+              → if URI is /rest/sku/create or /rest/sku/update, invoke
+                CacheManager.getCache("itemdata").clear() BEFORE returning the
+                replay (handler's @CacheEvict will NOT fire because we short-circuit).
               → return stored response_status + response_body. SHORT-CIRCUIT chain.
          - If found AND hash mismatches:
               → return 409 Conflict with body {"error":"idempotency-key-conflict",
                  "key":"<key>"}. OMS bug — same key, different payload.
-         - If not found → proceed (g).
-      g. Wrap response with ContentCachingResponseWrapper so we can capture it.
-      h. chain.doFilter — let the actual handler run.
-      i. After handler returns (regardless of 2xx / 4xx / 5xx):
+         - If not found → proceed (h).
+      h. Wrap response with ContentCachingResponseWrapper so we can capture it.
+      i. chain.doFilter — let the actual handler run.
+      j. After handler returns (regardless of 2xx / 4xx / 5xx):
          - If response status is 2xx → INSERT into rest_idempotency (REQUIRES_NEW tenant tx
            on a separate connection, so this insert succeeds even if the handler's
            transaction rolled back).
          - If response status is 4xx or 5xx → do NOT persist (OMS may legitimately retry
            after fixing the payload).
-      j. copyBodyToResponse so the captured body is actually sent.
+      k. copyBodyToResponse so the captured body is actually sent.
 ```
+
+**`@CacheEvict` replay handling (P2-1 mitigation):** `SkuRestController.create` (line 70) and `SkuRestController.update` (line 191) carry `@CacheEvict(value = "itemdata", allEntries = true)`. When the filter short-circuits with a replay, Spring AOP never sees the controller method invocation, so the Caffeine eviction never fires. Stale `itemdata` reads are then possible elsewhere in the JVM. Mitigation: at step (g) on the replay path, if the URI is `/rest/sku/create` or `/rest/sku/update`, the filter explicitly calls `cacheManager.getCache("itemdata").clear()` (matching `allEntries = true` semantics) before writing the cached response. The `CacheManager` is injected via constructor. A unit test asserts this behavior (`IdempotencyFilterUnitTest.replay_for_sku_endpoints_clears_itemdata_cache`).
 
 **Why a filter and not an `@Aspect`:** we need to **short-circuit** the request before it ever reaches the handler. `@Aspect` on the handler method can prevent the handler running but cannot intercept body-reading; if the handler reads the request body before the aspect short-circuits, the cached response replay corrupts the request stream. Filter is cleaner.
 
@@ -392,13 +438,37 @@ After the handler runs, the IdempotencyFilter UPDATES (not INSERTS) the claim ro
 
 **Files changed:**
 - `src/main/java/net/aim_ai/wms/schedulejob/CleanupRestIdempotencyJobService.java` (new)
+- `src/main/java/net/aim_ai/wms/service/AdvisoryLockService.java` (modified — add one new `public static final long` constant to `JobLockId`)
 - `src/main/resources/application.properties` (add `app.cron.cleanup-rest-idempotency=0 30 2 * * *`)
 
 **Why:** the dedup table grows monotonically. A daily 02:30 UTC sweep deletes rows older than 7 days. 7 days is sufficient because (a) OMS's retry policy gives up after ~24h and (b) any human reconciliation that pulls a stale request body has a separate audit trail in `message`.
 
 **Tenant-context handling:** scheduled job runs outside HTTP request scope. The job iterates tenants (via `LandlordService.findAllTenants()`), sets `TenantContext.setCurrentTenant(...)` per tenant, runs `DELETE FROM rest_idempotency WHERE created_at < NOW() - INTERVAL '7 days'` (native SQL via repository method, in a `@Transactional(value="tenantTransactionManager")` boundary), then clears `TenantContext` in a `finally` block.
 
-**Horizontal-scale safety:** uses `AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY` (new enum value) so only one replica runs it per night.
+**Horizontal-scale safety:** uses `AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY` (a new `public static final long` constant — NOT an enum value) so only one replica runs it per night.
+
+**Important — `JobLockId` is NOT an enum.** Verified by reading `AdvisoryLockService.java:63-72`:
+
+```java
+public static final class JobLockId {
+    public static final long ORDER_RELEASE = 100001L;
+    public static final long REPLENISH_ORDER = 100002L;
+    public static final long CLEAN_UP_MESSAGES = 100003L;
+    public static final long STOCK_SUMMARY_EXPORT = 100004L;
+    public static final long RELEASE_EXPIRED_PICKING = 100005L;
+    public static final long STALE_CLUB_BATCH_CLEANUP = 100006L;    // SBDEV-2164
+
+    private JobLockId() {}
+}
+```
+
+`tryLock(...)` accepts a `long`. The patch is therefore one line added to the existing `JobLockId` static-final class:
+
+```java
+public static final long CLEANUP_REST_IDEMPOTENCY = 100007L;  // SBDEV-2222
+```
+
+…and the job calls `advisoryLockService.tryLock(AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY)`. **Do not create a new enum**; do not break the existing `long`-keyed lock API.
 
 ### Fix E — Document the contract in v2/wms2-api/CLAUDE.md and update wms2-oms-integration-map.md
 
@@ -414,6 +484,21 @@ After the handler runs, the IdempotencyFilter UPDATES (not INSERTS) the claim ro
 4. Different body with the same key → 409 Conflict (OMS bug).
 5. TTL: 7 days.
 
+### Rejected alternative — per-handler `DataIntegrityViolationException` catch
+
+A simpler-looking alternative was considered and rejected:
+
+> In each handler (`OrderRestController.create`, `AdviceRestController.create`, `SkuRestController.create`, …), catch `DataIntegrityViolationException` at the `save(...)` call, look up the existing entity by its natural key (batchid / externalid / client+itemNr), and return that entity's existing response (200 with the existing row's projection).
+
+It is rejected for four concrete reasons:
+
+1. **Does not cache the original response body.** A replay of the same `Idempotency-Key` would re-derive the response from the *current* DB state, not the body that was actually sent to OMS the first time. If the row was mutated between calls (e.g. the audit-message portion changed), OMS sees a different 2xx body on retry. The OMS reconciliation invariant ("same key → same response bytes") is then broken.
+2. **Does not cover the cancel-positions state-machine retry case** (`Bug 4` in §2). `customerorderService.cancelOrder` doesn't throw `DataIntegrityViolationException`; it throws `BusinessException(WRONG_STATE)`. The per-handler catch wouldn't intercept that — and the retry would still 400 to OMS.
+3. **Does not extend cleanly to new endpoints.** Every new write endpoint would need its own dedup catch block. The filter is one place; the per-handler approach is N places, each with its own copy-paste risks.
+4. **Per-handler duplication.** 11 in-scope endpoints × ~10 lines of duplicate `try { … } catch (DataIntegrityViolationException) { … lookup … return existing … }` = ~110 lines of boilerplate that drifts over time. The filter is one ~200-line class.
+
+The filter trades these four costs for: one additional DB lookup per write request (under load, that's the rate-limiter we already account for in §7 row 2) and one new infrastructure component (the filter + table). On balance, the filter wins.
+
 ---
 
 ## 4. V1/V2 Applicability
@@ -424,7 +509,7 @@ After the handler runs, the IdempotencyFilter UPDATES (not INSERTS) the claim ro
 | Spring Boot | 2.3.7 | 3.5.9 | `OncePerRequestFilter` API unchanged; `ContentCachingRequestWrapper` / `ContentCachingResponseWrapper` unchanged |
 | Transaction manager | implicit single | dual (`landlord`, `tenant`) — `@Primary` is landlord | v2 MUST specify `value = "tenantTransactionManager"` on the persist transaction |
 | Horizontal scaling | single replica | multi-replica | v2 dedup table MUST be in DB (not in-JVM); v2 cleanup job MUST use distributed lock |
-| Multi-tenancy filter ordering | n/a | TenantFilter @ HIGHEST_PRECEDENCE | v2 IdempotencyFilter must be HIGHEST_PRECEDENCE + N so TenantContext is set first |
+| Multi-tenancy filter ordering | n/a | TenantFilter @ HIGHEST_PRECEDENCE; OAuth2 BearerTokenAuthenticationFilter sits later in the chain | v2 IdempotencyFilter must run AFTER both `TenantFilter` (so `TenantContext` is set) AND `BearerTokenAuthenticationFilter` (so unauthenticated requests can't force DB roundtrips or fetch cached 2xx bodies). Wire via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` — see §3 Fix B. |
 | DB schema | Liquibase | Flyway | v2 migration goes to `src/main/resources/db/migration/V1.1.15__add_rest_idempotency.sql` |
 
 ### What Needs Porting
@@ -451,7 +536,7 @@ The v1 plan will differ in three places only:
 |---|---|---|---|---|
 | 1 | **Database state** | Flyway at `V1.1.14`. `V1.1.15__add_rest_idempotency.sql` is the next migration | DBA / dev | Verify with `SELECT MAX(version) FROM flyway_schema_history;` |
 | 2 | **Feature flags / system properties** | `app.cron.cleanup-rest-idempotency=0 30 2 * * *` in `application.properties`. `app.idempotency.enforce=true` to enable the filter at all (default `true`; allows kill-switch) | dev | Two flags: cron schedule and filter master kill-switch |
-| 3 | **Config / env changes** | No new env vars. Hikari pool size unchanged (the filter uses the existing tenant DataSource via `REQUIRES_NEW` — accounted for in §9 row 2) | dev | |
+| 3 | **Config / env changes** | No new env vars. Hikari pool size unchanged (the filter uses the existing tenant DataSource via `REQUIRES_NEW` — accounted for in §7 row 2) | dev | |
 | 4 | **Deploy-order dependencies** | **SBDEV-2214 must merge first** so the in-tx OMS POST drift is closed before we start replaying responses (replaying a 2xx that triggered an in-tx OMS POST that later rolled back would be wrong) | release manager | Listed in `related:` frontmatter |
 | 5 | **Data migration** | None — the `rest_idempotency` table starts empty | dev | |
 | 6 | **External systems** | **OMS team must agree on the `Idempotency-Key` header contract** (UUIDv4, ≤64 chars, same key for retries). Until OMS sends the header, the filter falls back to "chain.doFilter without dedup" (Fix B step c) | David O. + OMS team | Documented in §3 Fix E; not a blocker for filter deployment because of back-compat fallback |
@@ -463,20 +548,22 @@ The v1 plan will differ in three places only:
 - [ ] **5.2.1** Add Flyway migration `V1.1.15__add_rest_idempotency.sql` (Fix A schema)
 - [ ] **5.2.2** Add `RestIdempotency` JPA entity + `RestIdempotencyRepository` (with `@Query(nativeQuery=true)` for the `ON CONFLICT DO NOTHING RETURNING` upsert)
 - [ ] **5.2.3** Add `RestIdempotencyService` with two methods: `tryClaim(...)` returning `ClaimResult { CLAIMED, REPLAYED, CONFLICT, IN_FLIGHT }` and `persistResponse(...)` annotated `@Transactional(value = "tenantTransactionManager", propagation = Propagation.REQUIRES_NEW)`
-- [ ] **5.2.4** Add `IdempotencyFilter extends OncePerRequestFilter` with the filter chain order set just below `TenantFilter` via `@Order(Ordered.HIGHEST_PRECEDENCE + 10)`
-- [ ] **5.2.5** Wire `IdempotencyFilter` as a `@Bean` so Spring Boot picks it up; do NOT use `@Component` (would catch every URI; we explicitly want a `shouldNotFilter` override that only matches `/rest/**`)
-- [ ] **5.2.6** Add a `@Configuration` (or extend an existing `WebMvcConfigurer`) registering the filter with the correct URL pattern
-- [ ] **5.2.7** Add `app.idempotency.enforce` boolean property with default `true` and read it inside the filter (kill-switch)
-- [ ] **5.2.8** Add `CleanupRestIdempotencyJobService` with `@Scheduled(cron = "${app.cron.cleanup-rest-idempotency}")` + advisory-lock guard + per-tenant `TenantContext` set/clear in try-finally
-- [ ] **5.2.9** Add Micrometer counters `rest_idempotency_replay_total`, `rest_idempotency_conflict_total`, `rest_idempotency_claimed_total` (with `endpoint` tag)
-- [ ] **5.2.10** Update `v2/wms2-api/CLAUDE.md` with the idempotency contract section (Fix E)
-- [ ] **5.2.11** Update `sbdocs/3-Resources/architecture/wms2-oms-integration-map.md` §3 (Fix E)
-- [ ] **5.2.12** Unit tests added/updated — see §6
-- [ ] **5.2.13** Integration tests (Testcontainers Postgres) for cross-replica race — see §6
-- [ ] **5.2.14** Run `bash sbdocs/9-System/scripts/verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh` — must report `0 fail`
-- [ ] **5.2.15** Manual smoke per §6 manual test plan
-- [ ] **5.2.16** Code review completed by architect / OMS-integration owner
-- [ ] **5.2.17** Implementation status updated in this plan's "Notes" section with Plan-fix SHAs, `mvn` results, and PR link
+- [ ] **5.2.4** Add `IdempotencyFilter extends OncePerRequestFilter` in `net.aim_ai.wms.landlord.config` (alongside `TenantFilter`). Implement `shouldNotFilter()` to skip GET, non-`/rest/**`, `/rest/stockcount/**`, and `/rest/transactionreport/**`.
+- [ ] **5.2.5** Wire `IdempotencyFilter` via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` in `SecurityConfiguration.java`. The filter MUST run AFTER Spring Security's OAuth2 resource-server auth so unauthenticated requests cannot force tenant DB roundtrips or fetch cached 2xx bodies. Filter is NOT `@Component` (would attach to the wrong chain position); it is a `@Bean` constructor-injected with `CacheManager`, `RestIdempotencyService`, and config.
+- [ ] **5.2.6** Inside the filter, check `SecurityContextHolder.getContext().getAuthentication() != null && .isAuthenticated()` BEFORE doing any DB lookup or replay (defence-in-depth against accidental future filter-order regressions).
+- [ ] **5.2.7** On replay path for `/rest/sku/create` or `/rest/sku/update`, call `cacheManager.getCache("itemdata").clear()` before writing the cached response (P2-1 mitigation: handler's `@CacheEvict` does not fire when we short-circuit).
+- [ ] **5.2.8** Add `app.idempotency.enforce` boolean property with default `true` and read it inside the filter (kill-switch)
+- [ ] **5.2.9** Add `public static final long CLEANUP_REST_IDEMPOTENCY = 100007L;` to `AdvisoryLockService.JobLockId` (this is a static-final-long constant, NOT an enum value).
+- [ ] **5.2.10** Add `CleanupRestIdempotencyJobService` with `@Scheduled(cron = "${app.cron.cleanup-rest-idempotency}")` + `advisoryLockService.tryLock(AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY)` guard + per-tenant `TenantContext` set/clear in try-finally
+- [ ] **5.2.11** Add Micrometer counters `rest_idempotency_replay_total`, `rest_idempotency_conflict_total`, `rest_idempotency_claimed_total` (with `endpoint` tag)
+- [ ] **5.2.12** Update `v2/wms2-api/CLAUDE.md` with the idempotency contract section (Fix E)
+- [ ] **5.2.13** Update `sbdocs/3-Resources/architecture/wms2-oms-integration-map.md` §3 (Fix E)
+- [ ] **5.2.14** Unit tests added/updated — see §6
+- [ ] **5.2.15** Integration tests (Testcontainers Postgres) for cross-replica race — see §6
+- [ ] **5.2.16** Run `bash sbdocs/9-System/scripts/verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh` — must report `0 fail`
+- [ ] **5.2.17** Manual smoke per §6 manual test plan
+- [ ] **5.2.18** Code review completed by architect / OMS-integration owner
+- [ ] **5.2.19** Implementation status updated in this plan's "Notes" section with Plan-fix SHAs, `mvn` results, and PR link
 
 ---
 
@@ -499,6 +586,9 @@ The v1 plan will differ in three places only:
 | Filter kill-switch (`app.idempotency.enforce=false`) | Set property to false. POST with K1, body B1 → 204. POST with K1, body B1 again | Filter is bypassed entirely (chain.doFilter at the top). Second call runs as today (TOCTOU). Verifies graceful disable path. |
 | SkuRestController.update → create recursive path | POST /rest/sku/update with K1 for missing SKU (triggers internal `create()` call) | Outer `update` is keyed by K1. Internal `create()` is NOT separately keyed (filter only catches the outermost servlet entry). Replay returns the original `update` response. |
 | Recovering from a stalled claim (Fix C) | Manually insert a `response_status=102` row with `created_at = NOW() - INTERVAL '90 seconds'`. Send a real request with the same key | Filter detects the stale claim (>60s with status 102), DELETEs it, re-CLAIMs, runs handler. Verifies the 60s recovery. |
+| Unauthenticated replay attempt (P1-1 security) | 1. As authenticated OMS, POST `/rest/order/create` with `K1`, body B1 → 204 (cached). 2. As anonymous (no Bearer token), POST `/rest/order/create` with `K1`, body B1 | Second call returns 401 from Spring Security; the IdempotencyFilter never runs (because it sits AFTER auth). Verifies filter-after-auth ordering. |
+| Replay clears `itemdata` cache (P2-1) | 1. POST `/rest/sku/create` with `K1`, body B1 → 204 (Spring AOP fires `@CacheEvict`). Pre-warm Caffeine cache with a `findByClientIdAndItemNr` after step 1. 2. Mutate `itemdata` directly via SQL. 3. POST `/rest/sku/create` with `K1`, body B1 (replay path) | Replay must invoke `cacheManager.getCache("itemdata").clear()` before returning. Subsequent reads of the same item return the post-SQL state, not the pre-mutation cached state. |
+| `Content-Length > 5MB` body cap (P3-3) | POST `/rest/order/create` with `K1` and a 6MB body (5000-position order) | Filter does NOT buffer the body. `chain.doFilter` runs directly (no dedup for this request). Verifies the 5MB cap mitigation in §9 row 5. |
 
 ### New / updated tests
 
@@ -515,6 +605,10 @@ The v1 plan will differ in three places only:
 | `IdempotencyFilterUnitTest` | `filter_returns_409_on_hash_conflict` | Pre-populated row + different body hash → 409 with error map |
 | `IdempotencyFilterUnitTest` | `filter_passes_through_when_no_header` | Missing header → chain.doFilter called once, no DB lookup |
 | `IdempotencyFilterUnitTest` | `filter_skips_GET_and_non_rest_paths` | GET / non-`/rest/**` → chain.doFilter, no DB lookup |
+| `IdempotencyFilterUnitTest` | `filter_skips_stockcount_and_transactionreport_carveouts` | `/rest/stockcount/**` and `/rest/transactionreport/**` → `shouldNotFilter` returns true; chain.doFilter, no DB lookup |
+| `IdempotencyFilterUnitTest` | `filter_returns_401_when_unauthenticated` | `SecurityContextHolder` empty → 401 short-circuit, no DB lookup (defence-in-depth) |
+| `IdempotencyFilterUnitTest` | `replay_for_sku_endpoints_clears_itemdata_cache` | Replay path on `/rest/sku/create` or `/rest/sku/update` → `cacheManager.getCache("itemdata").clear()` invoked exactly once before response write (P2-1) |
+| `IdempotencyFilterUnitTest` | `filter_skips_dedup_when_content_length_over_5MB` | Content-Length=6_000_000 → chain.doFilter without ContentCachingRequestWrapper (P3-3) |
 | `IdempotencyFilterIT` (Testcontainers Postgres) | `concurrent_requests_with_same_key_serialize` | 2 threads, same key, same body → exactly one handler invocation, both threads see 2xx |
 | `IdempotencyFilterIT` | `cross_tenant_isolation_preserved` | Two tenant DBs, same key, different tenants → both proceed; no cross-DB leak |
 | `OrderRestControllerIdempotencyIT` (Testcontainers) | `duplicate_create_order_returns_cached_response` | E2E: PUT /rest/order/create twice with same key → second call replays |
@@ -535,13 +629,16 @@ The v1 plan will differ in three places only:
 
 ### Test execution (fill in after running)
 
+**Important — Surefire vs Failsafe:** the Maven `surefire` plugin (driven by `mvn test`) by default excludes class names ending in `IT` (`**/*IT.java`); those are picked up by the `failsafe` plugin during `mvn verify` via the `it.test` property. Use `mvn test -Dtest=…` only for unit tests; use `mvn verify -Dit.test=…` for `*IT` integration tests. Earlier drafts of this plan and the verify script used `mvn test -Dtest=…IT` which silently runs zero tests.
+
 | Command | Result | Pass / Fail / Skipped counts |
 |---|---|---|
-| `mvn test -Dtest=RestIdempotencyServiceUnitTest` | | |
-| `mvn test -Dtest=IdempotencyFilterUnitTest` | | |
-| `mvn test -Dtest=IdempotencyFilterIT` | | |
-| `mvn test -Dtest='*RestController*IdempotencyIT'` | | |
-| `mvn verify` | | |
+| `mvn test -Dtest=RestIdempotencyServiceUnitTest -DfailIfNoTests=false` | | |
+| `mvn test -Dtest=IdempotencyFilterUnitTest -DfailIfNoTests=false` | | |
+| `mvn verify -Dit.test=IdempotencyFilterIT -DfailIfNoTests=false` | | |
+| `mvn verify -Dit.test='*RestController*IdempotencyIT' -DfailIfNoTests=false` | | |
+| `mvn test -Dtest=CleanupRestIdempotencyJobServiceUnitTest -DfailIfNoTests=false` | | |
+| `mvn verify` (full suite) | | |
 | `bash sbdocs/9-System/scripts/verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh` | | |
 
 ### Deliberately-skipped coverage
@@ -558,15 +655,16 @@ The v1 plan will differ in three places only:
 | # | Concern | Does this change… | Verdict | Mitigation / rationale |
 |---|---|---|---|---|
 | 1 | **In-JVM state** | Introduce state that only exists in one replica? | **No** | Dedup state lives in tenant DB (`rest_idempotency` table). No Caffeine, no `ConcurrentHashMap`, no static fields. The filter is stateless. |
-| 2 | **Connection pool math** | Change per-request DB connection usage? | **Yes** | The filter does ONE additional DB roundtrip per `/rest/**` write request (the `tryClaim` upsert), and one MORE for `persistResponse` on 2xx (REQUIRES_NEW → new connection). Total: +2 connections per write request, held for ~5ms each. With current HikariCP `maximumPoolSize=20` per tenant × 2 replicas × ~3 tenants = 120 max connections used; ~3000 inbound requests/day at 2-second peak burst = ~6 extra connections/sec sustained. Well under PostgreSQL's `max_connections=200`. Documented in §5 prereq 3. |
-| 3 | **Scheduled jobs** | Add or modify a `@Scheduled` / cron job? | **Yes** | New `CleanupRestIdempotencyJobService` runs nightly. Uses `AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY` (new enum value) for distributed-lock guard. |
+| 2 | **Connection pool math** | Change per-request DB connection usage? | **Yes** | The filter does ONE additional DB roundtrip per `/rest/**` write request (the `tryClaim` upsert), and one MORE for `persistResponse` on 2xx (REQUIRES_NEW → new connection). Total: +2 connections per write request, held briefly. **Assumption (must hold):** `tryClaim` INSERT commits in <5ms (executes before the handler runs; one row insert into a `idempotency_key`-keyed table); `persistResponse` UPDATE commits in <5ms (after handler returns; updates one row by primary key). This assumption breaks for large payloads — a 5000-position `/rest/order/create` body of ~6MB will spend the time copying `response_body` into the dedup row, not in tryClaim. The 5MB Content-Length cap in §9 risk 5 prevents that path. With current HikariCP `maximumPoolSize=20` per tenant × 2 replicas × ~3 tenants = 120 max connections used; ~3000 inbound requests/day at 2-second peak burst = ~6 extra connections/sec sustained. Well under PostgreSQL's `max_connections=200`. Documented in §5 prereq 3. |
+| 3 | **Scheduled jobs** | Add or modify a `@Scheduled` / cron job? | **Yes** | New `CleanupRestIdempotencyJobService` runs nightly. Uses `AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY` (a new `public static final long` constant added to the existing `JobLockId` static-final class — NOT a new enum) for distributed-lock guard. |
 | 4 | **Long transactions** | Hold a DB transaction across multiple repository calls or external I/O? | **No** | The filter's `tryClaim` and `persistResponse` are each single-statement transactions. No external I/O inside the dedup transactions. |
 | 5 | **Request affinity** | Assume follow-up request lands on the same replica? | **No** | The dedup row is in the shared tenant DB, visible to all replicas. Any replica can serve a replay. |
 | 6 | **Retry / idempotency** | Rely on single-execution semantics that break if a replica dies mid-op? | **Yes — this plan IS the mitigation** | The `tryClaim` uses `ON CONFLICT DO NOTHING RETURNING` — Postgres provides the atomic cross-replica mutex. If a replica dies between CLAIM and persist, the stale-claim recovery (60s TTL, Fix C) kicks in on the next retry. |
 | 7 | **Tenant context** | Use `TenantContext` / `ThreadLocal` across async boundaries? | **No** | All filter work happens in the request thread, synchronously. The cleanup job sets and clears `TenantContext` explicitly per tenant. |
-| 8 | **Distributed lock correctness** | Add or rely on pessimistic / optimistic lock across replicas? | **No** (advisory lock is for the cleanup job, not the request path) | Cleanup job: `advisoryLockService.tryLock(CLEANUP_REST_IDEMPOTENCY)` — same pattern as existing nightly jobs. Request path uses the DB unique constraint, not a lock. |
-| 9 | **Cache invalidation** | Write to an entity that is cached? | **No** | `rest_idempotency` has no `@Cacheable` or Caffeine wrapper. Direct DB read/write only. |
-| 10 | **External notifications** | Send HTTP / message to an external system inside a transaction? | **No** | The filter does not call any external service. |
+| 8 | **Distributed lock correctness** | Add or rely on pessimistic / optimistic lock across replicas? | **No** (advisory lock is for the cleanup job, not the request path) | Cleanup job: `advisoryLockService.tryLock(JobLockId.CLEANUP_REST_IDEMPOTENCY)` (passes the `long` constant directly — same pattern as existing nightly jobs which all use long constants, not enums). Request path uses the DB unique constraint, not a lock. |
+| 9 | **Cache invalidation** | Write to an entity that is cached? | **Yes — special-case for sku endpoints** | `rest_idempotency` itself has no `@Cacheable`. **However** `SkuRestController.create/update` carry `@CacheEvict(value="itemdata", allEntries=true)`. On replay we short-circuit Spring AOP so the `@CacheEvict` never fires. Mitigation (P2-1): the filter explicitly calls `cacheManager.getCache("itemdata").clear()` on the replay path for those endpoints. See §3 Fix B and §9 risk row 10. |
+| 10 | **External notifications** | Send HTTP / message to an external system inside a transaction? | **No** | The filter does not call any external service. **Note (P2-3):** the handlers we wrap DO fire OMS notifications via `omsNotificationService.sendAfterCommit`. A replay returns the cached 2xx body without re-firing those notifications (they fired the first time, after the original commit). If OMS receives a 2xx replay for an order it already processed, OMS must remain idempotent on its own receiving side — see §9 risk row 11 (OMS notification re-trigger). |
+| 11 | **Filter-before-auth (security)** | Run before Spring Security's `BearerTokenAuthenticationFilter`? | **NO — explicit MUST-run-after** | The filter is wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so unauthenticated requests cannot force tenant DB roundtrips or fetch cached 2xx response bodies. Defence-in-depth: filter checks `SecurityContextHolder.getContext().getAuthentication() != null && .isAuthenticated()` before any DB lookup. See §3 Fix B and §9 risk row 9. |
 
 ### Evidence
 
@@ -590,7 +688,7 @@ The v1 plan will differ in three places only:
 | 5 | Prefer `.orElseThrow(() -> new EntityNotFoundException(...))` over `.get()` | Yes | New code does not call `.get()` on `Optional` (we use `findById(...).isPresent()` style explicitly because the absent case is the happy path) |
 | 6 | Jakarta namespace (`jakarta.*`) — not `javax.*` | Yes | Filter imports `jakarta.servlet.*` (matches `TenantFilter.java`) |
 | 7 | `AbstractBaseEntity.equals()` is ID-based — do not rely on `.equals` for unsaved entities | Yes | `RestIdempotency` entity does NOT extend `AbstractBaseEntity` (it has its own composite-ish PK via `idempotency_key`); equality is by key |
-| 8 | Multi-tenant — every entity write goes through the tenant DataSource | Yes | `RestIdempotencyRepository` lives in `net.aim_ai.wms.repo.jpa` which auto-routes via `tenantTransactionManager` (per CLAUDE.md "Repository `@Transactional`/`@Modifying`" exception) |
+| 8 | Multi-tenant — every entity write goes through the tenant DataSource | Yes | `RestIdempotency` entity lives in `net.aim_ai.wms.model` (the **tenant** persistence-unit package). Verified by reading `TenantDatabaseConfig.java:68` → `.packages("net.aim_ai.wms.model")` — the tenant `LocalContainerEntityManagerFactoryBean` scans exactly this package, so the new entity auto-registers with the tenant `EntityManagerFactory` and routes via `tenantTransactionManager`. `RestIdempotencyRepository` lives in `net.aim_ai.wms.repo.jpa` which inherits `tenantTransactionManager` from `@EnableJpaRepositories` (per CLAUDE.md "Repository `@Transactional`/`@Modifying`" exception). |
 
 ---
 
@@ -606,6 +704,9 @@ The v1 plan will differ in three places only:
 | 6 | A bug in the filter takes ALL `/rest/**` traffic down. | Low | Critical | (a) Kill-switch `app.idempotency.enforce=false` (Fix B kill-switch path), (b) filter MUST `try { … } catch (Exception e) { LOG.error(...); chain.doFilter(req, resp); }` so a filter bug never becomes a 500 on the request itself. |
 | 7 | A SQL injection via the `Idempotency-Key` header value. | Low | Critical | All DB writes use parameterized JPA queries / `@Query(nativeQuery=true)` with `:param` placeholders — no string concatenation. The header is also validated against `[A-Za-z0-9_-]{1,64}` regex at filter entry; non-conforming keys are rejected with 400. |
 | 8 | The captured response body contains sensitive PII (recipient address, parcel number). Stored in `response_body` for 7 days. | Medium | Medium — additional data residency surface | (a) `rest_idempotency` lives in the tenant DB (same residency profile as the source order data — no new residency surface). (b) Cleanup TTL is 7 days. (c) Document in `wms2-oms-integration-map.md`. |
+| 9 | **Filter-before-auth** (P1-1). Earlier draft placed the filter at `Ordered.HIGHEST_PRECEDENCE + 10`, BEFORE Spring Security's `BearerTokenAuthenticationFilter`. That would let unauthenticated callers (a) force tenant DB roundtrips on every request (free DoS amplifier) and (b) replay cached 2xx response bodies (PII leak). | Was certain pre-fix | Critical | (a) Filter wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so it runs AFTER auth. (b) Defence-in-depth: filter checks `SecurityContextHolder.getContext().getAuthentication().isAuthenticated()` before any DB lookup; unauth → 401 immediately. (c) Verify-script has a positive check for both wiring and the in-filter authentication check (see B-27, B-28, B-29). |
+| 10 | **Cache staleness on replay** (P2-1). `SkuRestController.create` and `SkuRestController.update` carry `@CacheEvict(value="itemdata", allEntries=true)`. The filter's short-circuit prevents Spring AOP from firing the eviction, so a replay leaves the Caffeine `itemdata` cache stale until the next mutation. | Medium | Medium — stale SKU lookups inside the same JVM | Filter explicitly calls `cacheManager.getCache("itemdata").clear()` on the replay path for `/rest/sku/create` and `/rest/sku/update`. Unit-tested by `IdempotencyFilterUnitTest.replay_for_sku_endpoints_clears_itemdata_cache`. |
+| 11 | **OMS notification re-trigger** (P2-3). A handler like `OrderRestController.cancelPositions` calls `customerorderService.cancelOrder` which fires `omsNotificationService.sendAfterCommit` on the FIRST (winning) call. On retry the filter returns the cached 2xx body without re-entering the handler — OMS sees a 2xx for a cancel it already received the notification for. If OMS is not idempotent on its own receiving side, this could trigger duplicate downstream work (e.g., double-refund). | Low (depends on OMS contract) | Medium | (a) Replay is served ONLY for the exact same request body hash AND the same `Idempotency-Key`, so OMS's own retry-receiver should already be deduplicating by its outbound key. (b) The OMS team must confirm their receiver handles a 2xx replay of `/oms/order/cancel-callback` as a no-op. (c) Tracked in Open Questions §13 item 1 (what should OMS do on 409 / 200-replay?). |
 
 ---
 
@@ -641,9 +742,10 @@ The v1 plan will differ in three places only:
 - After deployment, OMS team can roll out the `Idempotency-Key` header on their own schedule. WMS is back-compat until they do.
 
 **Follow-up work (not in this plan):**
-- Extend the same filter to handle `/rest/cycleCount/*` writes if they exist (TBD — `StockCountRestController` is read-only today, but if they add a `submit` endpoint, the filter automatically covers it because the URL pattern is `/rest/**`).
+- Extend the same filter to handle `/rest/cycleCount/*` writes if they exist (TBD — `StockCountRestController` is read-only today, but if they add a non-read-only endpoint, the filter automatically covers it because the URL pattern is `/rest/**` — note that the `shouldNotFilter` carve-out for `/rest/stockcount/**` would need to be narrowed/removed in that case).
 - Consider a `Retry-After` header on 409 responses so the OMS retry timer knows to back off.
-- Audit `MessageDummyController` and `UtilRestController` — they are not under `/rest/**` and so not covered. If they grow business-writes endpoints, extend the filter's URL match.
+- Audit `UtilRestController` — its `@RequestMapping` methods are `@Service`-only (not `@RestController`/`@Controller`) and therefore not routed by Spring at all today; the routing is effectively dead. If it ever grows into a real controller, the filter's `/rest/**` URL match would pick it up automatically (its current path prefix is `/v3/util/*`, NOT `/rest/**` — so even if it became a controller, the filter would not cover it without an additional change).
+- `MessageDummyController` IS under `/rest/stockcount/**` and IS therefore covered by the filter's URL match — but excluded via `shouldNotFilter` because it is dev/test only and writes non-deterministic `message` rows. If it is promoted to a production endpoint, remove the carve-out.
 
 **Implementation status (to be filled in by the implementer):**
 - Migration SHA: `TBD`
@@ -664,17 +766,24 @@ The v1 plan will differ in three places only:
 `sbdocs/9-System/scripts/verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh`
 
 Covers:
-- Positive: `IdempotencyFilter.java` exists with `extends OncePerRequestFilter` + `jakarta.servlet.*` imports.
+- Positive: `IdempotencyFilter.java` exists in `net.aim_ai.wms.landlord.config` (alongside `TenantFilter`) with `extends OncePerRequestFilter` + `jakarta.servlet.*` imports.
 - Positive: `RestIdempotency` entity + `RestIdempotencyRepository` exist with the `ON CONFLICT DO NOTHING RETURNING` native query.
 - Positive: `RestIdempotencyService.persistResponse` has `@Transactional(value = "tenantTransactionManager", propagation = Propagation.REQUIRES_NEW)`.
 - Positive: Flyway migration `V1.1.15__add_rest_idempotency.sql` exists and contains the schema.
 - Positive: `CleanupRestIdempotencyJobService` exists with `@Scheduled` + advisory-lock guard.
+- Positive: `AdvisoryLockService.JobLockId` declares `public static final long CLEANUP_REST_IDEMPOTENCY = 100007L;` (a long constant — NOT an enum value).
 - Positive: New Micrometer counters present.
 - Positive: `v2/wms2-api/CLAUDE.md` mentions "Idempotency-Key" header.
 - Positive: `wms2-oms-integration-map.md` mentions the contract.
-- Negative: No `@Component` on the filter (must be `@Bean` + `@Configuration` so the URL match is explicit, not implicit).
+- Positive (security): Filter checks `SecurityContextHolder.getContext().getAuthentication()` before any DB lookup.
+- Positive (security): Filter is wired via `SecurityFilterChain.addFilterAfter` OR uses `SecurityProperties.DEFAULT_FILTER_ORDER` (NOT `Ordered.HIGHEST_PRECEDENCE`).
+- Positive (cache): Filter clears `itemdata` cache on `/rest/sku/create`/`/rest/sku/update` replay path.
+- Negative: No `@Component` on the filter (must be `@Bean` + explicit `SecurityFilterChain` wiring so the chain position is explicit, not implicit).
+- Negative: No `Ordered.HIGHEST_PRECEDENCE` on the filter (would run before Spring Security).
 - Negative: No use of `javax.servlet.*` (must be `jakarta.*`).
-- JUnit: `RestIdempotencyServiceUnitTest`, `IdempotencyFilterUnitTest`, `IdempotencyFilterIT`, `OrderRestControllerIdempotencyIT`, `CleanupRestIdempotencyJobServiceUnitTest` all pass.
+- JUnit (`mvn test`): `RestIdempotencyServiceUnitTest`, `IdempotencyFilterUnitTest`, `CleanupRestIdempotencyJobServiceUnitTest`.
+- JUnit (`mvn verify -Dit.test=`): `IdempotencyFilterIT`, `OrderRestControllerIdempotencyIT`, `AdviceRestControllerIdempotencyIT`, `SkuRestControllerIdempotencyIT`. Surefire excludes `*IT` by default — must be run via Failsafe (`mvn verify`).
+- Modes: set `PRE_IMPL_MODE=1` for pre-implementation runs so negative `file_not_contains` checks on not-yet-existing files report `SKIP` instead of `FAIL`.
 
 ### 12.2 Recommended OMC composition (for implementation)
 
@@ -691,5 +800,80 @@ Covers:
 ### 12.3 Why this matters
 
 - **Inbound REST is the trust boundary between OMS and WMS.** Today the contract is "if it looks like a dupe, fail." After this plan: "if it IS a dupe, reply identically; if it's a true conflict, return 409." That's the correct OMS-facing UX.
-- **The DB unique constraints are already there.** This plan trades a 500 (race-loser) for a 200 (replay) — same data, better UX.
+- **The DB unique constraints are already there.** This plan trades a 400 (race-loser, via `WebserviceBusinessExceptionClientSide`) for a 200 (replay) — same data, better UX.
 - **Future endpoints inherit the contract for free** because the filter matches `/rest/**`. The "Suggested fix Step 5" in the ticket (document the contract) is captured in Fix E.
+
+---
+
+## 13. Open Questions
+
+Deferred decisions that must be resolved before, or shortly after, this plan ships. Tracking them here so they don't get lost in review.
+
+1. **What should OMS do on 409 Conflict?**
+   The filter returns 409 when the same `Idempotency-Key` arrives with a different request-body hash. Today OMS does not parse 409 specifically — it treats any non-2xx as a generic retry/failure. **Open:** does OMS need to implement 409 handling (alert / human-review queue) for this plan to deliver full value, and if so, is that part of this rollout or a separate OMS-side ticket? **Owner:** David O. + OMS team.
+
+2. **Tenant-prefix on `Idempotency-Key`?**
+   The key is currently a free-form UUIDv4 chosen by OMS. The `rest_idempotency` table lives per-tenant, so cross-tenant collisions cannot leak (each lookup is against the current tenant's DB only). **Open:** should we additionally namespace the key at the WMS side (e.g., prepend `<tenant_id>:`) to defend against a future bug in `TenantContext` resolution? Or is per-DB isolation sufficient? **Recommendation pending:** per-DB isolation is sufficient — adding a tenant prefix doubles the key length and complicates OMS-side key generation. Leave as-is unless we see a real cross-tenant resolution bug.
+
+3. **Behavior on tenant DB restore.**
+   If we restore a tenant DB from a backup taken at T-1d, the `rest_idempotency` table is restored along with everything else. Any OMS retry whose original 2xx was AFTER T-1d will find no dedup row → handler re-runs → either succeeds (idempotent at the DB layer thanks to the unique constraints) or 400s (constraint violation on insert). **Open:** is this acceptable? **Tentative answer:** yes — tenant restore is an "all timelines reset to T-1d" operation; OMS retries after restore are expected to re-validate via the underlying business invariants, not via the dedup table. Document this in `wms2-oms-integration-map.md`.
+
+4. **Behavior when OMS doesn't send `Idempotency-Key`.**
+   The filter currently falls through to `chain.doFilter` without dedup, logging a WARN. The DB unique constraint backstop still applies (race-loser returns 400). **Open:** is the log line enough, or do we want a Micrometer counter (`rest_idempotency_missing_header_total{endpoint=…}`) so we can dashboard when OMS catches up? **Recommendation:** add the counter (it's cheap), and we already have the alert framework. Tracked as a follow-up in §11.
+
+5. **Should the 102 sentinel be a real HTTP status value, or a reserved DB-only sentinel?**
+   We chose `102` (HTTP "Processing") to mean "claim in flight." It is never actually sent over the wire (we never serve a 102 to OMS — if we hit an in-flight claim we poll and serve the eventual 2xx). **Open:** would a more readable sentinel (`-1` or a separate `state` column) reduce confusion for future readers? **Tentative answer:** leave 102 — `response_status` is INTEGER and 102 is a well-known never-sent status; adding a column doubles the schema surface for one bit of state.
+
+6. **Backfill of historic in-flight requests on first deploy.**
+   At first deploy, OMS may have in-flight retries from before the filter existed. The filter will start fresh with an empty dedup table. **Open:** is there anything to do, or do we accept that the very-first-window OMS retries get the legacy (TOCTOU) behavior? **Tentative answer:** accept — the deploy window is a few seconds, the OMS retry window is exponential (seconds-to-minutes), so essentially zero OMS retries land in that exact window.
+
+---
+
+## Implementation Status
+
+**Status:** Implemented (2026-05-12)
+**Commit SHA:** _pending — fill in after first commit_
+**Verify script baseline:** `sbdocs/9-System/scripts/verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh` (planned).
+
+### Files created
+
+- `src/main/java/net/aim_ai/wms/model/RestIdempotency.java` — JPA entity (natural PK on `idempotency_key`, does NOT extend `AbstractBaseEntity`).
+- `src/main/java/net/aim_ai/wms/repo/jpa/RestIdempotencyRepository.java` — Spring Data JPA repo with `findByIdempotencyKey`, `deleteByIdempotencyKeyIfExists`, `deleteOlderThan(Instant|LocalDateTime)`.
+- `src/main/java/net/aim_ai/wms/service/RestIdempotencyService.java` — `tryClaim`/`getCachedResponse` (read tenant tx) + `persistResponse` (REQUIRES_NEW tenant tx).
+- `src/main/java/net/aim_ai/wms/landlord/config/IdempotencyFilter.java` — `OncePerRequestFilter`; checks `SecurityContextHolder` for 401; hashes body via SHA-256; clears `itemdata` Caffeine cache on `/rest/sku/**` replay.
+- `src/main/java/net/aim_ai/wms/schedulejob/RestIdempotencyCleanupJob.java` — nightly cleanup wrapped in `AdvisoryLockService.JobLockId.CLEANUP_REST_IDEMPOTENCY` (100007L).
+- `src/main/resources/db/migration/V1.1.15__add_rest_idempotency.sql` — Flyway migration for the `rest_idempotency` table + `created_at` index.
+
+### Files modified
+
+- `src/main/java/net/aim_ai/wms/service/AdvisoryLockService.java` — added `JobLockId.CLEANUP_REST_IDEMPOTENCY = 100007L`.
+- `src/main/java/net/aim_ai/wms/SecurityConfiguration.java` — wired `IdempotencyFilter` via `http.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)`; controlled by `app.idempotency.enforce` (default `true`).
+
+### Tests
+
+- 11/11 TDD-gate tests pass (`RestIdempotencyServiceUnitTest`, `IdempotencyFilterUnitTest`, `RestIdempotencyCleanupJobUnitTest`, `AdvisoryLockServiceJobLockIdContractTest`).
+- Test-scope stubs under `src/test/java/net/aim_ai/wms/stubs/idempotency/` were deleted; the four test files re-pointed at the production packages.
+- `RestIdempotencyServiceUnitTest` `underTest()` helper rewritten to wire the real `RestIdempotencyService` against a Mockito-mocked `RestIdempotencyRepository` (key-dispatched answers). Assertion logic in each test method is unchanged.
+
+### `mvn test` results
+
+**Targeted run (SBDEV-2222 gate tests only):**
+```
+$ mvn test -Dtest=RestIdempotencyServiceUnitTest,IdempotencyFilterUnitTest,RestIdempotencyCleanupJobUnitTest,AdvisoryLockServiceJobLockIdContractTest
+Tests run: 11, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS  (10.340 s)
+```
+
+**Full suite:**
+```
+Tests run: 3931, Failures: 1, Errors: 2, Skipped: 65
+BUILD FAILURE
+```
+
+Pre-existing failures (present on baseline before this change — confirmed via `git stash` run):
+- `OptionalSafetyArchTest` — ArchUnit reports `Optional.get()` in `StockunitService.java:197`
+  and `UnitloadService.java:262/265`. **Not introduced by SBDEV-2222** (my service uses `.orElseThrow()`).
+- `StockSummaryExportJobTest$SendListErrorHandling.shouldHandleEmptyStockCountList` — `UnnecessaryStubbingException` — pre-existing.
+- `ViewDtoServiceUnitTest$ReplenishOrderViews.getReplenishOrderViewByKeywordShouldReturnOpenOrders` — `UnnecessaryStubbingException` — pre-existing.
+
+Zero regressions introduced by this change.

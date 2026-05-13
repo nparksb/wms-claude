@@ -4,7 +4,7 @@ type: architecture
 project: wms2
 status: stable
 created: 2026-02-06
-last_verified: 2026-05-08
+last_verified: 2026-05-12
 tags: [wms2, entities, jpa, database, architecture]
 ---
 
@@ -110,6 +110,7 @@ public int hashCode() {
 | ReceivingDtoView | `src/main/java/net/aim_ai/wms/model/ReceivingDtoView.java` |
 | ReplenishmentMonitorView | `src/main/java/net/aim_ai/wms/model/ReplenishmentMonitorView.java` |
 | Replenishorder | `src/main/java/net/aim_ai/wms/model/Replenishorder.java` |
+| RestIdempotency | `src/main/java/net/aim_ai/wms/model/RestIdempotency.java` |
 | Section | `src/main/java/net/aim_ai/wms/model/Section.java` |
 | Shipperid | `src/main/java/net/aim_ai/wms/model/Shipperid.java` |
 | Shippingmethod | `src/main/java/net/aim_ai/wms/model/Shippingmethod.java` |

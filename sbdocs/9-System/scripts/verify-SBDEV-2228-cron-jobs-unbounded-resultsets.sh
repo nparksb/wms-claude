@@ -129,17 +129,15 @@ run B-10 "B — ReplenishOrderJob uses PageRequest.of(0, ...) for drain-queue" \
 run_neg B-11 "B — ReplenishOrderJob does NOT call unbounded getIdsForUnreachableReplenishOrders in main path" \
     'getIdsForUnreachableReplenishOrders\s*\(\s*[^,)]+\s*\)\s*;' "$REPLENISH_JOB"
 
-# B-12: sub-op 6a (updateReplenishmentOrderPriority) must use forward-pagination (page variable), NOT always page 0.
-# WHERE clause has no prio filter — after prio-only bulk UPDATE, same rows remain in result set.
-# Always-page-0 would loop maxPages times doing redundant updates. Forward pagination (page++) is required.
-# Implementation uses variable 'p' (not 'page') incremented with p++.
-run B-12 "B — sub-op 6a uses forward-pagination page variable (not always-page-0)" \
-    file_contains_ml 'getIdsToUpdateReplenishmentOrderPriorityPage[\s\S]{0,400}PageRequest\.of\(p\b' "$REPLENISH_JOB"
+# B-12: sub-op 6a (updateReplenishmentOrderPriority) uses drain-queue: always page 0.
+# The query has prio != 0 — updated rows leave the result set, so page 0 always has fresh rows.
+run B-12 "B — sub-op 6a uses drain-queue PageRequest.of(0,...) (prio != 0 makes it safe)" \
+    file_contains_ml 'getIdsToUpdateReplenishmentOrderPriorityPage[\s\S]{0,400}PageRequest\.of\(0' "$REPLENISH_JOB"
 
-# B-13 Negative: sub-op 6a paginated query must NOT use literal 0 as the page argument
-# (would cause the infinite-update loop described in §3 Fix B sub-op 6a classification)
-run_neg B-13 "B — sub-op 6a does NOT use PageRequest.of(0,...) (would loop 100x on same rows)" \
-    'getIdsToUpdateReplenishmentOrderPriorityPage[^;]{0,200}PageRequest\.of\(0' "$REPLENISH_JOB"
+# B-13 Negative: sub-op 6a must NOT advance the page index (forward pagination would skip rows
+# because updated rows leave the result set with the prio != 0 filter).
+run_neg B-13 "B — sub-op 6a does NOT use PageRequest.of(p,...) (forward pagination wrong with prio filter)" \
+    'getIdsToUpdateReplenishmentOrderPriorityPage[^;]{0,200}PageRequest\.of\(p\b' "$REPLENISH_JOB"
 
 echo
 
@@ -233,6 +231,10 @@ run DOC-2 "DOC — wms2-sysprop-catalog.md contains REPLENISHMENT_PAGE_LIMIT" \
 # DOC-3: ORDER_RELEASE_STREAMING_ENABLED was not implemented (streaming is always-on); removed
 run DOC-4 "DOC — wms2-scheduled-jobs-catalog.md references paginated or drain-queue pattern" \
     file_contains 'paginated|drain.queue|PAGE_SIZE|PAGE_LIMIT' "$JOBS_CATALOG"
+run DOC-5 "DOC — wms2-sysprop-catalog.md contains FIX_LOCATION_PAGE_LIMIT" \
+    file_contains 'FIX_LOCATION_PAGE_LIMIT' "$SYSPROP_CATALOG"
+run DOC-6 "DOC — wms2-sysprop-catalog.md contains OMS_EXPORT_CONSUMER_TIMEOUT_S" \
+    file_contains 'OMS_EXPORT_CONSUMER_TIMEOUT_S' "$SYSPROP_CATALOG"
 
 echo
 

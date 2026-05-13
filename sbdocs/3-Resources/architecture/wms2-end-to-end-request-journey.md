@@ -7,7 +7,7 @@ scope: cross-cutting
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-09
+last_verified: 2026-05-12
 verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui
 related:
   - ./wms2-tenant-routing-datasource-topology.md
@@ -195,6 +195,18 @@ Public endpoints (prefix `/api/public/`) are exempt: `TenantContext` is set to `
 ### 4.2 Spring Security — `MultiTenantJwtDecoder`
 
 Resolves the tenant-specific Keycloak realm via `TenantAuthConfigCache` (populated by `TenantConfigLoader.scheduledRefresh`). Caches per-tenant `JwtDecoder` instances via `jwtDecoders.computeIfAbsent(tenantKey, ...)` to avoid rebuilding JWK sets per request.
+
+### 4.2.1 `IdempotencyFilter` — REST write deduplication (SBDEV-2222)
+
+Wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so it runs **after** the JWT is validated and `SecurityContextHolder` is populated.
+
+- Applies only to non-GET `/rest/**` requests (skips `/rest/stockcount/**` and `/rest/transactionreport/**`).
+- Rejects anonymous callers (defence-in-depth against filter-order regression).
+- Falls through when no `Idempotency-Key` header is present (back-compat with legacy OMS).
+- On first request: inserts a claim row atomically (`ON CONFLICT DO NOTHING RETURNING`) → forwards to handler.
+- On replay: returns cached 2xx response directly; evicts Caffeine `itemdata` cache for `/rest/sku/**` replays.
+- On handler exception: passes `SC_INTERNAL_SERVER_ERROR` to `persistResponse`, which deletes the claim row so OMS may retry.
+- Controlled by `app.idempotency.enforce=true` (`false` bypasses in dev). See [wms2-sysprop-catalog.md](../data-dictionary/wms2-sysprop-catalog.md) §4.6.
 
 ### 4.3 Service layer — transaction + routing
 

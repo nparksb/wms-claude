@@ -47,6 +47,7 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 - [SBDEV-2219-warehouse-stock-report-unbounded-findall.md](SBDEV-2219-warehouse-stock-report-unbounded-findall.md)
 - [SBDEV-2220-cleanup-old-messages-batch-cap-and-tx.md](SBDEV-2220-cleanup-old-messages-batch-cap-and-tx.md)
 - [SBDEV-2222-rest-inbound-no-idempotency-contract.md](SBDEV-2222-rest-inbound-no-idempotency-contract.md)
+- [SBDEV-2223-confirmPick-last-pick-detection-race.md](SBDEV-2223-confirmPick-last-pick-detection-race.md) — *draft; picking concurrency race, unlocked sibling read*
 
 > This list can drift. The Dataview section below is always authoritative in Obsidian; elsewhere run `ls sbdocs/1-Projects/wms2/plan/*.md`.
 

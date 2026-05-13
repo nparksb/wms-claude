@@ -158,7 +158,7 @@ warehouseStockReportService.streamStockCount(sc -> {
 | 1 | All callsites enumerated (§0) | ✓ 19 sites enumerated; 16 in-scope |
 | 2 | Adjacent bugs — same root-cause pattern | ✓ All 6 ReplenishorderRepository unbounded queries enumerated; `fixLocationAssignmentRepository.getFixedLocationAndItemDataIds()` flagged (Open Q7) |
 | 3 | Backward compatibility | ✓ Original unbounded repo methods kept for existing tests; new streaming/paginated methods added alongside |
-| 4 | Concurrency | ✓ AdvisoryLockService per job; drain-queue pagination always queries page 0 (correct for delete-while-iterate); sub-op 6a uses forward pagination (prio-only update, not drain-queue eligible); streaming cursor READ COMMITTED correctness resolved SAFE (Q3) |
+| 4 | Concurrency | ✓ AdvisoryLockService per job; drain-queue pagination always queries page 0 (correct for delete-while-iterate); sub-op 6a now also uses drain-queue (`prio != 0` hardcoded in query, updated rows leave WHERE); streaming cursor READ COMMITTED correctness resolved SAFE (Q3) |
 | 5 | Multi-tenant | ✓ `TenantContext.setCurrentTenant()` / `.clear()` in try/finally preserved; new streaming wrapper uses `tenantTransactionManager` |
 | 6 | Error handling | ✓ Per-item try/catch preserved in all loop patterns |
 | 7 | Observability | ✓ Micrometer `cron_job_rows_processed_total` + `cron_job_duration_seconds` metrics proposed |
@@ -266,7 +266,7 @@ Apply same pattern to all 6 queries (paginated variants added alongside original
 | 3 — deleteEmptyFix | `getIdsToDeleteEmptyFixAssignment...` | Yes — delete removes row entirely | drain-queue (always page 0) |
 | 4 — itemDataNoFix | `getIdsForItemDataWithoutFixedAssignment` | Yes — creates assignment, removing row from WHERE | drain-queue (always page 0) |
 | 5 — itemDataWithFix | `getIdsForItemDataWithFixedAssignmentWithOrders` | Yes — processes order, removing row from WHERE | drain-queue (always page 0) |
-| **6a — updatePriority** | `getIdsToUpdateReplenishmentOrderPriority` | **NO — bulk UPDATE sets `prio = VERY_LOW` but WHERE has NO `prio` filter → rows remain after update** | **forward pagination (`page.next()`)** |
+| **6a — updatePriority** | `getIdsToUpdateReplenishmentOrderPriority` | **YES — `prio != 0` hardcoded in query; after bulk UPDATE sets `prio = VERY_LOW` (0), row leaves WHERE** | **drain-queue (always page 0)** |
 | 6b — updatePriority2 | `getIdsToUpdateReplenishmentOrderPriority2` | Yes — WHERE has `r.prio != :customerOrderPriority`; after update sets prio to match, row removed from WHERE | drain-queue (always page 0) |
 
 **Before** (`ReplenishOrderJob.java:245-258`, sub-ops 1-5 + 6b):
@@ -298,24 +298,24 @@ for (int p = 0; p < maxPages; p++) {
 }
 ```
 
-**After — forward-pagination loop (sub-op 6a only — `updateReplenishmentOrderPriority`):**
+**After — drain-queue loop (sub-op 6a — `updateReplenishmentOrderPriority`):**
 ```java
-// Sub-op 6a: updateReplenishmentOrderPriorityBulk sets r.prio = VERY_LOW.
-// WHERE has NO prio filter → processed rows remain in result set → must advance page, not re-query page 0.
-int pageSize = syspropService.getIntValue(REPLENISHMENT_PAGE_SIZE_KEY, DEFAULT_REPLENISHMENT_PAGE_SIZE);
-int maxPages = syspropService.getIntValue(REPLENISHMENT_PAGE_LIMIT_KEY, DEFAULT_REPLENISHMENT_PAGE_LIMIT);
-int page = 0;
-while (page < maxPages) {
-    Page<Long> result = replenishorderRepository.getIdsToUpdateReplenishmentOrderPriorityPage(
-        replenishOrderStarted, PageRequest.of(page, pageSize));
-    if (result.isEmpty()) break;
-    replenishOrderJobService.updateReplenishmentOrderPriorityBulk(result.getContent());
-    if (!result.hasNext()) break;
-    page++;
+// Sub-op 6a: prio != 0 hardcoded in query — after bulk UPDATE sets r.prio = VERY_LOW (0),
+// row leaves WHERE; drain-queue (always page 0) is safe here.
+boolean hitCap6a = true;
+for (int p = 0; p < pageLimit; p++) {
+    Page<Long> page = replenishorderRepository.getIdsToUpdateReplenishmentOrderPriorityPage(
+        WmsConstants.State.STARTED,
+        WmsConstants.State.ASSIGNED,
+        WmsConstants.OrderBatchType.PICK_PACK,
+        PageRequest.of(0, pageSize));
+    if (page == null || page.isEmpty()) { hitCap6a = false; break; }
+    replenishOrderJobService.updateReplenishmentOrderPriorityBulk(page.getContent(), WmsConstants.Priority.PRIORITY_VERY_LOW);
 }
+if (hitCap6a) LOG.warn("sub-op 6a hit page-limit cap; unprocessed rows will be retried next cycle");
 ```
 
-> **Why sub-op 6a cannot use drain-queue:** `getIdsToUpdateReplenishmentOrderPriority` WHERE: `r.state < :replenishOrderStarted AND manuallyOverridePriority = false AND NOT EXISTS (...)`. After `updateReplenishmentOrderPriorityBulk` sets `r.prio = VERY_LOW`, the row still satisfies the WHERE (no prio predicate). Querying `PageRequest.of(0, pageSize)` again returns the same rows → the loop executes 100× (maxPages cap), each time updating already-updated rows. This is a silent infinite-update bug with no exception — only wasteful DB write churn. `page.next()` (forward pagination) is correct here.
+> **Why drain-queue is now safe for sub-op 6a:** `getIdsToUpdateReplenishmentOrderPriorityPage` has `AND replenishmentOrder.prio != 0` hardcoded. After `updateReplenishmentOrderPriorityBulk` sets `r.prio = VERY_LOW` (0), the row no longer matches `prio != 0` and leaves the result set. Querying `PageRequest.of(0, pageSize)` on the next iteration fetches only rows not yet set to VERY_LOW. The original concern (forward pagination required because rows stayed in WHERE) no longer applies.
 
 **Why not streaming for ReplenishOrderJob:** A streaming cursor requires an outer `readOnly=true` tx to remain open while inner `REQUIRES_NEW` calls fire. Pagination is simpler and the extra round-trips (50 queries for 50K IDs at pageSize=1000) are negligible vs. 300K REQUIRES_NEW tx savings.
 
@@ -462,7 +462,7 @@ for (List<StockCountDto> c : omsChunks) {
 | `ReplenishOrderJobPaginationTest` | `allSixSubOps_usePagedQuery()` | All 6 sub-ops use paginated variants, not unbounded `List<Long>` methods |
 | `ReplenishOrderJobConnectionBudgetTest` | `maxPagesCapApplied()` | With `PAGE_LIMIT=2, PAGE_SIZE=100`, `cancelReplenishmentOrder` invoked ≤ 200 times even if mock returns 10K IDs |
 | `ReplenishOrderJobConnectionBudgetTest` | `alwaysQueryPage0_drainQueue()` | After successful cancel (sub-ops 1-5, 6b), next page query is always `PageRequest.of(0, pageSize)` |
-| `ReplenishOrderJobConnectionBudgetTest` | `subOp6a_usesForwardPagination()` | Sub-op 6a (`updateReplenishmentOrderPriority`) increments page on each iteration, not always page 0 |
+| `ReplenishOrderJobConnectionBudgetTest` | `subOp6a_usesDrainQueue()` | Sub-op 6a (`updateReplenishmentOrderPriority`) always queries page 0; page 1 is never requested |
 | `StockSummaryExportJobOmsDecouplingTest` | `sendList_calledAfterStreamCloses()` | Mock `streamStockCount` to capture invocation order; assert `sendList` invocations occur AFTER `streamStockCount` returns |
 | `StockSummaryExportJobBulkInsertTest` | `bulkInsert_notPerRow()` | For 1000 stock rows with batchSize=100: `createEntitiesBulk` called 10 times; `createEntity` called 0 times from export path |
 | `OrderReleaseJobStreamingTest` | `usesStreamVariant_notListVariant()` | `streamOrderReleaseInfo` called; `getOrderReleaseInfo` NOT called |
@@ -599,7 +599,7 @@ bash sbdocs/9-System/scripts/verify-SBDEV-2228-cron-jobs-unbounded-resultsets.sh
 
 ## 11. Implementation Status
 
-**Implemented:** 2026-05-13 | **PR:** [#11](https://github.com/SiteBossInc/wms2-api/pull/11) | **Branch:** `tasks/SBDEV-2222`
+**Implemented:** 2026-05-13 | **PR:** [#12](https://github.com/SiteBossInc/wms2-api/pull/12) | **Branch:** `tasks/SBDEV-2223`
 
 | Phase | Commit SHA | Tests Added | `mvn` result | Verify script |
 |---|---|---|---|---|
@@ -608,10 +608,11 @@ bash sbdocs/9-System/scripts/verify-SBDEV-2228-cron-jobs-unbounded-resultsets.sh
 | Phase 3 — OrderReleaseJob stream-cursor | `7c42e3b` | `OrderReleaseJobStreamingTest`, `ReleaseOrderJobServiceStaleStateTest` | 0 failures | `verify-SBDEV-2228-cron-jobs-unbounded-resultsets.sh` |
 | TDD gate tests committed | `463e018` | (all 6 above) | full suite 0 failures | — |
 | Gap fixes: BlockingQueue + fix_location pagination | `b157458` | (updated existing tests) | 3942 tests, 0 failures | — |
+| Code-review findings H1–H4, M1–M7 | `c2a5a4c` | boundary test (H4), drain-queue test (M2) | 39 pass, 0 fail | `verify-SBDEV-2228-cron-jobs-unbounded-resultsets.sh` |
 
 **Key architectural changes:**
 - `ReleaseOrderJobService.streamOrderPositionsForEach` — `@Transactional(readOnly=true)` cursor boundary on a separate Spring bean (bypasses same-class proxy limitation in `OrderReleaseJob.doCalculation()`)
-- `ReplenishorderRepository` / `ItemdataRepository` — 6 `Page<Long>` variants; drain-queue `PageRequest.of(0, pageSize)` for sub-ops 1–5 and 6b, forward pagination for sub-op 6a (bulk UPDATE doesn't remove rows from WHERE predicate)
+- `ReplenishorderRepository` / `ItemdataRepository` — 6 `Page<Long>` variants; drain-queue `PageRequest.of(0, pageSize)` for all 6 sub-ops including 6a (`prio != 0` hardcoded in query removes updated rows from WHERE)
 - `InventoryRecordService.createEntitiesBulk` — `REQUIRES_NEW` batch insert replacing per-row REQUIRES_NEW (~1M tx/export → ~100 batches)
 - `StockSummaryExportJob` — OMS `sendList()` calls deferred until after `streamStockCount()` cursor tx commits; DB connection released before any HTTP I/O
 - `SyspropService.getIntValue(key, defaultValue)` — null/blank/NFE-safe int lookup

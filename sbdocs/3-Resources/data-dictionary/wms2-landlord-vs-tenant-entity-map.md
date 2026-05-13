@@ -7,7 +7,7 @@ scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-05-12
 verified_by: code read of v2/wms2-api landlord/model + model packages
 related:
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -82,7 +82,7 @@ Repositories (1:1):
 **Multi-tenancy strategy:** `hibernate.multiTenancy=DATABASE` via `TenantIdentifierResolver` → `TenantDynamicRoutingDataSource`
 **Config:** `landlord/config/TenantDatabaseConfig.java`
 
-All 62 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-packages). Grouped below by domain.
+All 63 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-packages). Grouped below by domain.
 
 ### 3.1 Order management (5)
 
@@ -197,7 +197,13 @@ All per-tenant — there is no shared user directory. Tables are prefixed `mywms
 | `UserGroupUserRole` | `mywms_group_mywms_role` | M:M join |
 | `UserRepresentationWithTempPw` | `userrepresentationwithtemppw` | DTO for password provisioning flows |
 
-### 3.13 Report views / DTO entities (11)
+### 3.13 Integration / infrastructure (1)
+
+| Class | Table | Notes |
+|---|---|---|
+| `RestIdempotency` | `rest_idempotency` | Dedup table for inbound `/rest/**` POST/PUT requests (SBDEV-2222). Natural PK `idempotency_key VARCHAR(64)`. Does NOT extend `AbstractBaseEntity` — uses `LocalDateTime createdAt/updatedAt` directly. Cleaned up nightly by `RestIdempotencyCleanupJob` (7-day retention). |
+
+### 3.14 Report views / DTO entities (11)
 
 All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `save()` any of these.
 
@@ -221,7 +227,7 @@ All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `sa
 
 Landlord: 4 repos for 4 entities — 1:1. All under `net/aim_ai/wms/landlord/jpa/`.
 
-Tenant: 61 repos for 62 entities — one of the view entities has no explicit repository. All under `net/aim_ai/wms/repo/jpa/`. Full 1:1 list is noisy; the rule is **repo name = entity name + `Repository`** with these confirmed exceptions:
+Tenant: 62 repos for 63 entities — one of the view entities has no explicit repository. All under `net/aim_ai/wms/repo/jpa/`. Full 1:1 list is noisy; the rule is **repo name = entity name + `Repository`** with these confirmed exceptions:
 
 - `Billoflading` → `BillofladingRepository` (confusingly named, but correct)
 - `BillofladingPosition` → `BillofladingPositionRepository` (with Position suffix)
