@@ -6,8 +6,8 @@ version: v2
 scope: scheduled-jobs
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-05-08
-last_verified: 2026-05-13
+updated: 2026-05-17
+last_verified: 2026-05-17
 verified_by: code read of v2/wms2-api src/main at commit HEAD (incl. SBDEV-2228 paginated ReplenishOrderJob, streaming OrderReleaseJob, bulk+decoupled StockSummaryExportJob)
 related:
   - ./wms2-transaction-osiv-boundary-map.md
@@ -34,7 +34,7 @@ tags:
 
 ## 1. Overview
 
-`wms2-api` runs eight recurring workloads in-process: **six business cron jobs** gated by `app.cron=true` (disabled by default) and **two infrastructure `@Scheduled` methods** that always run. (Sixth business job — `StaleClubBatchCleanupJob` — was added by SBDEV-2164 / commit `57ec70e`.) Cross-replica mutual exclusion for the business jobs is enforced by PostgreSQL **advisory locks** (`pg_try_advisory_lock`), each job holding a fixed integer lock ID for the duration of its run. Tenant context is set manually inside every business job — scheduler threads do not inherit ThreadLocal from the request path.
+`wms2-api` runs nine recurring workloads in-process: **seven business cron jobs** gated by `app.cron=true` (disabled by default) and **two infrastructure `@Scheduled` methods** that always run. (Sixth business job — `StaleClubBatchCleanupJob` — was added by SBDEV-2164; seventh — `OutboxDispatcherJob` — was added by SBDEV-2221.) Cross-replica mutual exclusion for the business jobs is enforced by PostgreSQL **advisory locks** (`pg_try_advisory_lock`), each job holding a fixed integer lock ID for the duration of its run. Tenant context is set manually inside every business job — scheduler threads do not inherit ThreadLocal from the request path.
 
 Three load-bearing facts:
 
@@ -57,6 +57,7 @@ Defined at `net/aim_ai/wms/service/AdvisoryLockService.java:63-71`. These intege
 | `JobLockId.RELEASE_EXPIRED_PICKING` | `100005L` | `ReleaseExpiredPickingOrdersFromUserJob` |
 | `JobLockId.STALE_CLUB_BATCH_CLEANUP` | `100006L` | `StaleClubBatchCleanupJob` (SBDEV-2164) |
 | `JobLockId.CLEANUP_REST_IDEMPOTENCY` | `100007L` | `RestIdempotencyCleanupJob` (SBDEV-2222) |
+| `JobLockId.OUTBOX_DISPATCHER` | `100008L` | `OutboxDispatcherJob` (SBDEV-2221) |
 
 Infrastructure jobs (`TenantConfigLoader`, `TenantPoolEvictor`) do **not** take advisory locks — they are idempotent cache refreshers and safe to run concurrently on every replica.
 
@@ -264,6 +265,27 @@ try {
 
 ---
 
+### 4.8 `OutboxDispatcherJob` (SBDEV-2221)
+
+| | |
+|---|---|
+| **File** | `schedulejob/OutboxDispatcherJob.java` |
+| **Wired** | `@Scheduled(cron = "${app.cron.outbox-dispatcher:*/15 * * * * *}")` — Spring `@Value` driven (not a DB sysprop) |
+| **Lock ID** | `JobLockId.OUTBOX_DISPATCHER` (100008L — added by SBDEV-2221) |
+| **Cron** | `app.cron.outbox-dispatcher=*/15 * * * * *` (every 15 s) |
+| **Activation** | No per-job sysprop gate — controlled by `app.cron` only |
+| **Reads** | `outbox_message` rows with `status IN ('PENDING','FAILED_RETRY')` and `next_attempt_at <= NOW()` |
+| **Writes** | Per-row: flips row to `IN_FLIGHT` (claim), then to `SENT` / `FAILED_RETRY` / `FAILED_TERMINAL` depending on OMS HTTP response; deletes `SENT` rows older than 7 days at end of tick |
+| **Dispatch phases** | Phase 0 (REQUIRES_NEW via `OutboxService.reclaimStaleInFlight`): recover crashed `IN_FLIGHT` rows older than 5 min back to `FAILED_RETRY`. Phase 1 (REQUIRES_NEW via `OutboxService.claimDueBatch`): atomically flip PENDING/FAILED_RETRY → IN_FLIGHT, release row locks. Phase 2 (no tx held): HTTP POST per row via `HttpRestService.postWithIdempotencyKey`; each outcome committed independently via `OutboxService.mark*` (REQUIRES_NEW). |
+| **Per-step TX** | Each `OutboxService.mark*` call is REQUIRES_NEW — no transaction held across the OMS HTTP round-trip |
+| **Metrics** | `wms2.outbox.dispatched{outcome=sent|retry|terminal}` (Micrometer counter); `wms2.outbox.tick_duration` (Timer wrapping the full tenant loop) |
+| **Retry policy** | Exponential backoff: `nextAttemptAt = now + min(60s × 2^attempts, 1h)`. Max attempts: `app.outbox.dispatcher.max-attempts=5`. |
+| **Terminal failures** | 400/404/422 or attempts ≥ max — logged at ERROR with aggregate_type + aggregate_id + idempotency_key |
+| **Error resilience** | Per-tenant try-catch with `TenantContext.clear()` in `finally`; advisory lock + tick timer released in outer `finally` |
+| **Landlord connection note** | The advisory lock pins a raw landlord JDBC connection for the full tick duration. With N tenants × 15 s OMS read-timeout, worst-case pin = N × 15 s. Monitor `wms2.outbox.tick_duration` to detect landlord-pool saturation. |
+
+---
+
 ## 5. Infrastructure `@Scheduled` methods
 
 These run on every replica unconditionally. They do **not** take advisory locks — idempotent cache refreshers and safe to overlap.
@@ -305,6 +327,7 @@ See §4 of [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-da
 | `ReleaseExpiredPickingOrdersFromUserJob` | 100005L | every min at :40 (hard-coded) | `app.cron` + `NEW_CRON_JOB_ACTIVATED_KEY` | `PICK_TIME_OUT_SYSTEM_ACTIVATED_KEY` (default **false**) | per-save | per-tenant |
 | `StaleClubBatchCleanupJob` (SBDEV-2164) | 100006L | sysprop-driven cron | `app.cron` + `NEW_CRON_JOB_ACTIVATED_KEY` | `STALE_CLUB_BATCH_CLEANUP_ACTIVATED_KEY` | per-batch TX inside `cleanupStaleBatches()` | per-tenant |
 | `RestIdempotencyCleanupJob` (SBDEV-2222) | 100007L | `0 0 2 * * *` (app.properties) | `app.cron` only | none (no DB sysprop gate) | single DELETE per tenant | per-tenant |
+| `OutboxDispatcherJob` (SBDEV-2221) | 100008L | `*/15 * * * * *` (app.properties) | `app.cron` only | none (no DB sysprop gate) | REQUIRES_NEW per phase (claim, mark*, cleanup) | per-tenant |
 | `TenantConfigLoader.scheduledRefresh` | — | fixed delay 5m | unconditional | — | read-only | exception logged, cache held |
 | `TenantPoolEvictor.evictIdlePools` | — | fixed delay 5m | unconditional | — | none (no DB TX) | n/a |
 
@@ -322,7 +345,7 @@ See §4 of [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-da
 
 5. **Tenant context is manual everywhere in jobs.** Each business job sets/clears `TenantContext` in a per-tenant try/finally. A refactor that accidentally drops the `finally { TenantContext.clear(); }` would leak context across iterations — the next tenant's work would silently run against the previous tenant's DB.
 
-6. **No Micrometer timers on any job.** Current telemetry is `System.currentTimeMillis()` deltas written to logs. There are no dashboards; outlier runs are only visible if someone is actively log-diving.
+6. **~~No Micrometer timers on any job.~~** ✅ **Resolved by SBDEV-2238-4.5 (2026-05-18).** All five business cron jobs (`OrderReleaseJob`, `ReplenishOrderJob`, `StockSummaryExportJob`, `CleanUpOldMessagesJob`, `ReleaseExpiredPickingOrdersFromUserJob`) now emit Micrometer metrics via the new `JobMetrics` helper class (`schedulejob/JobMetrics.java`). Metrics per job: `wms2.cron.<job>.duration` (full-run Timer), `wms2.cron.<job>.tenant_duration{tenant}` (per-tenant Timer), `wms2.cron.<job>.success{tenant}`, `wms2.cron.<job>.failure{tenant,reason}`, `wms2.cron.<job>.skipped_lock_busy`, `wms2.cron.<job>.skipped_not_activated{tenant}`, `wms2.cron.<job>.rows_processed{tenant}`, `wms2.cron.<job>.last_run_epoch_seconds` and `last_success_epoch_seconds` gauges. `micrometer-registry-prometheus` added to `pom.xml`; `prometheus` added to `management.endpoints.web.exposure.include`. `OutboxDispatcherJob` already had its own Micrometer counters from SBDEV-2221. `StaleClubBatchCleanupJob` and `RestIdempotencyCleanupJob` are a **parity gap** — not instrumented in this ticket.
 
 7. **~~`CleanUpOldMessagesJob` batched delete loop is unbounded.~~** ✅ **Resolved by SBDEV-2220 (2026-05-10).** Batch size is now sysprop-driven (`CLEAN_UP_OLD_MESSAGES_BATCH_SIZE`, default 1000, clamped [1, 100000]), each batch runs in its own REQUIRES_NEW tx, and an optional inter-batch sleep is available via `CLEAN_UP_OLD_MESSAGES_BATCH_SLEEP_MS`. The loop terminates when a batch returns fewer than batchSize rows.
 
@@ -369,5 +392,7 @@ Not a runbook, but cross-referenced:
 | 2026-04-19 | All `@Scheduled` annotations under `src/main/java`, `AdvisoryLockService.JobLockId` constants, `SchedulingConfiguration` wiring, per-job activation/cron sysprop keys, error-handling shape, TX annotations on each inner service method, `TaskScheduler` bean definition, `SchedulingEnablementConfig` | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-08 | `service/job/*` directory contents (CleanUpOldMessageJobService, ReleaseOrderJobService, ReplenishOrderJobService, **StaleClubBatchCleanupJobService** — added by SBDEV-2164). `schedulejob/` contains 6 business jobs + 1 SchedulingConfiguration. `JobLockId` enum has 6 entries (added `STALE_CLUB_BATCH_CLEANUP = 100006L`). §1 overview, §2 lock-id table, §6 summary, §4.6 added. Group C resolutions (commits in `OrderReleaseJobService` / `ReplenishOrderJobService` re: optimistic-lock catches) confirmed: 9 sites of `OptimisticLockingFailureException` / `OptimisticLockException` catches across these two services per current source tree. | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-12 | SBDEV-2222: `RestIdempotencyCleanupJob.java` added to `schedulejob/`; `JobLockId.CLEANUP_REST_IDEMPOTENCY = 100007L` added to `AdvisoryLockService`; cron driven by `app.cron.cleanup-rest-idempotency=0 0 2 * * *` (no DB sysprop gate). §2 lock-id table, §4.7 detail block, §6 summary updated. `schedulejob/` now contains 7 business jobs. | §2 +1 row, §4.7 added, §6 +1 row confirmed against `src/main/java` | Code read (grep-based) |
+| 2026-05-17 | SBDEV-2221: `OutboxDispatcherJob.java` added to `schedulejob/`; `OutboxDispatchService.java` added to `service/job/`; `JobLockId.OUTBOX_DISPATCHER = 100008L` added to `AdvisoryLockService`; cron every 15 s (`app.cron.outbox-dispatcher=*/15 * * * * *`, no DB sysprop gate). §1 overview updated (7 business jobs), §2 lock-id table +1 row, §4.8 detail block added, §6 summary +1 row. `schedulejob/` now contains 8 business jobs. | §2 +1 row, §4.8 added, §6 +1 row confirmed against `src/main/java` | Code read (grep-based) |
+| 2026-05-18 | SBDEV-2238-4.5: `JobMetrics.java` helper added to `schedulejob/`; all 5 existing business cron jobs instrumented (`OrderReleaseJob`, `ReplenishOrderJob`, `StockSummaryExportJob`, `CleanUpOldMessagesJob`, `ReleaseExpiredPickingOrdersFromUserJob`). `micrometer-registry-prometheus` added to `pom.xml`; `prometheus` added to `management.endpoints.web.exposure.include`. §7.6 landmine resolved (was "No Micrometer timers on any job"). Parity gap: `StaleClubBatchCleanupJob` (100006L) and `RestIdempotencyCleanupJob` (100007L) not yet instrumented. | §7.6 resolved, verification log updated | Code read (grep-based) |
 
 **Re-verify every 60 days.** Next due: **2026-07-07** — or sooner if `app.cron` is enabled in production, new jobs added, or PgBouncer migration lands (items in §7 will change).

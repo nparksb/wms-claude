@@ -126,8 +126,9 @@ v1 `WmsConstants.State` (lines 20–109) has the same values as v2 for:
 | Business cron jobs | `OrderReleaseJob`, `ReplenishOrderJob`, `StockSummaryExportJob`, `CleanUpOldMessagesJob`, `ReleaseExpiredPickingOrdersFromUserJob` | **identical 5** |
 | Scheduling | `SchedulingConfigurer` + DB sysprops for cron expressions | same pattern |
 | Activation gate | `app.cron` (`application.properties:94`, default `false`) + `BasicService.isCron()` | `app.cron` |
-| `AdvisoryLockService` | **absent** — jobs have no cross-replica mutex | present; `JobLockId` constants `100001L–100005L` |
+| `AdvisoryLockService` | **absent** — jobs have no cross-replica mutex | present; `JobLockId` constants `100001L–100008L` (5 shared business jobs + 3 v2-only: `StaleClubBatchCleanupJob`, `RestIdempotencyCleanupJob`, `OutboxDispatcherJob`) |
 | `TenantPoolEvictor` / `TenantConfigLoader` `@Scheduled` | absent (no multi-tenancy) | present |
+| Micrometer job metrics | **absent** | present (SBDEV-2238-4.5): `wms2.cron.<job>.{duration,success,failure,skipped_lock_busy,rows_processed,last_run_epoch_seconds,last_success_epoch_seconds}` on all 5 shared business jobs; `/actuator/prometheus` enabled |
 
 **Porting impact — serious:** v1 runs a single instance; jobs firing concurrently is only theoretical (if an admin bounces the service during a run). v2 runs horizontally replicated; **without the advisory lock, `OrderReleaseJob` would execute on every replica simultaneously**, multiplying optimistic-lock storms. Any new v2 cron job MUST acquire an advisory lock via `AdvisoryLockService.tryLock(...)`. See [wms2-scheduled-jobs-catalog.md](./wms2-scheduled-jobs-catalog.md) §2 + §4.
 

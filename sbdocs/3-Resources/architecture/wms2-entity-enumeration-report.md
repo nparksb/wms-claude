@@ -100,6 +100,7 @@ public int hashCode() {
 | MessageArchived | `src/main/java/net/aim_ai/wms/model/MessageArchived.java` |
 | OrderDetailMonitorView | `src/main/java/net/aim_ai/wms/model/OrderDetailMonitorView.java` |
 | OrderMonitorView | `src/main/java/net/aim_ai/wms/model/OrderMonitorView.java` |
+| OutboxMessage | `src/main/java/net/aim_ai/wms/model/OutboxMessage.java` — SBDEV-2221 transactional outbox; `Status` inner enum (PENDING/IN_FLIGHT/SENT/FAILED_RETRY/FAILED_TERMINAL); `@Version int version` (optimistic lock) |
 | ParcelMonitorView | `src/main/java/net/aim_ai/wms/model/ParcelMonitorView.java` |
 | Pickingorder | `src/main/java/net/aim_ai/wms/model/Pickingorder.java` |
 | PickingorderPosition | `src/main/java/net/aim_ai/wms/model/PickingorderPosition.java` |

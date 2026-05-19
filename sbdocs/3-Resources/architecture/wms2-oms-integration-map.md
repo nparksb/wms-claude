@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms2
-last_verified: 2026-05-10
+last_verified: 2026-05-17
 ---
 
 # WMS2 ↔ OMS Integration Map
@@ -41,11 +41,13 @@ All inbound REST endpoints extend `AbstractRestController`, which validates `fac
 
 ### 1.3 SkuRestController — `POST /rest/sku`
 
-| Method | HTTP | Path | Request body | Success code | Purpose |
-|--------|------|------|-------------|-------------|---------|
-| `create` | PUT | `/rest/sku/create` | `List<SkuDto>` | 204 | Create new SKU/item-data records |
-| `update` | POST | `/rest/sku/update` | `List<SkuDto>` | 204 | Update existing SKU records |
-| `delete` | DELETE | `/rest/sku/delete` | `List<SkuDto>` | 204 | Delete SKU records |
+| Method | HTTP | Path | Request body | Success code | Validation failure | Purpose |
+|--------|------|------|-------------|-------------|-------------------|---------|
+| `create` | PUT | `/rest/sku/create` | `List<SkuDto>` | 204 | **422** (SBDEV-2235) | Create new SKU/item-data records |
+| `update` | POST | `/rest/sku/update` | `List<SkuDto>` | 204 | **422** (SBDEV-2235) | Update existing SKU records |
+| `delete` | DELETE | `/rest/sku/delete` | `List<SkuDto>` | 204 | 400 | Delete SKU records |
+
+> **SBDEV-2235 OMS contract change:** `/rest/sku/create` and `/rest/sku/update` now return `422 UNPROCESSABLE_ENTITY` on validation failure (previously 400). `/delete` remains 400. OMS-side parser must be updated to accept 422 before this ships. Coordinate with David Oppenheim.
 
 ### 1.4 StockCountRestController — `POST /rest/stockcount`
 
@@ -91,6 +93,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 | Sysprop key | Default OMS path | Triggered by | Java method | Payload |
 |------------|-----------------|-------------|-------------|---------|
 | `WEBSERVICE_ORDER_BATCH_SHIPPED` | `/services/call/finishedShipping` | BOL closed (`closeBOL`) | `BillofladingService.closeBOL()` | `BillOfLadingWebServiceDto` (includes BOL ID, pallets, orders, seal, truck, carrier, shared unique BOL ID, tracking device ID, transfer ID, source/destination warehouse) |
+
+> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). The other 16 `sendAfterCommit` call-sites remain unchanged (Phase-2 migration deferred).
 
 ### 2.3 Cancellation Callbacks
 
@@ -143,7 +147,9 @@ Operators consume this counter via `/actuator/metrics/wms2.oms.notification.fail
 
 ### 2.8 Message Resend
 
-`MessageService.resendMessage()` can replay any previously logged WMS→OMS message. It POSTs to the original `destination` URL stored in the `Message` record. This is the only retry path — there is no automatic retry on first failure.
+`MessageService.resendMessage()` can replay any previously logged WMS→OMS message. It POSTs to the original `destination` URL stored in the `Message` record. This is the only retry path for `sendAfterCommit`-based notifications — there is no automatic retry on first failure for those sites.
+
+For the **transactional outbox pilot site** (`BillofladingService.closeBOL`, SBDEV-2221), automatic retries ARE supported: `OutboxDispatcherJob` retries `FAILED_RETRY` rows with exponential backoff (`min(60s × 2^attempts, 1h)`) up to `app.outbox.dispatcher.max-attempts=5`. Terminal failures (4xx non-retryable or attempts exhausted) are logged at ERROR level with aggregate_type + aggregate_id + idempotency_key and metered at `wms2.outbox.dispatched{outcome=terminal}`.
 
 ---
 
@@ -227,7 +233,8 @@ This sysprop is defined in `WmsConstants` and its commented-out provisioning cod
 
 | Symptom | Likely cause | Where to look |
 |---------|-------------|---------------|
-| `400 Bad Request` with error map | Validation failure (`WebserviceBusinessExceptionClientSide`) | Response body — JSON error map with `error_code`, field name, offending DTO |
+| `400 Bad Request` with error map | Validation failure (`WebserviceBusinessExceptionClientSide`) on most endpoints | Response body — JSON error map with `error_code`, field name, offending DTO |
+| `422 Unprocessable Entity` with error map | Validation failure on `/rest/sku/create` and `/rest/sku/update` (SBDEV-2235) | Same JSON error map shape; `/rest/sku/delete` stays 400 |
 | `WRONG_FACILITY_CODE` error | `facility_code` in request does not match `MULTIWAREHOUSE_IDENTIFIER` sysprop | `sysprop` table, key `MULTIWAREHOUSE_IDENTIFIER` |
 | `ENTITY_ALREADY_EXISTS` on advice create | Duplicate `reference_id` / `transfer_id` | `advice` table — check `externalid` column |
 | `ENTITY_DOES_NOT_EXISTS` on order create | `client_id` not found in WMS | `client` table — `cl_nr` column |

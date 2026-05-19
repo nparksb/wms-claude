@@ -14,6 +14,7 @@ This folder contains Architecture Decision Records (ADRs) for the OWL WMS monore
 | [ADR-003](ADR-003-osiv-enabled-v1-disabled-v2.md) | OSIV Enabled in v1, Disabled in v2 | wms1+wms2 | Accepted |
 | [ADR-004](ADR-004-mixed-transactional-strategy-v1.md) | Mixed @Transactional Strategy in v1 | wms1 | Accepted |
 | [ADR-005](ADR-005-native-sql-over-jpql.md) | Native SQL Queries Over JPQL | wms1+wms2 | Accepted |
+| [ADR-006](ADR-006-single-warehouse-per-wms-instance.md) | Single-warehouse per WMS instance | wms2 | Accepted |
 
 ## Quick Reference
 
@@ -34,6 +35,7 @@ This folder contains Architecture Decision Records (ADRs) for the OWL WMS monore
 | v1 OMS notification silently not firing | ADR-004 |
 | Schema migration broke a query at runtime (was fine at startup) | ADR-005 |
 | v1 transaction committed when it should have rolled back | ADR-004 |
+| v2 REST `/rest/**` rejects a valid `facility_code` | ADR-006 |
 
 ## Related Docs
 

@@ -7,7 +7,7 @@ scope: transactions
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-13
+last_verified: 2026-05-17
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
   - ../workflows/wms2-replenish-workflow.md
@@ -167,7 +167,7 @@ Spot-fix rule: when reviewing a PR, grep it for `@Transactional` with no argumen
 
 | File | Purpose |
 |---|---|
-| `service/ParcelMonitorViewService.java:188,191,319,405` | Parcel shipped/packed OMS notifications |
+| `service/ParcelMonitorViewService.java:213,367,454` | Parcel shipped/packed OMS notifications (SBDEV-2232: lines shifted after pessimistic lock refactor) |
 | `service/OmsNotificationService.java:55` | Parcel-ready OMS notification |
 | `service/ReceivingService.java:532` | Post-commit audit of receiving advice |
 | `service/PickingorderBusinessService.java:256,505` | Pick event propagation |
@@ -179,9 +179,9 @@ Neither `TransactionTemplate` nor direct `PlatformTransactionManager.getTransact
 
 ---
 
-## 7. `REQUIRES_NEW` Inventory (21 sites)
+## 7. `REQUIRES_NEW` Inventory (28 sites)
 
-Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service, the sequence-transaction service, the inventory-record service (escapes the `readOnly=true` outer transaction in `WarehouseStockReportService.streamStockCount` per SBDEV-2219), the message-cleanup batch service (per-batch tx boundary for the daily message-cleanup loop — SBDEV-2220), or — as of SBDEV-2222 — the idempotency service (`persistResponse` commits the dedup row independently so a handler rollback doesn't wipe the stored response). The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
+Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service, the sequence-transaction service, the inventory-record service (escapes the `readOnly=true` outer transaction in `WarehouseStockReportService.streamStockCount` per SBDEV-2219), the message-cleanup batch service (per-batch tx boundary for the daily message-cleanup loop — SBDEV-2220), the idempotency service (SBDEV-2222 — `persistResponse` commits the dedup row independently so a handler rollback doesn't wipe the stored response), the outbox service (SBDEV-2221 — each `mark*` / claim / reclaim phase commits independently so no row lock is held across the OMS HTTP round-trip), or — as of SBDEV-2237 — `MobilePickingService.releaseClaimQuietly` (compensating RESERVED→PROCESSABLE reset after a fresh Tx-1 claim followed by Tx-2 failure). The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
 
 | File | Line | Method | Extra attributes |
 |---|---|---|---|
@@ -202,6 +202,13 @@ Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service,
 | `service/job/MessageCleanupBatchService.java` | 41 | `archiveOnce` | SBDEV-2220 — per-batch tx boundary for daily message cleanup (was previously a bare `@Transactional` on `MessageRepository.archiveMessages` binding to landlord TM) |
 | `service/job/MessageCleanupBatchService.java` | 53 | `deleteOnce` | SBDEV-2220 — per-batch tx boundary releases row locks between iterations so concurrent inserts on `message` are not blocked across the entire cleanup run (AC-2/AC-3) |
 | `service/RestIdempotencyService.java` | — | `persistResponse` | SBDEV-2222 — commits the dedup row (status + body) independently so a handler rollback does not delete the stored response; OMS replays must get the cached 2xx, not re-execute |
+| `service/mobile/MobilePickingService.java` | — | `releaseClaimQuietly` | SBDEV-2237 — compensating RESERVED→PROCESSABLE reset after fresh Tx-1 claim + Tx-2 failure; guard: `claimantUserId == operatorId AND state == RESERVED` before resetting (concurrent-claim safety) |
+| `service/OutboxService.java` | — | `reclaimStaleInFlight` | SBDEV-2221 — Phase 0: recover crashed `IN_FLIGHT` rows back to `FAILED_RETRY`; short independent tx so the next claimDueBatch sees them immediately |
+| `service/OutboxService.java` | — | `claimDueBatch` | SBDEV-2221 — Phase 1: atomically flip PENDING/FAILED_RETRY → IN_FLIGHT (`FOR UPDATE SKIP LOCKED`); commits immediately so row locks are released before Phase 2 HTTP POST begins |
+| `service/OutboxService.java` | — | `markSent` | SBDEV-2221 — per-row outcome commit; independent of other rows so one OMS 2xx does not wait for adjacent rows to complete |
+| `service/OutboxService.java` | — | `markRetry` | SBDEV-2221 — per-row retry commit with exponential backoff (`nextAttemptAt = now + min(60s × 2^attempts, 1h)`); independent of other rows |
+| `service/OutboxService.java` | — | `markTerminal` | SBDEV-2221 — per-row terminal-failure commit; independent of other rows |
+| `service/job/OutboxDispatchService.java` | — | `cleanupSent` | SBDEV-2221 — per-tenant bulk DELETE of `SENT` rows older than retention window; called at end of each tick from `OutboxDispatcherJob` (via Spring proxy — not via `this.`) |
 
 None uses a non-default isolation level — everything relies on PostgreSQL's `READ_COMMITTED`.
 
@@ -223,14 +230,14 @@ None uses a non-default isolation level — everything relies on PostgreSQL's `R
 | `ReplenishorderRepository` | 27 | `Replenishorder` |
 | `UnitloadRepository` | 29 | `Unitload` |
 | `LocationRepository` | 49 | `Location` |
-| `PickingorderRepository` | 22, 26 | `Pickingorder` (single + batch) |
+| `PickingorderRepository` | 22, 26 | `Pickingorder` (single + batch) — **1s `jakarta.persistence.lock.timeout` hint** on `findByIdForUpdate` (SBDEV-2237) |
 | `LosSequencenumberRepository` | 21 | `LosSequencenumber` |
 | `CustomerorderRepository` | 25 | `Customerorder` |
 | `CustomerorderBatchRepository` | 26 | `CustomerorderBatch` — **5s `jakarta.persistence.lock.timeout` hint** |
 | `BillofladingRepository` | 26 | `Billoflading` — **5s `jakarta.persistence.lock.timeout` hint** |
 | `CustomerorderPositionRepository` | 24 | `CustomerorderPosition` (sibling-read lock in `confirmPick`/`finishPickingOrder` — SBDEV-2223) |
 
-No `PESSIMISTIC_READ` anywhere — all pessimistic sites take a write lock. Only `CustomerorderBatch` and `Billoflading` bound their wait.
+No `PESSIMISTIC_READ` anywhere — all pessimistic sites take a write lock. `CustomerorderBatch` and `Billoflading` bound their wait to 5s; `PickingorderRepository.findByIdForUpdate` bounds to 1s (SBDEV-2237, interactive pick-claim path).
 
 ### 8.3 Retry — `OptimisticLockRetry` utility
 
@@ -275,7 +282,7 @@ No business-logic scheduler runs in-process. Replenish / release / cron-autoflus
 1. **Bare `@Transactional` silently uses landlord.** The `@Primary` marker on `landlordTransactionManager` means a tenant-data write without an explicit qualifier commits to the wrong DB — or throws "entity not managed" if the entity type isn't mapped on that EMF. Always qualify on tenant code.
 2. **Scheduled methods see no tenant.** `TenantContext` is ThreadLocal; the scheduler thread never had it set. New cron jobs that need tenant data must enumerate tenants and `set` the context per iteration. Root-cause pattern of `260331-cron-job-autoflush-optimistic-lock-debug-plan.md`.
 3. **`LosSequencenumber` has both `@Version` AND `PESSIMISTIC_WRITE`.** The `@Version` is defensive — the pessimistic lock is the primary mechanism. Don't remove the version field without verifying all call sites route through `findByIdForUpdate()`.
-4. **Most pessimistic locks have no timeout.** Only `CustomerorderBatch` and `Billoflading` use a 5s `jakarta.persistence.lock.timeout`. Under row contention the others will wait for the full Hikari connection-acquire window, which contributes to pool-exhaustion incidents (see `260424-connection-pool-exhaustion-fix-plan.md`).
+4. **Most pessimistic locks have no timeout.** `CustomerorderBatch` and `Billoflading` use a 5s `jakarta.persistence.lock.timeout`; `PickingorderRepository.findByIdForUpdate` uses 1s (SBDEV-2237, interactive pick-claim). The rest will wait for the full Hikari connection-acquire window under row contention, contributing to pool-exhaustion incidents (see `260424-connection-pool-exhaustion-fix-plan.md`).
 5. **`REQUIRES_NEW` ×20 = 20 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
 6. **`TenantDynamicRoutingDataSource` falls back to landlord when no context is set** (line 40). A bug that clears the ThreadLocal mid-request would route subsequent writes to landlord without an error until a schema mismatch surfaces downstream.
 7. **Post-commit hooks can silently no-op.** If `TransactionSynchronizationManager.isSynchronizationActive()` is `false` at the call site, the sync is never registered. When a service method that uses `registerSynchronization` is invoked outside a transaction (e.g. from a test or an unusual caller), the side-effect simply drops.
@@ -298,6 +305,10 @@ None recorded yet. Candidates that should be written up:
 |---|---|---|---|
 | 2026-04-19 | OSIV value, both TM beans, routing DS, `@Transactional` / `@Version` / `@Lock` inventories, scheduled methods, retry utility | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-12 | §8.2 pessimistic count updated 11→12: added `CustomerorderPositionRepository.findByOrderIdForUpdate` (SBDEV-2223 — sibling-read lock for `confirmPick`/`finishPickingOrder` last-pick detection race) | Count confirmed by grep; `@RestResource(exported=false)` guard added | SBDEV-2223 fix review |
+| 2026-05-15 | SBDEV-2234: `ReplenishmentOrderMaintenanceService.recalculateForItem(Long)` now `@Transactional(tenantTransactionManager)` (previously non-transactional). `SyspropService.setSysvalue(String,String)` added as `@Transactional(tenantTransactionManager)` + `@CacheEvict`. `recalculateOpenOrders(boolean)` intentionally remains NON-transactional (260331 decision). `ReplenishorderRepository.findByIdForUpdate` (§8.2 — already counted) is now actively called by `recalculateOrder`. | All annotations confirmed by grep | SBDEV-2234 fix review |
+| 2026-05-15 | SBDEV-2235: New `SkuBatchCreateUpdateService.upsertAll(...)` added as `@Transactional(value="tenantTransactionManager", rollbackFor={WebserviceBusinessExceptionClientSide.class, BusinessException.class})`. `SkuRestController.create()` and `.update()` refactored to two-phase: Phase 1 validates all inputs + resolves all lookups (no writes), Phase 2 delegates to `upsertAll`. Self-recursion `this.create(createList)` inside `update()` DELETED (bypassed CGLIB proxy). `/create` and `/update` validation-failure status changed 400 → 422; `/delete` unchanged at 400. `@CacheEvict(value="itemdata", allEntries=true)` retained on both controller methods. No new lock sites. | All annotations confirmed by grep + verify script 23/24 pass (AC21 = pre-existing SBDEV-2230 incomplete) | SBDEV-2235 fix review |
+| 2026-05-15 | SBDEV-2237: `MobilePickingService.selectAndReservePickingOrder` — `@Transactional` removed; replaced with two programmatic `TransactionTemplate` TXs (Tx-1 `claimPickingOrderAtomically` acquires `SELECT FOR UPDATE` + reserves; Tx-2 `finalizePickingOrderForStart` re-reads entity + handles RAPID_PICKING/finish). New `releaseClaimQuietly` compensating method added with `PROPAGATION_REQUIRES_NEW` (§7 count 21→22). `PickingorderRepository.findByIdForUpdate` gains 1s `jakarta.persistence.lock.timeout` hint (§8.2 updated). `processPickingOrderForStart` deleted; residual subset inlined into `resumePickingOrderIfExists`. | All changes confirmed by verify script (21 pass, 1 fail = pre-existing mvn failures) | SBDEV-2237 lock-split fix review |
+| 2026-05-17 | SBDEV-2221: 6 new REQUIRES_NEW sites added (§7 count 22→28): `OutboxService.reclaimStaleInFlight`, `OutboxService.claimDueBatch`, `OutboxService.markSent`, `OutboxService.markRetry`, `OutboxService.markTerminal`, `OutboxDispatchService.cleanupSent`. Pattern: claim-then-release — Phase 1 commits (releasing `FOR UPDATE SKIP LOCKED` row locks) before Phase 2 HTTP POST begins; each per-row outcome commits independently so no tenant-pool connection is held across the OMS round-trip. `BillofladingService.closeBOL` enqueue method is MANDATORY (joins caller's tx), not REQUIRES_NEW. | All 6 new sites confirmed by grep; TDD gate tests pass (5/5) | SBDEV-2221 outbox pilot implementation |
 
 **Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-07-11.
 

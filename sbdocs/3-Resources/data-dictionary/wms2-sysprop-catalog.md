@@ -7,7 +7,7 @@ scope: sysprops
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-13
+last_verified: 2026-05-15
 verified_by: code read of v2/wms2-api WmsConstants.java:879-1069 and SyspropService.java
 related:
   - ../architecture/wms2-scheduled-jobs-catalog.md
@@ -130,6 +130,17 @@ This job does **not** use DB sysprop rows. Its schedule and idempotency enforcem
 | `app.cron.cleanup-rest-idempotency` | `0 0 2 * * *` | Cron expression for nightly dedup-table cleanup (02:00 daily) |
 | `app.idempotency.enforce` | `true` | When `false`, `IdempotencyFilter` passes through all `/rest/**` writes without dedup (dev bypass) |
 
+### 4.7 OutboxDispatcherJob (SBDEV-2221) — application.properties only
+
+This job does **not** use DB sysprop rows. All tuning knobs are controlled by `application.properties` entries.
+
+| Property | Default | Role |
+|---|---|---|
+| `app.cron.outbox-dispatcher` | `*/15 * * * * *` | Cron expression — every 15 s; override to slow down in dev |
+| `app.outbox.dispatcher.batch-size` | `10` | Max rows claimed per tenant per tick (`FOR UPDATE SKIP LOCKED`) |
+| `app.outbox.dispatcher.max-attempts` | `5` | Attempts before a row is marked `FAILED_TERMINAL`; conservative until OMS confirms idempotency-key support |
+| `app.outbox.dispatcher.retention-days` | `7` | Days to retain `SENT` rows before cleanup at the end of each tick |
+
 ---
 
 ## 5. OMS Integration Webservice URLs
@@ -176,6 +187,7 @@ These drive `ReplenishOrderJob` and `ReplenishmentOrderMaintenanceService`.
 | `REPLENISHMENT_ALLOW_ANY_UNIT_LOAD` | `true` | Accept any unit load during replenish |
 | `REPLENISHMENT_SHOW_UNIT_LOAD` | `true` | UI flag — show unit load on replenish screen |
 | `REPLENISHMENT_RECALCULATION_CADENCE_SECONDS` | `0` | Min seconds between recalc passes (`0` = no throttle) |
+| `REPLENISHMENT_RECALCULATION_LAST_RUN_EPOCH_MS` | `0` | Epoch-ms timestamp of the last completed `recalculateOpenOrders` pass. Replaces the JVM-local `lastRun` field (SBDEV-2234). Written by `ReplenishmentOrderMaintenanceService.setLastRun` via `SyspropService.setSysvalue`; evicts the `sysprops` Caffeine cache on write. Absent row treated as `Instant.EPOCH` (cadence always elapsed). |
 | `REPLENISHMENT_CANCEL_THRESHOLD_FRACTION` | `0.0` | Auto-cancel threshold (fraction of outstanding demand) |
 | `REPLENISHMENT_PAGE_SIZE` | `1000` | Page size for paginated drain-queue loops in `ReplenishOrderJob` (all 6 sub-ops). Introduced SBDEV-2228. |
 | `REPLENISHMENT_PAGE_LIMIT` | `100` | Max drain-queue iterations per sub-op (all 6 sub-ops including 6a). All sub-ops use drain-queue; empty-page terminates normally. Introduced SBDEV-2228. |
@@ -298,7 +310,7 @@ No `*_DEFAULT_VALUE` constants — **these rows must be populated per-tenant** o
 | `MULTIWAREHOUSE_IDENTIFIER` | `add_identifier` (placeholder) | Multi-WH routing tag |
 | `ORDER_MONITOR_CALCULATE_OLDER_THAN_DAYS` | `10` | Order-monitor view lookback |
 | `EXPORT_LIMIT` | `10000` | Max rows per CSV export |
-| `EXPORT_DATE_FORMAT` | `YYYY-MM-dd HH:mm:ss.SSS` | CSV export date format |
+| `EXPORT_DATE_FORMAT` | `yyyy-MM-dd HH:mm:ss.SSS` | CSV export date format |
 | `CSV_FILE_SEPARATOR` | `,` | CSV column separator |
 | `DB_VERSION` | — | Current DB schema version (read-only) |
 | `OMS_TENANT_ID` | — | OMS-side tenant identifier |
