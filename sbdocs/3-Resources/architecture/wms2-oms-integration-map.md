@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms2
-last_verified: 2026-05-17
+last_verified: 2026-05-19
 ---
 
 # WMS2 ↔ OMS Integration Map
@@ -94,7 +94,7 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 |------------|-----------------|-------------|-------------|---------|
 | `WEBSERVICE_ORDER_BATCH_SHIPPED` | `/services/call/finishedShipping` | BOL closed (`closeBOL`) | `BillofladingService.closeBOL()` | `BillOfLadingWebServiceDto` (includes BOL ID, pallets, orders, seal, truck, carrier, shared unique BOL ID, tracking device ID, transfer ID, source/destination warehouse) |
 
-> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). The other 16 `sendAfterCommit` call-sites remain unchanged (Phase-2 migration deferred).
+> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). Five additional call-sites were migrated in SBDEV-2238 Phase-2 (2026-05-19): `CustomerorderService.cancelOrder`, `CustomerorderBatchService.cancelBatch`, `AdviceService.acceptHubAndSpokeAdvice`, `AdviceService.close`, and `AdviceService.acceptTransferAdvice` — see §2.3 and §2.4 notes. The remaining 11 `sendAfterCommit` call-sites are deferred to Phase-3.
 
 ### 2.3 Cancellation Callbacks
 
@@ -106,6 +106,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 
 > **Note on CustomerorderService cancel:** When `cancellationFromWithinWMS=true`, `cancelOrder()` sends a notification using the `WEBSERVICE_STOCK_COUNT_URL_KEY` sysprop (not the cancel URL). The `MessageProcessType` is `ORDER_BATCH_CANCELLED_FROM_WMS`. This is a known inconsistency — the stock-count URL is reused to signal a WMS-initiated cancellation.
 
+> **SBDEV-2238 Phase-2 (2026-05-19):** `CustomerorderBatchService.cancelBatch` and `CustomerorderService.cancelOrder` no longer call `omsNotificationService.sendAfterCommit`. Both now call `outboxService.enqueue(OutboxMessage)` inside the still-open tenant transaction — the outbox row and the state change commit atomically. `aggregateType` is `CUSTOMER_ORDER_BATCH` (for `cancelBatch`) and `CUSTOMER_ORDER` (for `cancelOrder`). Serialisation failure throws `FacadeException` and rolls back the state change. `UtilRestController.resetOrdersInReleasedStatus` (admin loop) wraps `cancelOrder` in try/catch so a serialisation failure logs-and-continues rather than aborting the loop.
+
 ### 2.4 Inbound Advice Callbacks (AdviceService)
 
 | Sysprop key | Default OMS path | Triggered by | Java method | Payload |
@@ -113,6 +115,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 | `WEBSERVICE_CLOSE_ADVICE` | `/services/call/closeAdvice` | Regular advice (purchase order) closed after receiving | `AdviceService.close()` | `AdviceDto` (with actual received quantities per position) |
 | `WEBSERVICE_ACCEPT_TRANSFER` | `/services/call/closeTransfer` | Transfer advice accepted (all stock received) | `AdviceService.acceptTransferAdvice()` | `AcceptTransferDto` (transfer ID only) |
 | `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `/services/call/receiveHubAndSpoke` | Hub-and-spoke advice accepted | `AdviceService.acceptHubAndSpokeAdvice()` | `HubAndSpokeAcceptDto` (positions accepted) |
+
+> **SBDEV-2238 Phase-2 (2026-05-19):** All three `AdviceService` callers (`acceptHubAndSpokeAdvice`, `close`, `acceptTransferAdvice`) no longer call `omsNotificationService.sendAfterCommit`. All three now call `outboxService.enqueue(OutboxMessage)` inside the still-open tenant transaction — the outbox row and the advice state change commit atomically. `aggregateType` for all three is `ADVICE`. Serialisation failure throws `FacadeException` and rolls back the state change. `AdviceController.closeMultipleInboundBol` and `closeInboundBol` catch `FacadeException` in addition to `BusinessException`.
 
 ### 2.5 Inventory Callbacks (MessageService / ItemDataController / StockSummaryExportJob)
 
@@ -264,4 +268,4 @@ Implemented in SBDEV-2222. OMS retries POST/PUT on network failure; WMS deduplic
 
 ---
 
-*Source files verified: `controller/rest/OrderRestController.java`, `AdviceRestController.java`, `SkuRestController.java`, `StockCountRestController.java`, `TransactionReportRestController.java`, `AbstractRestController.java`; `service/ManageOrderService.java`, `AdviceService.java`, `BillofladingService.java`, `CustomerorderBatchService.java`, `CustomerorderService.java`, `MessageService.java`, `HttpRestService.java`, `WmsConstants.java` (lines 873–909); `controller/ItemDataController.java`, `AdminActionController.java`; `schedulejob/StockSummaryExportJob.java`. v1 delta verified against `v1/wms-api` equivalents.*
+*Source files verified: `controller/rest/OrderRestController.java`, `AdviceRestController.java`, `SkuRestController.java`, `StockCountRestController.java`, `TransactionReportRestController.java`, `AbstractRestController.java`, `rest/UtilRestController.java`; `controller/AdviceController.java`; `service/ManageOrderService.java`, `AdviceService.java`, `BillofladingService.java`, `CustomerorderBatchService.java`, `CustomerorderService.java`, `MessageService.java`, `HttpRestService.java`, `WmsConstants.java` (lines 873–909); `controller/ItemDataController.java`, `AdminActionController.java`; `schedulejob/StockSummaryExportJob.java`. v1 delta verified against `v1/wms-api` equivalents.*
