@@ -2,7 +2,7 @@
 
 ## Context
 
-The Flyway migration `V1.1.08__update_dashboard_summary_view.sql` already adds an `order_loaded_to_truck` column to the `order_monitor_view` database view (counting orders with `state = 680`). However, this new column is **not yet propagated** through the backend Java layers or displayed in the frontend. This plan covers the full stack changes needed to surface the data.
+The Flyway migration `V2.1.03__update_dashboard_summary_view.sql` already adds an `order_loaded_to_truck` column to the `order_monitor_view` database view (counting orders with `state = 680`). However, this new column is **not yet propagated** through the backend Java layers or displayed in the frontend. This plan covers the full stack changes needed to surface the data.
 
 ---
 

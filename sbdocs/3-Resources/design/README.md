@@ -30,6 +30,8 @@ See also: [vault index](../../INDEX.md) · [architecture](../architecture/) · [
 |---|---|---|
 | [wms2-stockunit-design.md](./wms2-stockunit-design.md) | `StockUnit` entity model in v2 — fields, state lifecycle, relationships to Unitload/Position, v1↔v2 differences | Editing v2 stock quantity logic; tracing a v2 stock discrepancy; understanding v2 inventory data model |
 | [wms2-replenishment-design.md](./wms2-replenishment-design.md) | Replenishment flow design — trigger conditions, state machine, `ReplenishmentorderService`, job integration | Editing replenishment logic; debugging stuck replenishment orders; planning changes to replenish triggers |
+| [wms2-rest-idempotency-design.md](./wms2-rest-idempotency-design.md) | `IdempotencyFilter` + `RestIdempotencyService` — key derivation, `enforce` flag, all four `ClaimResult` outcomes, `enforce=false` bypass behaviour | Debugging duplicate OMS requests; changing idempotency config; planning `/rest/**` endpoint changes; understanding 409 responses |
+| [wms2-rest-api-reference.md](./wms2-rest-api-reference.md) | Full OMS-facing REST API reference — all 5 controllers (`/rest/advice`, `/rest/order`, `/rest/sku`, `/rest/stockcount`, `/rest/report`); every endpoint's HTTP method, request/response schemas, required fields, error codes, batch types, idempotency behaviour | Integrating OMS with WMS; debugging 400 errors from `/rest/**`; writing or reviewing OMS→WMS call sequences; onboarding new integration developers |
 
 ---
 

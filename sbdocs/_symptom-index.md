@@ -88,7 +88,11 @@ This is the **authoritative** version. The per-doc "How to debug" sections are s
 
 | Symptom | Start at |
 |---|---|
-| OMS never received picking notification | 📕 [picking-workflow §11](3-Resources/workflows/wms2-picking-workflow.md) + `message` / `message_archived` tables |
+| OMS never received picking notification | 📕 [picking-workflow §11](3-Resources/workflows/wms2-picking-workflow.md) + `message` / `message_archived` tables — if `pickingconfirmationsent=true` AND zero `message` rows, use ▶ [runbook: resend picking-finished](2-Areas/runbooks/wms2-resend-picking-finished-notification.md) |
+| OMS reports "No Parcel Found" for a tote after picking | ▶ [runbook: resend picking-finished](2-Areas/runbooks/wms2-resend-picking-finished-notification.md) §4–§5 — systemic double-`afterCommit` drop |
+| OMS QA does not trigger after picker presses Release | ▶ [runbook: resend picking-finished](2-Areas/runbooks/wms2-resend-picking-finished-notification.md) §3–§5 — confirm `pickingconfirmationsent=true` + zero `message` rows |
+| OMS QA screen shows "parcel is currently in Picking status" after outbox PICKING_FINISHED dispatched | 📋 [investigation report](3-Resources/reports/260521-wms2-qa-blocked-tote-label-and-message-log-gap.md) — `tote_label` absent from WMS payload for pick-pack orders (no tote assigned); OMS silently skips position and parcel stays at status 24; fix: always send non-empty `tote_label` |
+| Outbox-dispatched notifications absent from Service Log (message table) | 📋 [investigation report](3-Resources/reports/260521-wms2-qa-blocked-tote-label-and-message-log-gap.md) — `OutboxDispatchService` has no `MessageService` dependency; fix: inject `MessageService` and call `createMessage()` after each dispatch |
 | OMS never received cancel notification | 📕 [cancel-cascade-workflow §6](3-Resources/workflows/wms2-cancel-cascade-workflow.md) — check `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` (default `false`) |
 | OMS got "cancel" before it actually persisted | 📕 [cancel-cascade-workflow §11 item 6 / archive](3-Resources/workflows/wms2-cancel-cascade-workflow.md) — use `registerSynchronization`, never sync callback in `@Transactional` |
 | OMS never got `SHIPPED` after BOL close | 📕 [bol-truck-loading-workflow §12](3-Resources/workflows/wms2-bol-truck-loading-workflow.md) — check for rollback between write and commit |
@@ -117,6 +121,7 @@ This is the **authoritative** version. The per-doc "How to debug" sections are s
 | Unexpected pick order appeared | 📕 [picking-workflow §7](3-Resources/workflows/wms2-picking-workflow.md) — merge pass (`ReplenishOrderJob.mergePickingOrders`) |
 | Operator can't finish pick — validation error | 📕 [picking-workflow §5](3-Resources/workflows/wms2-picking-workflow.md) — guard table at MobilePickingService lines 222–340 |
 | `Pickingorder=FINISHED` but `Customerorder=STARTED` | 📕 [picking-workflow §4](3-Resources/workflows/wms2-picking-workflow.md) + 📘 [state-machine §5.5](3-Resources/architecture/wms2-state-machine-catalog.md) — missed branch in `finalizePicking` |
+| `Pickingorder=FINISHED`, `pickingconfirmationsent=true`, but OMS never got the event | ▶ [runbook: resend picking-finished](2-Areas/runbooks/wms2-resend-picking-finished-notification.md) — double-`afterCommit` drop; zero `message` rows is the confirmation |
 | Rapid-pick cancel left `Pickingorder` in `PROCESSABLE` | 📕 [picking-workflow §6](3-Resources/workflows/wms2-picking-workflow.md) — expected rapid-pick side-door |
 | Club-order cancel didn't cascade to Pickingorder | 📕 [club-run-workflow §6.1](3-Resources/workflows/wms2-club-run-workflow.md) + [cancel §7](3-Resources/workflows/wms2-cancel-cascade-workflow.md) — UUID `historytote` semantics |
 

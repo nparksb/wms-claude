@@ -82,7 +82,7 @@ Two load-bearing facts to anchor the journey:
  │                                                                                        │
  │ 6. Spring Security (MultiTenantJwtDecoder) validates JWT                               │
  │    resolves tenant-specific Keycloak realm via TenantAuthConfigCache                   │
- │    jwtDecoders.computeIfAbsent(tenantKey, ...) — per-tenant decoder cache              │
+ │    jwtDecoders.get(tenantKey, ...) — per-tenant Caffeine decoder cache (24h TTL)              │
  │                                                                                        │
  │ 7. Controller dispatch — no @Transactional here (rule)                                 │
  │                                                                                        │
@@ -194,7 +194,7 @@ Public endpoints (prefix `/api/public/`) are exempt: `TenantContext` is set to `
 
 ### 4.2 Spring Security — `MultiTenantJwtDecoder`
 
-Resolves the tenant-specific Keycloak realm via `TenantAuthConfigCache` (populated by `TenantConfigLoader.scheduledRefresh`). Caches per-tenant `JwtDecoder` instances via `jwtDecoders.computeIfAbsent(tenantKey, ...)` to avoid rebuilding JWK sets per request.
+Resolves the tenant-specific Keycloak realm via `TenantAuthConfigCache` (populated by `TenantConfigLoader.scheduledRefresh`). Caches per-tenant `JwtDecoder` instances in a bounded Caffeine cache (`expireAfterWrite(24h)`, `maximumSize(200)` — GAP F fix, 260610 Phase B) via `jwtDecoders.get(tenantKey, ...)` to avoid rebuilding JWK sets per request; landlord auth-config changes propagate within the TTL.
 
 ### 4.2.1 `IdempotencyFilter` — REST write deduplication (SBDEV-2222)
 
@@ -202,7 +202,8 @@ Wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuth
 
 - Applies only to non-GET `/rest/**` requests (skips `/rest/stockcount/**` and `/rest/transactionreport/**`).
 - Rejects anonymous callers (defence-in-depth against filter-order regression).
-- Falls through when no `Idempotency-Key` header is present (back-compat with legacy OMS).
+- Skips dedup for oversized bodies (> `app.idempotency.max-body-bytes`, default 5 MB) — DoS guard.
+- **Auto-derives idempotency key** from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` when no `Idempotency-Key` header is present (260520). An explicit header overrides the auto-derived key (back-compat for OMS callers).
 - On first request: inserts a claim row atomically (`ON CONFLICT DO NOTHING RETURNING`) → forwards to handler.
 - On replay: returns cached 2xx response directly; evicts Caffeine `itemdata` cache for `/rest/sku/**` replays.
 - On handler exception: passes `SC_INTERNAL_SERVER_ERROR` to `persistResponse`, which deletes the claim row so OMS may retry.

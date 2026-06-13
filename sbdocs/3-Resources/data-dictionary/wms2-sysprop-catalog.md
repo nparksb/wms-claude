@@ -129,6 +129,8 @@ This job does **not** use DB sysprop rows. Its schedule and idempotency enforcem
 |---|---|---|
 | `app.cron.cleanup-rest-idempotency` | `0 0 2 * * *` | Cron expression for nightly dedup-table cleanup (02:00 daily) |
 | `app.idempotency.enforce` | `true` | When `false`, `IdempotencyFilter` passes through all `/rest/**` writes without dedup (dev bypass) |
+| `app.idempotency.max-body-bytes` | `5242880` (5 MB) | Requests with body exceeding this size bypass dedup (DoS guard). Checked against Content-Length header first; authoritative post-buffering check handles chunked encoding. |
+| `app.idempotency.bridge-mode` | `false` | Set `true` during the UUID→SHA-256 transition window (first 7 days after 260520 deploy) to replay pre-existing UUID-keyed 2xx rows. Disable after Day+7 to avoid extra DB roundtrip on every CLAIMED request. |
 
 ### 4.7 OutboxDispatcherJob (SBDEV-2221) — application.properties only
 
@@ -294,7 +296,7 @@ No `*_DEFAULT_VALUE` constants — **these rows must be populated per-tenant** o
 | Key | Default | Purpose |
 |---|---|---|
 | `PICK_SCREEN_SIMPLE` | `false` | Simplified pick screen variant |
-| `PICK_PATH_DIRECTION` | `VERTICAL` | Sort direction for picking, putaway, cycle-count, and move-stock: `VERTICAL` = column-first (X→Y), `HORIZONTAL` = row-first (Y→X). Read via `PickPathConfig` → `SyspropService` (cached per-tenant). Seeded by migration V1.1.14. |
+| `PICK_PATH_DIRECTION` | `VERTICAL` | Sort direction for picking, putaway, cycle-count, and move-stock: `VERTICAL` = column-first (X→Y), `HORIZONTAL` = row-first (Y→X). Read via `PickPathConfig` → `SyspropService` (cached per-tenant). Seeded by migration V2.1.09. |
 
 ### Misc
 

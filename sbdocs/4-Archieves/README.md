@@ -22,7 +22,7 @@ See also: [vault index](../INDEX.md) · [plan template](../9-System/templates/wm
 |---|---|---|
 | [wms1/plan/](wms1/plan/) | Completed v1 plans (fixes, feature ports, migrations, audits) | ~40 |
 | [wms1/analysis/](wms1/analysis/) | Closed v1 investigations & root-cause reports | ~3 |
-| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | ~64 |
+| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | ~107 |
 | [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | *(currently empty)* |
 
 > Live counts are approximate — run `ls wms*/plan | wc -l` to refresh. Treat Dataview output below as authoritative in Obsidian.

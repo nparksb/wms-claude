@@ -13,8 +13,8 @@ related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ../workflows/wms2-replenish-workflow.md
   - ../workflows/wms2-replenish-order-creation.md
-  - ../../1-Projects/wms2/plan/260320-Auto_Release_Club_Transfer_Lane_Fix.md
-  - ../../1-Projects/wms2/plan/SBDEV-2102-putaway-unit-load-not-found-stuck.md
+  - ../../4-Archieves/wms2/plan/260320-Auto_Release_Club_Transfer_Lane_Fix.md
+  - ../../4-Archieves/wms2/plan/SBDEV-2102-putaway-unit-load-not-found-stuck.md
   - ../../4-Archieves/wms2/plan/260424-Cancel_Club_Parcels_Packed_State_Fix.md
   - ../../4-Archieves/wms2/plan/260424-Cancel_Order_Null_SectionId_And_Early_Return_Fix.md
   - ../../4-Archieves/wms2/plan/260424-RunClubLine_Cancelled_Order_Fix_Plan.md
@@ -193,9 +193,9 @@ Common numeric-order guards you'll see in code:
 |---|---|
 | `service/CustomerorderBatchService.java:427` (`activateBatch`) | → `ORDER_BATCH_ACTIVATED` |
 | `service/CustomerorderBatchService.java:434` (`assignStagingLane`) | → `ORDER_BATCH_STAGING_LANE_ASSIGNED` |
-| `service/CustomerorderBatchService.java:565` (`startClubRun`) | → `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` |
-| `service/CustomerorderBatchService.java:639` (`finishClubRun`) | → `ORDER_BATCH_CLUB_RUN_FINISHED` |
-| `service/CustomerorderBatchService.java:661` (error recovery) | → `originalState` (rollback from club run) |
+| `service/CustomerorderBatchService.java:606` (`startClubRun`) | → `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` |
+| `service/CustomerorderBatchService.java:689` (`finishClubRun`) | → `ORDER_BATCH_CLUB_RUN_FINISHED` |
+| `service/CustomerorderBatchService.java:709` (error recovery) | → `originalState` (rollback from club run) |
 | `service/CustomerorderBatchService.java:279,339` (`cancelBatch`) | → `CANCELED` |
 | `service/CustomerorderBatchService.java:358` (`finalizeBatchIfComplete`) | → `CANCELED` or `FINISHED` depending on child orders |
 
@@ -343,7 +343,7 @@ State drift is a known operational hazard; these are the sanctioned fixes:
 | Batch reset | `controller/rest/OrderRestController.java:350` | Sets `CustomerorderBatch` → `RAW` |
 | Advice reopen | `controller/rest/AdviceRestController.java:648` | `FINISHED`/`CLOSED` → `OPEN` |
 | Release job | `service/job/ReleaseOrderJobService.java` | Scheduled re-evaluation of `RAW` / `FUTURE_PICKING_DATE` / `RAW_ON_HOLD_*` / `CLIENT_HAS_NO_SECTION` orders; ~70 setState calls across hold/release logic |
-| Club-run error recovery | `service/CustomerorderBatchService.java:661` | Rolls back from `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` to `originalState` on exception |
+| Club-run error recovery | `service/CustomerorderBatchService.java:709` | Rolls back from `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` to `originalState` on exception |
 
 Outside these paths, there is no safe way to "fix" a stuck state — direct SQL updates bypass all cascades and will desync children.
 
@@ -360,7 +360,7 @@ Outside these paths, there is no safe way to "fix" a stuck state — direct SQL 
 7. **Scheduled `ReleaseOrderJobService` writes ~70 state mutations.** Combined with `@Transactional(REQUIRES_NEW)` per step, this is the hottest optimistic-lock site in the app (see `WMS_V2_Horizontal_Scaling_Concurrency_Report`).
 8. **`BillofladingService.finishClubRun` sets `Customerorder → PACKED` on behalf of the batch.** Order may not actually have been packed via normal flow; the batch-close method is asserting state on children. If you change the order state machine, audit this path.
 9. **No Pickingorder terminal `FINISHED` writer outside mobile.** `MobilePickingService:267` is the only writer that sets `Pickingorder → FINISHED`. If a non-mobile codepath needs to reach `FINISHED`, you currently have to route through mobile-owned logic — a factoring problem flagged in `WMS_API_Problem_Areas_Analysis_And_Refactoring_Plan`.
-10. **`CustomerorderBatchService:661` revert-to-originalState.** The only "revert" pattern in the codebase. It's narrowly scoped to club-run failures. Do not generalize it to a reusable helper — the caller-specific context is what makes it safe.
+10. **`CustomerorderBatchService:709` revert-to-originalState.** The only "revert" pattern in the codebase. It's narrowly scoped to club-run failures. Do not generalize it to a reusable helper — the caller-specific context is what makes it safe.
 
 ---
 

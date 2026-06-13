@@ -36,7 +36,7 @@ Three sibling plans, all targeting `v2/wms2-api`:
 | # | Plan | What it does | Owning file |
 |---|---|---|---|
 | **P1** | H2 migration | Swap Testcontainers-PostgreSQL for H2 in-memory where portable; retain a small `postgres-integration` profile for PG-specific tests; fix landlord datasource wiring; rebuild the 17 currently-`@Disabled` tests | [260420-v2-integration-tests-h2-migration-report.md](./260420-v2-integration-tests-h2-migration-report.md) |
-| **P2** | PL/pgSQL → Java | Move the 3 PL/pgSQL functions (`stock_history`, `transaction_detail`, `transaction_summary`) into Java services with staged 4-phase flag-gated rollout; new Flyway `V1.1.13` drops functions in the final phase | [260420-v2-port-plpgsql-functions-to-java.md](./260420-v2-port-plpgsql-functions-to-java.md) |
+| **P2** | PL/pgSQL → Java | Move the 3 PL/pgSQL functions (`stock_history`, `transaction_detail`, `transaction_summary`) into Java services with staged 4-phase flag-gated rollout; new Flyway `V2.1.08` drops functions in the final phase | [260420-v2-port-plpgsql-functions-to-java.md](./260420-v2-port-plpgsql-functions-to-java.md) |
 | **P3** | Advisory lock refactor | Extract `JobLockService` interface; production keeps `pg_try_advisory_lock`; test profile uses an in-memory impl; adds startup safety guard to prevent misconfigured prod | [260421-v2-replace-pg-advisory-lock.md](./260421-v2-replace-pg-advisory-lock.md) |
 
 Together these deliver: **`mvn verify` runs on H2 without Docker for the bulk of the suite**, with a small opt-in Testcontainers-PG lane for the few tests that must stay on PostgreSQL.
@@ -67,7 +67,7 @@ parallel with H2 §2)                                                           
                                                                                                                             │
                                                                                                                             ▼
                                                                                                          P2 Phase D: drop functions
-                                                                                                         (V1.1.13, optional cleanup)
+                                                                                                         (V2.1.08, optional cleanup)
 ```
 
 Key dependencies stated plainly:
@@ -133,10 +133,10 @@ Only P2 touches migrations, and only at Phase D:
 | Plan | New migration | Touches existing migrations? | Test profile impact |
 |---|---|---|---|
 | P1 (H2 migration) | None | No | Already has `spring.flyway.enabled=false` for H2; Hibernate `create-drop` from entities |
-| P2 (PL/pgSQL → Java) | **`V1.1.13__drop_report_functions.sql`** at Phase D only | No | Testcontainers-PG boots add one create→drop cycle per fresh boot. Harmless. |
+| P2 (PL/pgSQL → Java) | **`V2.1.08__drop_report_functions.sql`** at Phase D only | No | Testcontainers-PG boots add one create→drop cycle per fresh boot. Harmless. |
 | P3 (Advisory lock) | None | No | Interface change only |
 
-No concurrent migration-number collisions. `V1.1.13` is reserved by P2 Phase D.
+No concurrent migration-number collisions. `V2.1.08` is reserved by P2 Phase D.
 
 ---
 
@@ -148,7 +148,7 @@ No concurrent migration-number collisions. `V1.1.13` is reserved by P2 Phase D.
 | **P2 Phase A and H2 §3 both touch `BaseIntegrationTest`** | Merge conflicts | Assign both streams to the same engineer, or coordinate via a shared feature branch. |
 | **H2 §4 depends on P3 AND P2 Phase A** | Scenario tests blocked if either slips | Scenario tests are optional — skip if blocked. Deliver §1–§3 + §5 without them. |
 | **P2 Phase B staging bake reveals parity divergence** | Blocks Phase C indefinitely | Parity tests in Phase A catch this — scope is correctness, not performance. |
-| **P2 Phase D dropped earlier than intended** | Report outage if Phase C rollback needed post-drop | Phase D explicitly gated on "1 release cycle after Phase C is stable in prod." Runbook entry to re-create functions via `V1.1.14` if needed. |
+| **P2 Phase D dropped earlier than intended** | Report outage if Phase C rollback needed post-drop | Phase D explicitly gated on "1 release cycle after Phase C is stable in prod." Runbook entry to re-create functions via `V2.1.09` if needed. |
 
 ---
 

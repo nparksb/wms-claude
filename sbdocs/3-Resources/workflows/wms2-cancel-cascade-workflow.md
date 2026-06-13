@@ -215,7 +215,7 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; `Opt
 | "Can't cancel — 'order in PACKED state'" | §4 guard + §9 forceCancelOrder path |
 | "Batch partially cancelled, children inconsistent" | §8 — check if cancel threw mid-cascade; expect rollback |
 | "forceCancel left Pickingorder=PICKED" | §10 item 7 (expected) |
-| "Optimistic lock during cancel" | §10 item 8 + `OptimisticLockRetry` wrapper at call site |
+| "Optimistic lock during cancel" | §10 item 8 — conflict surfaces at commit → HTTP 409 (`RestExceptionHandler`); caller retries. (`OptimisticLockRetry` is NOT applicable inside cancel transactions — 260610 Phase A) |
 
 ---
 

@@ -271,7 +271,7 @@ return dtoViewService.getPickPackOrders(WmsConstants.State.RAW, WmsConstants.Sta
 
 ### Change 10 — Add Flyway migration for system properties
 
-**File:** `src/main/resources/db/migration/V1.1.07__add_palletized_loaded_to_truck_sysprops.sql`
+**File:** `src/main/resources/db/migration/V2.1.02__add_palletized_loaded_to_truck_sysprops.sql`
 
 ```sql
 insert into los_sysprop (id, groupname, syskey, sysvalue, description, additionalcontent, client_id, version, hidden, workstation, entity_lock, created, modified) values(140, 'Backend', 'WEBSERVICE_ORDER_BATCH_PALLETIZED', 'https://oms-XXXXX.siteboss.net/services/call/palletized', 'OMS endpoint for palletized notification', 'URL for OMS palletized service call.', 0, 0, FALSE, 'DEFAULT', 0, '2026-02-19 10:00:00.000', '2026-02-19 10:00:00.000');
@@ -294,12 +294,12 @@ insert into los_sysprop (id, groupname, syskey, sysvalue, description, additiona
 | `ParcelMonitorViewService.java` | Inject `ManageOrderService`; call `customerOrderPalletized()` in `palletise()`, both notifications in `palletiseAndTruckLoad()` (with state guard) |
 | `MobileTruckLoadingService.java` | Inject `ManageOrderService`; set LOADED_TO_TRUCK state + call `customerOrderLoadedToTruck()` in `scanGate()` |
 | `CustomerOrderController.java` | Update Open Pick Pack upper bound to LOADED_TO_TRUCK |
-| `V1.1.07__add_palletized_loaded_to_truck_sysprops.sql` (new) | Flyway migration for new sysprop entries (IDs 140, 141) |
-| `V1.1.08__update_dashboard_summary_view.sql` (new) | Flyway migration to add `order_loaded_to_truck` column to dashboard summary view |
+| `V2.1.02__add_palletized_loaded_to_truck_sysprops.sql` (new) | Flyway migration for new sysprop entries (IDs 140, 141) |
+| `V2.1.03__update_dashboard_summary_view.sql` (new) | Flyway migration to add `order_loaded_to_truck` column to dashboard summary view |
 
 ### Change 11 — Update dashboard summary view for LOADED_TO_TRUCK count
 
-**File:** `src/main/resources/db/migration/V1.1.08__update_dashboard_summary_view.sql` (new)
+**File:** `src/main/resources/db/migration/V2.1.03__update_dashboard_summary_view.sql` (new)
 
 The existing `dashboard_summary_view` (defined in `V1.1.01__wms_views.sql`) counts `order_palletised` as exactly `co.state = 670`. Orders at state 680 (LOADED_TO_TRUCK) would not appear in any dashboard bucket. Add a new `order_loaded_to_truck` column:
 

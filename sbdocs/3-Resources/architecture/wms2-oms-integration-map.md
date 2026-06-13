@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms2
-last_verified: 2026-05-17
+last_verified: 2026-06-01
 ---
 
 # WMS2 ↔ OMS Integration Map
@@ -81,12 +81,22 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 | Sysprop key | Default OMS path | Triggered by | Java method | Payload |
 |------------|-----------------|-------------|-------------|---------|
 | `WEBSERVICE_ORDER_BATCH_HELD` | `/services/call/held` | Warehouse operator puts batch on hold | `ManageOrderService.customerOrderOnHold()` | `OrderBatchDto[]` |
-| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `/services/call/readytopick` | Batch released to picking queue | `ManageOrderService.customerOrderReleaseForPicking()` | `OrderBatchDto[]` |
+| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `/services/call/readytopick` | Batch released to picking queue | `ReleaseOrderJobService.releaseOrder()` → outbox; club runs → `CustomerorderBatchService.finalizeClubLine()` → outbox ² (was `ManageOrderService.customerOrderReleaseForPicking()`, now retired no-op shim) | `OrderBatchDto[]` |
 | `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED` | `/services/call/assignedToteID` | Tote assigned to a picker for the batch | `ManageOrderService.customerOrderToteAssigned()` | `OrderBatchDto[]` |
-| `WEBSERVICE_ORDER_BATCH_PICKING` | `/services/call/picking` | Picking started on the batch | `ManageOrderService.customerOrderPickingStarted()` | `OrderBatchDto[]` |
-| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `/services/call/finishedPicking` | All items picked for the batch | `ManageOrderService.customerOrderPicked()` | `OrderBatchDto[]` |
+| `WEBSERVICE_ORDER_BATCH_PICKING` | `/services/call/picking` | Picking started on the batch | `PickingorderBusinessService.confirmPick()` → outbox ² (SBDEV-2381: skips the enqueue when the CO already advanced — `state≥PICKED` or `pickingconfirmationsent`) | `OrderBatchDto[]` |
+| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `/services/call/finishedPicking` | All items picked for the batch | `PickingorderBusinessService.finishPickingOrder()` → outbox ² | `OrderBatchDto[]` |
 | `WEBSERVICE_ORDER_BATCH_PALLETIZED` | `/services/call/palletized` | Orders palletized onto outbound pallet | `ManageOrderService.customerOrderPalletized()` | `OrderBatchDto[]` |
 | `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK` | `/services/call/loadedToTruck` | Pallet loaded to truck (BOL context) | `ManageOrderService.customerOrderLoadedToTruck()` | `OrderBatchDto[]` |
+
+> ² **2026-05-20 (picking-finished fix):** `PICKING_STARTED` (`confirmPick`) and `PICKING_FINISHED` (`finishPickingOrder`) previously triggered a nested `registerSynchronization` inside `OmsNotificationService.sendAfterCommit`, which Spring silently discarded after the TX committed (double-afterCommit bug). Both `PickingorderBusinessService` call-sites now call `outboxService.enqueue(OutboxMessage)` directly inside the open `@Transactional("tenantTransactionManager")` — the outbox row commits atomically with the state change. ~~`ManageOrderService.customerOrderPickingStarted()` and `customerOrderPicked()` are retained (`@Deprecated`) for `CustomerorderBatchService` batch-level callers which still use the `sendAfterCommit` path.~~ **Superseded by SBDEV-2381 (2026-06-01):** `customerOrderReleaseForPicking`, `customerOrderPickingStarted`, and `customerOrderPicked` are now retired to deprecated no-op shims (return `false` — they no longer dispatch). The club-batch RELEASE/PICKING_STARTED/PICKING_FINISHED notifications they previously served are now enqueued in-tx per CO inside `CustomerorderBatchService.finalizeClubLine` (see the SBDEV-2381 note below). **`OmsNotificationService.sendAfterCommit` guard upgraded:** now checks `isSynchronizationActive() && isActualTransactionActive()` before registering; if the caller is already inside an `afterCommit` callback (`syncActive=true, txActive=false`), the POST is issued synchronously instead of being discarded. **Safety net:** `MobilePickingService.releaseRegularPickingOrder` Case 1 calls `PickingorderBusinessService.reenqueuePickingFinishedIfMissing(pickingOrder)` to recover any CO with `state≥PICKED` AND `pickingconfirmationsent=false`.
+
+> **SBDEV-2381 (2026-06-01) — outbox ordering + club-line unify:** Outbox dispatch was sending WMS→OMS parcel-status events out of order (the `UPDATE … RETURNING` heap order is not insertion order; DB-verified 43% of PICKING_STARTED/FINISHED pairs inverted), regressing parcels Ready-to-QA → Picking. Five changes:
+> - **Claim query** (`OutboxMessageRepository.findAndClaimPending`): now `ORDER BY next_attempt_at, id` plus a **fail-closed cross-tick `NOT EXISTS` gate** — a row is not claimed while a lower-`id` sibling of the *same aggregate* is still `PENDING/FAILED_RETRY/IN_FLIGHT/FAILED_TERMINAL` (a later event is HELD if its predecessor is unsent **or** terminally failed — prevents FINISHED-without-STARTED). Outer `UPDATE … RETURNING *` retained.
+> - **Dispatch** (`OutboxDispatchService.dispatchBatch`): the claimed batch is sorted in Java by `(nextAttemptAt, aggregateType, aggregateId, id)` before a **sequential** POST loop (no `parallelStream`). Ordering key is the existing `id` BIGSERIAL — monotonic per aggregate because STARTED commits in an earlier CO-row-locked tx than FINISHED; no synthetic sequence column was added.
+> - **`event_version`** (`OutboxDispatchService.dispatchOne`): injects `event_version = outbox row id` as a top-level field in the OMS POST **body** (Jackson; verbatim fallback for non-object payloads). Additive; lets OMS reject stale/out-of-order events (OMS-side rejection is a paired ticket).
+> - **Club-line unify** (`CustomerorderBatchService`): the 3 former Phase-4 fire-and-forget `sendAfterCommit` notifications (RELEASE/STARTED/FINISHED) are removed from `runClubLine` Phase 4 and now `outboxService.enqueue(...)` **per-CO, in-tx, inside `finalizeClubLine`** (ascending ids RELEASE<STARTED<FINISHED). A failed enqueue now ROLLS BACK finalize (atomic transactional outbox) instead of being swallowed.
+> - **Retired dispatchers** (`ManageOrderService`): `customerOrderReleaseForPicking`, `customerOrderPickingStarted`, `customerOrderPicked` are deprecated no-op shims (return `false`). `ReleaseOrderJobService.releaseOrder` migrated its RELEASE notification onto the outbox. `PickingorderBusinessService.confirmPick` gained the backward guard (skip PICKING_STARTED enqueue when CO already advanced).
+> - **Migration:** `V2.1.14__add_outbox_aggregate_order_index.sql` — `CREATE INDEX CONCURRENTLY` (non-transactional, `-- flyway:executeInTransaction=false`, DROP-IF-EXISTS rerun guard) on `outbox_message (aggregate_type, aggregate_id, id, status)`. The `outbox_message` table itself is now created by **V2.1.11** (renamed from V1.1.16 by develop's V2.1.x renumber); latest migration before this was V2.1.13.
 
 ### 2.2 Shipment / BOL Callback (BillofladingService)
 
@@ -94,7 +104,7 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 |------------|-----------------|-------------|-------------|---------|
 | `WEBSERVICE_ORDER_BATCH_SHIPPED` | `/services/call/finishedShipping` | BOL closed (`closeBOL`) | `BillofladingService.closeBOL()` | `BillOfLadingWebServiceDto` (includes BOL ID, pallets, orders, seal, truck, carrier, shared unique BOL ID, tracking device ID, transfer ID, source/destination warehouse) |
 
-> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). The other 16 `sendAfterCommit` call-sites remain unchanged (Phase-2 migration deferred).
+> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). Five additional call-sites were migrated in SBDEV-2238 Phase-2 (2026-05-19): `CustomerorderService.cancelOrder`, `CustomerorderBatchService.cancelBatch`, `AdviceService.acceptHubAndSpokeAdvice`, `AdviceService.close`, and `AdviceService.acceptTransferAdvice` — see §2.3 and §2.4 notes. The remaining 11 `sendAfterCommit` call-sites are deferred to Phase-3.
 
 ### 2.3 Cancellation Callbacks
 
@@ -106,6 +116,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 
 > **Note on CustomerorderService cancel:** When `cancellationFromWithinWMS=true`, `cancelOrder()` sends a notification using the `WEBSERVICE_STOCK_COUNT_URL_KEY` sysprop (not the cancel URL). The `MessageProcessType` is `ORDER_BATCH_CANCELLED_FROM_WMS`. This is a known inconsistency — the stock-count URL is reused to signal a WMS-initiated cancellation.
 
+> **SBDEV-2238 Phase-2 (2026-05-19):** `CustomerorderBatchService.cancelBatch` and `CustomerorderService.cancelOrder` no longer call `omsNotificationService.sendAfterCommit`. Both now call `outboxService.enqueue(OutboxMessage)` inside the still-open tenant transaction — the outbox row and the state change commit atomically. `aggregateType` is `CUSTOMER_ORDER_BATCH` (for `cancelBatch`) and `CUSTOMER_ORDER` (for `cancelOrder`). Serialisation failure throws `FacadeException` and rolls back the state change. `UtilRestController.resetOrdersInReleasedStatus` (admin loop) wraps `cancelOrder` in try/catch so a serialisation failure logs-and-continues rather than aborting the loop.
+
 ### 2.4 Inbound Advice Callbacks (AdviceService)
 
 | Sysprop key | Default OMS path | Triggered by | Java method | Payload |
@@ -113,6 +125,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 | `WEBSERVICE_CLOSE_ADVICE` | `/services/call/closeAdvice` | Regular advice (purchase order) closed after receiving | `AdviceService.close()` | `AdviceDto` (with actual received quantities per position) |
 | `WEBSERVICE_ACCEPT_TRANSFER` | `/services/call/closeTransfer` | Transfer advice accepted (all stock received) | `AdviceService.acceptTransferAdvice()` | `AcceptTransferDto` (transfer ID only) |
 | `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `/services/call/receiveHubAndSpoke` | Hub-and-spoke advice accepted | `AdviceService.acceptHubAndSpokeAdvice()` | `HubAndSpokeAcceptDto` (positions accepted) |
+
+> **SBDEV-2238 Phase-2 (2026-05-19):** All three `AdviceService` callers (`acceptHubAndSpokeAdvice`, `close`, `acceptTransferAdvice`) no longer call `omsNotificationService.sendAfterCommit`. All three now call `outboxService.enqueue(OutboxMessage)` inside the still-open tenant transaction — the outbox row and the advice state change commit atomically. `aggregateType` for all three is `ADVICE`. Serialisation failure throws `FacadeException` and rolls back the state change. `AdviceController.closeMultipleInboundBol` and `closeInboundBol` catch `FacadeException` in addition to `BusinessException`.
 
 ### 2.5 Inventory Callbacks (MessageService / ItemDataController / StockSummaryExportJob)
 
@@ -150,6 +164,8 @@ Operators consume this counter via `/actuator/metrics/wms2.oms.notification.fail
 `MessageService.resendMessage()` can replay any previously logged WMS→OMS message. It POSTs to the original `destination` URL stored in the `Message` record. This is the only retry path for `sendAfterCommit`-based notifications — there is no automatic retry on first failure for those sites.
 
 For the **transactional outbox pilot site** (`BillofladingService.closeBOL`, SBDEV-2221), automatic retries ARE supported: `OutboxDispatcherJob` retries `FAILED_RETRY` rows with exponential backoff (`min(60s × 2^attempts, 1h)`) up to `app.outbox.dispatcher.max-attempts=5`. Terminal failures (4xx non-retryable or attempts exhausted) are logged at ERROR level with aggregate_type + aggregate_id + idempotency_key and metered at `wms2.outbox.dispatched{outcome=terminal}`.
+
+> **² 2026-05-21 (plan 260521 Fix B — service-log gap):** `OutboxDispatchService` now calls `writeServiceLog()` after every dispatch outcome (2xx SENT, terminal failure, retry). This writes a `message` table row using `MessageService.createMessage()` in best-effort fashion (exceptions swallowed; metered at `wms2.outbox.message_log.failed`). All 9 outbox notification types (PICKING_STARTED, PICKING_FINISHED, plus the 7 SBDEV-2238 Phase-2 callers) now appear in the **Service Log** admin page — closing the gap where outbox-dispatched notifications were invisible in the UI while legacy `sendAfterCommit` callers wrote rows via `OmsNotificationService.doSend`.
 
 ---
 
@@ -252,16 +268,150 @@ This sysprop is defined in `WmsConstants` and its commented-out provisioning cod
 | WMS-initiated cancel not reaching OMS | `WEBSERVICE_ORDER_BATCH_CANCELLED` URL not set | Check sysprop; also note `CustomerorderService.cancelOrder()` uses `WEBSERVICE_STOCK_COUNT_URL_KEY` for its cancellation notification — this is a known inconsistency |
 | `PALLETIZED` / `LOADED_TO_TRUCK` callbacks not firing | These are v2-only — OMS must handle them; if OMS is v1 these endpoints may not exist | Verify OMS version; these callbacks did not exist in v1/wms-api |
 | Callback fires but OMS rejects payload | Payload schema mismatch | Compare `BillOfLadingWebServiceDto` / `OrderBatchDto` with OMS expected contract; v2 `SHIPPED` payload has additional fields vs v1 |
+| Parcel regresses Ready-to-QA → Picking; FINISHED arrives before STARTED | Outbox dispatched events out of aggregate order | Fixed by SBDEV-2381 (§2.1 note): dispatcher claims with the cross-tick `NOT EXISTS` gate + `ORDER BY next_attempt_at, id`, sorts the batch in-Java, and posts sequentially; each POST body carries `event_version = outbox id` so OMS can reject stale events. Inspect `outbox_message` `id` vs `aggregate_id` ordering for the affected parcel |
 | Manual resend needed | `MessageService.resendMessage()` | Call via WMS admin UI or directly; re-POSTs to `message.destination`; creates a new `Message` record with `resent=true` on original |
 
 ### 5.3 `WEBSERVICE_BEHAVIOUR` gotcha
 
 The `WEBSERVICE_BEHAVIOUR` sysprop is declared but **not consulted at runtime**. Setting it has no effect on outbound callback behaviour. All callbacks fire unconditionally. Do not rely on this switch to suppress callbacks in a v2 environment.
 
-### 5.4 REST Inbound Idempotency (`Idempotency-Key` header)
+### 5.4 REST Inbound Idempotency (content-derived key, optional header)
 
-Implemented in SBDEV-2222. OMS retries POST/PUT on network failure; WMS deduplicates using the `Idempotency-Key` header stored in the `rest_idempotency` tenant DB table. A cached 2xx is replayed; a key+hash mismatch returns 409. Dedup rows are cleaned up after 7 days by `RestIdempotencyCleanupJob`. OMS must include `Idempotency-Key: <uuid>` (max 64 chars, `[A-Za-z0-9_-]`) on every mutating `/rest/**` call. Missing header falls through for back-compat. Controlled by `app.idempotency.enforce=true` — set `false` to bypass in dev.
+Implemented in SBDEV-2222; updated in 260520 (content-derived key). OMS retries POST/PUT on network failure; WMS auto-derives the idempotency key from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` — the `Idempotency-Key` header is **optional**. An explicit header overrides the auto-derived key (back-compat for OMS callers that still send one). A matching key+body hash replays the cached 2xx; a key+hash mismatch returns 409. Requests with body > 5 MB bypass dedup (DoS guard). Bridge-mode (`app.idempotency.bridge-mode=true`) replays pre-existing UUID-keyed rows during the UUID→SHA-256 transition window. Controlled by `app.idempotency.enforce=true` — set `false` to bypass in dev. Dedup rows are cleaned up after 7 days by `RestIdempotencyCleanupJob`.
 
 ---
 
-*Source files verified: `controller/rest/OrderRestController.java`, `AdviceRestController.java`, `SkuRestController.java`, `StockCountRestController.java`, `TransactionReportRestController.java`, `AbstractRestController.java`; `service/ManageOrderService.java`, `AdviceService.java`, `BillofladingService.java`, `CustomerorderBatchService.java`, `CustomerorderService.java`, `MessageService.java`, `HttpRestService.java`, `WmsConstants.java` (lines 873–909); `controller/ItemDataController.java`, `AdminActionController.java`; `schedulejob/StockSummaryExportJob.java`. v1 delta verified against `v1/wms-api` equivalents.*
+## §6 OMS v2 Client-Side Implementation
+
+Documents how `v2/oms-laravel-api` constructs and dispatches calls to the WMS REST endpoints described in §1. All evidence derived from `v2/oms-laravel-api/`.
+
+### 6.1 Gateway Architecture
+
+All WMS calls are funnelled through a single gateway class. Callers never construct HTTP requests directly.
+
+```
+oms-laravel-api (PHP / Laravel 12)
+        │
+        │  Illuminate\Support\Facades\Http  (wraps GuzzleHttp 7.x)
+        ▼
+app/Services/WmsApiService.php          ← single HTTP gateway (2 893 lines)
+        │
+        │  resolves base URL per facility  ──► app/Models/WmsUrlLut.php
+        │  loads endpoint paths            ──► config/wms.php
+        │  applies auth + tenant headers
+        │  retries with exponential back-off
+        ▼
+WMS Java API  /rest/**  (IP-restricted, no auth headers)
+             /v3/**    (Keycloak service-account JWT)
+```
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `app/Services/WmsApiService.php` | Central HTTP client — every WMS call goes through here |
+| `config/wms.php` | 25+ named endpoint paths; each individually env-overridable via `WMS_*_ENDPOINT` |
+| `app/Models/WmsUrlLut.php` | `facility_code → base_url` + per-facility auth config; backed by `wms_url_lut` DB table |
+| `app/Services/WmsConnectionStatusService.php` | Health-check / endpoint status monitor |
+
+### 6.2 HTTP Client Details
+
+| Property | Value |
+|----------|-------|
+| Library | `Illuminate\Support\Facades\Http` (GuzzleHttp 7.x under the hood) |
+| Timeout | 30 s (connect + read) |
+| Retry attempts | 3, exponential back-off: 1 s → 2 s → 4 s |
+| Token refresh | On 401, clears cached service-account token and retries once |
+| Default headers | `Content-Type: application/json`, `Accept: application/json`, `X-Tenant-ID: {tenant_name}`, `facility_code: {facility_code}` |
+
+### 6.3 Facility URL Resolution
+
+Base URL is resolved at runtime per request:
+
+1. Look up row in `wms_url_lut` table for the active `facility_code`.
+2. Fall back to env var `WMS_FACILITY_{FACILITY}_URL` if no DB row exists.
+3. All HTTP calls are constructed as `{base_url}/{endpoint_path}` where `endpoint_path` comes from `config/wms.php`.
+
+### 6.4 Authentication Modes
+
+Auth type is stored per-facility in `wms_url_lut.config['auth_type']`:
+
+| Auth type | Used for | Behaviour |
+|-----------|----------|-----------|
+| `none` | `/rest/**` endpoints | IP-restricted at network level; no auth headers sent |
+| `basic` | Some internal environments | HTTP Basic credentials from facility config |
+| `token` | Facility-specific token auth | Bearer token from facility config |
+| `keycloak` | `/v3/**` endpoints | Keycloak service-account JWT via `KeycloakService`; auto-refreshes on 401 |
+
+### 6.5 Endpoint Configuration (`config/wms.php`)
+
+Named endpoints and their default WMS path:
+
+| Config key | WMS path | HTTP method |
+|------------|----------|-------------|
+| `order_create` | `rest/order/create` | PUT |
+| `qa_complete` | `rest/order/finishedQA` | POST |
+| `order_cancel_positions` | `rest/order/cancelPositions` | POST |
+| `order_update_priority` | `rest/order/updatePriority` | POST |
+| `order_finished_transfer` | `rest/order/finishedTransfer` | PUT |
+| `return_scanned` | `rest/order/returnScanned` | POST |
+| `status_change` | `rest/order/statusChange` | POST |
+| `multi_parcel_hold` | `rest/order/multiParcelHold` | POST |
+| `advice_create` | `rest/advice/create` | PUT |
+| `advice_create_transfer` | `rest/advice/createTransfer` | PUT |
+| `advice_hub_and_spoke` | `rest/advice/createHubAndSpoke` | PUT |
+| `sku_create` | `rest/sku/create` | PUT |
+| `sku_update` | `rest/sku/update` | POST |
+| `sku_delete` | `rest/sku/delete` | DELETE |
+| `stockcount_get` | `rest/stockcount/getStockCount` | POST |
+| `stockcount_trigger` | `rest/stockcount/triggerStockCount` | GET |
+| `inventory_adjust` | `rest/inventory/adjust` | POST |
+| `shipping_label_sync` | `rest/shipping/labelSync` | POST |
+| `transaction_report_summary` | `rest/report/getTransactionReport` | POST |
+| `transaction_report_detailed` | `rest/report/getTransactionDetailedReport` | POST |
+| `client_create` | `rest/client/create` | POST |
+| `client_update` | `rest/client/update` | POST |
+| `get_parcel` | `rest/parcel/{parcel_id}` | GET |
+| `printer_search_by_type` | `/v3/printer/search/findByType` | GET |
+
+Each path is individually overridable via a matching `WMS_*_ENDPOINT` env var.
+
+### 6.6 OMS Laravel Caller → WMS Endpoint Map
+
+| WMS endpoint (§1 reference) | OMS Laravel caller |
+|-----------------------------|--------------------|
+| `PUT /rest/order/create` | `BatchProcessingService::createBatch()` |
+| `POST /rest/order/updatePriority` | `OrderProcessingService::updatePriority()` |
+| `POST /rest/order/cancelPositions` | `OrderProcessingService::cancelOrders()` |
+| `POST /rest/order/finishedQA` | `QaWorkflowService::notifyWmsQaComplete()` |
+| `PUT /rest/order/finishedTransfer` | `LegacyTransferCloseService::close()` |
+| `POST /rest/order/returnScanned` | `QaReturnService` |
+| `POST /rest/order/statusChange` | `OrderProcessingService` |
+| `POST /rest/order/multiParcelHold` | `ParcelService` |
+| `PUT /rest/advice/create` | `ReturnProcessingService::createAdvice()` |
+| `PUT /rest/advice/createTransfer` | `LegacyInventoryTransferService` |
+| `PUT /rest/advice/createHubAndSpoke` | `TransferService` (hub distribution) |
+| `PUT /rest/sku/create` | `ProductController`, `InventoryService` |
+| `POST /rest/sku/update` | `ProductController`, `InventoryService` |
+| `DELETE /rest/sku/delete` | `ProductController`, `InventoryService` |
+| `POST /rest/stockcount/getStockCount` | `InventoryService::getStockCount()` |
+| `GET /rest/stockcount/triggerStockCount` | `InventoryService::triggerStockExport()` |
+| `POST /rest/report/getTransactionReport` | `TransactionReportService` |
+| `POST /rest/report/getTransactionDetailedReport` | `TransactionReportService` |
+| `GET /v3/printer/search/findByType` | `WmsApiService::getWmsPrinters()` |
+
+### 6.7 Request / Response Contract
+
+- **Request body**: JSON array `[{…}]` for most endpoints — matches the WMS Java `@RequestBody List<Dto>` signature. `GET` endpoints use query parameters instead.
+- **Response shape**: `{ status, message, data, timestamp }`. `WmsApiService` inspects `status` and throws `WmsException` on any non-success value.
+- **4xx errors**: `WmsException` with user-facing message (non-retryable).
+- **5xx errors**: `WmsException` with `temporary=true` flag set; eligible for retry.
+- **Connection errors**: Retried with exponential back-off (see §6.2).
+
+### 6.8 Service Registration
+
+`WmsApiService` is registered as a singleton via the Laravel service container (service provider). It is injected by constructor into `BatchProcessingService`, `TransactionReportService`, and legacy services, and resolved ad-hoc via `app(WmsApiService::class)` in some controllers and queued jobs.
+
+---
+
+*Source files verified: `controller/rest/OrderRestController.java`, `AdviceRestController.java`, `SkuRestController.java`, `StockCountRestController.java`, `TransactionReportRestController.java`, `AbstractRestController.java`, `rest/UtilRestController.java`; `controller/AdviceController.java`; `service/ManageOrderService.java`, `AdviceService.java`, `BillofladingService.java`, `CustomerorderBatchService.java`, `CustomerorderService.java`, `MessageService.java`, `HttpRestService.java`, `WmsConstants.java` (lines 873–909); `controller/ItemDataController.java`, `AdminActionController.java`; `schedulejob/StockSummaryExportJob.java`. v1 delta verified against `v1/wms-api` equivalents. OMS v2 client verified against `v2/oms-laravel-api/app/Services/WmsApiService.php`, `config/wms.php`, `app/Models/WmsUrlLut.php`, `app/Services/WmsConnectionStatusService.php`. SBDEV-2381 verified against `repository/OutboxMessageRepository.java` (`findAndClaimPending`), `service/job/OutboxDispatchService.java` (`dispatchBatch`, `dispatchOne`), `service/CustomerorderBatchService.java` (`finalizeClubLine`, `runClubLine`), `service/ManageOrderService.java` (retired shims), `service/job/ReleaseOrderJobService.java`, `service/PickingorderBusinessService.java` (`confirmPick`), and migration `db/migration/V2.1.14__add_outbox_aggregate_order_index.sql` (2026-06-01).*

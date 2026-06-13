@@ -831,8 +831,8 @@ CDS can reduce startup time by **30-50%** with zero code changes and zero risk.
 
 - [ ] **6.2** Convert top 5 services to use bulk operations — deferred (requires careful per-service refactoring)
 - [x] **7.0** Audit existing database indexes — **DONE** (167 indexes audited, gaps identified)
-- [x] **7.1+7.2** Migration `V1.1.10`: 11 critical missing indexes (4 state + 7 FK) — `V1.1.10__add_critical_missing_indexes.sql`
-- [x] **7.3** Migration `V1.1.11`: 4 composite indexes for hot query paths — `V1.1.11__add_composite_indexes.sql`
+- [x] **7.1+7.2** Migration `V2.1.05`: 11 critical missing indexes (4 state + 7 FK) — `V2.1.05__add_critical_missing_indexes.sql`
+- [x] **7.3** Migration `V2.1.06`: 4 composite indexes for hot query paths — `V2.1.06__add_composite_indexes.sql`
 - [ ] **7.4** (Optional) Add ORDER BY indexes after EXPLAIN ANALYZE validation
 - [x] **4.2** HikariCP metrics exposed via actuator (`hikaricp` added to endpoints)
 - [ ] Performance test critical flows with EXPLAIN ANALYZE (requires production-like data)

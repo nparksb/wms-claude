@@ -6,8 +6,8 @@ version: v2
 scope: bol-truck-loading
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-05-08
-last_verified: 2026-05-10
+updated: 2026-05-19
+last_verified: 2026-05-19
 verified_by: code read of v2/wms2-api BillofladingService + ParcelMonitorViewService + MobileTruckLoadingService
 related:
   - ../architecture/wms2-state-machine-catalog.md
@@ -72,7 +72,7 @@ BOL state constants live at `service/WmsConstants.java:244-253`. See [wms2-state
 
 ```
 Customerorder.state = PALLETIZED
- (set by ParcelMonitorViewService.palletise   [line 103-207]
+ (set by ParcelMonitorViewService.palletise   [line 103-230]
    or   MobilePalletizingService.palletizeOrder   [line 220])
             │
             │  REST /v3/billOfLading/create    [BillOfLadingController:69]
@@ -84,7 +84,7 @@ Customerorder.state = PALLETIZED
             │  └────────────────────────────────────────────────┘
             │
             ├─► Desktop:  REST /v3/billOfLading/palletize   [BillOfLadingController:316]
-            │             → ParcelMonitorViewService.palletiseAndTruckLoad()  [line 210-336]
+            │             → ParcelMonitorViewService.palletiseAndTruckLoad()  [line 232-470]
             │
             └─► Mobile:   REST /mobile/truckLoading/scanGate   [TruckLoadingController:110]
                           → MobileTruckLoadingService.scanGate()     [line 178-325]
@@ -129,7 +129,7 @@ Customerorder.state = PALLETIZED
 
 ## 4. Palletize — Desktop Path
 
-`ParcelMonitorViewService.palletise` at line 103-207 handles the pack → pallet assignment without immediately starting truck load. It:
+`ParcelMonitorViewService.palletise` at line 103-230 handles the pack → pallet assignment without immediately starting truck load. It:
 
 1. Locates the pallet unit load (creating one if `createPalletBySystem=true`).
 2. Finds location `STORAGE_LOCATION_PALLETISING`.
@@ -138,7 +138,7 @@ Customerorder.state = PALLETIZED
 
 Guard: `state < PALLETIZED` prevents double-apply (matches the `state == PACKED OR PALLETIZED` check in `CustomerorderService:382` — see `Cancel_Club_Parcels_Packed_State_Fix`).
 
-`palletiseAndTruckLoad` at line 210-336 does palletize **and** truck-load in one transaction. BOL state rolls `CREATED`/`OPEN → TRUCK_LOADING`. BOL position tree (pallet → parcels → stock) is created inline. Two post-commit callbacks fire: PALLETIZED then LOADED_TO_TRUCK.
+`palletiseAndTruckLoad` at line 232-470 does palletize **and** truck-load in one transaction. BOL state rolls `CREATED`/`OPEN → TRUCK_LOADING`. BOL position tree (pallet → parcels → stock) is created inline. Two post-commit callbacks fire: PALLETIZED then LOADED_TO_TRUCK.
 
 ---
 
@@ -330,5 +330,6 @@ Why two steps? TRANSFER marks "in flight between warehouses" — neither side ha
 |---|---|---|---|
 | 2026-04-19 | `BillofladingService` (closeBOL, finishTransfer, createEntity, setTrackingDeviceID, transferOrder); `ParcelMonitorViewService.palletise` + `palletiseAndTruckLoad`; `MobileTruckLoadingService.scanGate`; `BillofladingPositionService`; all REST + mobile endpoints; OMS callback wiring | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-08 | Group B (BOL/palletize) ports verified live: v1 `98fce54` → v2 `cd73716` (new BOL no shipped date — confirmed via commit log); v1 `8957b9a` → v2 `a8af84f` (empty BOL export no SKU rows); v1 `83dddd8` palletize filter → v2 `ReportController` palletize filter routes via `/parcelMonitorView` GET (line 366) + ViewDtoService at the cited 1334-1338 region. `closeBOL` Phase 8 (Customerorder + Position FINISHED bulk) writes at lines 481 / 524; Phase 9 (post-commit OMS callback registration) per §6.5 — both confirmed. `finishTransfer` declaration shifted from cited 898 → actual line 899 (within tolerance, not edited). `BillOfLadingController` REST endpoint table re-confirmed against current source. | All claims still accurate; closeBOL header range expanded to reflect 273/278 method overloads. | Code read (grep-based) |
+| 2026-05-19 | SBDEV-2232: `ParcelMonitorViewService.palletise` pessimistic-lock refactor shifted `palletiseAndTruckLoad` start from 210 → 232 (end of file: 470). `palletise` body end shifted from 207 → 230. Updated §3 diagram, §4 narrative, §4 `palletiseAndTruckLoad` line refs. Narrative and transaction shape unchanged — only `SELECT FOR UPDATE` guard added at top of `palletise`. | Line refs confirmed by grep against `src/main/java` | Code read (grep-based) |
 
 **Re-verify every 90 days.** Next due: **2026-08-06** — close BOL is stable but mobile truck-loading open TODOs invite future change.

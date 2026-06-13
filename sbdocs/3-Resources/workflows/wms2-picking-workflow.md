@@ -6,15 +6,14 @@ version: v2
 scope: picking
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-05-08
-last_verified: 2026-05-10
+updated: 2026-06-01
+last_verified: 2026-06-01
 verified_by: code read of v2/wms2-api src/main + state-machine + transaction architecture docs
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
   - ../architecture/wms2-scheduled-jobs-catalog.md
   - ./wms2-replenish-workflow.md
-  - ../../1-Projects/wms2/plan/260329-WMS_OMS_Picking_Notification_Bug_Analysis.md
   - ../../4-Archieves/wms2/plan/260424-V2_Consolidated_Picking_Fixes_Port.md
   - ../../4-Archieves/wms2/plan/260424-OSIV_MERGE_PICKING_ORDERS_BUG_FIX_PLAN.md
   - ../../4-Archieves/wms2/plan/260424-picking-notification-drop.md
@@ -217,17 +216,23 @@ Merge is a silent optimization — an operator never sees it. But it means: when
 
 ## 8. OMS Callback Touchpoints
 
-Every terminal pick state fires a post-commit OMS callback via `TransactionSynchronizationManager.registerSynchronization`:
+Picking-lifecycle OMS callbacks use **two delivery mechanisms** depending on the call-site (see `wms2-oms-integration-map.md` §2.1):
 
-| OMS callback | Fired from | Sysprop URL key |
-|---|---|---|
-| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `ManageOrderService.customerOrderReleaseForPicking()` (line 155) | `…RELEASED_FOR_PICKING_URL_KEY` |
-| `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED` | `ManageOrderService.customerOrderToteAssigned()` (line 223) | `…PICKING_TOTE_ASSIGNED_URL_KEY` |
-| `WEBSERVICE_ORDER_BATCH_PICKING` | `ManageOrderService.customerOrderPickingStarted()` (line 277) | `…PICKING_URL_KEY` |
-| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `ManageOrderService.customerOrderPicked()` (line 352) | `…FINISHED_PICKING_URL_KEY` |
-| `WEBSERVICE_ORDER_BATCH_HELD` | `ManageOrderService.customerOrderOnHold()` (line 95) | `…HELD_URL_KEY` |
+| OMS callback | Fired from | Delivery | Sysprop URL key |
+|---|---|---|---|
+| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `ManageOrderService.customerOrderReleaseForPicking()` | `sendAfterCommit` | `…RELEASED_FOR_PICKING_URL_KEY` |
+| `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED` | `ManageOrderService.customerOrderToteAssigned()` | `sendAfterCommit` | `…PICKING_TOTE_ASSIGNED_URL_KEY` |
+| `WEBSERVICE_ORDER_BATCH_PICKING` | `PickingorderBusinessService.confirmPick()` | **outbox** ¹ | `…PICKING_URL_KEY` |
+| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `PickingorderBusinessService.finishPickingOrder()` | **outbox** ¹ | `…FINISHED_PICKING_URL_KEY` |
+| `WEBSERVICE_ORDER_BATCH_HELD` | `ManageOrderService.customerOrderOnHold()` | `sendAfterCommit` | `…HELD_URL_KEY` |
 
-These only fire **after the WMS transaction commits**. A WMS rollback silently drops the callback. If OMS claims it never heard about a pick, check the `message` / `message_archived` tables for a matching row — absence means the commit itself never happened.
+> ¹ **2026-05-20 (picking-finished fix):** `PICKING_STARTED` and `PICKING_FINISHED` were previously routed through `ManageOrderService.customerOrderPickingStarted/Picked` via a nested `registerSynchronization` call inside `sendAfterCommit`, which Spring silently discarded (double-afterCommit bug — see investigation report `260520-wms2-picking-finished-oms-notification-dropped.md`). Both call-sites in `PickingorderBusinessService` now call `outboxService.enqueue(OutboxMessage)` directly inside the still-open `@Transactional("tenantTransactionManager")` boundary — the outbox row commits atomically with the state change. `OutboxDispatcherJob` delivers with at-least-once retry. `ManageOrderService.customerOrderPickingStarted()` and `customerOrderPicked()` are retained (`@Deprecated`) for `CustomerorderBatchService` callers.
+>
+> **Safety net:** `MobilePickingService.releaseRegularPickingOrder` Case 1 (already-finished early exit) now calls `PickingorderBusinessService.reenqueuePickingFinishedIfMissing(pickingOrder)` before returning, to recover any CO with `state≥PICKED` AND `pickingconfirmationsent=false` stranded by the pre-fix bug.
+
+> **SBDEV-2381 (2026-06-01) — backward-STARTED guard:** `confirmPick` now **skips the `PICKING_STARTED` outbox enqueue when the CO has already advanced** — `state ≥ PICKED` OR `pickingconfirmationsent == true` (snapshot taken before `setState(STARTED)`). This is the primary defense against emitting a backward `STARTED` after a parcel has reached Ready-to-QA. It complements the dispatcher-side ordering gate + `event_version` field added in the same ticket — see `architecture/wms2-oms-integration-map.md` §2.1.
+
+`sendAfterCommit`-based callbacks fire **after the WMS transaction commits**. A WMS rollback silently drops the callback. If OMS claims it never heard about a non-outbox callback, check the `message` / `message_archived` tables for a matching row — absence means the commit itself never happened or the nested-afterCommit bug fired. For outbox-based callbacks, check `outbox_message WHERE process_type IN ('ORDER_BATCH_PICKING_FINISHED','ORDER_BATCH_PICKING_STARTED')`.
 
 ---
 
@@ -235,8 +240,8 @@ These only fire **after the WMS transaction commits**. A WMS rollback silently d
 
 - `OrderReleaseJob` → `ReleaseOrderJobService.releaseOrder(...)` — each order release is `@Transactional(propagation=REQUIRES_NEW, value="tenantTransactionManager")`. A single order failure does not abort the rest of the tenant's run.
 - `finalizePicking` runs under a single `@Transactional("tenantTransactionManager")` — all 5 entity writes succeed or all roll back atomically. No cascade is "halfway through" on an exception.
-- Optimistic locking on `AbstractBaseEntity.version` guards every save; retries are NOT automatic inside `finalizePicking` — callers use `OptimisticLockRetry.executeWithRetry` upstream (mobile flow) to wrap retry-eligible mutations.
-- Post-commit OMS POSTs use `omsNotificationService.sendAfterCommit(...)` — never block the TX on network I/O.
+- Optimistic locking on `AbstractBaseEntity.version` guards every save; retries are NOT automatic inside the picking transactions — a conflict surfaces at commit and is mapped to HTTP 409 (`RestExceptionHandler`) for the operator to retry. The former `OptimisticLockRetry` wrapper inside `confirmPick` was removed as inert (260610 Phase A: inside an open `@Transactional` the optimistic-lock exception only fires at the outer commit, outside the retry loop); the path is serialized by the CO/PO `findByIdForUpdate` locks taken at method entry.
+- OMS POSTs use either `omsNotificationService.sendAfterCommit(...)` (fire-and-forget, no retry) or `outboxService.enqueue(...)` (at-least-once, retried by `OutboxDispatcherJob`) — see §8 table. Never block the TX on network I/O.
 
 For the full transaction + locking picture see [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §5 and §8.
 
@@ -276,5 +281,6 @@ For the full transaction + locking picture see [wms2-transaction-osiv-boundary-m
 |---|---|---|---|
 | 2026-04-19 | `PickingorderBusinessService.finalizePicking` (lines 238-568) + all mobile guards (lines 222-340) + release job release path + merge service + rapid-pick side-door | All file:line refs confirmed against `src/main/java` | Code read + state-machine / transaction architecture docs |
 | 2026-05-08 | Group P verification follow-up (commits da64cc0, 99340b0, 4430824, 892169b, 930be52, b68cbbf, d61040c). Re-confirmed `ReleaseOrderJobService.releaseOrder` pessimistic lock at line 107, `findByIdForUpdate` sites in `MobilePickingService` (4 sites incl. line 400 in `processPick` per the Group-P lock-ordering note in the file), `PickingOrderMergeService.saveAll` at lines 194/198 (state writes still at 127 / 161). `finalizePicking` write sites shifted +1 (line 451/464/485 etc.) and §4 table was rebumped to current line numbers. §6 rapid-pick guard cite updated from `645` to `639` (guard) + `645` (state write). | Code read of v2/wms2-api at HEAD |
+| 2026-06-01 | SBDEV-2381: `confirmPick` now skips the `PICKING_STARTED` outbox enqueue when the CO already advanced (`state ≥ PICKED` OR `pickingconfirmationsent`), snapshot taken before `setState(STARTED)`. §8 note added. | Confirmed against `PickingorderBusinessService.confirmPick` (PR #35, commits 567fba3 + 41ad7d3) | Code read (grep-based) |
 
-**Re-verify every 60 days.** Next due: **2026-07-07** — picking is the most change-prone surface; a single PR to `finalizePicking` invalidates §4.
+**Re-verify every 60 days.** Next due: **2026-07-31** — picking is the most change-prone surface; a single PR to `finalizePicking` invalidates §4.

@@ -3,7 +3,7 @@ title: "Runbooks — MOC"
 type: index
 status: active
 scope: runbooks
-updated: 2026-04-20
+updated: 2026-06-11
 tags: [moc, index, runbooks]
 ---
 
@@ -29,6 +29,9 @@ See also: [vault index](../../INDEX.md) · [runbook template](../../9-System/tem
 |---|---|---|---|
 | [wms1-cancel-packed-parcel.md](./wms1-cancel-packed-parcel.md) | wms-api v1 | SEV3 | Cancelling a customer order past QA (state ≥ PACKED 650) — REST blocks this for PICK_PACK, runbook covers the CLUB REST path and the manual-SQL path with OMS notification + BOL cleanup |
 | [wms1-revert-shipped-order-to-cancelled.md](./wms1-revert-shipped-order-to-cancelled.md) | wms-api v1 | SEV3 | Reverting an order that WMS shipped *after* OMS cancelled it — order state 700/800 with parcel still on `Shipped`. Covers the pallet-detach, Option A (parcel→Clearing only) vs Option B (return quantities to source stockunits), sibling-order safety, and BOL-position rollback |
+| [wms2-resend-picking-finished-notification.md](./wms2-resend-picking-finished-notification.md) | wms2-api v2 | SEV2 | OMS reports "No Parcel Found" / QA does not trigger after picking — dropped `ORDER_BATCH_PICKING_FINISHED` notification due to double `afterCommit` registration. Covers curl resend, `batch_criteria.batch_label` fix, direct OMS SQL repair, and outbox INSERT fallback |
+| [wms1-release-orphaned-stock-reservation.md](./wms1-release-orphaned-stock-reservation.md) | wms-api v1 | SEV2 | Pick line stuck on "Not enough stock on location" while the SKU report shows stock present (Total = Reserved). Confirms the reservation is held by no live picking/replenish order, then releases it (supervised `reservedamount` correction, in-app stock move, cycle count, or physical fallback) so the order ships. Worked example: BW23CPN / 10-B01 |
+| [wms2-sku-trim-data-cleanup.md](./wms2-sku-trim-data-cleanup.md) | wms2-api v2 | SEV3 | Phase 2 of plan 260610 (SKU trim normalization) — per-tenant `itemdata.item_nr`/`name` whitespace cleanup. Collision census, duplicate-pair resolution (e.g., hydra `BONMFPN23`), gated trim UPDATEs, and the Phase 1b deploy sequencing choreography |
 
 ---
 

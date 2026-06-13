@@ -65,10 +65,10 @@ Two root causes, not one:
 
 | Feature | Location | Impact |
 |---|---|---|
-| **PL/pgSQL functions** — `stock_history()`, `transaction_detail()` | `V1.0.03__wms_functions.sql:13-71`, `V1.1.04__wms_functions.sql:4`, `V1.1.12__update_transaction_detail_pick_amount_filter.sql` | H2 has no PL/pgSQL. Flyway migration will fail at H2 boot. 6 `CREATE OR REPLACE FUNCTION` sites total. |
+| **PL/pgSQL functions** — `stock_history()`, `transaction_detail()` | `V1.0.03__wms_functions.sql:13-71`, `V1.1.04__wms_functions.sql:4`, `V2.1.07__update_transaction_detail_pick_amount_filter.sql` | H2 has no PL/pgSQL. Flyway migration will fail at H2 boot. 6 `CREATE OR REPLACE FUNCTION` sites total. |
 | **`pg_advisory_lock`** | `src/main/java/net/aim_ai/wms/service/AdvisoryLockService.java:37,54` | PostgreSQL-only. Used by scheduled jobs: `ORDER_RELEASE`, `REPLENISH_ORDER`, `CLEAN_UP_MESSAGES`, `STOCK_SUMMARY_EXPORT`, `RELEASE_EXPIRED_PICKING`. Any test that drives a scheduled job or calls `AdvisoryLockService` will fail on H2 at runtime. |
 | **Native queries** (172 `nativeQuery = true` annotations) | repos throughout | Most are portable. Landmines: `::text` casts, `FOR UPDATE OF <table>`, PG date arithmetic, PG `BOOLEAN` literal comparisons. The `MessageRepository` archive/delete-with-LIMIT queries are PG-only. |
-| **`to_timestamp()` in ClientRepository.getTransactionDetail** | query definition for `transaction_detail()` invocation | Directly blocks the `V1.1.12` port we landed on `phase4`. |
+| **`to_timestamp()` in ClientRepository.getTransactionDetail** | query definition for `transaction_detail()` invocation | Directly blocks the `V2.1.07` port we landed on `phase4`. |
 
 **Bottom line:** H2 can run repo tests that stick to JPQL + JPA features. It cannot run tests that exercise PL/pgSQL functions, advisory locks, PG-only native SQL, or the scheduled-job mutex.
 
@@ -130,7 +130,7 @@ Only **5 realistic scenarios** justify a `postgres-integration` profile:
 2. `MessageRepositoryIntegrationTest` — 4 inner classes using PG date math, `INSERT INTO SELECT` archive, `DELETE … LIMIT`.
 3. `PrinterRepositoryIntegrationTest.findByTypeAndProcessdefaultTrue` — PG boolean cast in native SQL.
 4. Any test that drives a scheduled job (directly or indirectly via `AdvisoryLockService`).
-5. Any new test that deliberately verifies PL/pgSQL function correctness (e.g. behavioral test of the V1.1.12 filter fix).
+5. Any new test that deliberately verifies PL/pgSQL function correctness (e.g. behavioral test of the V2.1.07 filter fix).
 
 Everything else either doesn't need real SQL (pure Java logic — use unit tests) or can run on H2 PG-compat mode.
 
