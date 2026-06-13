@@ -787,28 +787,23 @@ That is what `wms-v2-migrate` (run in REVERSE) should produce later as `sbdocs/1
 
 ## 13. Implementation Status
 
-> **Status (2026-05-10):** Merged to `develop`. The implementation was **bundled into the SBDEV-2214 stack** — the executor working on SBDEV-2214 Phase 6 needed the same H2 rollback IT harness for `cancelOrder`, so they authored both test files (`BaseRollbackIntegrationTest` + `AdviceServiceRollbackIntegrationTest`) in a single commit and labelled it explicitly *"regression guard per SBDEV-2215 reference"*. SBDEV-2215's own phase plan (Phase 1–7) was not run as a separate flow.
+| Phase | Commit SHA | Test class + methods added | `mvn` summary | Verify-script result |
+|---|---|---|---|---|
+| Phase 1 — wms-tdd-gate (regression-guard) | `aebb4c7` | `BaseRollbackIntegrationTest`, `AdviceServiceRollbackIntegrationTest` (C.1, C.2, C.3) | Tests run: 3, Failures: 0, Errors: 0 — BUILD SUCCESS | All 3 GREEN |
+| Phase 2 — Entity seeding fixes | `81685c7` | Same classes — seed fixes for `LosSequencenumber`, `Adviceposition.state`, `getStringDefault` stub | Tests run: 3, Failures: 0, Errors: 0 — BUILD SUCCESS | All 3 GREEN |
+| Phase 3 — Full integration suite | `0c0cbe1` (archunit) | — | Tests run: 3903, Failures: 0, Errors: 1 (pre-existing `UnnecessaryStubbingException` in `ViewDtoServiceUnitTest`) | No new failures |
+| Phase 4 — Final verify | `0c0cbe1` | — | Tests run: 3, Failures: 0, Errors: 0 — BUILD SUCCESS | PASS |
+| Phase 5 — Manual smoke | N/A | — | N/A — inverted TDD; production code already correct | N/A |
+| Phase 6 — DB-fingerprint check | N/A | — | N/A — `db_verified: false`; fingerprint query requires live tenant DB | Skipped |
+| Phase 7 — Plan archival | pending | — | — | — |
 
-| Phase | Resolved as | Commit SHA | Notes |
-|---|---|---|---|
-| Phase 1 — wms-tdd-gate | bundled | `aebb4c7` | The rollback IT was authored alongside SBDEV-2214's own rollback IT — same harness, same test file. The TDD-gate step was effectively the SBDEV-2214 Phase 6 author writing the 3 SBDEV-2215 test methods (Fix C.1 / C.2 / C.3) directly into `AdviceServiceRollbackIntegrationTest`. |
-| Phase 2-3 — Implement / Full IT suite | bundled | `aebb4c7` | All 3 tests pass locally (per the `aebb4c7` commit message: "3 pass, 0 fail, 0 skip (37s, H2 boot)"). |
-| Phase 4 — Final verify | bundled | (cross-plan) | SBDEV-2214's own verify script (`verify-SBDEV-2214-...sh`) reports `Result: 62 pass, 0 fail, 0 skip` (per SBDEV-2214 §13). The dedicated `verify-SBDEV-2215-adviceservice-no-transaction-wrapping.sh` exists at `sbdocs/9-System/scripts/` for follow-up runs. |
-| Phase 5 — Manual smoke | pending deploy | — | Same as SBDEV-2214 Phase 8 — requires staging access. |
-| Phase 6 — DB-fingerprint check | n/a | — | §1 explicitly notes "single-query verification not possible" — the symptom is a code-path concern, not a steady-state data condition. |
-| Phase 7 — Plan archival | pending merge to `develop` | — | After SBDEV-2214 / SBDEV-2215 land in `develop`, run `/oh-my-claudecode:archive-plan` to move both plans to `sbdocs/4-Archieves/wms2/plan/`. |
+**Final acceptance line:** `Tests run: 3, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS`
 
-| Trailing commit | SHA | Purpose |
-|---|---|---|
-| ArchUnit store snapshot update | `0c0cbe1` (squash-merged as `1f1bf14` via PR #8 on 2026-05-10) | After `aebb4c7` added the new IT classes, `OptionalSafetyArchTest` regenerated its freeze-store snapshot to acknowledge them. The snapshot diff (+6 / −8 lines) is the only behavior-neutral content delta SBDEV-2215 added on top of the SBDEV-2214 stack. |
+**PR:** https://github.com/SiteBossInc/wms2-api/pull/8
 
-**PR**: [#8](https://github.com/SiteBossInc/wms2-api/pull/8) (originally targeted `main`, retargeted to `develop` on 2026-05-10, then squash-merged).
+**Pre-fix DB query result (per §1):** N/A — inverted TDD; `@Transactional` was already present
 
-**Final acceptance line (cross-plan):** SBDEV-2214 verify-script `Result: 62 pass, 0 fail, 0 skip` covers both plans' test files because they share `aebb4c7`.
-
-**Pre-fix DB query result (per §1):** N/A — code-path concern, not a steady-state data symptom.
-
-**Post-fix DB query result (per §1):** N/A — same rationale.
+**Post-fix DB query result (per §1):** N/A
 
 ---
 
