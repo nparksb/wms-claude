@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash($NODE *)",
+      "Bash(command -v node)",
+      "Read(//usr/local/bin/**)",
+      "Bash(bash -c 'command -v node || echo NOT_FOUND')",
+      "Bash(bash *)",
+      "Bash(export PATH=\"/home/nampark/.nvm/versions/node/v24.15.0/bin:$PATH\")",
+      "Bash(npm install *)",
+      "Bash(command -v omc)",
+      "Bash(omc --version)"
+    ]
+  }
+}

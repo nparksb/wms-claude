@@ -13,7 +13,7 @@ related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ./wms2-state-machine-catalog.md
   - ../../1-Projects/wms2/plan/260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md
-  - ../../1-Projects/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md
+  - ../../4-Archieves/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md
   - ../../4-Archieves/wms2/plan/260424-connection-pool-exhaustion-fix-plan.md
   - ../../4-Archieves/wms2/plan/260424-TRANSACTION_MANAGER_FIX_PLAN.md
 tags:

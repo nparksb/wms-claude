@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms1+wms2
-last_verified: 2026-05-08
+last_verified: 2026-06-02
 ---
 
 # WMS Database Migration Guide
@@ -23,31 +23,35 @@ Both codebases use **double underscore** before the description. The single-unde
 
 ### v1/wms-api sequences
 
-The v1 migration directory currently ends at `V1.1.05`. The `V1.26.28` file (single underscore) is out of sequence and appears to be a one-off hotfix.
+The shared schema baseline (identical to v2) ends at `V1.1.05`. **`V1.1.06+` is the active v1-specific series and is carried on `develop`** — do not assume `V1.1.06` is free just because it is absent from your branch. There is also an out-of-band **`V1.26.x` hotfix range**: `V1.26.28_wms_functions.sql` (anomalous single underscore — see naming note above) and `V1.26.29__replenishment_monitor_view_flag_based_classification.sql` (SBDEV-2384 hotfix).
 
 | Series | Purpose | Last used |
 |--------|---------|-----------|
 | `V1.0.xx` | Initial schema, views, functions, seed data, indexes | `V1.0.05` |
-| `V1.1.xx` | Incremental updates (DDL, DML, view refreshes, function updates) | `V1.1.05` |
+| `V1.1.xx` | Incremental updates (DDL, DML, view refreshes, function updates) — continues on `develop` | `V1.1.06+` (on `develop`) |
+| `V1.26.xx` | Out-of-band hotfixes that must merge cleanly into both `release` and `develop` without colliding with the in-flight `V1.1.x` series | `V1.26.29` |
 
-**Next migration to add**: `V1.1.06__your_description.sql`
+**Choosing the next version — check more than your own branch.** Because the same baseline is built on both `release` and `develop`, a number that is free on your branch may already be taken on the other, causing a merge collision (and, with `outOfOrder=false`, a lower number than an already-applied higher one fails validation). Before naming a file:
 
-To confirm the current highest number before creating a file:
+1. List the highest versions on **your branch**:
+   ```bash
+   ls /home/nampark/dev/wms-claude/v1/wms-api/src/main/resources/db/migration/ | sort -V | tail -5
+   ```
+2. Check `develop` for the same/higher number (`git show develop:...` or browse the branch).
+3. Confirm the highest **applied** version on the target tenant DB: `SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 5;`.
 
-```bash
-ls /Users/np1076/dev/spk/owl/v1/wms-api/src/main/resources/db/migration/ | sort | tail -5
-```
+For a **hotfix** that must land on both `release` and `develop`, prefer the **`V1.26.x` range** (strictly above the existing `V1.26.28`/`V1.26.29`) rather than reusing a `V1.1.x` slot that `develop` may already occupy — this is exactly why SBDEV-2384 was renamed from `V1.1.06` to `V1.26.29`.
 
 ### v2/wms2-api sequences
 
-The v2 migration directory currently ends at `V1.1.11`.
+The v2 migration directory currently ends at `V2.1.13`.
 
-**Next migration to add**: `V1.1.12__your_description.sql`
+**Next migration to add**: `V2.1.14__your_description.sql`
 
 To confirm:
 
 ```bash
-ls /Users/np1076/dev/spk/owl/v2/wms2-api/src/main/resources/db/migration/ | sort | tail -5
+ls /home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db/migration/ | sort -V | tail -5
 ```
 
 ### Rules
@@ -116,7 +120,7 @@ CREATE INDEX CONCURRENTLY index_pickingorder_state ON pickingorder (state);
 CREATE INDEX CONCURRENTLY index_pickingorder_state ON pickingorder (state);
 ```
 
-Migrations V1.1.09–V1.1.11 in v2 use standard `CREATE INDEX` (not `CONCURRENTLY`). These were safe to apply in a maintenance window; for future index additions on hot tables, prefer `CONCURRENTLY`.
+Migrations V2.1.04–V2.1.06 in v2 use standard `CREATE INDEX` (not `CONCURRENTLY`). These were safe to apply in a maintenance window; for future index additions on hot tables, prefer `CONCURRENTLY`.
 
 ### DROP COLUMN — safe DDL, but verify nativeQuery usages first
 
@@ -172,17 +176,17 @@ Before any schema change to column `col_name` on table `table_name`:
 ```bash
 # Find all native query files that mention the column name (v1)
 grep -rn "col_name" \
-  /Users/np1076/dev/spk/owl/v1/wms-api/src/main/java/ \
+  /home/nampark/dev/wms-claude/v1/wms-api/src/main/java/ \
   --include="*.java" | grep -i "nativeQuery\|query\s*="
 
 # Broader sweep — find all .java files containing the column name string
 grep -rln "col_name" \
-  /Users/np1076/dev/spk/owl/v1/wms-api/src/main/java/ \
+  /home/nampark/dev/wms-claude/v1/wms-api/src/main/java/ \
   --include="*.java"
 
 # Same for v2
 grep -rln "col_name" \
-  /Users/np1076/dev/spk/owl/v2/wms2-api/src/main/java/ \
+  /home/nampark/dev/wms-claude/v2/wms2-api/src/main/java/ \
   --include="*.java"
 ```
 
@@ -190,9 +194,9 @@ Also grep views and functions in the migration files themselves — v1 has compl
 
 ```bash
 grep -rn "col_name" \
-  /Users/np1076/dev/spk/owl/v1/wms-api/src/main/resources/db/migration/
+  /home/nampark/dev/wms-claude/v1/wms-api/src/main/resources/db/migration/
 grep -rn "col_name" \
-  /Users/np1076/dev/spk/owl/v2/wms2-api/src/main/resources/db/migration/
+  /home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db/migration/
 ```
 
 ### `@Column(name = ...)` overrides
@@ -201,7 +205,7 @@ Both codebases use Hibernate's default naming strategy. Column names are derived
 
 ```bash
 grep -rn "@Column" \
-  /Users/np1076/dev/spk/owl/v1/wms-api/src/main/java/ \
+  /home/nampark/dev/wms-claude/v1/wms-api/src/main/java/ \
   --include="*.java" | grep "name\s*=\s*\"col_name\""
 ```
 
@@ -271,10 +275,10 @@ Before committing a migration:
 
 ```bash
 # v1
-cd /Users/np1076/dev/spk/owl/v1/wms-api && mvn verify
+cd /home/nampark/dev/wms-claude/v1/wms-api && mvn verify
 
 # v2
-cd /Users/np1076/dev/spk/owl/v2/wms2-api && mvn verify
+cd /home/nampark/dev/wms-claude/v2/wms2-api && mvn verify
 ```
 
 ---
@@ -288,15 +292,15 @@ Flyway Community Edition does not support automatic undo/rollback. Once a migrat
 Write the rollback as the **next migration version**:
 
 ```
-V1.1.06__add_note_column_to_advice.sql       ← forward
-V1.1.07__rollback_note_column_from_advice.sql ← undo (only deploy if needed)
+V2.1.14__add_note_column_to_advice.sql       ← forward
+V2.1.15__rollback_note_column_from_advice.sql ← undo (only deploy if needed)
 ```
 
 The undo migration file should contain the exact inverse DDL:
 
 ```sql
--- V1.1.07__rollback_note_column_from_advice.sql
--- Undo of V1.1.06: removes the note column added to advice
+-- V2.1.15__rollback_note_column_from_advice.sql
+-- Undo of V2.1.14: removes the note column added to advice
 ALTER TABLE advice DROP COLUMN IF EXISTS note;
 ```
 

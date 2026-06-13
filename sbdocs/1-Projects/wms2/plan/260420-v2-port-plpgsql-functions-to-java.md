@@ -40,7 +40,7 @@ tags:
 | Function | Defined | Signature | Last revision |
 |---|---|---|---|
 | `stock_history(timestamp)` | `V1.0.03__wms_functions.sql:13-71` | `(timestamp) → 8-col TABLE` | V1.0.03 |
-| `transaction_detail(varchar, varchar, timestamp, timestamp)` | `V1.0.03` → `V1.1.04` → `V1.1.12` | `(…) → 24-col TABLE` | V1.1.12 |
+| `transaction_detail(varchar, varchar, timestamp, timestamp)` | `V1.0.03` → `V1.1.04` → `V2.1.07` | `(…) → 24-col TABLE` | V2.1.07 |
 | `transaction_summary(varchar, timestamp, timestamp)` | `V1.0.03` → `V1.1.04` | `(…) → 18-col TABLE` | V1.1.04 |
 
 Consequences today:
@@ -113,7 +113,7 @@ Only the `ClientRepository` flavor is wired to the REST endpoints today. The `St
 |---|------|------|-------------|
 | 1 | `src/main/resources/db/migration/V1.0.03__wms_functions.sql` | 13-553 | All three functions created here |
 | 2 | `src/main/resources/db/migration/V1.1.04__wms_functions.sql` | 3-501 | `transaction_detail` + `transaction_summary` replaced |
-| 3 | `src/main/resources/db/migration/V1.1.12__update_transaction_detail_pick_amount_filter.sql` | 9-368 | `transaction_detail` zero-amount filter (most recent) |
+| 3 | `src/main/resources/db/migration/V2.1.07__update_transaction_detail_pick_amount_filter.sql` | 9-368 | `transaction_detail` zero-amount filter (most recent) |
 | 4 | `src/main/java/net/aim_ai/wms/repo/jpa/ClientRepository.java` | 49-66 | `getTransactionSummary`, `getTransactionDetail` native queries |
 | 5 | `src/main/java/net/aim_ai/wms/repo/jpa/StockrecordRepository.java` | 20-38 | Duplicate `transactionDetailByClientNumberAndSkuBetweenDates`, `transactionSummaryByClientNumberBetweenDates` |
 | 6 | `src/main/java/net/aim_ai/wms/repo/jpa/StockViewRepository.java` | 18-20 | `stockHistoryAfterAsOfDate` native query |
@@ -149,7 +149,7 @@ Move each function body into a Java `@Service` that issues **parameterized nativ
 
 - Input: `String clientCode`, `String sku`, `LocalDateTime startDate`, `LocalDateTime endDate`
 - Output: `List<TransactionDetailView>`
-- SQL constant = body of `transaction_detail()` from `V1.1.12:9-368` (the most recent version; it has the zero-amount filter that v1 shipped in `4a0a26e`). Substitute:
+- SQL constant = body of `transaction_detail()` from `V2.1.07:9-368` (the most recent version; it has the zero-amount filter that v1 shipped in `4a0a26e`). Substitute:
   - `$1` → `:clientCode`
   - `$2` → `:sku`
   - `$3` → `:startDate`
@@ -183,7 +183,7 @@ No change to request/response DTOs, no change to OpenAPI schema.
 1. **Phase A (add Java path):** Introduce the three services. REST endpoints still call the old repository methods. Tests compare Java-path output to DB-function output against the same seeded data.
 2. **Phase B (flag flip):** Add `app.report.engine=java|plpgsql` system property (read via `LosSyspropRepository`, default `plpgsql`). Controller branches on the flag. Ship with `plpgsql` default in prod; flip to `java` in staging and bake for 2 weeks.
 3. **Phase C (default flip):** Default switches to `java`. PL/pgSQL path remains as fallback.
-4. **Phase D (cleanup):** Once Phase C has 1 release in prod with no reports issues, add migration `V1.1.13__drop_report_functions.sql` that `DROP FUNCTION IF EXISTS stock_history(timestamp), transaction_detail(…), transaction_summary(…)`. Remove the `app.report.engine` flag and the DB-function branch of the controller.
+4. **Phase D (cleanup):** Once Phase C has 1 release in prod with no reports issues, add migration `V2.1.08__drop_report_functions.sql` that `DROP FUNCTION IF EXISTS stock_history(timestamp), transaction_detail(…), transaction_summary(…)`. Remove the `app.report.engine` flag and the DB-function branch of the controller.
 
 If Phase D looks risky (these reports are client-facing), phases C and D can stretch over a quarter. The H2 migration (separate plan) can proceed as soon as Phase C lands — once `app.report.engine=java` is default and tested, H2 compatibility no longer depends on dropping the functions, only on not *requiring* them.
 
@@ -209,7 +209,7 @@ This plan is **v2-only**. The v1 codebase (`v1/wms-api`) also has these function
 | Aspect | V1 | V2 | Impact |
 |---|---|---|---|
 | `stock_history` PL/pgSQL | Present | Present | V1 unchanged; v2 ports to Java |
-| `transaction_detail` | Present (v1 commit `4a0a26e` added zero-amount filter — we just ported this as `V1.1.12`) | Present (same body after `V1.1.12`) | V1 unchanged; v2 ports to Java |
+| `transaction_detail` | Present (v1 commit `4a0a26e` added zero-amount filter — we just ported this as `V2.1.07`) | Present (same body after `V2.1.07`) | V1 unchanged; v2 ports to Java |
 | `transaction_summary` | Present | Present | V1 unchanged; v2 ports to Java |
 | Tests | v1 has no integration tests for these | v2 has 1 `@Disabled` | Port unblocks v2 tests; v1 unaffected |
 
@@ -244,10 +244,10 @@ This plan is **v2-only**. The v1 codebase (`v1/wms-api`) also has these function
 
 ### Phase D — Cleanup (1 release cycle after Phase C)
 
-- [ ] Add `V1.1.13__drop_report_functions.sql`: `DROP FUNCTION IF EXISTS public.stock_history(timestamp);`, same for `transaction_detail(…)` and `transaction_summary(…)`.
+- [ ] Add `V2.1.08__drop_report_functions.sql`: `DROP FUNCTION IF EXISTS public.stock_history(timestamp);`, same for `transaction_detail(…)` and `transaction_summary(…)`.
 - [ ] Remove the PL/pgSQL branch of the controller + the `app.report.engine` flag.
 - [ ] Delete the three repository native-query methods (§3.4).
-- [ ] Update `V1.0.03`, `V1.1.04`, `V1.1.12` to **not** be dropped from migration history (Flyway is forward-only) — the new `V1.1.13` is the authoritative "they're gone" marker.
+- [ ] Update `V1.0.03`, `V1.1.04`, `V2.1.07` to **not** be dropped from migration history (Flyway is forward-only) — the new `V2.1.08` is the authoritative "they're gone" marker.
 - [ ] Enable `ClientRepositoryIntegrationTest.GetTransactionDetailSmokeTest` — it now works on H2 (no function needed).
 
 ### Cross-phase
@@ -338,7 +338,7 @@ The flagged rollout makes rollback trivial at every phase:
 
 - **Phase A:** the flag is `plpgsql` by default — nothing to roll back.
 - **Phase B/C:** set `app.report.engine=plpgsql` via `LosSysprop` to revert without redeploy.
-- **Phase D (post-function-drop):** rollback requires reapplying `V1.0.03` / `V1.1.04` / `V1.1.12` bodies to re-create the functions (Flyway migration, `V1.1.14__restore_report_functions.sql` in the worst case). This is why Phase D should only happen after Phase C is stable for a full release.
+- **Phase D (post-function-drop):** rollback requires reapplying `V1.0.03` / `V1.1.04` / `V2.1.07` bodies to re-create the functions (Flyway migration, `V2.1.09__restore_report_functions.sql` in the worst case). This is why Phase D should only happen after Phase C is stable for a full release.
 
 ### Parallel work streams
 

@@ -135,7 +135,6 @@ UnitloadBusinessService   (unit-load placement primitives)
   ├─► UnitloadRecordService
   ├─► LocationConstraintRepository  (type-based placement rules)
   ├─► FixLocationAssignmentRepository
-  └─► OptimisticLockRetry          (v2 retry utility — used in transferUnitLoadToLocation carrier-clear)
 ```
 
 **Transaction boundary note (v2):** `StockunitService` has no class-level `@Transactional`. Only `transferStock` (line 145) and `adjustReservedAmount` (line 434) carry method-level `@Transactional(value = "tenantTransactionManager")`. The primitives `changeAmount` and `changeReservedAmount` in `StockunitBusinessService` are individually transactional. Methods like `setLockDamaged`, `adjustAmount`, and `removeLock` are NOT wrapped in an outer transaction — each sub-call commits independently (same risk as v1: an orphaned unit load is possible if `setLockDamaged` fails between unit-load creation and SU lock assignment).
@@ -483,7 +482,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 
 - Calls `UnitloadBusinessService.transferUnitLoadToLocation` for standard moves.
 - Calls `UnitloadBusinessService.transferUnitLoadToCarrier` for pallet palletising flows.
-- Uses `OptimisticLockRetry` via `UnitloadBusinessService` when clearing `carrierunitload_id` under contention.
+- Carrier-clear in `UnitloadBusinessService.transferUnitLoadToLocation` is a plain mutate+save inside the tenant transaction (the former `OptimisticLockRetry` wrapper was removed as inert — 260610 Phase A; a conflict surfaces at commit as HTTP 409).
 
 ### Transfer Orders (`TransferOrderService`, `MobileTransferOrderService`)
 
@@ -555,7 +554,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 | **L2 / application cache** | None (no Caffeine) | Caffeine L1 on `sysprops`, `clients`, `locations`, `itemdata` (see §7) |
 | **Multi-tenant datasource** | HTTP header routing (`tenant_name` + `facility_code`) | Same routing model; explicit `value = "tenantTransactionManager"` required on all `@Transactional` (dual-TM architecture) |
 | **`@Transactional` default** | `@Primary` = landlord TM same risk as v2 | `@Primary` = landlord TM — omitting `value` silently breaks tenant writes |
-| **Optimistic lock retry** | None in stock path | `OptimisticLockRetry` utility used in `UnitloadBusinessService.transferUnitLoadToLocation` when clearing `carrierunitload_id` |
+| **Optimistic lock retry** | None in stock path | None in stock path either (260610 Phase A removed the inert `transferUnitLoadToLocation` wrapper; sole remaining `OptimisticLockRetry` consumer is the non-transactional `MobilePalletizingService.scanPallet`) |
 | **`createStockUnit` overload** | Single signature | v2 adds pre-fetched-location overload to avoid repeated DB lookups in batch receives |
 | **`transferStockToUnitLoad` overload** | Single signature | v2 adds pre-fetched-`FixLocationAssignment` overload for club-line batch efficiency |
 | **`createUnitload` overload** | Single signature | v2 adds pre-fetched-`spawnLocation` overload |

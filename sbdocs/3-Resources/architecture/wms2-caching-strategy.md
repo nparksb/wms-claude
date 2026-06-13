@@ -5,8 +5,8 @@ status: active
 system: wms2
 owner: Nam Park
 created: 2026-04-26
-updated: 2026-04-26
-last_verified: 2026-05-08
+updated: 2026-06-11
+last_verified: 2026-06-11
 verified_by: code read of CacheConfig.java, SyspropService, ClientService, ItemdataService, LocationService, KeycloakService, SystemPropertyController, ItemDataController, FileImportController, SkuRestController
 related:
   - ./wms2-end-to-end-request-journey.md
@@ -133,14 +133,14 @@ All key expressions use the null-safe operator on `getCurrentTenant()`. If tenan
 | Location | Annotation | Method | Key | Trigger |
 |----------|-----------|--------|-----|---------|
 | `ItemdataService` | `@Cacheable` | `getById(Long id)` | `<facilityCode>:id:<id>` | Cache-on-read |
-| `ItemdataService` | `@Cacheable` | `findByClientIdAndItemNr(Long clientId, String itemNr)` | `<facilityCode>:<clientId>:<itemNr>` | Cache-on-read |
-| `ItemdataService` | `@CacheEvict` | `setPutAwayLocation(Itemdata, Location)` | `allEntries = true` | Clears entire cache for tenant (due to `allEntries`) |
+| `ItemdataService` | `@Cacheable` | `findByClientIdAndItemNr(Long clientId, String itemNr)` | `<facilityCode>:<clientId>:<itemNr>` | Cache-on-read. Since 260610 (SKU trim normalization) the method body trims `itemNr` before the repository call, but the SpEL key uses the **raw** argument — a padded lookup caches the trimmed row under the padded key. Accepted trade-off (plan 260610 §6): padded-key entries self-heal via the `allEntries` evictions on every SKU sync write + 5-min TTL |
+| `ItemdataService` | `@Caching(evict)` | `setPutAwayLocation(Itemdata, Location)` | two targeted keys: `<facilityCode>:id:<id>` and `<facilityCode>:<clientId>:<itemNr>` | Key-targeted eviction (changed from `allEntries = true` after 2026-05-08) — evicts only this item's two entries instead of flushing all tenants' entries |
 | `ItemDataController` | `@CacheEvict` | `setPutAwayLocation(itemDataId, locationId, ...)` | `allEntries = true` | `GET /v3/itemData/setPutAwayLocation/{id}/{locid}` |
 | `FileImportController` | `@CacheEvict` | `importSkus(adviceList, principal)` | `allEntries = true` | `POST /v3/import/skus` |
 | `SkuRestController` | `@CacheEvict` | `create(skuList)` | `allEntries = true` | `PUT /rest/sku/create` |
 | `SkuRestController` | `@CacheEvict` | `update(skuList)` | `allEntries = true` | `POST /rest/sku/update` |
 
-**Note on `allEntries = true`:** The `itemdata` cache uses `allEntries = true` on all evictions rather than key-targeted eviction. This is a defensive choice — because `itemdata` can be keyed by both `id` and `(clientId, itemNr)`, a single write to an `Itemdata` record would need to evict two cache entries. Using `allEntries = true` avoids that complexity at the cost of clearing the entire cache (all entries for ALL tenants in the same JVM). This is safe but slightly over-aggressive.
+**Note on eviction strategy:** The `itemdata` cache mixes two eviction styles. The bulk write paths (`SkuRestController.create`/`update`, `FileImportController.importSkus`, `ItemDataController.setPutAwayLocation`) use `allEntries = true` — defensive, clears the entire cache (all entries for ALL tenants in the same JVM) because a batch can touch many items. `ItemdataService.setPutAwayLocation` instead uses key-targeted `@Caching(evict)` on the item's two keys (`id` and `clientId:itemNr`) — these key expressions must stay in sync with the `@Cacheable` keys above whenever either changes.
 
 **`SkuRestController.delete` gap:** `DELETE`-equivalent `delete(skuList)` (`DELETE /rest/sku`) does NOT carry `@CacheEvict`. Deleted SKUs will remain in the `itemdata` cache until TTL expiry.
 
@@ -265,6 +265,7 @@ This is the pattern to use in any service or integration test that exercises a c
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-27 | Initial — `CacheConfig.java`, `SyspropService`, `ClientService`, `ItemdataService`, `LocationService`, `KeycloakService`, `SystemPropertyController`, `ItemDataController`, `FileImportController`, `SkuRestController` | All cache definitions and `@Cacheable` / `@CacheEvict` sites confirmed against source | Code read |
+| 2026-06-11 | Targeted re-verify for plan 260610 (SKU trim normalization): `ItemdataService.findByClientIdAndItemNr` now trims `itemNr` in the body while the `@Cacheable` SpEL key stays on the raw arg (padded-key entries self-heal — note added to §table row). Found + fixed drift: `setPutAwayLocation` no longer uses `allEntries = true`; it carries `@Caching(evict)` with the two targeted keys (`ItemdataService.java:60-65`). `SkuRestController.delete` no-eviction gap (§7 row) still present and now marginally wider since padded deletes resolve. | §table row + §7 confirmed; one row corrected | Code read (plan 260610 implementation) |
 | 2026-05-08 | Re-verified Caffeine swap: `CacheConfig.java` defines 4 caches (`sysprops`, `clients`, `locations`, `itemdata`) all with 5-min TTL via `Duration.ofMinutes(5)` (lines 34-37); `SyspropService.@Cacheable("sysprops")` (lines 95, 288) + `@CacheEvict` (line 53) supersede the prior 30s volatile cache pattern. Optimistic-lock resilience for Group C — 9 catch sites across `service/job/ReleaseOrderJobService.java`, `service/job/ReplenishOrderJobService.java`, `MobileReplenishService`, `MobilePickingService`, `MobilePutAwayService`, `PickingorderBusinessService`, `BasicService`, plus the `OptimisticLockRetry` utility and the controller-layer `PickingController` retry. ItemData cache eviction story confirmed — `ItemdataService.setPutAwayLocation` + `ItemDataController.setPutAwayLocation` + `FileImportController.importSkus` + `SkuRestController.create` / `update` all carry `@CacheEvict(value = "itemdata", allEntries = true)`. `SkuRestController.delete` gap (no eviction) still present — see §7 row. | All claims confirmed; no drift; only frontmatter and verified-line bumped. | Code read (grep-based) |
 
 **Re-verify every 60 days.** Next due: **2026-07-07**.

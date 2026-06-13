@@ -763,7 +763,7 @@ This section validates the plan against the current codebase as of 2026-04-03. N
 - **Cron scheduling is gated by configuration.** `src/main/java/net/aim_ai/wms/schedulejob/SchedulingConfiguration.java` is conditional on `app.cron=true`.
 - **Thread-safety findings are valid.** `AdviceController.java:38` and `CustomerOrderBatchController.java:26` both keep `static final SimpleDateFormat` instances; `Authority.java:15-16` exposes a mutable public `HashSet`.
 - **Tenant-key construction is duplicated across multiple classes.** The duplication is present in `TenantDynamicRoutingDataSource`, `TenantContext`, `MultiTenantJwtDecoder`, `MultiTenantKeycloakService`, and `TenantConfigLoader`.
-- **Migration filenames mentioned in the plan exist.** `V1.1.10__add_critical_missing_indexes.sql` and `V1.1.11__add_composite_indexes.sql` are present in `src/main/resources/db/migration/`.
+- **Migration filenames mentioned in the plan exist.** `V2.1.05__add_critical_missing_indexes.sql` and `V2.1.06__add_composite_indexes.sql` are present in `src/main/resources/db/migration/`.
 
 ### 7.2 Invalidated or Inaccurate Claims
 
@@ -793,7 +793,7 @@ This section validates the plan against the current codebase as of 2026-04-03. N
 3. **Clarify cache TTL wording** so it distinguishes 5-minute Spring caches from the 15-minute Keycloak user cache.
 4. **Revise the `OptimisticLockRetry` status text** to say the utility exists and is partially adopted, not broadly deployed across all critical paths.
 5. **Replace the sample `TenantKeyBuilder` snippet** with one that matches the current runtime key format, or explicitly label it as a future breaking-format proposal.
-6. **Retain the migration references to `V1.1.10` and `V1.1.11`**; those filenames are correct in the current repository.
+6. **Retain the migration references to `V2.1.05` and `V2.1.06`**; those filenames are correct in the current repository.
 7. **Optionally add the `TenantConfigLoader` logging defect** as a minor observability note so future reviewers do not rely on its startup counts.
 
 ### 7.6 Overall Assessment

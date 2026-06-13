@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-05-08
+last_verified: 2026-05-20
 verified_by: Claude (executor)
 tags: [wms2, replenishment, fix-location, stock, inventory]
 ---
@@ -127,7 +127,7 @@ No `@Transactional` annotations at method level — all DB writes are done direc
 | `recalculateOpenOrders(force)` | `(boolean) → void` | Loads all `PROCESSABLE` orders, builds bulk `RecalcContext`, iterates. Skips orders with `manuallyoverridepriority = true`. |
 | `recalculateForItem(itemDataId)` | `(Long) → void` | Targeted recalc for a specific item; called by job after detecting affected items. `null` itemDataId falls back to full recalc. |
 | `recalculateOrder(order)` | package-private `(Replenishorder) → void` | Test entry point — wraps with empty context. |
-| `recalculateOrder(order, ctx)` | package-private `(Replenishorder, RecalcContext) → void` | Core logic: re-fetches order, checks FLA, validates/redirects source, computes shortage, cancels or adjusts amount. |
+| `recalculateOrder(order, ctx)` | **public** `@Transactional(tenantTransactionManager, REQUIRED)` `(Replenishorder, RecalcContext) → void` | Core logic: re-fetches order with `findByIdForUpdate(@Lock PESSIMISTIC_WRITE)`, checks FLA, validates/redirects source, computes shortage, cancels or adjusts amount. Per-order short tx when called from sweep; annotation bypassed (this. call) when called from `recalculateForItem`. (260520 fix) |
 
 ### `ReplenishorderService`
 
@@ -222,8 +222,7 @@ MobileReplenishService (mobile API)
 ├── ReplenishmentOrderMaintenanceService
 ├── StockunitBusinessService
 ├── FixLocationAssignmentService
-├── [repositories]
-└── OptimisticLockRetry
+└── [repositories]
 
 ReplenishorderService (desktop API)
 └── ReplenishGeneratorService (via create → calculateOrder)
@@ -548,11 +547,23 @@ When a `PROCESSABLE` order already exists for the same item + destination, `calc
 
 Both `checkDestination` and `finishReplenishmentOrderInternal` can create `FixLocationAssignment` records as a side effect of an operator's scan. This is by design for the flowbin assignment flow, but can create unexpected FLAs if an operator scans the wrong destination. There is no undo mechanism — FLA deletion requires the job's cleanup phase (which is off by default) or manual DB intervention.
 
-### 4. `recalculateOrder` in `ReplenishmentOrderMaintenanceService` has no `@Transactional`
+### 4. Transaction boundaries on the recalculate methods
 
-`recalculateOrder` and its helpers (`cancelOrder`, `updateRequestedAmount`, `redirectSource`) make direct `replenishorderRepository.save()` calls but are not wrapped in a `@Transactional` method. They run inside whatever transaction their callers establish (`recalculateOpenOrders`, `recalculateForItem`). Those caller methods also lack `@Transactional`. This means recalculation writes auto-commit unless the caller is already in a transaction. The `RecalcContext` bulk-fetch (lines 461–503) is read-only and operates correctly, but the save calls inside each `recalculateOrder` invocation run in auto-commit mode unless the job wraps the call in a transaction (which `ReplenishOrderJobService.recalculateReplenishmentOrderWithoutFixedLocationAssignment` does via `REQUIRES_NEW`).
+**Current state (after 260520 fix):**
 
-**Risk:** `recalculateOpenOrders(true)` called from `MobileReplenishService.fulfillMultipleUnitLoads` (line 806) runs inside the outer `@Transactional` method — recalc saves are part of that transaction, which is correct behavior here but may be surprising.
+| Method | `@Transactional`? | Notes |
+|---|---|---|
+| `recalculateOpenOrders(boolean)` | **No** | Intentional — 260331 decision. The sweep calls `self.recalculateOrder` per order so each order opens its own short REQUIRED tx. |
+| `recalculateForItem(Long)` | **Yes** — `tenantTransactionManager` | The HTTP-callable entry point. Inner loop calls `this.recalculateOrder` (bypasses proxy — see §5.4 warning below). |
+| `recalculateOrder(Replenishorder, RecalcContext)` | **Yes** — `tenantTransactionManager, REQUIRED` | Added 260520. Provides the tx that `findByIdForUpdate(@Lock PESSIMISTIC_WRITE)` requires. Per-order short tx from the sweep; annotation bypassed from `recalculateForItem` (this. call). |
+
+**SBDEV-2234 (2026-05-18):** `recalculateForItem(Long)` gained `@Transactional(tenantTransactionManager)`. `recalculateOpenOrders(boolean)` intentionally remained NON-transactional (260331 decision). `findByIdForUpdate(@Lock PESSIMISTIC_WRITE)` was added expecting the sweep to provide a tx — but no per-order tx was opened, causing `InvalidDataAccessApiUsageException` in production.
+
+**260520 fix:** `recalculateOrder(Replenishorder, RecalcContext)` is now `public @Transactional(tenantTransactionManager, REQUIRED)`. `recalculateOpenOrders(boolean)` calls it via `self.recalculateOrder(order, ctx)` (self-injection through CGLIB proxy) so each order gets its own short REQUIRED tx. The per-order auto-commit design from 260331 is preserved.
+
+**§5.4 WARNING — do NOT change `recalculateForItem`'s inner loop to `self.recalculateOrder`:** `recalculateForItem` has an outer REQUIRED tx. Routing the inner loop through the proxy would cause `@Transactional + rollbackFor` to mark the shared outer tx rollback-only on any unchecked exception, which the try/catch swallows — but `UnexpectedRollbackException` fires on commit, poisoning all sibling orders. Most acute when called from `StockunitService.transferStock`.
+
+**Risk:** `recalculateOpenOrders(true)` called from `MobileReplenishService.fulfillMultipleUnitLoads` (line 806) runs inside the outer `@Transactional` method — the self.recalculateOrder call opens a REQUIRED tx that joins the outer tx, so saves are still part of the outer transaction. Correct behavior but may be surprising.
 
 ### 5. Amount cap at source stock size — silent reduction
 
@@ -598,3 +609,5 @@ Each job iteration calls `TenantContext.setCurrentTenant(profile)` before any qu
 |---|---|---|
 | 2026-04-27 | Claude (executor) | Initial doc — all service methods read from source; all state constants verified against `WmsConstants.java`; entity fields verified against `Replenishorder.java` and `FixLocationAssignment.java`; repository queries verified against `ReplenishorderRepository.java` |
 | 2026-05-08 | Claude (executor) | SBDEV-1699 (commit `c4fcfc1`) verified live: `ViewDtoService.getStockPerLocation` (line 672 onwards) uses batched `fixLocationAssignmentRepository.findByItemdataIdIn(itemdataIds)` (line 684); `ReplenishmentMonitorViewRepository` SQL exposes `f.upperbound AS fix_assignment_upperbound` (line 64) with re-projected aggregate column at line 31; `ReplenishMonitorSummaryView.getFix_assignment_upperbound()` getter present (line 32); `ViewDtoService.getReplenishMonitorViewSummary` (line 1194) emits DTO `locationStock` (line 1232 — `dto.put("locationStock", fixUpperBound.subtract(qtyOnLoc).longValue())`); `ViewDtoService.getReplenishMonitorViewSummary` and the detail-view method at line 601 both annotated `@Transactional(value = "tenantTransactionManager", readOnly = true)`. No drift to module body required. |
+| 2026-05-19 | Claude (executor) | SBDEV-2234 (merged 2026-05-18): `recalculateForItem(Long)` now `@Transactional(tenantTransactionManager)` — §4 limitation #4 updated to reflect this; `recalculateOpenOrders(boolean)` intentionally remains non-transactional (260331 decision, confirmed in tx-osiv-boundary-map 2026-05-15 entry). `ReplenishorderRepository.findByIdForUpdate` now actively called by `recalculateOrder` (already documented in §key files table). `SyspropService.setSysvalue` added (documented in wms2-sysprop-catalog 2026-05-15). `REPLENISHMENT_RECALCULATION_LAST_RUN_EPOCH_MS` sysprop replaces JVM-local `lastRun` field. |
+| 2026-05-20 | Claude (executor) | 260520 fix: `recalculateOrder(Replenishorder, RecalcContext)` now `public @Transactional(tenantTransactionManager, REQUIRED)` (Fix A — plan `260520-replenishment-open-orders-missing-tx`). `@Lazy @Autowired self` field added to service; `recalculateOpenOrders(boolean)` sweep loop changed to call `self.recalculateOrder(order, ctx)` (per-order short REQUIRED tx). §4 method table updated (visibility + annotation), §4 limitation #4 rewritten to reflect new 3-method tx boundary table. §5.4 WARNING documented. |

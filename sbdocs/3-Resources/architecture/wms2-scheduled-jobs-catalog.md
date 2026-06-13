@@ -6,15 +6,15 @@ version: v2
 scope: scheduled-jobs
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-05-17
-last_verified: 2026-05-17
-verified_by: code read of v2/wms2-api src/main at commit HEAD (incl. SBDEV-2228 paginated ReplenishOrderJob, streaming OrderReleaseJob, bulk+decoupled StockSummaryExportJob)
+updated: 2026-06-01
+last_verified: 2026-06-01
+verified_by: code read of v2/wms2-api src/main at commit HEAD (incl. SBDEV-2228 paginated ReplenishOrderJob, streaming OrderReleaseJob, bulk+decoupled StockSummaryExportJob; SBDEV-2381 OutboxDispatcher ordering gate)
 related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ./wms2-state-machine-catalog.md
   - ./wms2-tenant-routing-datasource-topology.md
   - ../../1-Projects/wms2/plan/260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md
-  - ../../1-Projects/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md
+  - ../../4-Archieves/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md
   - ../../4-Archieves/wms2/plan/260331-cron-job-autoflush-optimistic-lock-debug-plan.md
   - ../../4-Archieves/wms2/plan/260424-connection-pool-exhaustion-fix-plan.md
 tags:
@@ -276,7 +276,8 @@ try {
 | **Activation** | No per-job sysprop gate — controlled by `app.cron` only |
 | **Reads** | `outbox_message` rows with `status IN ('PENDING','FAILED_RETRY')` and `next_attempt_at <= NOW()` |
 | **Writes** | Per-row: flips row to `IN_FLIGHT` (claim), then to `SENT` / `FAILED_RETRY` / `FAILED_TERMINAL` depending on OMS HTTP response; deletes `SENT` rows older than 7 days at end of tick |
-| **Dispatch phases** | Phase 0 (REQUIRES_NEW via `OutboxService.reclaimStaleInFlight`): recover crashed `IN_FLIGHT` rows older than 5 min back to `FAILED_RETRY`. Phase 1 (REQUIRES_NEW via `OutboxService.claimDueBatch`): atomically flip PENDING/FAILED_RETRY → IN_FLIGHT, release row locks. Phase 2 (no tx held): HTTP POST per row via `HttpRestService.postWithIdempotencyKey`; each outcome committed independently via `OutboxService.mark*` (REQUIRES_NEW). |
+| **Dispatch phases** | Phase 0 (REQUIRES_NEW via `OutboxService.reclaimStaleInFlight`): recover crashed `IN_FLIGHT` rows older than 5 min back to `FAILED_RETRY`. Phase 1 (REQUIRES_NEW via `OutboxService.claimDueBatch` → `OutboxMessageRepository.findAndClaimPending`): atomically flip PENDING/FAILED_RETRY → IN_FLIGHT, release row locks. **SBDEV-2381:** the claim query now `ORDER BY next_attempt_at, id` and applies a **fail-closed cross-tick `NOT EXISTS` gate** — a row is not claimed while a lower-`id` sibling of the same aggregate is still PENDING/FAILED_RETRY/IN_FLIGHT/FAILED_TERMINAL (prevents FINISHED-without-STARTED). Phase 2 (no tx held): **SBDEV-2381:** the claimed batch is sorted in Java by `(nextAttemptAt, aggregateType, aggregateId, id)` before a sequential HTTP POST loop (no `parallelStream`); each POST goes via `HttpRestService.postWithIdempotencyKey`, each outcome committed independently via `OutboxService.mark*` (REQUIRES_NEW). |
+| **Ordering (SBDEV-2381)** | Backed by index `outbox_message (aggregate_type, aggregate_id, id, status)` from migration `V2.1.14__add_outbox_aggregate_order_index.sql`. Dispatch posts events in strict per-aggregate `id` order; each POST body carries `event_version = outbox row id` for OMS-side stale-event rejection. See `architecture/wms2-oms-integration-map.md` §2.1. |
 | **Per-step TX** | Each `OutboxService.mark*` call is REQUIRES_NEW — no transaction held across the OMS HTTP round-trip |
 | **Metrics** | `wms2.outbox.dispatched{outcome=sent|retry|terminal}` (Micrometer counter); `wms2.outbox.tick_duration` (Timer wrapping the full tenant loop) |
 | **Retry policy** | Exponential backoff: `nextAttemptAt = now + min(60s × 2^attempts, 1h)`. Max attempts: `app.outbox.dispatcher.max-attempts=5`. |
@@ -394,5 +395,6 @@ Not a runbook, but cross-referenced:
 | 2026-05-12 | SBDEV-2222: `RestIdempotencyCleanupJob.java` added to `schedulejob/`; `JobLockId.CLEANUP_REST_IDEMPOTENCY = 100007L` added to `AdvisoryLockService`; cron driven by `app.cron.cleanup-rest-idempotency=0 0 2 * * *` (no DB sysprop gate). §2 lock-id table, §4.7 detail block, §6 summary updated. `schedulejob/` now contains 7 business jobs. | §2 +1 row, §4.7 added, §6 +1 row confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-17 | SBDEV-2221: `OutboxDispatcherJob.java` added to `schedulejob/`; `OutboxDispatchService.java` added to `service/job/`; `JobLockId.OUTBOX_DISPATCHER = 100008L` added to `AdvisoryLockService`; cron every 15 s (`app.cron.outbox-dispatcher=*/15 * * * * *`, no DB sysprop gate). §1 overview updated (7 business jobs), §2 lock-id table +1 row, §4.8 detail block added, §6 summary +1 row. `schedulejob/` now contains 8 business jobs. | §2 +1 row, §4.8 added, §6 +1 row confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-18 | SBDEV-2238-4.5: `JobMetrics.java` helper added to `schedulejob/`; all 5 existing business cron jobs instrumented (`OrderReleaseJob`, `ReplenishOrderJob`, `StockSummaryExportJob`, `CleanUpOldMessagesJob`, `ReleaseExpiredPickingOrdersFromUserJob`). `micrometer-registry-prometheus` added to `pom.xml`; `prometheus` added to `management.endpoints.web.exposure.include`. §7.6 landmine resolved (was "No Micrometer timers on any job"). Parity gap: `StaleClubBatchCleanupJob` (100006L) and `RestIdempotencyCleanupJob` (100007L) not yet instrumented. | §7.6 resolved, verification log updated | Code read (grep-based) |
+| 2026-06-01 | SBDEV-2381: `OutboxDispatchService` / `OutboxMessageRepository.findAndClaimPending` — claim query gained `ORDER BY next_attempt_at, id` + fail-closed cross-tick `NOT EXISTS` ordering gate; `dispatchBatch` sorts the claimed batch by `(nextAttemptAt, aggregateType, aggregateId, id)` before a sequential POST loop; each POST body carries `event_version = outbox id`. New index migration `V2.1.14`. Advisory lock 100008L and `*/15 * * * * *` cadence unchanged. §4.8 Dispatch-phases row + new Ordering row added. | §4.8 updated; ordering confirmed against `OutboxMessageRepository.findAndClaimPending` + `OutboxDispatchService.dispatchBatch/dispatchOne` (PR #35, commits 567fba3 + 41ad7d3) | Code read (grep-based) |
 
-**Re-verify every 60 days.** Next due: **2026-07-07** — or sooner if `app.cron` is enabled in production, new jobs added, or PgBouncer migration lands (items in §7 will change).
+**Re-verify every 60 days.** Next due: **2026-07-31** — or sooner if `app.cron` is enabled in production, new jobs added, or PgBouncer migration lands (items in §7 will change).

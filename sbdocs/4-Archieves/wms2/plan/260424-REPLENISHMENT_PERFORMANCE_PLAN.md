@@ -50,7 +50,7 @@ Every new `@Transactional` annotation added by this plan must follow this rule.
 | 0 | B3 — fulfillMultipleUnitLoads() rollbackFor | ✅ Done | Added BusinessException + FacadeException |
 | 0 | B4 — checkDestination() @Transactional | ✅ Done | Added full annotation |
 | 0 | C2 — synchronized anti-pattern | ✅ Done | Removed synchronized keyword |
-| 1 | A1 — Missing state indexes | ✅ Done | V1.1.09 migration: 5 indexes + 2 partial unique |
+| 1 | A1 — Missing state indexes | ✅ Done | V2.1.04 migration: 5 indexes + 2 partial unique |
 | 1 | C1 — TOCTOU race condition | ✅ Done | Partial unique indexes enforce DB-level uniqueness |
 | 2 | D4 — getReplenishorderDetails() N+1 | ✅ Done | Single 7-JOIN native query |
 | 2 | D6 — readAddOn() N+1 | ✅ Done | Resolve itemdata ID once, filter in memory |
@@ -67,7 +67,7 @@ Every new `@Transactional` annotation added by this plan must follow this rule.
 | 4-5 | E1-E9 — API/UI improvements | Not started | |
 
 **Tests:** 3,656 total, all passing.
-**Migration:** `V1.1.09__replenishorder_performance_indexes.sql`
+**Migration:** `V2.1.04__replenishorder_performance_indexes.sql`
 
 ---
 

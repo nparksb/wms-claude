@@ -17,7 +17,7 @@ related:
   - ../../4-Archieves/wms2/plan/260424-RECEIVING_PERFORMANCE_PLAN.md
   - ../../4-Archieves/wms2/plan/260424-RECEIVING_QUANTITIES_FIX_PLAN.md
   - ../../4-Archieves/wms1/plan/260424-receiving-stockunit-unitload-error-analysis-review.md
-  - ../../1-Projects/wms2/plan/SBDEV-2102-putaway-unit-load-not-found-stuck.md
+  - ../../4-Archieves/wms2/plan/SBDEV-2102-putaway-unit-load-not-found-stuck.md
 tags:
   - workflow
   - receiving

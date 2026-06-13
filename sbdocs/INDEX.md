@@ -24,6 +24,7 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 ### Ongoing areas
 
 - **v1 → v2 sync** → [2-Areas/wms-v1-v2-sync/README.md](2-Areas/wms-v1-v2-sync/README.md) · [sync-log.md](2-Areas/wms-v1-v2-sync/sync-log.md) · [sweeps/](2-Areas/wms-v1-v2-sync/sweeps/)
+- **UTC timezone migration (SOP)** → [2-Areas/wms-utc-timezone-migration/README.md](2-Areas/wms-utc-timezone-migration/README.md) (per-client v1→v2 schema-bridge + UTC `timestamptz` migration)
 - **Runbooks** → [2-Areas/runbooks/README.md](2-Areas/runbooks/README.md) (2 docs — MOC)
 
 ### Reference material

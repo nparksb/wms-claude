@@ -757,7 +757,7 @@ The following were added to **Phase 2** (High-Priority Fixes) — **ALL DONE**:
 | # | Fix | File | Status |
 |---|-----|------|--------|
 | 2.5 | Replace `SimpleDateFormat` with `DateTimeFormatter` | `SharedService.java`, `NameTypeService.java`, `ReceivingService.java` | DONE |
-| 2.6 | Add unique DB constraint on `Unitload.labelid` | `V1.1.06__add_unique_constraint_unitload_labelid.sql` | DONE |
+| 2.6 | Add unique DB constraint on `Unitload.labelid` | `V2.1.01__add_unique_constraint_unitload_labelid.sql` | DONE |
 
 ---
 

@@ -7,7 +7,7 @@ scope: club-run
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-10
+last_verified: 2026-06-01
 verified_by: code read of v2/wms2-api CustomerorderBatchService + ClubLineController + BillofladingService
 related:
   - ../architecture/wms2-state-machine-catalog.md
@@ -15,7 +15,7 @@ related:
   - ./wms2-picking-workflow.md
   - ./wms2-bol-truck-loading-workflow.md
   - ./wms2-cancel-cascade-workflow.md
-  - ../../1-Projects/wms2/plan/260320-Auto_Release_Club_Transfer_Lane_Fix.md
+  - ../../4-Archieves/wms2/plan/260320-Auto_Release_Club_Transfer_Lane_Fix.md
   - ../../4-Archieves/wms2/plan/260424-Club_Order_Cancellation_Fix_Plan.md
   - ../../4-Archieves/wms2/plan/260424-Club_Order_Cancellation_OMS_Fix.md
   - ../../4-Archieves/wms2/plan/260424-CLUB_ORDER_PROCESSING_PERFORMANCE_PLAN.md
@@ -38,12 +38,12 @@ tags:
 
 ## 1. Overview
 
-A **club run** is one execution of a recurring-delivery batch — typically wine-of-the-month — where many orders with identical content are processed as a single wave through staging → pick → pack → palletize → load → ship. Anchor entity: `CustomerorderBatch` (Integer state). The flow is orchestrated from the **desktop** web UI (no mobile path) via `/v3/clubLine/...` REST endpoints, and the heavy lifting lives in `CustomerorderBatchService.runClubLine` (line 679) + `ClubLineOrderProcessor.processOrder()`.
+A **club run** is one execution of a recurring-delivery batch — typically wine-of-the-month — where many orders with identical content are processed as a single wave through staging → pick → pack → palletize → load → ship. Anchor entity: `CustomerorderBatch` (Integer state). The flow is orchestrated from the **desktop** web UI (no mobile path) via `/v3/clubLine/...` REST endpoints, and the heavy lifting lives in `CustomerorderBatchService.runClubLine` (line 743) + `ClubLineOrderProcessor.processOrder()`.
 
 Two load-bearing facts:
 
 1. **Club orders use a synthetic UUID-based tote label**, not a physical tote. `ManageOrderService.customerOrderPicked` (line 328–346) sets `customerOrder.historytote = UUID.randomUUID().toString()` for any order where `OrderBatchType == CLUB`. This is what `cancelOrder`'s rapid-pick side-door keys on (see [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §7).
-2. **`runClubLine` error-recovery reverts the batch state** via `rollbackClubLineState` (line 656) to `originalState`. This is the **only** revert pattern in the codebase. Don't generalize it to a reusable helper — the caller-specific context is what makes it safe.
+2. **`runClubLine` error-recovery reverts the batch state** via `rollbackClubLineState` (line 709) to `originalState`. This is the **only** revert pattern in the codebase. Don't generalize it to a reusable helper — the caller-specific context is what makes it safe.
 
 The v1 equivalent is [wms1-club-order-processing.md](./wms1-club-order-processing.md); this doc is the v2 companion.
 
@@ -88,13 +88,13 @@ RAW (0) → ORDER_BATCH_ACTIVATED (520)
          │  (optional: separate assignStagingLane / unlinkStagingLane REST calls)
          │
          ▼  REST: GET /v3/clubLine/runClubLine/{batchId}   [ClubLineController:160]
-         │      → CustomerorderBatchService.runClubLine()    [line 679]
+         │      → CustomerorderBatchService.runClubLine()    [line 743]
          │
   ┌──────┴───────────────────────────────────────────────────────────┐
   │  Phase 1: Validation + Lock                                      │
   │    pessimistic lock on CustomerorderBatch row                    │
   │    state guard: ACTIVATED or STAGING_LANE_ASSIGNED required      │
-  │    [CustomerorderBatchService:557]                               │
+  │    [CustomerorderBatchService:606]                               │
   │    batch.state = ORDER_BATCH_CLUB_RUN_IN_PROGRESS (527)          │
   │                                                                   │
   │  Phase 2: Per-order processing                                   │
@@ -105,7 +105,7 @@ RAW (0) → ORDER_BATCH_ACTIVATED (520)
   │        Customerorder.historytote = UUID (synthetic tote)         │
   │                                                                   │
   │  Phase 3: Finalize                                               │
-  │    finalizeClubLine()  [line 632]                                │
+  │    finalizeClubLine()  [line 689]                                │
   │    each Customerorder.state → PACKED                             │
   │    each CustomerorderPosition.state → PACKED                     │
   │    batch.state = ORDER_BATCH_CLUB_RUN_FINISHED (530)             │
@@ -115,7 +115,7 @@ RAW (0) → ORDER_BATCH_ACTIVATED (520)
   └────────────────────────────────────────────────────────────────┘
          │
          │  ON EXCEPTION in Phase 2/3:
-         │    rollbackClubLineState(batchId, originalState)   [line 656]
+         │    rollbackClubLineState(batchId, originalState)   [line 709]
          │    reverts CustomerorderBatch.state to pre-run value
          │
          ▼  (downstream: BOL create → palletize → load → close)
@@ -195,14 +195,14 @@ Why: in a club run, all orders have identical content, so the physical tote iden
 
 ### 6.2 OMS Callbacks in Club Flow
 
-Every callback below fires post-commit via `TransactionSynchronizationManager.registerSynchronization` or `omsNotificationService.sendAfterCommit`:
+Most callbacks below fire post-commit via `TransactionSynchronizationManager.registerSynchronization` or `omsNotificationService.sendAfterCommit`. **As of SBDEV-2381 (2026-06-01)** the three picking-status callbacks (RELEASE / PICKING / FINISHED_PICKING) are no longer fired this way — they are enqueued in-tx per CO inside `finalizeClubLine` (see the SBDEV-2381 note below):
 
 | Callback | Fired from | Line | When |
 |---|---|---|---|
-| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `ManageOrderService.customerOrderReleaseForPicking` | 155 | Per-order release (Phase 2 of runClubLine) |
+| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderReleaseForPicking`, now retired no-op shim) | — | Per-CO release, enqueued in-tx during finalize |
 | `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED` | `ManageOrderService.customerOrderToteAssigned` | 223 | Tote assigned to order |
-| `WEBSERVICE_ORDER_BATCH_PICKING` | `ManageOrderService.customerOrderPickingStarted` | 277 | Picking begins — fake UUID tote label set for club orders |
-| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `ManageOrderService.customerOrderPicked` | 352 | Picking done — `historytote` populated |
+| `WEBSERVICE_ORDER_BATCH_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderPickingStarted`, now retired no-op shim) | — | Picking begins — fake UUID tote label set for club orders |
+| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderPicked`, now retired no-op shim) | — | Picking done — `historytote` populated |
 | `WEBSERVICE_ORDER_BATCH_HELD` | `ManageOrderService.customerOrderOnHold` | 95 | Stock shortage / hold |
 | `WEBSERVICE_ORDER_BATCH_PALLETIZED` | `ManageOrderService.customerOrderPalletized` | 413 | After palletize (downstream BOL workflow) |
 | `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK` | `ManageOrderService.customerOrderLoadedToTruck` | 474 | After truck load |
@@ -210,6 +210,8 @@ Every callback below fires post-commit via `TransactionSynchronizationManager.re
 | `WEBSERVICE_ORDER_BATCH_CANCELLED` | `CustomerorderBatchService.cancelBatch` | 265 | Batch cancel — **activation gated by `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` (default `false`)** |
 
 Archived bug `Club_Order_Cancellation_OMS_Fix` was a post-commit ordering issue where a callback fired before the cancel actually persisted. The fix: never fire callbacks inside `@Transactional` — always via `registerSynchronization`.
+
+> **SBDEV-2381 (2026-06-01):** The three Phase-4 fire-and-forget OMS picking-status notifications (RELEASE → PICKING_STARTED → PICKING_FINISHED) are **removed from `runClubLine` Phase 4**. They are now `outboxService.enqueue(...)` **per-CO, in-transaction, inside `finalizeClubLine`** with ascending outbox ids (RELEASE < STARTED < FINISHED) so the dispatcher delivers them in order. Because enqueue now joins the finalize tenant tx, a **failed enqueue rolls back finalize** (atomic transactional outbox) rather than being swallowed. `buildPickedPayloadJson` runs once per club CO (owns the tote-label `saveAll` + historytote UUID); STARTED/RELEASE use the no-side-effect payload builder. See `architecture/wms2-oms-integration-map.md` §2.1 for the dispatcher-side ordering gate and `event_version` field.
 
 ### 6.3 Error-Recovery Revert
 
@@ -226,7 +228,7 @@ try {
 }
 ```
 
-`rollbackClubLineState` at line 656 is declared `@Transactional(rollbackFor = Exception.class)` — the broad rollback is intentional. It runs as a **new transaction** (the enclosing one has already committed the `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` change) to write the revert. If the revert itself fails, the batch is stuck mid-run and requires admin intervention.
+`rollbackClubLineState` at line 709 is declared `@Transactional(rollbackFor = Exception.class)` — the broad rollback is intentional. It runs as a **new transaction** (the enclosing one has already committed the `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` change) to write the revert. If the revert itself fails, the batch is stuck mid-run and requires admin intervention.
 
 This is the only codebase location that "reverts" a state transition. Do not copy this pattern elsewhere without understanding Phase-1-commits-before-Phase-2 semantics.
 
@@ -252,8 +254,8 @@ See [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §5 for
 
 - Phase 1 of `runClubLine` (state to `ORDER_BATCH_CLUB_RUN_IN_PROGRESS`) commits **independently** so Phase 2's per-order processing can be observed by readers mid-run.
 - Phase 2 per-order work (`ClubLineOrderProcessor.processOrder`) — per-order `@Transactional("tenantTransactionManager")`, typically with `REQUIRES_NEW` so one bad order doesn't abort the run.
-- Phase 3 `finalizeClubLine` — single transaction. All orders move to `PACKED` atomically; batch to `ORDER_BATCH_CLUB_RUN_FINISHED`.
-- Phase 4 callbacks — all post-commit, fire-and-forget.
+- Phase 3 `finalizeClubLine` — single transaction. All orders move to `PACKED` atomically; batch to `ORDER_BATCH_CLUB_RUN_FINISHED`. **SBDEV-2381:** also performs up to 3 `outboxService.enqueue` (RELEASE/STARTED/FINISHED) per club CO inside this same tenant tx — a failed enqueue rolls the whole finalize back.
+- Phase 4 callbacks — `PALLETIZED` / `LOADED_TO_TRUCK` remain post-commit fire-and-forget. The RELEASE/PICKING_STARTED/PICKING_FINISHED notifications are **no longer here** (SBDEV-2381 moved them into the Phase-3 finalize tx via the outbox).
 - `cancelBatch` — single transaction. Entire cascade succeeds atomically or rolls back.
 - `rollbackClubLineState` — new transaction (`rollbackFor = Exception.class`); runs after Phase 1 commit, before re-throwing.
 
@@ -295,5 +297,6 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | `CustomerorderBatchService` methods (activateOrderBatch, assignStagingLaneToOrderBatch, runClubLine, finalizeClubLine, rollbackClubLineState, cancelBatch, finalizeBatchIfComplete); `ClubLineController` all endpoints; `TransfersController` endpoints; `BillofladingService.transferOrder` + `closeBOL` batch-cascade; `ManageOrderService` club-specific UUID path; OMS callback wiring | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
+| 2026-06-01 | SBDEV-2381: Phase-4 fire-and-forget RELEASE/PICKING_STARTED/PICKING_FINISHED removed from `runClubLine`; now `outboxService.enqueue` per CO in-tx inside `finalizeClubLine` (ascending ids, failed enqueue rolls back finalize). `ManageOrderService.customerOrderReleaseForPicking/customerOrderPickingStarted/customerOrderPicked` retired to no-op shims. §6.2 table + §8 Phase-3/4 boundaries updated. | Confirmed against `CustomerorderBatchService.finalizeClubLine` / `runClubLine` and `ManageOrderService` shims (PR #35, commits 567fba3 + 41ad7d3) | Code read (grep-based) |
 
-**Re-verify every 60 days.** Next due: **2026-06-18** — club-run area has multiple active and recently archived plans; high rate of change warrants more frequent re-verification than typical workflows.
+**Re-verify every 60 days.** Next due: **2026-07-31** — club-run area has multiple active and recently archived plans; high rate of change warrants more frequent re-verification than typical workflows.

@@ -42,7 +42,7 @@ Key structural differences from v2:
 | Tenant context | No `TenantFilter` — single-tenant per deployment; facility code in body (Path B) or not carried at all (Path A) | `TenantFilter` at `HIGHEST_PRECEDENCE` sets `TenantContext` ThreadLocal for every request |
 | Multi-tenancy | Single-tenant per JVM instance — one PostgreSQL schema per warehouse deployment | Dynamic per-tenant datasource routing via `TenantDynamicRoutingDataSource` |
 | `/rest/` facility check | `AbstractRestController.validateWarehouse()` reads `facility_code` from JSON body, compares against `LosSysprop` DB value | Not applicable — `TenantFilter` handles facility context from header |
-| JWT token customizer | `JwtAccessTokenCustomizer` — extracts roles from Keycloak `resource_access` claim into `OAuth2Authentication`; caches per-user with 2h TTL | `MultiTenantJwtDecoder` — per-tenant decoder cache via `computeIfAbsent` |
+| JWT token customizer | `JwtAccessTokenCustomizer` — extracts roles from Keycloak `resource_access` claim into `OAuth2Authentication`; caches per-user with 2h TTL | `MultiTenantJwtDecoder` — per-tenant decoder cache (Caffeine, 24h TTL since 260610 Phase B) |
 | OSIV | Not explicitly disabled — Spring Boot 2.3 default is `open-in-view=true` (OSIV enabled) | Explicitly disabled |
 
 ---

@@ -36,6 +36,7 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 - [SBDEV-2116-unguarded-optional-get-fix-plan.md](SBDEV-2116-unguarded-optional-get-fix-plan.md)
 - [SBDEV-2163-prevent-finished-club-batch-lane-reassignment.md](SBDEV-2163-prevent-finished-club-batch-lane-reassignment.md) — guard in `CustomerorderBatchService.assignStagingLaneToOrderBatch` blocks lane assignment when all child orders are FINISHED (700) or CANCELED (800); uses order state as source of truth per ticket spec
 - [SBDEV-2164-stale-club-batch-cleanup-cron.md](SBDEV-2164-stale-club-batch-cleanup-cron.md)
+- [SBDEV-2384-replenishment-monitor-pickpack-classification-fix.md](SBDEV-2384-replenishment-monitor-pickpack-classification-fix.md) — Replenishment Monitor classifies replenishable stock by a hardcoded area-NAME list (includes pick-only `Storage and Picking`); fix to classify by the `location_area.useforreplenish` flag across the native query, the deployed DB view, and the commented DDL
 
 > This list can drift. The Dataview section below is always authoritative in Obsidian; elsewhere run `ls sbdocs/1-Projects/wms1/plan/*.md`.
 
