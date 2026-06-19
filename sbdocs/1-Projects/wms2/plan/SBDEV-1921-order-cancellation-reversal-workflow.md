@@ -10,14 +10,15 @@ project: [wms2]
 version: v2
 requester: nam.park@siteboss.net
 created: 2026-05-23
-updated: 2026-05-28
+updated: 2026-06-16
 author: Claude Sonnet 4.6
 db_verified: true
 related:
-  - wms2-oms-integration-map.md
-  - wms2-state-machine-catalog.md
-  - wms2-transaction-osiv-boundary-map.md
-  - 260424-phase7-cancel-orchestrator-plan.md
+  - "[[SBDEV-1921-oms-batch-reversal-completed-endpoint]]"
+  - sbdocs/3-Resources/architecture/wms2-oms-integration-map.md
+  - sbdocs/3-Resources/architecture/wms2-state-machine-catalog.md
+  - sbdocs/3-Resources/architecture/wms2-transaction-osiv-boundary-map.md
+  - sbdocs/4-Archieves/wms2/plan/260424-phase7-cancel-orchestrator-plan.md
 tags: [cancellation, reversal, picking, mobile-ui, oms-integration, plan]
 ---
 
@@ -28,7 +29,7 @@ tags: [cancellation, reversal, picking, mobile-ui, oms-integration, plan]
 
 **Project:** wms2 | **Version:** v2 | **Type:** feature + bug-fix
 **Priority:** high
-**Status:** draft
+**Status:** implemented (all 4 phases merged to `develop` — wms2-api `bf14f6d`, wms2-mobile-ui `c7f50bb`). **NOT yet closeable** — closure is gated on the paired OMS endpoint (Q2/F1); see [[SBDEV-1921-oms-batch-reversal-completed-endpoint]] and the closure checklist in §10.
 **Date:** 2026-05-23
 
 ---
@@ -979,6 +980,18 @@ Rollback: each phase is reversible.
 
 All open questions appended to `.omc/plans/open-questions.md` per Planner protocol.
 
+### Closure checklist (what remains before this plan can be archived)
+
+WMS (Phases 1–4) is implemented and merged to `develop`; the items below gate **closure**, not implementation.
+
+- [ ] **OMS endpoint** `POST /services/call/batchReversalCompleted` implemented & deployed (Q2/F1). Tracked in [[SBDEV-1921-oms-batch-reversal-completed-endpoint]]. **Verified absent in `oms-laravel-api` as of 2026-06-16** — `ORDER_BATCH_REVERSAL_COMPLETED` outbox rows will retry against a missing handler until this ships.
+- [ ] **Sysprop URL set per environment** — replace the `oms-XXXXX.siteboss.net` placeholder default (`WmsConstants.java:922`) with the real per-env URL for `WEBSERVICE_ORDER_BATCH_REVERSAL_COMPLETED` (wineco-dev/qa/ua/prod). Depends on the endpoint above.
+- [ ] **Prod rollout recorded** — §8 promotion gates beyond `develop` (qa → ua → prod) + post-deploy Grafana outbox-lag alert (step 14) executed and noted here.
+- [x] **Verify script created** — `sbdocs/9-System/scripts/verify-SBDEV-1921-order-cancellation-reversal-workflow.sh` (regression-guards the merged WMS contract; see §14).
+- [x] **Status reconciled** — frontmatter + body header both say `implemented`; closure gated on the OMS dependency above (2026-06-16).
+
+Deferred follow-ups (F2–F5, Q5) do **not** gate closure — carry them in the archive note.
+
 ---
 
 ## §11. Horizontal Scalability Validation (10-row)
@@ -1028,9 +1041,11 @@ All open questions appended to `.omc/plans/open-questions.md` per Planner protoc
 
 ---
 
-## §14. Verify-script outline
+## §14. Verify-script
 
-A `sbdocs/9-System/templates/verify-plan-template.sh`-style script for this plan should:
+**Created:** `sbdocs/9-System/scripts/verify-SBDEV-1921-order-cancellation-reversal-workflow.sh` (2026-06-16). Because the WMS code is already merged, the script acts as a **regression guard** — it asserts the merged contract (constants, migration, entity, service, controller, mobile-UI artifacts) is still in place. The dynamic DB/curl probes below (steps 5–13) remain a manual/CI-env outline; the committed script runs the static structural checks plus the targeted Maven test suites.
+
+Outline (the script implements the static checks; the live-env probes stay manual):
 
 1. `cd v2/wms2-api`
 2. `mvn -DskipITs=false -DfailIfNoTests=false test -Dtest=CustomerorderPositionServiceTest,CustomerorderServiceTest,CancellationLogServiceTest,CancellationReversalServiceTest,OrderCancellationControllerTest`

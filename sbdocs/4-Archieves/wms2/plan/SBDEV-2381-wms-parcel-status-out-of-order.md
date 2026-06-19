@@ -4,7 +4,9 @@ ticket: "SBDEV-2381"
 ticket_url: "https://app.clickup.com/t/SBDEV-2381"
 type: "bug"
 priority: "critical"
-status: "implemented"
+status: "archived"
+archived: "2026-06-16"
+archive_note: "Implemented + merged (PR #35, develop). Open follow-ups carried at archival: AC-14 production-sized EXPLAIN; OMS event_version field coordination (David Oppenheim) (§10/§11). Prereq #8 stuck-aggregate metric + runbook is now DONE (260614-outbox-stuck-aggregate-metric, PR #46). Acceptance script retained at sbdocs/9-System/scripts/verify-SBDEV-2381-wms-parcel-status-out-of-order.sh"
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell"
@@ -437,7 +439,8 @@ Verify script: `sbdocs/9-System/scripts/verify-SBDEV-2381-wms-parcel-status-out-
 ### Open Questions / Risks to track
 
 - [ ] **OMS event_version contract** — exact field name and placement (additive body field vs HTTP header) must be agreed with David Oppenheim before WMS ships. — *Hard release dependency; value is the outbox row `id`.*
-- [ ] **Stuck-aggregate runbook** — define the ops procedure when a `FAILED_TERMINAL` STARTED holds a FINISHED (re-drive vs. manual mark-SENT). — *Required for the R2 alert to be actionable; ship before enabling the alert in prod.*
+- [x] **Stuck-aggregate runbook** — DRAFTED 2026-06-14: [[wms2-unstick-held-outbox-aggregate]] (diagnosis query + re-drive vs. manual mark-SENT, per-tenant SQL on `outbox_message`). — *Runbook is ready.*
+- [ ] **Stuck-aggregate metric/alert (Prereq #8)** — SCOPED 2026-06-14: [[260614-outbox-stuck-aggregate-metric]] (per-tenant `wms2.outbox.stuck_aggregate` + `…oldest_age_seconds` gauges, piggyback the dispatcher loop, sysprop-gated default OFF). — *Plan is draft; the Micrometer gauge is still NOT wired in code — implement + enable per tenant before turning on the alert in prod.*
 - [ ] **EXPLAIN plan on production-sized tenant** — confirm `index_outbox_message_aggregate_order` is chosen for the gate under real row counts (AC-14). — *Claim runs every 15 s; a seq scan would degrade dispatch latency.*
 - [ ] **`finalizeClubLine` per-CO granularity** — confirm the new loop enqueues per CO (one ordering stream per `aggregateId`) and `buildPickedPayloadJson` fires exactly once per club CO (AC-15). — *Wrong granularity reintroduces cross-CO ambiguity or double tote writes.*
 

@@ -12,7 +12,6 @@ verified_by: "Hydra wh01 dev rehearsal (A→C→F end-to-end on PostgreSQL 16.10
 related:
   - ../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md
   - ../../1-Projects/wms2/plan/260523-UTC-TIMEZONE-MIGRATION.md
-  - ../../../v2/wms2-api/src/main/resources/db/onboarding-tz-variants/README.md
 tags: [runbook, sop, utc, migration, wms2]
 ---
 

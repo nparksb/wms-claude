@@ -20,6 +20,37 @@ Audit every doc in `sbdocs/` for dead cross-references. Runs two passes: one aga
 
 ## Workflow
 
+### 0. Preflight — confirm `fd` is on PATH (MANDATORY, do not skip)
+
+This skill enumerates files with `fd`. On Debian/Ubuntu/Pop!_OS the binary is often
+installed under the name **`fdfind`** (the `fd-find` package renames it), so a bare `fd`
+can be "command not found" even though `fd` *is* installed. If that happens, every `fd`
+invocation returns **no output**, which this skill would otherwise misread as "every
+target NOT FOUND" — a false all-broken report (this exact failure has happened).
+
+Run this gate first and **abort with a clear message if it fails** — never proceed with a
+missing/empty `fd`:
+
+```bash
+if ! command -v fd >/dev/null 2>&1; then
+  if command -v fdfind >/dev/null 2>&1; then
+    echo "fd missing but fdfind present. Fix once: ln -sf \"$(command -v fdfind)\" \"\$HOME/.local/bin/fd\""
+  else
+    echo "fd not installed. Either install it, or run this skill with 'find' instead (see fallback below)."
+  fi
+  # STOP. Do not run the audit until fd resolves, or use the find-based fallback.
+fi
+```
+
+**`find` fallback** (always available; use it instead of `fd` if the gate fails and you
+don't want to install/symlink — `sbdocs/` is not in git, so there is no `.gitignore`
+behavior to preserve):
+
+```bash
+find sbdocs/ -type f -name '*.md'                       # enumerate (step 1)
+find sbdocs/ -type f -name '<missing-basename>.md'      # fuzzy-suggest probe (Heuristics)
+```
+
 ### 1. Enumerate all markdown files
 
 ```

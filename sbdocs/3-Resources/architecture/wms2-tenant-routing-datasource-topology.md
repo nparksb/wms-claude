@@ -312,7 +312,7 @@ This is an unaddressed secret-handling debt — any `application.properties` lea
 
 ## 11. PgBouncer / Horizontal Scaling Considerations
 
-Relevant to the active [PgBouncer connection-pool strategy](../../1-Projects/wms2/plan/260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md) and [horizontal scaling report](../../1-Projects/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md):
+Relevant to the active [PgBouncer connection-pool strategy](../../1-Projects/wms2/plan/260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md) and [horizontal scaling report](../../4-Archieves/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md):
 
 | Current behavior | PgBouncer impact | Mitigation path |
 |---|---|---|

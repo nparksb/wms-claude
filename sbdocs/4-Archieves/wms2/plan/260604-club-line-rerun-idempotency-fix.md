@@ -13,7 +13,7 @@ updated: 2026-06-05
 db_verified: true
 related:
   - sbdocs/3-Resources/workflows/wms2-club-run-workflow.md
-  - sbdocs/1-Projects/wms2/plan/260521-customerorderbatchservice-runclubline-self-invocation-tx-fix.md
+  - sbdocs/4-Archieves/wms2/plan/260521-customerorderbatchservice-runclubline-self-invocation-tx-fix.md
   - sbdocs/3-Resources/architecture/wms2-transaction-osiv-boundary-map.md
 verify_script: sbdocs/9-System/scripts/verify-260604-club-line-rerun-idempotency-fix.sh
 tags:

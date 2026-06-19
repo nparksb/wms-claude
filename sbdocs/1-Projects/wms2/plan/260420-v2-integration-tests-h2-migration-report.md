@@ -6,9 +6,9 @@ version: v2
 scope: wms2-api
 owner: "nam.park@siteboss.net"
 created: 2026-04-20
-updated: 2026-04-20
-last_verified: 2026-04-20
-verified_by: "initial authoring — pending user review"
+updated: 2026-06-17
+last_verified: 2026-06-17
+verified_by: "re-grounded against HEAD — pending user review"
 related:
   - ../../../2-Areas/runbooks/wms1-cancel-packed-parcel.md
   - ../../../2-Areas/wms-v1-v2-sync/README.md
@@ -26,38 +26,69 @@ tags:
 
 **Status: DRAFT — awaiting review.** If approved, this document becomes the execution plan.
 
+> **Re-grounding note (2026-06-17).** Re-verified against HEAD on 2026-06-17. The test infrastructure described as "to build" in the 2026-04-20 draft **already exists** — the H2 `integration` profile (`application-integration.properties`), the `BaseIntegrationTest` / `BasePostgresIntegrationTest` pair, `TestDataFactory`, and the `TestDatabaseConfig` landlord/tenant H2 wiring all shipped between the draft and today. The draft's central diagnosis (a "broken landlord datasource" gating ~9 tests) is **inverted**: the landlord datasource is wired and integration tests boot on H2 right now. The sections below reflect the live tree, not the April plan-of-record. The strategic direction (hybrid H2-default + opt-in PG profile) is retained; the work has shifted from *building plumbing* to *migrating the remaining legacy tests onto the plumbing that already exists*.
+
 ## 0. TL;DR
 
-- **Can H2 replace Testcontainers PostgreSQL?** **Yes — for ~60% of the suite.** The other ~40% hits PL/pgSQL functions and `pg_advisory_lock` and genuinely needs PostgreSQL. Recommended target state is a **hybrid**: H2 by default for fast local + CI, opt-in PostgreSQL profile for the tests that need it.
-- **Is the current suite worth keeping?** **Mixed.** 17 of 20 integration tests are currently `@Disabled` (landlord datasource env issue or legacy `AppPostgresDBSetupExtension`). Only 3 actually run today. Most of the "disabled" tests are salvageable if infrastructure is fixed; a few should be deleted outright.
-- **Why "doesn't work anymore"?** The base class `AppPostgresDBContainer` enables `.withReuse(true)` which needs a live local Docker daemon; tests hang silently if Docker isn't running. Separately, the landlord datasource config is broken in the test profile, which masks every integration-test failure behind `HikariConfig: dataSource or jdbcUrl is required`.
+- **Can H2 replace Testcontainers PostgreSQL?** **Yes — for the bulk of the suite, and it already does.** The H2 `integration` profile is live; most integration tests boot and run on H2 today. A minority genuinely needs PostgreSQL — PL/pgSQL functions, `pg_advisory_lock`, and a handful of PG-only native SQL queries. Target state is the **hybrid** that is already half-built: H2 by default for fast local + CI, opt-in PostgreSQL (Testcontainers) profile for the enumerated PG-only tests.
+- **Is the infrastructure the April draft proposed to build still missing?** **No — it is built.** `application-integration.properties`, the `BaseIntegrationTest`/`BasePostgresIntegrationTest` pair, `TestDataFactory`, and `TestDatabaseConfig` (which forwards the tenant routing datasource to the landlord H2 instance) all exist at HEAD. See §1.
+- **Is the current suite worth keeping?** **Mixed.** The integration tree is now ~42 classes; **18 `@Disabled` markers across 15 classes** remain, in **categorized** buckets (see §3) — *not* a single landlord root cause. 8 legacy multi-tenant tests should be rebuilt on the existing H2 base; 7 PG-only markers are legitimately kept on the PG profile; 1 complex-fixture test; 1 perf test is intentionally on-demand; 1 report smoke test waits on the PL/pgSQL→Java port (P2 Phase A).
+- **Why did the April draft say it "doesn't work anymore"?** That was true in April. It is not true now. The landlord-datasource fix shipped (`TestDatabaseConfig` mocks `tenantDynamicRoutingDataSource` to forward `getConnection()` to `landlordDataSource`, so one H2 instance backs both landlord- and tenant-package entities). The residual disabled tests are disabled for the specific, narrower reasons enumerated in §3.
 
 ---
 
-## 1. Current Infrastructure — Evidence
+## 1. Current Infrastructure — Evidence (re-grounded against HEAD)
 
-### 1.1 Testcontainers base
+The April draft's §1 described this infrastructure as missing or half-built. As of 2026-06-17 it is **built and live**. The H2 lane boots and runs.
 
-| File | Key config |
+### 1.1 The H2 `integration` profile exists and fully wires both datasources
+
+`src/test/resources/application-integration.properties` **exists** (the April draft said "does not exist — create it"). It wires H2 for both the landlord and the tenant datasources:
+
+| Property | Value |
 |---|---|
-| `src/test/java/net/aim_ai/wms/common/extension/AppPostgresDBContainer.java:10-19` | `postgres:12` image, db `wms_test`, creds `test/test`, **`.withReuse(true)`** |
-| `src/test/java/net/aim_ai/wms/common/extension/AppPostgresDBSetupExtension.java:18-26` | Runs Flyway manually before suite; duplicated at `src/test/java/net/aim_ai/wms/AppPostgresDBSetupExtension.java` |
-| `src/test/resources/application.properties:25` | `spring.datasource.url=jdbc:postgresql://localhost:5432/wms_test` hardcoded |
-| `src/test/resources/application.properties:33` | `spring.flyway.enabled=false` — Flyway is manual via extension |
-| `src/test/resources/application.properties:39` | `spring.jpa.hibernate.ddl-auto=validate` (no auto-DDL) |
+| `landlord.datasource.jdbc-url` | `jdbc:h2:mem:wms_integration;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE` |
+| `spring.datasource.url` (tenant fallback) | same H2 URL — one in-memory instance backs both packages |
+| `spring.flyway.enabled` | `false` (Hibernate `ddl-auto=create-drop` builds the schema) |
+| `spring.jpa.hibernate.ddl-auto` | `create-drop` |
+| `spring.jpa.database-platform` | `org.hibernate.dialect.H2Dialect` |
+| `rest.security.enabled`, `app.cron`, `management.tracing.enabled` | all `false` (context boots without Keycloak / cron / Zipkin) |
+| `spring.autoconfigure.exclude` | OAuth2 resource-server + Spring Security servlet auto-configs excluded so the tenant context boots without `HttpSecurity` |
 
-### 1.2 An H2 extension already exists (partially wired)
+### 1.2 The base-class pair the draft proposed already exists
 
-- `src/test/java/net/aim_ai/wms/common/H2TestExtension.java:39-56` — H2 with `MODE=PostgreSQL`, Flyway disabled, `ddl-auto=create-drop`.
-- `BaseRepositoryIntegrationTest.java:24` and `BaseIntegrationTest.java:23` reference `@ActiveProfiles("integration")`, but `application-integration.properties` **does not exist** — properties are injected via `H2TestExtension` at runtime.
-- This is a half-finished migration. Someone started the H2 path and didn't finish it.
+`src/test/java/net/aim_ai/wms/common/base/` contains the full set today:
 
-### 1.3 Why Testcontainers "stopped working"
+| Base class | Profile / DB | Role |
+|---|---|---|
+| `BaseIntegrationTest.java:22-27` | `@ActiveProfiles("integration")` + `@Import(TestDatabaseConfig)`, H2 | Default H2 integration base. `@Transactional`, mocks `TenantHealthService` / `EndpointHealthCheck`. |
+| `BaseRepositoryIntegrationTest.java:23-28` | `@ActiveProfiles("integration")` + `@Import(TestDatabaseConfig)`, H2 | Repository-layer H2 base (the most-used base — 9 subclasses). |
+| `BaseRollbackIntegrationTest.java:29-52` | `@ActiveProfiles("integration")` + `@Import(TestDatabaseConfig)`, H2 | Rollback/transaction-boundary H2 base (6 subclasses). |
+| `BaseControllerIntegrationTest.java:21` | extends `BaseIntegrationTest`, H2 | MockMvc controller H2 base. |
+| `BasePostgresIntegrationTest.java:34-37` | `@ExtendWith(AppPostgresDBSetupExtension)`, Testcontainers PG | The PG opt-in base. **Note its own TODO (SBDEV-2217):** it does not yet set `@ActiveProfiles("integration")`, so it cannot supply `landlord.datasource.jdbc-url` on its own — it boots only via the Postgres extension's system properties and currently fails the landlord wiring. This is the *remaining* PG-lane gap (see §4.2 #1), not a landlord gap in the H2 lane. |
 
-Two root causes, not one:
+Also present (unit/perf bases, out of scope for this report): `BaseServiceUnitTest`, `BaseUnitTest`, `BaseControllerUnitTest`, `BasePerformanceTest`.
 
-1. **No local Docker daemon.** `.withReuse(true)` needs `/var/run/docker.sock` reachable. If Docker Desktop / Colima isn't running, tests hang or fail with cryptic timeouts. No `.testcontainers.properties` overrides this.
-2. **Broken landlord datasource in the test profile.** Every `BaseRepositoryIntegrationTest` subclass fails `ApplicationContext` load with `HikariConfig: dataSource or jdbcUrl is required`. This is what motivated the `@Disabled` annotations on `ClientRepositoryIntegrationTest` (line 285), `BillofladingPositionRepositoryTest`, and the `120db54` smoke-test commit on the current branch. **This would still fail on H2** — the landlord/tenant routing bootstrap is independent of the underlying database engine.
+### 1.3 `TestDatabaseConfig` already collapses landlord + tenant onto one H2 instance
+
+`src/test/java/net/aim_ai/wms/common/config/TestDatabaseConfig.java:25-45` defines an `@Primary` `tenantDynamicRoutingDataSource` bean that is a Mockito mock whose `getConnection()` **forwards to the real `landlordDataSource`** — so a single H2 instance hosts both landlord-package and tenant-package entities. It also creates the `seqentities` sequence (`CREATE SEQUENCE IF NOT EXISTS seqentities`). This is exactly the fix the April draft proposed as "the single biggest lever" — **it has shipped.**
+
+### 1.4 `TestDataFactory` already exists
+
+`src/test/java/net/aim_ai/wms/common/fixtures/TestDataFactory.java` **exists** (the April draft proposed "provide a `TestDataFactory`"). A second copy lives at `unit/fixtures/TestDataFactory.java` for the unit lane. Rebuilt legacy tests can use the existing common fixture rather than `@Sql` scripts.
+
+### 1.5 What did NOT get cleaned up (still real debt)
+
+- `src/test/java/net/aim_ai/wms/common/H2TestExtension.java` still exists alongside the profile — the runtime property-injection extension was never deleted after the profile took over.
+- The duplicate `AppPostgresDBSetupExtension` is still present in **two** places: `net/aim_ai/wms/AppPostgresDBSetupExtension.java` (root package) and `net/aim_ai/wms/common/extension/AppPostgresDBSetupExtension.java`.
+- `BaseRepositoryIntegrationTest` and `BaseRollbackIntegrationTest` are *not* collapsed into `BaseIntegrationTest`; they are separate (functioning) H2 bases. Collapsing them is optional tidy-up, not a blocker.
+
+### 1.6 Why the April draft's "Testcontainers stopped working" diagnosis is now stale
+
+The April draft attributed everything to (1) a missing Docker daemon and (2) a "broken landlord datasource in the test profile" that "would still fail on H2." Both are obsolete:
+
+1. The **H2 lane has no Docker dependency** and is the default — there is no `.withReuse(true)` hang on the default path.
+2. The **landlord datasource is wired** in the H2 profile (§1.1, §1.3); the H2 integration tests boot. Of the 18 remaining `@Disabled` markers in the integration tree, exactly **one** still cites the old Hikari error in its comment: `ClientRepositoryIntegrationTest:285`. Even there the comment is stale — the rest of that class runs green on H2; the test's *real* residual blocker is that it exercises the `transaction_detail()` PL/pgSQL function, so it depends on **P2 Phase A** (the PL/pgSQL→Java port), not on any landlord fix.
 
 ---
 
@@ -66,73 +97,109 @@ Two root causes, not one:
 | Feature | Location | Impact |
 |---|---|---|
 | **PL/pgSQL functions** — `stock_history()`, `transaction_detail()` | `V1.0.03__wms_functions.sql:13-71`, `V1.1.04__wms_functions.sql:4`, `V2.1.07__update_transaction_detail_pick_amount_filter.sql` | H2 has no PL/pgSQL. Flyway migration will fail at H2 boot. 6 `CREATE OR REPLACE FUNCTION` sites total. |
-| **`pg_advisory_lock`** | `src/main/java/net/aim_ai/wms/service/AdvisoryLockService.java:37,54` | PostgreSQL-only. Used by scheduled jobs: `ORDER_RELEASE`, `REPLENISH_ORDER`, `CLEAN_UP_MESSAGES`, `STOCK_SUMMARY_EXPORT`, `RELEASE_EXPIRED_PICKING`. Any test that drives a scheduled job or calls `AdvisoryLockService` will fail on H2 at runtime. |
-| **Native queries** (172 `nativeQuery = true` annotations) | repos throughout | Most are portable. Landmines: `::text` casts, `FOR UPDATE OF <table>`, PG date arithmetic, PG `BOOLEAN` literal comparisons. The `MessageRepository` archive/delete-with-LIMIT queries are PG-only. |
-| **`to_timestamp()` in ClientRepository.getTransactionDetail** | query definition for `transaction_detail()` invocation | Directly blocks the `V2.1.07` port we landed on `phase4`. |
+| **`pg_advisory_lock`** | `src/main/java/net/aim_ai/wms/service/AdvisoryLockService.java:56,88` | PostgreSQL-only. Used by **8** scheduled jobs (`ORDER_RELEASE`, `REPLENISH_ORDER`, `CLEAN_UP_MESSAGES`, `STOCK_SUMMARY_EXPORT`, `RELEASE_EXPIRED_PICKING`, `STALE_CLUB_BATCH_CLEANUP`, `CLEANUP_REST_IDEMPOTENCY`, `OUTBOX_DISPATCHER`). Any test that drives a scheduled job or calls `AdvisoryLockService` will fail on H2 at runtime. See [P3 advisory-lock plan](./260421-v2-replace-pg-advisory-lock.md) for the authoritative job/lock inventory. |
+| **Native queries** (186 `nativeQuery = true` annotations at HEAD) | repos throughout | Most are portable. Landmines: `::text` casts, `FOR UPDATE OF <table>`, PG date arithmetic, PG `BOOLEAN` literal comparisons. The `MessageRepository` archive/delete-with-LIMIT and INSERT-INTO-SELECT queries are PG-only. |
+| **`SELECT FOR UPDATE` lock semantics** | `PickingorderBusinessServiceConcurrencyIT`, `StockunitBusinessServiceConcurrencyIT`, `UnitloadBusinessServiceConcurrencyIT` (all `@Disabled`, SBDEV-2217) | H2 cannot reproduce PostgreSQL row-lock contention; these concurrency ITs require the real PG engine. |
+| **`to_timestamp()` in ClientRepository.getTransactionDetail** | query definition for `transaction_detail()` invocation | Directly blocks the `V2.1.07` filter test; this is the residual blocker behind `ClientRepositoryIntegrationTest:285`. |
 
 **Bottom line:** H2 can run repo tests that stick to JPQL + JPA features. It cannot run tests that exercise PL/pgSQL functions, advisory locks, PG-only native SQL, or the scheduled-job mutex.
 
 ---
 
-## 3. Test-by-Test Verdict
+## 3. Test-by-Test Verdict (re-audited at HEAD)
 
-20 integration test classes. **17 are currently `@Disabled`** (either class-level or every meaningful inner class).
+The integration tree under `src/test/java/net/aim_ai/wms/integration/` now holds **~42 classes** (the April draft saw 20), plus the 3 root-package `service/*BusinessServiceConcurrencyIT` classes. Many suites postdate the April draft: the entire `integration/outbox/*` suite (`OutboxClaimExplainIT`, `OutboxClaimOrderingIT`, `OutboxConcurrentEnqueueIT`, `OutboxMigrationV1124IT`, `OutboxStuckAggregateIntegrationTest`, `OutboxTerminalHoldIT`), the outbox/cancel integration tests (`AdviceOutboxIntegrationTest`, `CustomerorderOutboxIntegrationTest`, `CustomerorderBatchOutboxIntegrationTest`, `CancelOrderRollbackIntegrationTest`), several concurrency `*IT` classes (`ParcelMonitorViewServiceConcurrencyIT`, `SequenceTransactionServiceConcurrencyIT`, `CustomerorderBatchServiceParallelStreamRegressionIT`), `AdviceServiceRollbackIntegrationTest`, `IdempotencyFilterIT`, `MessageCleanupBatchServiceIT`, `WarehouseStockReportServiceStreamIT`, `BillofladingServiceFinishTransferIT`, and `SkuRestControllerAtomicityIntegrationTest`. The large majority of these **run green on the H2 lane today** (they extend `BaseIntegrationTest` / `BaseRepositoryIntegrationTest` / `BaseRollbackIntegrationTest`).
 
-| Test class | Path | Status today | H2-portable? | Recommendation |
-|---|---|---|---|---|
-| **ClientRepositoryIntegrationTest** | `repository/` | inner `GetTransactionDetailSmokeTest` disabled | No — PL/pgSQL | **Keep on PostgreSQL profile.** Unblocks once landlord DS is wired. |
-| **CyclecountRepositoryIntegrationTest** | `repository/` | inner `NativeSqlWithJoins` disabled | Yes (JPQL portion) | **Migrate to H2.** Disable the native-JOIN inner class or add fixtures. |
-| **LocationRepositoryIntegrationTest** | `repository/` | inner class disabled (fixture complexity) | Yes | **Migrate to H2.** |
-| **MessageRepositoryIntegrationTest** | `repository/` | 4 inner classes disabled | No — PG date math, DELETE...LIMIT | **Keep on PostgreSQL profile.** |
-| **PickingorderRepositoryIntegrationTest** | `repository/` | running | Yes | **Migrate to H2.** |
-| **PrinterRepositoryIntegrationTest** | `repository/` | 2 inner classes disabled (PG BOOLEAN cast) | Partial | **Migrate baseline to H2; keep BOOLEAN inner class on PG profile.** |
-| **ReplenishorderRepositoryIntegrationTest** | `repository/` | class-level disabled (fixture complexity) | Yes if fixtures provided | **Migrate to H2 with `TestDataFactory`; unblock.** |
-| **SyspropRepositoryIntegrationTest** | `repository/` | running | Yes | **Migrate to H2.** |
-| **UserRepositoryIntegrationTest** | `repository/` | running | Yes | **Migrate to H2.** |
-| **AdviceServiceIntegrationTest** | `service/` | running, mocks externals | Yes | **Migrate to H2.** |
-| **ClientServiceIntegrationTest** | `service/` | class-level disabled | Legacy | **Delete or rewrite from scratch on new H2 base.** |
-| **ClientControllerIntegrationTest** | `controller/` | stub (32 LOC, no asserts) | — | **Delete.** No coverage. |
-| **ClientControllerLegacyIntegrationTest** | `controller/` | class-level disabled | — | **Delete.** |
-| **CustomerOrderControllerIntegrationTest** | `controller/` | (not examined in detail) | TBD | Verify before deciding. |
-| **OrderRestControllerIntegrationTest** | `controller/rest/` | class-level disabled, `@Sql`-based | Legacy | **Delete and rebuild on H2 base with `TestDataFactory`** (no `@Sql` scripts). |
-| **SkuRestControllerIntegrationTest** | `controller/rest/` | class-level disabled, `@Sql`-based | Legacy | **Same — rebuild.** |
-| **MobilePickingServiceIntegrationTest** | `service/mobile/` | class-level disabled, `@Sql`-based | Legacy | **Rebuild on H2 base.** Mobile flows are where v2 has the most bugs — most valuable test surface. |
-| **MobileTransferOrderServiceIntegrationTest** | `service/mobile/` | same | Legacy | **Rebuild.** |
-| **MobilePutawayServiceIntegrationTest** | `service/mobile/` | same | Legacy | **Rebuild.** |
-| **MobileReplenishServiceIntegrationTest** | `service/mobile/` | same | Legacy | **Rebuild.** |
+### 3.1 The 18 remaining `@Disabled` markers (across 15 classes), by category
 
-**Totals:** 8 migrate to H2 • 3 keep on PostgreSQL profile • 4 rebuild on new H2 base • 3 delete • 2 verify first.
+These are the real `@Disabled` annotations in the integration tree (doc-comment mentions in `BillofladingServiceFinishTransferIT:40` and `OutboxClaimOrderingIT:29`, and the commented-out `//@Disabled` at `ClientControllerLegacyIntegrationTest:104,111`, are **not** counted — they are not active markers).
+
+**Category A — "Legacy test infrastructure incompatible with multi-tenant architecture" (8 class-level disables).** These predate the H2 base/`TestDataFactory` and still extend the old `AppPostgresDBSetupExtension` path. *Rebuild on `BaseIntegrationTest` + `TestDataFactory`, or delete.*
+
+| Test class | Location | Marker |
+|---|---|---|
+| `ClientServiceIntegrationTest` | `integration/service/` | `:23` class-level |
+| `MobilePickingServiceIntegrationTest` | `integration/service/mobile/` | `:31` class-level |
+| `MobilePutawayServiceIntegrationTest` | `integration/service/mobile/` | `:24` class-level |
+| `MobileReplenishServiceIntegrationTest` | `integration/service/mobile/` | `:35` class-level |
+| `MobileTransferOrderServiceIntegrationTest` | `integration/service/mobile/` | `:32` class-level |
+| `SkuRestControllerIntegrationTest` | `integration/controller/rest/` | `:41` class-level |
+| `OrderRestControllerIntegrationTest` | `integration/controller/rest/` | `:38` class-level |
+| `ClientControllerLegacyIntegrationTest` | `integration/controller/` | `:42` class-level (delete candidate) |
+
+**Category B — PG-only native SQL, explicitly "incompatible with H2" (7 method/inner-class disables across 4 classes).** *Legitimately kept on `BasePostgresIntegrationTest`.*
+
+| Test | Location | Reason in comment |
+|---|---|---|
+| `LocationRepositoryIntegrationTest` | `:291` | "Native SQL queries use PostgreSQL-specific syntax — incompatible with H2" (JOINs) |
+| `PrinterRepositoryIntegrationTest` | `:128`, `:158` (2 inner classes) | "Native SQL compares BOOLEAN to VARCHAR 'true' — incompatible with H2" |
+| `MessageRepositoryIntegrationTest` | `:197`, `:232`, `:303` (3 inner classes) | PG date arithmetic; native `INSERT INTO SELECT` |
+| `CyclecountRepositoryIntegrationTest` | `:340` | "Native SQL queries with JOINs require related entities — incompatible with H2 test setup" |
+
+(The 3 root-package `PickingorderBusinessServiceConcurrencyIT:21`, `StockunitBusinessServiceConcurrencyIT:22`, `UnitloadBusinessServiceConcurrencyIT:24` are **also** PG-only — "H2 cannot reproduce SELECT FOR UPDATE lock semantics (SBDEV-2217)" — and belong to the PG lane. They live outside the `integration/` package, so they are not part of the integration-tree marker count, but they are part of the enumerated PG-only set in §4.3.)
+
+**Category C — complex fixtures (1 class-level disable).** *Rebuild on H2 with `TestDataFactory`, or keep on PG if fixtures stay native.*
+
+| Test | Location | Reason |
+|---|---|---|
+| `ReplenishorderRepositoryIntegrationTest` | `:31` | "Requires complex entity setup with Itemdata and Location — use TestContainers for full tests" |
+
+**Category D — on-demand perf (1 class-level disable, leave as-is).**
+
+| Test | Location | Reason |
+|---|---|---|
+| `BillofladingServiceFinishTransferPerformanceIT` | `:78` | "on-demand only — long-running load test for SBDEV-2216 AC2" — intentional, do not enable in CI |
+
+**Category E — PL/pgSQL report smoke (1 method disable, waits on P2 Phase A).**
+
+| Test | Location | Reason (comment is stale) |
+|---|---|---|
+| `ClientRepositoryIntegrationTest` | `:285` | Comment still cites the old landlord Hikari error, but the rest of the class runs green on H2; the real blocker is the `transaction_detail()` PL/pgSQL call. Unblocks when P2 Phase A ports the function to Java. |
+
+### 3.2 Headcount reconciliation
+
+Verified at HEAD on 2026-06-17:
+
+- **18 raw `@Disabled` markers** in the `integration/` tree = 8 (Category A, all class-level) + 7 (Category B: Location ×1, Printer ×2, Message ×3, Cyclecount ×1) + 1 (Category C) + 1 (Category D) + 1 (Category E). Several Category-B classes carry multiple inner-class markers, so these 18 markers live across **15 distinct test classes**.
+- **Actionable migration set:** the **8 Category-A classes** (rebuild on H2 or delete) + the **1 Category-C class** (fixtures) = the work this plan adds. Categories B (PG-only) and D (on-demand perf) are intentional; Category E is blocked on P2 Phase A.
+- **Not counted as disabled:** doc-comment mentions in `BillofladingServiceFinishTransferIT:40` and `OutboxClaimOrderingIT:29`, and the commented-out `//@Disabled` at `ClientControllerLegacyIntegrationTest:104,111`.
+- **Separately,** the 3 root-package `service/*BusinessServiceConcurrencyIT` classes are class-level `@Disabled` for `SELECT FOR UPDATE` (SBDEV-2217) — PG-only, part of the §4.3 enumerated set but outside the `integration/` package.
+- **Already green on H2:** the remaining ~27 integration classes, including the whole outbox suite, the rollback tests, and the controller/idempotency/report-stream ITs.
 
 ---
 
 ## 4. Recommended Target State — Hybrid
 
-### 4.1 Two test modes, one source tree
+### 4.1 Two test modes, one source tree (the H2 mode already exists)
 
-| Mode | Annotation / profile | DB | Invocation | Use for |
+| Mode | Annotation / profile | DB | Invocation | Status |
 |---|---|---|---|---|
-| **Default (H2)** | `@ActiveProfiles("integration")` via `H2TestExtension` | H2 in-memory, `MODE=PostgreSQL`, `ddl-auto=create-drop` | `mvn verify` | Fast local + CI run. ~8 migrated tests + 4 rebuilt mobile tests + 2 service tests. |
-| **Opt-in PostgreSQL** | `@ActiveProfiles("integration-pg")` + Testcontainers extension | `postgres:12` via Testcontainers, Flyway runs real migrations | `mvn verify -Pintegration-pg` | ~5 tests that exercise PL/pgSQL functions, advisory locks, or PG-only native SQL. |
+| **Default (H2)** | `@ActiveProfiles("integration")` via `application-integration.properties` + `TestDatabaseConfig` | H2 in-memory, `MODE=PostgreSQL`, `ddl-auto=create-drop` | `mvn verify` | **Live.** Backs `BaseIntegrationTest` / `BaseRepositoryIntegrationTest` / `BaseRollbackIntegrationTest`; most of the integration tree runs here today. |
+| **Opt-in PostgreSQL** | `BasePostgresIntegrationTest` + `AppPostgresDBSetupExtension` (Testcontainers) | `postgres:12` via Testcontainers, real Flyway migrations | (separate Failsafe profile — see §5.5, not yet split) | **Partly built.** The base class exists but does not yet activate `@ActiveProfiles("integration")`, so it cannot supply `landlord.datasource.jdbc-url` — this is the one real remaining wiring gap (its own TODO SBDEV-2217). |
 
-### 4.2 Fixes that unblock H2 adoption
+### 4.2 Remaining work (most of the April "fixes" already shipped)
 
-1. **Wire landlord datasource for the test profile.** This is the single biggest lever — it unblocks ~9 `@Disabled` tests regardless of DB engine. Likely fix: point `landlordDataSource` bean at the same H2 instance (or a second H2 schema) in `TestDatabaseConfig`.
-2. **Create `application-integration.properties`.** Today it's referenced by `@ActiveProfiles("integration")` but doesn't exist — config flows only through `H2TestExtension`. Make the profile self-sufficient.
-3. **Unify the base classes.** There are currently 4 base classes and 2 duplicated extensions. Collapse to one pair: `BaseIntegrationTest` (H2) + `BasePostgresIntegrationTest` (Testcontainers). Delete `BaseRepositoryIntegrationTest`, the root-package `AppPostgresDBSetupExtension` duplicate, and `ClientControllerLegacyIntegrationTest`.
-4. **Provide a `TestDataFactory`** (e.g. `test/java/.../common/fixture/TestDataFactory.java`) so rebuilt mobile tests don't need `@Sql` scripts. Pattern: `TestDataFactory.clientWithItems("ACME", 5)` returns persisted entity graph.
-5. **Split PL/pgSQL migrations.** Move `stock_history()` and `transaction_detail()` into a `db/migration/postgres/` subtree and exclude it from the H2 Flyway (if Flyway is later re-enabled on H2). Or: port the functions to Java services and let tests assert against Java logic.
+Each item is annotated with its current state.
 
-### 4.3 The tests that must stay on PostgreSQL
+1. **PG-lane landlord wiring (DONE for H2, OPEN for PG).** The H2 lane's landlord datasource is wired and forwarding (§1.3) — the April "single biggest lever" is **already pulled**. The residual gap is the *Postgres* base: `BasePostgresIntegrationTest` needs either `@ActiveProfiles("integration")` (to inherit `landlord.datasource.jdbc-url`) or a dedicated landlord-datasource config for the Testcontainers context (per its SBDEV-2217 TODO). This blocks the 3 SELECT-FOR-UPDATE concurrency ITs and any future PG-lane test.
+2. **`application-integration.properties` — DONE.** It exists and is self-sufficient (§1.1). No action.
+3. **`TestDataFactory` — DONE.** Exists at `common/fixtures/TestDataFactory.java` (§1.4). Rebuilt Category-A tests **use the existing factory**; do not author a new one.
+4. **Base-class tidy-up — OPTIONAL.** The `BaseIntegrationTest` + `BasePostgresIntegrationTest` pair already exists. `BaseRepositoryIntegrationTest` / `BaseRollbackIntegrationTest` are functioning H2 bases, not blockers; collapsing them is cosmetic. Real removable debt: delete the duplicate `AppPostgresDBSetupExtension` (root-package copy), retire the now-redundant `H2TestExtension`, and delete `ClientControllerLegacyIntegrationTest`.
+5. **PL/pgSQL handling — DEFERRED to P2.** Porting `stock_history()` / `transaction_detail()` to Java (so the H2 lane can assert against Java logic) is the subject of the separate P2 plan (Phase A). Until then, the PL/pgSQL-dependent report tests stay on the PG lane / disabled (Category E).
 
-Only **5 realistic scenarios** justify a `postgres-integration` profile:
+### 4.3 The tests that must stay on PostgreSQL (enumerated, not estimated)
 
-1. `ClientRepositoryIntegrationTest.getTransactionDetail` — calls `transaction_detail()` PL/pgSQL.
-2. `MessageRepositoryIntegrationTest` — 4 inner classes using PG date math, `INSERT INTO SELECT` archive, `DELETE … LIMIT`.
-3. `PrinterRepositoryIntegrationTest.findByTypeAndProcessdefaultTrue` — PG boolean cast in native SQL.
-4. Any test that drives a scheduled job (directly or indirectly via `AdvisoryLockService`).
-5. Any new test that deliberately verifies PL/pgSQL function correctness (e.g. behavioral test of the V2.1.07 filter fix).
+The PG opt-in lane is bounded to exactly this set:
 
-Everything else either doesn't need real SQL (pure Java logic — use unit tests) or can run on H2 PG-compat mode.
+1. `ClientRepositoryIntegrationTest:285` — `transaction_detail()` PL/pgSQL (Category E; moves to H2 after P2 Phase A).
+2. `MessageRepositoryIntegrationTest:197,232,303` — PG date math, native `INSERT INTO SELECT` (Category B).
+3. `PrinterRepositoryIntegrationTest:128,158` — PG `BOOLEAN`-to-`VARCHAR` cast in native SQL (Category B).
+4. `LocationRepositoryIntegrationTest:291` — native JOINs (Category B).
+5. `CyclecountRepositoryIntegrationTest:340` — native JOINs requiring related entities (Category B).
+6. `PickingorderBusinessServiceConcurrencyIT`, `StockunitBusinessServiceConcurrencyIT`, `UnitloadBusinessServiceConcurrencyIT` — `SELECT FOR UPDATE` lock semantics (SBDEV-2217).
+7. Any future test that drives a scheduled job through `AdvisoryLockService` (`pg_try_advisory_lock`) or deliberately verifies PL/pgSQL function correctness.
+
+Everything else either doesn't need real SQL (pure Java logic — use unit tests) or already runs on H2 PG-compat mode. **The PG opt-in lane must not grow beyond this enumerated set without a documented reason** (see falsifiable goal, §5.5).
 
 ---
 
@@ -150,7 +217,7 @@ These address the gap the smoke-test checklist exposed (§Scenario 1–10). Inte
 
 ### 5.2 Drive scheduled jobs directly in tests
 
-- `ReleaseOrderJobService`, `ReplenishOrderJob`, `CleanupMessagesJob` — expose test-only triggers on the `postgres-integration` profile so scenario tests don't wait for cron.
+- `ReleaseOrderJobService`, `ReplenishOrderJob`, `CleanupMessagesJob` — expose test-only triggers on the PG (Testcontainers) lane so scenario tests don't wait for cron. These jobs take `pg_advisory_lock` via `AdvisoryLockService`, so they belong on the PG lane, not H2.
 - Complements the picks-up-past-PACKED gap in the smoke-test checklist.
 
 ### 5.3 Promote a small set of cross-cutting assertion helpers
@@ -167,72 +234,95 @@ Shared between all integration and scenario tests:
 - Thin controller integration tests (ClientController stub, `ClientControllerLegacyIntegrationTest`) — controller logic is trivial, MockMvc unit tests are equivalent and ~100× faster.
 - Any `*IntegrationTest` whose assertions would pass with an unmocked no-op repository — that's a signal the test isn't actually integrating anything.
 
-### 5.5 CI pipeline shape
+### 5.5 CI pipeline shape, falsifiable goal, and PG-lane ownership
 
-- **Default stage (fast):** `mvn verify` with H2 integration profile. Target: <2 min. Runs on every PR.
-- **Extended stage (slow, on-demand or nightly):** `mvn verify -Pintegration-pg` with Testcontainers. Runs pre-merge-to-main or nightly. No local Docker assumption for dev, but CI runners have it.
-- No more silent hangs when Docker isn't running — H2 has no daemon dependency.
+**Default stage (fast, H2):** `mvn verify` on the `integration` profile. Runs on every PR. No Docker daemon dependency — H2 has no `.withReuse(true)` hang.
+
+**Extended stage (PG, Testcontainers):** the enumerated PG-only set from §4.3. **This lane is load-bearing, not optional.** See the fidelity risk below.
+
+#### Falsifiable goal
+
+The April draft's "the bulk of the suite" is made numeric here:
+
+- **Target:** ≥ 90% of integration-tree test *classes* run on the H2 default lane. Concretely: of ~42 integration classes, no more than the enumerated PG-only set (§4.3 — currently 5 repository classes with PG-only markers + the 3 root concurrency ITs) may require the PG lane; everything else runs on H2.
+- **PG-opt-in lane ≤ the enumerated PG-only set.** Any growth requires a documented justification appended to §4.3.
+- **Acceptance test (must pass before this plan is declared done):** with the Docker daemon **stopped**, run `mvn verify`; the default (H2) lane must be **green**. This proves the default path has no Docker dependency and that the H2-migrated tests actually run, not silently skip.
+- **Secondary acceptance:** the count of active `@Disabled` markers in `integration/` drops from 18 to ≤ the intentional set (Category B PG-only + Category D perf + Category E pending-P2) after the 8 Category-A + 1 Category-C rebuilds land.
+
+#### PG-lane ownership (precondition, not an open question)
+
+The H2 default lane verifies **Java/JPA wiring and business logic only — not SQL-engine fidelity** (see §7). PG-specific regressions in code that the H2 lane covers are **structurally invisible** to the H2 lane. Therefore the PG (Testcontainers) lane is the *only* defense for engine-level fidelity and is load-bearing.
+
+**Precondition for this plan:** before the PG lane is split out, it must have (a) a **named owner** accountable for keeping it green, and (b) an **enforced, blocking CI cadence** — the PG stage runs as a required check pre-merge-to-`main` (or at minimum a required nightly that blocks the next merge on failure). A "nightly if someone remembers" cadence is explicitly rejected; an unowned, unenforced PG lane will rot and silently void the fidelity guarantee that justifies the whole hybrid model.
 
 ---
 
 ## 6. Phased Execution (if approved)
 
-### Phase 1 — Unblock (1–2 days)
+> The April draft's Phase 1 ("fix landlord DS + create `application-integration.properties` + delete duplicate extension") is **superseded** — that infra shipped. Phase 1 is now an *audit + categorize*, and the build work is the Category-A/C rebuilds.
 
-- [ ] Fix landlord datasource wiring in `TestDatabaseConfig` so `@ActiveProfiles("integration")` boots without the Hikari error. **Highest-leverage single change.**
-- [ ] Create `application-integration.properties`. Delete runtime property injection that `H2TestExtension` does.
-- [ ] Delete duplicate `AppPostgresDBSetupExtension` at the root of `src/test/java/net/aim_ai/wms/`.
-- [ ] Remove `@Disabled` from tests that only fail due to landlord wiring (`BillofladingPositionRepositoryTest`, `ClientRepositoryIntegrationTest.GetTransactionDetailSmokeTest`, the smoke test from commit `120db54`). Re-run; confirm they now pass.
+### Phase 1 — Audit the 18 `@Disabled` markers (0.5–1 day)
 
-### Phase 2 — H2 migration (2–3 days)
+- [ ] Confirm the §3.1 categorization against HEAD (it was re-grounded 2026-06-17): A = 8 legacy multi-tenant, B = 7 PG-only-native (across 4 classes), C = 1 complex-fixture, D = 1 on-demand perf, E = 1 PL/pgSQL report smoke.
+- [ ] Confirm the H2 default lane boots green **without Docker** for the non-disabled integration classes — run the §5.5 acceptance test (`mvn verify` with daemon stopped). This is the gate that proves the existing infra works.
+- [ ] No infra build in this phase — the profile, bases, `TestDatabaseConfig`, and `TestDataFactory` already exist.
 
-- [ ] Migrate 7 H2-portable repo tests to `BaseIntegrationTest` (User, Sysprop, Pickingorder, Cyclecount, Location, Replenishorder, AdviceService). Delete their Testcontainers dependencies.
-- [ ] Introduce `TestDataFactory` with the 4–5 entity graphs the mobile tests need.
-- [ ] Collapse base classes to `BaseIntegrationTest` / `BasePostgresIntegrationTest`. Delete `BaseRepositoryIntegrationTest`.
-- [ ] Confirm `mvn verify` (default) runs without Docker.
+### Phase 2 — Rebuild Category-A legacy tests on the existing H2 base (3–5 days)
 
-### Phase 3 — Rebuild mobile + REST tests (3–5 days)
+- [ ] Rewrite the 4 mobile-service tests (`MobilePicking/Putaway/Replenish/TransferOrder`) onto `BaseIntegrationTest` + the **existing** `common/fixtures/TestDataFactory`. Drop `@Sql` scripts and the `AppPostgresDBSetupExtension` dependency. Mobile flows carry the most v2 bugs — highest-value surface.
+- [ ] Rewrite `ClientServiceIntegrationTest`, `SkuRestControllerIntegrationTest`, `OrderRestControllerIntegrationTest` onto `BaseIntegrationTest` (controller variants on `BaseControllerIntegrationTest`) + `TestDataFactory`.
+- [ ] Delete `ClientControllerLegacyIntegrationTest` (Category A, no coverage worth rebuilding).
+- [ ] Each rebuilt test: remove its `@Disabled`, run on H2, confirm green.
 
-- [ ] Rewrite the 4 mobile-service tests against `BaseIntegrationTest` + `TestDataFactory`. Drop all `@Sql` scripts.
-- [ ] Rewrite (or delete, case by case) the 2 REST controller tests.
-- [ ] Delete the 3 tests marked **Delete** in §3.
+### Phase 3 — Category-C fixtures + cleanup (1–2 days)
 
-### Phase 4 — Scenario test scaffold (3–5 days, optional Phase)
+- [ ] `ReplenishorderRepositoryIntegrationTest` — provide the Itemdata + Location graph via `TestDataFactory` and move onto `BaseRepositoryIntegrationTest` (H2); or, if the fixtures stay native, keep it on `BasePostgresIntegrationTest`.
+- [ ] Delete the duplicate root-package `AppPostgresDBSetupExtension`; retire `H2TestExtension` if nothing still references it. (Optional) collapse `BaseRepositoryIntegrationTest` / `BaseRollbackIntegrationTest` into `BaseIntegrationTest` — cosmetic, low priority.
 
-- [ ] Add `test/java/.../scenario/` package.
-- [ ] Build `PickPackScenarioTest` — the full Scenario 1 from the smoke checklist end-to-end (`postgres-integration` profile; drives `ReleaseOrderJobService` directly; WireMock OMS).
-- [ ] Add cross-cutting assertion helpers (§5.3).
-- [ ] Replicate pattern for 2–3 more scenarios (Club, Transfer Offsite, Receiving) once the shape is proven.
+### Phase 4 — Make the PG lane real (1–2 days) — **gated on §5.5 ownership precondition**
 
-### Phase 5 — CI split (0.5 day)
+- [ ] Fix `BasePostgresIntegrationTest` landlord wiring (add `@ActiveProfiles("integration")` or a dedicated landlord config; resolves its SBDEV-2217 TODO) so the Category-B repo tests and the 3 SELECT-FOR-UPDATE concurrency ITs can boot.
+- [ ] Add the Failsafe profile that activates **only** the enumerated PG-only set (§4.3); keep it bounded.
+- [ ] Wire the PG stage as a **required, blocking** CI check (pre-merge or blocking nightly) with the named owner from §5.5.
 
-- [ ] Failsafe profile `integration-pg` that activates `@ActiveProfiles("integration-pg")` tests only.
-- [ ] CI pipeline: fast stage runs default; extended stage runs `-Pintegration-pg` nightly or pre-merge.
+### Phase 5 — Scenario test scaffold (3–5 days, optional)
 
-**Total:** 10–16 engineering days depending on scenario-test ambition.
+- [ ] Add `test/java/.../scenario/` package; build `PickPackScenarioTest` (Scenario 1 end-to-end; drives `ReleaseOrderJobService` directly; WireMock OMS). Use the PG lane where advisory locks / PL/pgSQL are exercised.
+- [ ] Add cross-cutting assertion helpers (§5.3); replicate for Club / Transfer Offsite / Receiving once the shape is proven.
+
+**Total:** ~6–11 engineering days for Phases 1–4 (the real migration), +3–5 if the optional scenario layer is in scope. The April estimate (10–16 days) was inflated by the now-deleted infra-build work.
 
 ---
 
 ## 7. Risks & Open Questions
 
+### 7.1 The fidelity risk is structural — state it plainly
+
+**H2 in PostgreSQL-compat mode is not PostgreSQL.** The H2 default lane verifies **Java/JPA wiring and business logic** — entity mappings, repository method bindings, transaction boundaries, service orchestration. It does **not** verify SQL-engine fidelity: PG date arithmetic, `BOOLEAN`/`VARCHAR` cast semantics, native JOIN behaviour, sequence-caching, timezone handling, `SELECT FOR UPDATE` contention, advisory locks, and PL/pgSQL all behave differently or not at all under H2.
+
+Consequence: **a PG-specific regression in code that the H2 lane covers is invisible to the H2 lane.** A query can be green on H2 and broken on PostgreSQL. The H2 lane gives no signal there. This is the price of the speed, and it is acceptable **only** because the PG (Testcontainers) lane backstops it. The PG lane is therefore load-bearing, and its ownership/cadence (§5.5) is a precondition of the hybrid model, not a nicety. If the PG lane is unowned or non-blocking, the hybrid model silently degrades to "fast but blind."
+
+### 7.2 Remaining risks / questions
+
 | Risk / Question | Notes |
 |---|---|
-| **H2 PostgreSQL compat mode ≠ PostgreSQL** | Sequence caching, timezone semantics, optimistic-lock retry patterns can diverge. Mitigation: keep the `postgres-integration` profile as a safety net for anything behavior-sensitive. |
-| **Is anyone running `mvn verify` today?** | If the answer is "no one," this work may be lower priority than building the missing scenario layer directly on PostgreSQL. |
-| **Should the 3-4 PL/pgSQL functions be ported to Java?** | Out of scope for this report — but worth a separate design decision. If yes, the "keep on PostgreSQL" list shrinks further. |
-| **Landlord datasource fix may be harder than expected.** | If multi-tenancy bootstrap is fundamentally broken in test config, Phase 1 expands significantly. Worth a 2-hour spike before committing to the timeline. |
+| **PG lane left unowned** | Resolved into a **precondition** (§5.5, §8): named owner + blocking CI cadence before the lane is split. If the org can't commit to this, reconsider whether the hybrid model is worth it versus all-PostgreSQL. |
+| **Is anyone running `mvn verify` today?** | Worth confirming — but note the H2 lane already exists and runs, so this is now about CI enforcement, not feasibility. |
+| **PL/pgSQL → Java port (P2 Phase A)** | Tracked in the separate P2 plan. Until it lands, `ClientRepositoryIntegrationTest:285` (Category E) stays on the PG lane / disabled. |
+| **`BasePostgresIntegrationTest` landlord wiring (SBDEV-2217)** | The one real remaining wiring gap. Scoped to Phase 4. Smaller than the April draft's feared "multi-tenancy bootstrap is broken" — the H2 path proves the bootstrap works; only the Testcontainers context needs the profile/landlord config. |
 
 ---
 
 ## 8. Decisions Needed From You
 
-Before Phase 1 starts, please confirm:
+Before Phase 2 (the first build phase) starts, please confirm:
 
-1. **Hybrid model OK?** H2 for fast path, PostgreSQL-profile for ~5 tests. Or do you want one engine everywhere (which means either keeping Testcontainers and fixing the Docker dependency, or rewriting the PL/pgSQL functions in Java)?
-2. **Delete vs preserve `@Disabled` legacy tests?** I recommend deleting the 3 explicitly called out in §3. Confirm.
-3. **Scenario test layer — in or out of scope now?** Phase 4 is optional but is where the real testing gap lives (per the smoke-test checklist analysis). Your call.
-4. **Who owns the PostgreSQL-profile tests?** If nobody runs them nightly, they'll rot. Need an owner or a CI cadence.
-5. **Landlord datasource spike first?** Recommended — 2 hours to verify Phase 1 is actually achievable before committing the rest.
+1. **Hybrid model OK?** H2 for the fast path (already live), PostgreSQL Testcontainers lane for the enumerated PG-only set (§4.3). Or one engine everywhere (all-PostgreSQL means fixing the Docker dependency and accepting the speed hit; all-H2 means porting the PL/pgSQL functions and losing engine fidelity)?
+
+   **Steelman of the "just fix Docker DX, keep Testcontainers everywhere" alternative (and why this plan still chooses hybrid):** The strongest case against this whole initiative is that the real pain is *local* Docker friction, not CI — CI runners already have Docker (§5.5). A `~/.testcontainers.properties` reuse config, a Colima/dev-container bootstrap, and a `testcontainers.reuse.enable=true` default would remove the silent-hang failure mode and the "Docker not running" foot-gun at a fraction of this multi-plan cost, while keeping **full PG fidelity and zero H2-divergence blindness**. That is a legitimate alternative and a reasonable org could pick it. This plan still recommends hybrid for three concrete reasons: (a) **wall-clock** — the H2 default lane targets a sub-2-minute PR feedback loop (§5.5); a Testcontainers-PG boot per module is minutes slower even with reuse, and that cost is paid on every PR by every engineer; (b) **the infra is already built and partly working** — the H2 lane runs today, so "hybrid" is the lower-marginal-cost path, not a greenfield bet; (c) the fidelity gap is **bounded and disclosed** — the enumerated PG-only set (§4.3) stays on the real engine, and §7.1 makes the PG lane load-bearing for everything SQL-sensitive. If the team weights fidelity and simplicity over PR wall-clock, "fix the DX, keep Testcontainers" is the right call and this plan should be shelved rather than half-adopted. Decide explicitly — do not drift into hybrid by inertia.
+2. **Category-A legacy tests — rebuild vs delete?** Recommend rebuilding the 7 substantive ones on the existing H2 base + `TestDataFactory`, deleting only `ClientControllerLegacyIntegrationTest`. Confirm.
+3. **Scenario test layer — in or out of scope now?** Phase 5 is optional but is where the real testing gap lives. Your call.
+4. **PG-lane owner — name one now (precondition, not an open question).** Per §5.5/§7.1 the PG Testcontainers lane is load-bearing for SQL-engine fidelity. This plan will **not** split the PG lane until there is a named owner **and** a blocking CI cadence (required pre-merge check, or blocking nightly). Please name the owner.
 
 ---
 

@@ -10,12 +10,12 @@ updated: "2026-06-10"
 last_verified: "2026-06-10"
 verified_by: "Claude (Fable 5) + manual spot-checks"
 related:
-  - "4-Archieves/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md"
-  - "3-Resources/architecture/wms2-transaction-osiv-boundary-map.md"
-  - "3-Resources/architecture/wms2-scheduled-jobs-catalog.md"
-  - "3-Resources/architecture/wms2-tenant-routing-datasource-topology.md"
-  - "3-Resources/architecture/wms2-oms-integration-map.md"
-  - "3-Resources/reports/260507-picking-lock-ordering-inconsistency.md"
+  - "sbdocs/4-Archieves/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md"
+  - "sbdocs/3-Resources/architecture/wms2-transaction-osiv-boundary-map.md"
+  - "sbdocs/3-Resources/architecture/wms2-scheduled-jobs-catalog.md"
+  - "sbdocs/3-Resources/architecture/wms2-tenant-routing-datasource-topology.md"
+  - "sbdocs/3-Resources/architecture/wms2-oms-integration-map.md"
+  - "sbdocs/3-Resources/reports/260507-picking-lock-ordering-inconsistency.md"
 tags:
   - investigation
   - report
@@ -231,7 +231,7 @@ Priority-ordered backlog (items 1–2 before adding replicas; 3–7 next sprint(
 
 Constraint to keep standing: **no PgBouncer in `pool_mode=transaction`** while advisory locks guard the cron jobs.
 
-~~Draft items 3–5 via `wms-feature-plan`~~ **Done 2026-06-10:** [260610-wms2-multi-replica-hardening](../../1-Projects/wms2/plan/260610-wms2-multi-replica-hardening.md) (ralplan-approved; Phase A = item 4, Phase B = item 5, Phase C = item 3's replacement regression guard) with acceptance script `sbdocs/9-System/scripts/verify-260610-wms2-multi-replica-hardening.sh`. Items 1–2/6 are deployment/runbook work outside the plan skills.
+~~Draft items 3–5 via `wms-feature-plan`~~ **Done 2026-06-10:** [260610-wms2-multi-replica-hardening](../../4-Archieves/wms2/plan/260610-wms2-multi-replica-hardening.md) (ralplan-approved; Phase A = item 4, Phase B = item 5, Phase C = item 3's replacement regression guard) with acceptance script `sbdocs/9-System/scripts/verify-260610-wms2-multi-replica-hardening.sh`. Items 1–2/6 are deployment/runbook work outside the plan skills.
 
 ---
 

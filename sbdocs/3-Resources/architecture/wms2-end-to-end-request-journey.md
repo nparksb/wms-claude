@@ -7,8 +7,8 @@ scope: cross-cutting
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-12
-verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui
+last_verified: 2026-06-14
+verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui; §4.2 re-confirmed against 260610 Phase B (PR #41)
 related:
   - ./wms2-tenant-routing-datasource-topology.md
   - ./wms2-transaction-osiv-boundary-map.md
@@ -328,5 +328,6 @@ Retry-inside-axios (step 4 in the journey) is the second layer: when a request c
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | Frontend plugin chain (both UIs), backend `TenantFilter` → `MultiTenantJwtDecoder` → `TenantIdentifierResolver` → `TenantDynamicRoutingDataSource`, axios interceptor header contract, token refresh loop on `window.__keycloakState`, post-commit hook pattern | All file:line refs confirmed against source; cross-linked to tenant-routing + transaction architecture docs | Code read + accumulated evidence from prior doc sweeps |
+| 2026-06-14 | §4.2 `MultiTenantJwtDecoder` per-tenant decoder cache — confirmed body matches the merged 260610 hardening Phase B (`expireAfterWrite(24h)`, `maximumSize(200)`, GAP F fix, PR #41). Spot-check of §4.2 only, not a full doc re-sweep | Matches code; `last_verified` bumped | Doc-drift audit (verify-docs) |
 
-**Re-verify every 60 days.** Next due: **2026-06-18** — this doc spans 3 projects; any plugin change or backend filter change invalidates sections here.
+**Re-verify every 60 days.** Next due: **2026-08-13** — this doc spans 3 projects; any plugin change or backend filter change invalidates sections here.

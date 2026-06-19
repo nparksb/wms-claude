@@ -116,7 +116,7 @@ the 84 refactored components rendered in the wrong zone for **non-LA** tenants.
 - **Root cause:** `plugins/persistedState.client.js` called `createPersistedState()(store)` with **no `paths`**, persisting the whole Vuex root state — including the tenant-scoped `warehouseTimezone`. Loading **after** `initTenantAuth` (`nuxt.config.js` plugin order), it rehydrated the **previous tenant's** `vuex` blob and clobbered the freshly-fetched NY value back to LA. `dateFormatter` then `.tz()`-converted to LA.
 - **Live fingerprint (browser console on the broken page):** `localStorage['warehouseTimezone']` = `America/New_York` (correct, dedicated key) **but** `$nuxt.$store.state.warehouseTimezone` and the `vuex` blob = `America/Los_Angeles` (stale). DB/migration was correct (all columns `timestamptz`, UTC values right).
 - **Fix:** exclude `warehouseTimezone` from the persisted blob (`reducer`) and re-assert it from its dedicated localStorage key after rehydration so already-stale browsers self-heal. Committed **`wms2-web-ui 53eed00`**, **`wms2-mobile-ui d6861cb`** (`feature/utc-timezone`).
-- Full write-up: [[wms2-ui-warehouse-timezone-stale-persistedstate]] (project memory) and the Hydra run record §4.5-adjacent notes.
+- Full write-up: `wms2-ui-warehouse-timezone-stale-persistedstate` (project memory) and the Hydra run record §4.5-adjacent notes.
 
 ## 2c. Residual cosmetic items (low severity, not timezone-correctness)
 

@@ -4,7 +4,7 @@ ticket: ""
 ticket_url: ""
 type: "refactor"
 priority: "medium"
-status: "implemented"
+status: "archived"
 pr: "Phase A: PR #40 · Phase B: PR #41 · Phase C: PR #42 (SiteBossInc/wms2-api)"
 commit: "A: 8864f5f · B: e04ced2 · C: c4a7579"
 project: ["wms2-api"]
@@ -36,8 +36,10 @@ tags:
 **Ticket:** (untracked — `260610-` dated plan)
 **Project:** wms2-api | **Version:** v2 | **Type:** refactor / hardening
 **Priority:** medium
-**Status:** draft
+**Status:** Archived (2026-06-14) — all 3 phases implemented & merged: PR [#40](https://github.com/SiteBossInc/wms2-api/pull/40) / [#41](https://github.com/SiteBossInc/wms2-api/pull/41) / [#42](https://github.com/SiteBossInc/wms2-api/pull/42) (merged 2026-06-10). §10 open questions are deferred to separate future plans.
 **Date:** 2026-06-10
+
+> Acceptance script retained at `sbdocs/9-System/scripts/verify-260610-wms2-multi-replica-hardening.sh`.
 
 **Source audit:** `sbdocs/3-Resources/reports/260610-wms2-horizontal-scalability-readiness-audit.md` §8 items 3–5 (item 3 retracted 2026-06-10 → regression guard only).
 **Analysis bundle:** `.omc/plans/260610-wms2-multi-replica-hardening-analysis.md` (authoritative evidence + §10 binding decisions).

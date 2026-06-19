@@ -4,7 +4,7 @@ ticket: ""
 ticket_url: ""
 type: "bug"
 priority: "high"
-status: "implemented"
+status: "archived"
 project: ["wms2"]
 version: "v2"
 requester: "Nam Park"
@@ -33,9 +33,11 @@ tags:
 **Ticket:** (none — internal defect)
 **Project:** wms2/wms2-api | **Version:** v2 (Java 21 / Spring Boot 3.5.x) | **Type:** Bug (regression + latent)
 **Priority:** High | **Target branch:** `develop`
-**Status:** Draft
+**Status:** Archived (2026-06-14) — implemented & merged via PR [#43](https://github.com/SiteBossInc/wms2-api/pull/43) (merged 2026-06-11). Phase 2 (UTC→warehouse-tz) is a separate follow-up blocked on `feature/utc-timezone`.
 **Date:** 2026-06-10
 **db_verified:** true (wms2-wineco-dev2 via MCP)
+
+> Acceptance script retained at `sbdocs/9-System/scripts/verify-260610-excel-export-localdatetime-unsupported-type.sh`.
 
 ---
 

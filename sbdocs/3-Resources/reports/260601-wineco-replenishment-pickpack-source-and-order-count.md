@@ -231,7 +231,7 @@ Because §8 includes "Fix now"/"Fix later," each downstream `wms-bugfix-plan` is
 
 ## 9. Open Questions
 
-- **What created the orphaned 11-bottle reservation on stockunit 985079706?** No `pickingorder_position` references it. Likely a finished/cancelled pick or a `changeReservedAmount` that did not net to zero — relates to prior reservation-leak work ([[Reservation_Leak_Analysis]], `260522-sbdev-2033-reserve-amount-adjust-not-sticking`). Needs a transaction-history trace, out of scope here.
+- **What created the orphaned 11-bottle reservation on stockunit 985079706?** No `pickingorder_position` references it. Likely a finished/cancelled pick or a `changeReservedAmount` that did not net to zero — relates to prior reservation-leak work ([[260424-Reservation_Leak_Analysis]], `260522-sbdev-2033-reserve-amount-adjust-not-sticking`). Needs a transaction-history trace, out of scope here.
 - **How systemic are orphaned pick-face reservations?** 120 reserved / 11 fully-reserved stockunits in "Storage and Picking" — is this normal in-flight picking, or accumulated leak? Needs a reservation-vs-open-demand reconciliation across all SKUs.
 - **What was the exact Cristom screenshot state?** Cristom has no open PICK_PACK demand as of 2026-06-01, so the original duplicate-row example could not be replayed. A captured copy of the screenshot's underlying rows would let us confirm the fan-out multiplier that day.
 - **batch 46954-16 / OMS parcel 279233** did not resolve to a current WMS `customerorder.number` — confirm whether it was re-batched (now 060554) or is an OMS-side identifier.
