@@ -6,9 +6,9 @@ version: v2
 scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-05-09
-verified_by: code read of v2/wms2-api src/main at commit HEAD
+updated: 2026-06-24
+last_verified: 2026-06-24
+verified_by: code read of v2/wms2-api src/main 2026-06-24 (SBDEV verify-docs refresh)
 related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ./wms2-state-machine-catalog.md
@@ -28,7 +28,7 @@ tags:
 # WMS v2 — Tenant Routing & DataSource Topology
 
 **Scope:** How a tenant's HTTP request resolves to a PostgreSQL connection in `v2/wms2-api` · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-04-19 (code read against `src/main/java`)
+**Owner:** Nam Park · **Last verified:** 2026-06-24 (code read against `src/main/java`)
 
 ---
 
@@ -38,7 +38,7 @@ tags:
 
 Two load-bearing facts to hold in memory:
 
-1. **Tenant context is ThreadLocal only** — it does not propagate to `@Async`, `parallelStream`, `CompletableFuture.supplyAsync`, or raw `new Thread(...)`. A helper (`TenantAwareTaskDecorator`) exists but is **not registered** on any executor. Any code outside the HTTP filter must set `TenantContext` manually.
+1. **Tenant context is ThreadLocal only** — it does not propagate to `@Async`, `parallelStream`, `CompletableFuture.supplyAsync`, or raw `new Thread(...)`. A helper (`TenantAwareTaskDecorator`) exists and is **used manually in one job** (`StockSummaryExportJob` wraps its consumer `Runnable` with it), but it is **not registered as a Spring `TaskExecutor` bean**. Any code outside the HTTP filter must carry `TenantContext` explicitly — either via this decorator or by setting it manually. Note virtual threads are enabled (`spring.threads.virtual.enabled=true`), so the manual-thread / `@Async` propagation gap is a present concern, not a hypothetical one (see §6.2).
 2. **Advisory locks assume session pooling.** The codebase uses `pg_try_advisory_lock()` to prevent duplicate cron runs across replicas. These locks are session-level in PostgreSQL. Under PgBouncer **transaction pooling**, they disappear at end-of-transaction — cron jobs would no longer be mutually exclusive across replicas.
 
 ---
@@ -103,7 +103,7 @@ Two load-bearing facts to hold in memory:
 | Key format | `{first4CharsOfTenantName}-{facilityCode}` (e.g. `wine-cawh`) | `TenantKeyBuilder.java:18-26` |
 | Short-name exception | If tenant name < 4 chars, use full name | same file |
 | Fallback when no context | Returns landlord datasource | `TenantDynamicRoutingDataSource.java:44` |
-| Pool creation | Lazy, via `tenantPools.computeIfAbsent(...)` on first query | `TenantDynamicRoutingDataSource.java:52` |
+| Pool creation | Lazy, via `tenantPools.computeIfAbsent(...)` on first query | `TenantDynamicRoutingDataSource.java:50` |
 
 ### 3.2 Tenant context
 
@@ -144,7 +144,7 @@ Every tenant gets its own `HikariDataSource` created on first access. Config val
 
 | Setting | Value | Source |
 |---|---|---|
-| `autoCommit` | `false` (Hibernate manages transactions) | `TenantDynamicRoutingDataSource.java:85` |
+| `autoCommit` | `false` (Hibernate manages transactions) | `TenantDynamicRoutingDataSource.java:83` |
 | `maxLifetime` | 1_800_000 ms (30 min) | same file |
 | `leakDetectionThreshold` | 60_000 ms (60 s) | same file |
 | `validationTimeout` | 5_000 ms (5 s) | same file |
@@ -153,6 +153,9 @@ Every tenant gets its own `HikariDataSource` created on first access. Config val
 | `prepStmtCacheSize` | 250 | same file |
 | `prepStmtCacheSqlLimit` | 2048 | same file |
 | `poolName` | `"HikariPool-" + tenantKey` | same file |
+| `connectionInitSql` | `SET timezone = '{warehouseTz}'` — set only when a warehouse IANA zone resolves | `TenantDynamicRoutingDataSource.java:95-105` |
+
+**UTC-migration session timezone (Phase 2.6).** Each tenant pool pins its PostgreSQL session timezone via `connectionInitSql` so that `current_date` / `current_timestamp` in views and native queries stay warehouse-local after the JVM/Hibernate switch to UTC. The zone is resolved once at pool-creation time by `resolveWarehouseTz(...)` (`TenantDynamicRoutingDataSource.java:118-160`), which opens a one-shot `DriverManager` connection (no Hikari pool exists yet) and reads the `System Time Zone` sysprop (`workstation = 'DEFAULT'`, lowest `client_id`). The value is validated via `ZoneId.of(...)` before being interpolated into the `SET timezone` meta-command (which cannot be parameterized). If the tenant DB hosts more than one client with differing zones, the helper logs a loud warning — one session timezone per pool cannot be correct for all of them. If the sysprop is unset/invalid, `connectionInitSql` is left unset and the session falls back to the PostgreSQL server default.
 
 Any change to these values is a code change, not a config change.
 
@@ -195,7 +198,7 @@ The landlord pool's size of **2** is intentional — under normal load it only s
 
 ### 6.1 Scheduled jobs
 
-`app.cron=false` by default (`application.properties:111`). When enabled, cron jobs each follow the same tenant-iteration pattern — they are **not** auto-tenant-aware.
+`app.cron=false` by default (`application.properties:113`). When enabled, cron jobs each follow the same tenant-iteration pattern — they are **not** auto-tenant-aware.
 
 ```
 @Scheduled cron triggers OrderReleaseJob.doCalculation()
@@ -221,16 +224,23 @@ Cron jobs present in the codebase (all follow the same shape):
 | `StockSummaryExportJob` | `schedulejob/StockSummaryExportJob.java` |
 | `CleanUpOldMessagesJob` | `schedulejob/CleanUpOldMessagesJob.java` |
 | `ReleaseExpiredPickingOrdersFromUserJob` | `schedulejob/ReleaseExpiredPickingOrdersFromUserJob.java` |
+| `OutboxDispatcherJob` | `schedulejob/OutboxDispatcherJob.java` |
+| `RestIdempotencyCleanupJob` | `schedulejob/RestIdempotencyCleanupJob.java` |
+| `StaleClubBatchCleanupJob` | `schedulejob/StaleClubBatchCleanupJob.java` |
+
+Two infra classes sit alongside the jobs (not jobs themselves): `schedulejob/JobMetrics.java` and `schedulejob/JobMetricsConfiguration.java` — shared Micrometer instrumentation (`wms2.cron.<job>.*` counters/timers) that every job calls. All eight jobs follow the canonical advisory-lock-first / per-tenant-iteration shape.
 
 Scheduling wiring lives in `schedulejob/SchedulingConfiguration.java` (`@ConditionalOnProperty(name = "app.cron", havingValue = "true")`, line 24). Cron expressions come from `SyspropService` (system properties table in landlord DB).
 
 ### 6.2 Async / parallel code
 
-`TenantAwareTaskDecorator` exists at `landlord/config/TenantAwareTaskDecorator.java:1-43` — it captures `TenantContext` at submit time and sets it on the worker thread inside a try/finally. **It is not registered on any `TaskExecutor` in the codebase.** Consequences:
+`TenantAwareTaskDecorator` exists at `landlord/config/TenantAwareTaskDecorator.java:1-47` — it captures `TenantContext` at submit time and sets it on the worker thread inside a try/finally (restoring the previous value, or clearing, on exit). It is **used manually in exactly one place** — `StockSummaryExportJob.java:186` wraps its OMS-consumer `Runnable` with `new TenantAwareTaskDecorator().decorate(...)` before handing it to a raw `new Thread(...)` (line 199) — but it is **not registered as a Spring `TaskExecutor` bean**, so nothing wires it automatically. Consequences:
 
-- `@Async` methods do **not** inherit tenant context. Any `@Async` service method that touches tenant data will hit the landlord fallback or a `BOOTSTRAP` resolver result.
+- `@Async` methods do **not** inherit tenant context. Any `@Async` service method that touches tenant data will hit the landlord fallback or a `BOOTSTRAP` resolver result. There is no `TaskExecutor` bean carrying the decorator, so `@Async` would need it wired explicitly.
 - `parallelStream()` does **not** propagate. Don't use it inside a tenant-scoped service. **SBDEV-2218 added a static guard:** `src/test/java/net/aim_ai/wms/unit/config/ParallelStreamSafetyArchTest.java` is an ArchUnit rule that fails the build if any class in `..service..`, `..controller..`, `..schedulejob..`, `..util..`, or `..repo..` calls `Collection.parallelStream()` or `BaseStream.parallel()`. Mirrors the `OptionalSafetyArchTest` (SBDEV-2116 lineage) pattern. The originating defect (`CustomerorderBatchService.calculateUnitLoadAmounts` parallelStream against Hibernate Session) is documented in commit `74f3c221`.
-- Virtual threads (if introduced) need `ScopedValue`, not ThreadLocal. Today's code is safe only because virtual threads are not enabled.
+- Raw `new Thread(...)` does **not** propagate. `TenantContext` is a plain `ThreadLocal`, not `InheritableThreadLocal`, so a spawned thread starts with `null` context. The only manual-thread path today (`StockSummaryExportJob`) handles this correctly by wrapping its `Runnable` in the decorator before spawning. Any new manual-thread path must do the same.
+
+**Virtual threads are enabled.** `application.properties:2` sets `spring.threads.virtual.enabled=true`, so on Spring Boot 3.5 the Tomcat request executor and Spring-managed task/scheduling executors run on virtual threads. This does **not** break the standard request path: Spring MVC processes each request top-to-bottom on a single (virtual) thread, and `TenantFilter` sets and clears `TenantContext` within that same thread's call stack — a `ThreadLocal` is still correct per-request whether the carrier thread is platform or virtual. What virtual threads do **not** change is the propagation gap: any path that hands work to *another* thread — `@Async`, `parallelStream()`, `CompletableFuture`, or a manual `new Thread(...)` — still loses `TenantContext` and must carry it explicitly (decorator or manual set/clear). `ScopedValue` would be the structured-concurrency-friendly replacement for the `ThreadLocal`, but it is not required for correctness today; the decorator covers the executor case.
 
 If you register the decorator on a `ThreadPoolTaskExecutor`, confirm every submitting path holds valid tenant context at the moment of `executor.submit(...)` — otherwise workers inherit `null` and silently use landlord.
 
@@ -239,9 +249,9 @@ If you register the decorator on a `ThreadPoolTaskExecutor`, confirm every submi
 | Check | Scope | File |
 |---|---|---|
 | `EndpointHealthCheck implements HealthIndicator` | Reachability of Keycloak URLs (from `dns.https.urls`) | `EndpointHealthCheck.java:25` |
-| `TenantHealthController` | `GET /v3/tenant/health` — manually sets `TenantContext`, triggers pool creation, tests connection | `controller/TenantHealthController.java:27` |
-| Actuator `/actuator/health/{liveness,readiness}` | K8s probes — enabled via `management.endpoint.health.probes.enabled=true` | `application.properties:82` |
-| Actuator `hikaricp` metrics | Per-pool gauges (active, idle, waiting, total) | `management.endpoints.web.exposure.include=health,info,metrics,hikaricp` |
+| `TenantHealthController` | `GET /v3/tenant/health` — delegates to `TenantHealthService.checkTenantHealth()`, which manually sets `TenantContext`, triggers pool creation, and tests the connection | `controller/TenantHealthController.java:27` |
+| Actuator `/actuator/health/{liveness,readiness}` | K8s probes — enabled via `management.endpoint.health.probes.enabled=true` | `application.properties:85` |
+| Actuator `hikaricp` metrics | Per-pool gauges (active, idle, waiting, total) | `management.endpoints.web.exposure.include=health,info,metrics,hikaricp,prometheus` (`application.properties:87`) |
 
 ---
 
@@ -295,7 +305,7 @@ This is an unaddressed secret-handling debt — any `application.properties` lea
 
 ## 10. Known Landmines
 
-1. **ThreadLocal does not propagate.** `@Async`, `parallelStream`, raw `new Thread(...)`, `CompletableFuture.supplyAsync` — none inherit `TenantContext`. The `TenantAwareTaskDecorator` exists but isn't wired to any executor (as of 2026-04-19). If you add async, wire the decorator **and** confirm the submitting thread holds a valid context.
+1. **ThreadLocal does not propagate.** `@Async`, `parallelStream`, raw `new Thread(...)`, `CompletableFuture.supplyAsync` — none inherit `TenantContext`, and virtual threads (now enabled, §6.2) don't change that. The `TenantAwareTaskDecorator` exists and is used manually in one job (`StockSummaryExportJob`), but it is **not registered as a Spring `TaskExecutor` bean** (as of 2026-06-24). If you add async, either wire the decorator on the executor or call it manually **and** confirm the submitting thread holds a valid context at submit time.
 2. **Null context falls through to landlord.** `determineTargetDataSource` returns the landlord DS when no tenant is set (`TenantDynamicRoutingDataSource.java:44`). A bug that clears the ThreadLocal mid-request will silently route subsequent writes to landlord until a mismatch surfaces downstream.
 3. **Advisory locks break under PgBouncer transaction pooling.** `AdvisoryLockService.tryLock(...)` uses `pg_try_advisory_lock` — a **session-level** construct. Under PgBouncer's `pool_mode = transaction` (the typical choice), the lock vanishes when the transaction ends. Cron jobs would then run concurrently across replicas. Mitigations: run PgBouncer in `session` mode, switch to `pg_try_advisory_xact_lock`, or move to Redis / DynamoDB distributed locking.
 4. **Prepared-statement cache vs PgBouncer transaction pooling.** `prepStmtCacheSize=250` per tenant pool assumes the same physical connection is reused across statements. Under transaction pooling, cached statements must be re-prepared on every connection → wasted round-trips. Tune `prepareThreshold=0` on the PgBouncer side or disable client-side cache if you migrate.
@@ -322,7 +332,7 @@ Relevant to the active [PgBouncer connection-pool strategy](../../1-Projects/wms
 | `pg_try_advisory_lock` for cron mutex | Broken under transaction pooling | Use `pg_try_advisory_xact_lock` (tx-scoped, outlives the one tx), or switch to Redis locking |
 | Per-request HTTP tenant filter | Unaffected — routing is app-layer | No change |
 | `TenantDynamicRoutingDataSource.determineTargetDataSource` uses `computeIfAbsent` | Unaffected | No change |
-| ThreadLocal context | Unaffected | But do not introduce virtual threads without also introducing `ScopedValue`-based context |
+| ThreadLocal context (virtual threads enabled) | Unaffected by PgBouncer. Virtual threads are **on** (`spring.threads.virtual.enabled=true`); the per-request `ThreadLocal` stays correct because each request runs start-to-finish on its own (virtual) carrier thread | Cross-thread paths (`@Async` / `parallelStream` / `new Thread`) still need explicit context propagation — `ScopedValue` is the structured-concurrency-friendly migration target but is not required for correctness today |
 | Replica-to-replica cron coordination | Broken if transaction pooling (see above) | Same as above |
 | Connection count at PG side | Current: `replicas × tenants × max_per_tenant` | With PgBouncer: capped by `max_server_connections` — order-of-magnitude reduction |
 
@@ -350,5 +360,6 @@ If PgBouncer is introduced in `transaction` mode, the four items marked "broken"
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | `TenantContext`, `TenantFilter`, `TenantDynamicRoutingDataSource`, `TenantConfigLoader`, `TenantPoolEvictor`, `TenantIdentifierResolver`, `TenantAwareTaskDecorator`, `AdvisoryLockService`, all scheduled job classes, Hikari settings (per-tenant and landlord), `application.properties` lines 1–122, Jasypt usage | All counts and file:line refs confirmed against `src/main/java` + `src/main/resources` | Code read (grep-based) |
+| 2026-06-24 | **§6.2/§11 virtual-threads correction** (`application.properties:2` now `spring.threads.virtual.enabled=true` — doc previously claimed VTs off); `TenantAwareTaskDecorator` now used manually at `StockSummaryExportJob.java:186` (still not a `TaskExecutor` bean); §4.2 added `connectionInitSql` UTC session-TZ block (`TenantDynamicRoutingDataSource.java:95-105`, `resolveWarehouseTz` `:118-160`); cron table expanded to 8 jobs + `JobMetrics`/`JobMetricsConfiguration` infra; line-ref fixes: `autoCommit` `:83`, `computeIfAbsent` `:50`, `app.cron` `:113`, actuator probes `:85`, exposure list adds `prometheus` `:87`; `TenantAwareTaskDecorator.java` range `:1-47`; `TenantHealthController` delegation note. PgBouncer still NOT landed — §4.2/§10.3–4 hazards remain valid. | All edits confirmed against `src/main/java` + `src/main/resources` | Code read of v2/wms2-api src/main (SBDEV verify-docs refresh) |
 
-**Re-verify every 60 days.** Next due: **2026-06-18** — or sooner if the PgBouncer plan lands, since §4.2 hard-coded values and §10 items 3/4 will all change.
+**Re-verify every 60 days.** Next due: **2026-08-23** — or sooner if the PgBouncer plan lands, since §4.2 hard-coded values and §10 items 3/4 will all change.

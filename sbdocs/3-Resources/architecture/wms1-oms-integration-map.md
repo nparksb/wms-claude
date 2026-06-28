@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms1
-last_verified: 2026-04-27
+last_verified: 2026-06-26
 ---
 
 ## TL;DR
@@ -237,7 +237,9 @@ Throws `RuntimeException("method not supported")` — **not implemented, do not 
 
 **What it does:** creates a new `Itemdata` row. Sets `putaway_location` to the `STORAGE_LOCATION_PUTAWAY_LANE` location. Fails if the SKU already exists for that client.
 
-**Error conditions (400):** `ENTITY_ALREADY_EXITS` for duplicate SKU; `ENTITY_DOES_NOT_EXISTS` for client, unit type, or box type.
+**Error conditions (400):** `ENTITY_ALREADY_EXITS` for duplicate SKU; `ENTITY_DOES_NOT_EXISTS` for client, unit type, or box type; `FIELD_NOT_SET` for a blank/whitespace-only SKU.
+
+> **SKU normalization (SBDEV-2496, 2026-06-26).** Inbound SKU codes (`sku` / `item_nr`) are whitespace-normalized — trimmed via `SkuCodes.normalize`, blank→null — both when persisted (`Itemdata.setItemNr` trims) and at every ingress lookup (`SkuRestController` create/update/delete, `OrderRestController` order-line resolution, `AdviceRestController`, `FileImportController`). This prevents a trailing-space variant (`"PRSHW222 "` vs `"PRSHW222"`) from minting a duplicate `Itemdata` and stranding orders at "No fixed assigned location". Postgres `=`/`IN` are trailing-space sensitive, so normalization happens application-side; a one-time migration (`V1.26.31`) trimmed existing `item_nr` rows. Club-order SKU matching and the order-import per-order dedup also compare normalized values.
 
 ---
 

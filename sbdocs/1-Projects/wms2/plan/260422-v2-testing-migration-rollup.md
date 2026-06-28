@@ -4,19 +4,19 @@ ticket: ""
 ticket_url: ""
 type: plan
 priority: medium
-status: draft
+status: reviewed
 project: [wms2-api]
 version: v2
 requester: "nam.park@siteboss.net"
 created: 2026-04-22
-updated: 2026-06-17
+updated: 2026-06-22
 related:
   - ./260420-v2-integration-tests-h2-migration-report.md
   - ./260420-v2-port-plpgsql-functions-to-java.md
   - ./260421-v2-replace-pg-advisory-lock.md
 tags:
   - plan
-  - draft
+  - reviewed
   - wms2
   - testing
   - rollup
@@ -25,7 +25,7 @@ tags:
 
 # WMS v2 Testing Migration — Coordination Rollup
 
-**Status: DRAFT — pending review.** This is a **coordination layer** for three separately-reviewable plans, not a re-explanation of them. Each sub-plan owns its details, sign-off, and implementation; this doc sequences them, names the critical path, and tracks overall status.
+**Status: REVIEWED (2026-06-22) — ready to execute, subject to the §9 decisions.** This is a **coordination layer** for three separately-reviewable plans, not a re-explanation of them. Each sub-plan owns its details, sign-off, and implementation; this doc sequences them, names the critical path, and tracks overall status.
 
 > **Re-grounding note (2026-06-17):** Re-verified against HEAD. The April draft's critical path was anchored on a "landlord datasource fix" gate that **has already shipped** — the H2 test infrastructure (`application-integration.properties`, `BaseIntegrationTest`/`BasePostgresIntegrationTest`, `TestDataFactory`, `TestDatabaseConfig`) all exist and the H2 lane runs today. The Flyway numbers the draft reserved (`V2.1.08`/`V2.1.09`) are **already taken**; head is `V2.1.14`. The advisory-lock surface grew from 5 jobs to **8**, and at least the outbox path now runs `@Scheduled` on all replicas (lock is load-bearing there, not merely defensive). The three sub-plans were re-grounded on this date; this rollup is regenerated to match them. Every gate, estimate, and dependency below reflects the live tree.
 
@@ -161,12 +161,13 @@ Update each sub-plan's frontmatter `status:` as phases complete. This rollup tra
 
 | Gate | Status | Date | Notes |
 |---|---|---|---|
+| **P2 baseline gate (D3)** — PR #47 merged + `V1.2.05` byte-diff provenance | ● done | 2026-06-22 | `verify-260420-…-prekickoff.sh` → **13/13 PASS** (#47 merged 2026-06-19); line refs re-derived clean; Phase A clear to start |
 | P1 §1 audit 18 `@Disabled` + no-Docker acceptance test | ◯ pending | — | acceptance: `mvn verify` green with Docker daemon stopped |
 | P1 §2 rebuild ~8 Category-A legacy tests | ◯ pending | — | onto existing `BaseIntegrationTest` + `TestDataFactory` |
 | P3 advisory-lock refactor | ◯ pending | — | 8 job files / 16 sites + contract test |
 | P2 Phase A Java report services | ◯ pending | — | on `tenantDynamicRoutingDataSource`; real H2 gate for report tests |
 | P1 §3 Category-C fixtures + cleanup | ◯ pending | — | |
-| P1 §4 make PG opt-in lane real | ◯ pending | — | **gated on named PG-lane owner** |
+| P1 §4 make PG opt-in lane real | ◯ pending | — | **unblocked** — owner = nam.park@siteboss.net, required pre-merge cadence (D1 decided 2026-06-22) |
 | P2 Phase B staging bake | ◯ pending | — | calendar-bound |
 | P1 §5 scenario scaffold | ◯ pending — **optional** | — | needs P3 + P2 Phase A |
 | P2 Phase C prod flip | ◯ pending | — | |
@@ -176,16 +177,42 @@ Legend: ◯ pending • ◐ in progress • ● done • ✗ blocked
 
 ---
 
-## 9. Decisions needed before kickoff
+## 9. Decisions — recommendations for sign-off
 
-Consolidating the open questions across the three plans — these are the decisions that affect more than one sub-plan:
+Consolidating the cross-plan decisions. **Status as of 2026-06-22: all decided.** D1 ✅ (owner + pre-merge cadence) → P1 §4 unblocked; D3 ✅ (baseline gate 13/13); D4/D5/D6 ✅ accepted as recommended; D2 de-risked by code inspection (lock confirmed load-bearing — only prod replica-count confirmation remains, non-blocking). **No decision blocks execution.**
 
-1. **Who owns the PG opt-in lane, and what is its CI cadence?** This is now a **precondition**, not a nice-to-have: the H2 lane cannot catch PG-specific regressions, so the PG lane must have an owner and a blocking cadence. *(Rollup recommendation: name an owner before P1 §4; run the PG lane pre-merge-to-main, not nightly-best-effort.)*
-2. **Confirm the outbox/idempotency replica topology (P3 Q1).** If those `@Scheduled` jobs run on all replicas, the advisory lock is load-bearing and the in-memory test substitute needs the reset-hook discipline P3 specifies. *(Rollup recommendation: confirm with deploy owner; treat the lock as load-bearing until proven otherwise.)*
-3. **PR #47 (`feature/utc-timezone`) must be merged to `develop` before P2 Phase A begins (hard precondition).** P2 baselines its report-function port on `V1.2.05`'s `timestamptz` bodies, which only exist on `develop` after #47 lands; the report-port drop/restore migrations (`V2.1.17`/`V2.1.18`) also assume #47's `V2.1.15`/`V2.1.16` are present. *(Rollup recommendation: do not start P2 Phase A until #47 is merged; at kickoff, re-run P2 §2.2.1's byte-diff against the merged `V1.2.05` and re-derive line/migration numbers. If #47 is dropped, P2's fallback baseline applies — see P2 re-grounding note.)*
-4. **Commit to P2 Phase D, or accept "Phase C is our forever state"?** Phase D is cleanup; Phase C (Java default, functions present but unused) is sufficient for the H2 goal. *(Rollup recommendation: commit to Phase C; revisit Phase D next quarter and re-derive the migration number then.)*
-5. **Include scenario tests (P1 §5) in this rollup, or split into a follow-on?** Scenario tests address the real coverage gap but balloon the critical path by 3–5 days and need both P3 and P2 Phase A. *(Rollup recommendation: split. Deliver P1 §1–4 + P3 + P2 Phase A first; scenario tests in a follow-on plan.)*
-6. **Does P3 run parallel (needs a second engineer + the rename coordination in §5) or serial (adds 1–2 days)?** *(Rollup recommendation: parallel — P3 is small and isolated, but land the rename before any parallel test rebuild touches the lock.)*
+### D1 — PG opt-in lane: owner + CI cadence  ✅ **DECIDED (2026-06-22)**
+- **Decision:** Owner = **nam.park@siteboss.net**. Cadence = **required, blocking pre-merge check** (the PG Testcontainers stage must be green before merge — not nightly-best-effort). This is the explicit commitment to the hybrid model (H2 plan §6). **P1 §4 is unblocked.**
+- **Recommendation (accepted):** Name an owner before P1 §4 starts; run the PG (Testcontainers) lane blocking, pre-merge — not nightly-best-effort.
+- **Why:** The H2 default lane verifies wiring, not SQL-engine fidelity (§7 risk #1). The PG lane is the *only* backstop for PG-specific regressions (`date_trunc` rounding, `BigDecimal` scale, timezone). An unowned/nightly lane silently erodes to zero coverage.
+- **Owner's standing duties:** keep the enumerated PG-only set (H2 plan §4.3 — 5 repo classes + 3 root concurrency ITs) green; gatekeep growth — the lane must not grow beyond §4.3 without a justification appended there.
+
+### D2 — Outbox / idempotency replica topology (P3 Q1)
+- **Recommendation:** Treat the advisory lock as **load-bearing** (not defensive). The in-memory test impl **must** ship the per-test `reset()` hook (P3 §3.1.3) and the **allowlist startup guard** (P3 §3.2) so it can never reach a multi-replica prod path.
+- **Why (verified in code 2026-06-22):** `OutboxDispatcherJob` and `RestIdempotencyCleanupJob` carry `@Scheduled` **directly on the method**, and `@EnableScheduling` is **unconditional** (`SchedulingEnablementConfig` — "on ALL replicas"). The other 6 jobs have **no** method-level `@Scheduled`; they wire via `SchedulingConfiguration`, gated `@ConditionalOnProperty(app.cron=true)` (single cron replica). So 2 of 8 lock paths fire on every replica ⇒ load-bearing whenever prod runs >1 replica.
+- **Decide:** deploy owner — **only** to confirm prod replica count (>1 ⇒ concurrency is real today). The P3 design is unchanged either way. **Default if unanswered:** proceed treating the lock as load-bearing; P3 is not blocked.
+
+### D3 — PR #47 / `V1.2.05` baseline gate  ✅ **RESOLVED (2026-06-22)**
+- **Status:** Closed. #47 merged to `develop` 2026-06-19; `verify-260420-…-prekickoff.sh` ran **13/13 PASS** (byte-diff provenance C4 + line refs re-derived clean; head `V2.1.16`, `V2.1.17/18` free). P2 Phase A is clear to start on the `timestamptz` baseline; the re-grounding-note pre-UTC fallback is moot.
+- **No decision needed.**
+
+### D4 — Commit to P2 Phase D, or stop at Phase C?  ✅ **DECIDED (2026-06-22) — accepted as recommended**
+- **Decision:** **Phase C is the committed deliverable**; Phase D (drop functions) deferred to next quarter, migration number re-derived then. Phase D stays `optional cleanup`.
+- **Recommendation (accepted):** Commit to **Phase C** (Java default, functions present-but-unused) as the deliverable; **defer Phase D** (drop functions) to next quarter and re-derive the migration number then.
+- **Why:** Phase C fully satisfies the goal (H2 default lane). Phase D is pure cleanup, ship-blocking for nothing, and dropping client-facing report functions carries outage risk if a Phase C rollback is ever needed.
+- **Decide:** requester. **Default if unanswered:** Phase C is the target; Phase D stays `optional cleanup` in §8.
+
+### D5 — Include scenario tests (P1 §5), or split to a follow-on?  ✅ **DECIDED (2026-06-22) — accepted as recommended**
+- **Decision:** **Split** P1 §5 to a follow-on plan. Deliver P1 §1–4 + P3 + P2 Phase A first; P1 §5 stays `optional`.
+- **Recommendation (accepted):** **Split** to a follow-on plan. Deliver P1 §1–4 + P3 + P2 Phase A first.
+- **Why:** P1 §5 adds 3–5 days to the critical path and hard-requires *both* P3 and P2 Phase A. It addresses a real coverage gap but shouldn't gate the core H2-default delivery.
+- **Decide:** requester. **Default if unanswered:** split; P1 §5 stays `optional` in §8.
+
+### D6 — P3 run parallel or serial?  ✅ **DECIDED (2026-06-22) — accepted as recommended**
+- **Decision:** **Parallel** with P1 §2, **rename-first** — land the `AdvisoryLockService → PostgresAdvisoryJobLockService` rename before any parallel test rebuild touches the lock.
+- **Recommendation (accepted):** **Parallel** with P1 §2 — but land the `AdvisoryLockService → PostgresAdvisoryJobLockService` rename **first**, before any parallel test rebuild touches the lock.
+- **Why (verified 2026-06-22):** Confirmed small/isolated — 8 job files reference the lock, 16 call sites, plus the reflection-based `AdvisoryLockServiceJobLockIdContractTest`. The only collision risk is the rename hitting those sites mid-rebuild; sequencing the rename first removes it.
+- **Decide:** eng lead (second-engineer availability). **Default if unanswered:** parallel, rename-first.
 
 ---
 

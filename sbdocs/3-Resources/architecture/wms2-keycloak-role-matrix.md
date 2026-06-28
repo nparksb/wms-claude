@@ -6,9 +6,9 @@ version: v2
 scope: authorization
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-05-08
-verified_by: code read across v2/wms2-api WmsConstants + Authority + AdminController + UtilRestController + wms2-mobile-ui store/home.js
+updated: 2026-06-24
+last_verified: 2026-06-24
+verified_by: 2026-06-24 re-read of v2/wms2-api WmsConstants.FunctionEnum (344-423) + Authority.java + AdminController.java (@PreAuthorize audit) + UtilRestController.java (255-420 persona seed) + SecurityConfiguration.java (116-136) + wms2-mobile-ui store/home.js (setStaticMenus)
 related:
   - ./wms2-end-to-end-request-journey.md
   - ./wms2-tenant-routing-datasource-topology.md
@@ -24,7 +24,7 @@ tags:
 # WMS v2 — Keycloak Role Matrix
 
 **Scope:** Every realm role referenced across `wms2-api`, `wms2-web-ui`, and `wms2-mobile-ui`, mapped to the feature it gates · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-04-19
+**Owner:** Nam Park · **Last verified:** 2026-06-24
 
 ---
 
@@ -41,9 +41,9 @@ v2 uses Keycloak realm roles for coarse page/feature gating and Keycloak group p
 
 **Three load-bearing facts:**
 
-1. **Realm roles are declared in `WmsConstants.FunctionEnum` (lines 344–422).** All 51 constants live there; grep for a role name in just this file to find where it's authoritative.
-2. **Backend enforcement is mostly at the service layer, not annotation layer.** `AdminController` uses `@PreAuthorize(Authority.IS_SB_ADMIN)` for user/group management (10 endpoints), but most `WEB_UI_ACTION_*` and `WEB_UI_VIEW_*` roles are checked via `syspropService` / `functionService` calls inside service methods, not declarative annotations.
-3. **Mobile menu gating is UI-side only.** The mobile UI calls `GET /user/getAllRoles/{username}` on login and filters the static menu (`store/home.js:98-113`). **The backend does not re-enforce mobile view roles** — an operator who bypasses the menu (deep link, API replay) will hit service logic without the role check. Check §6 for the implications.
+1. **Realm roles are declared in `WmsConstants.FunctionEnum` (lines 344–423).** All **80** constants live there (66 `WEB_UI_*` at 344–409, 13 `MOBILE_UI_*` at 410–422, 1 `SPECIAL_*` at 423); grep for a role name in just this file to find where it's authoritative.
+2. **Backend enforcement is mostly at the service layer, not annotation layer.** `AdminController` uses `@PreAuthorize(Authority.IS_SB_ADMIN)` for user/group management on **8 active endpoints**, but most `WEB_UI_ACTION_*` and `WEB_UI_VIEW_*` roles are checked via `syspropService` / `functionService` calls inside service methods, not declarative annotations. ⚠️ **Four `AdminController` endpoints now have their `@PreAuthorize` commented out and one new endpoint is entirely unguarded** — see §2.1 / §3.1 for the security gap.
+3. **Mobile menu gating is UI-side only.** The mobile UI calls `GET /user/getAllRoles/{username}` (`store/home.js:106`) on login and filters the static menu (filter at `store/home.js:108-113`). **The backend does not re-enforce mobile view roles** — an operator who bypasses the menu (deep link, API replay) will hit service logic without the role check. Check §6 for the implications.
 
 ---
 
@@ -52,21 +52,30 @@ v2 uses Keycloak realm roles for coarse page/feature gating and Keycloak group p
 ### 2.1 `sb_admin` — SiteBoss super-admin
 
 - Defined: `Authority.java:19` (`SB_ADMIN_ROLE = "sb_admin"`)
-- Expression: `Authority.IS_SB_ADMIN`
-- Enforced by: `@PreAuthorize(Authority.IS_SB_ADMIN)` on `AdminController` methods (lines 93–309) — 10 endpoints covering `/v3/user/*` and `/v3/groups/*` administration.
+- Expression: `Authority.IS_SB_ADMIN` = `"isSbAdmin()"` — a **custom SpEL method** tagged `// legacy` in `Authority.java:14`.
+- Enforced by: `@PreAuthorize(Authority.IS_SB_ADMIN)` on **8 active** `AdminController` endpoints — `findUsers` (:93), `findUserByUsername` (:121), `deleteUserByUsername` (:134), `findUserGroupsByUsername` (:147), `createUser` (:156), `updateUser` (:168), `resetPassword` (:189), `findGroup` (:207) — covering `/v3/user/*` and `/v3/groups/*` administration.
 - Typical grantee: SiteBoss engineering / ops staff. Not tenant-scoped.
 
-### 2.2 `WEB_UI_VIEW_*` — Web UI page gates
+> ⚠️ **SECURITY GAP — review required (verified 2026-06-24).** Four `AdminController` endpoints had their `@PreAuthorize(Authority.IS_SB_ADMIN)` guard **commented out**, and one new endpoint was added **with no guard at all**. They now fall through to the `SecurityConfiguration` path rule for `/user/**` → `hasAnyAuthority("wms_user")` (`SecurityConfiguration.java:127-130`, see §6.1), i.e. any authenticated standard warehouse user can reach them rather than only `sb_admin`:
+> - `importUsersFromCsvText` — `AdminController.java:197` (comment `// @PreAuthorize(...)`), maps `GET /v3/admin/importUsersFromCsvText` (bulk Keycloak user creation from CSV)
+> - `addUserToWarehouseGroup` — `AdminController.java:261` (commented), `POST /v3/user/addUserToWarehouseGroup`
+> - `removeUserFromWarehouseGroup` — `AdminController.java:282` (commented), `POST /v3/user/removeUserFromWarehouseGroup`
+> - `isWarehouseUser` — `AdminController.java:310` (commented), `GET /v3/user/isWarehouseUser`
+> - `userExistsInKeycloak` — `AdminController.java:350` (**new, never had a `@PreAuthorize`**), `GET /v3/user/existsInKeycloak` (Keycloak user-enumeration vector)
+>
+> Net effect: user-provisioning / warehouse-group-membership mutation and Keycloak existence checks are no longer `sb_admin`-gated. Confirm this is intentional; if not, restore the annotations.
 
-40 constants at `WmsConstants.FunctionEnum:344–409`. Each one typically corresponds to a top-level page or a sensitive action in `wms2-web-ui`. See §3 for the full table.
+### 2.2 `WEB_UI_*` — Web UI page + action gates
+
+**66 constants** at `WmsConstants.FunctionEnum:344–409`: 58 `WEB_UI_VIEW_*` / `WEB_UI_LOG_IN` page gates (344–401) plus 8 `WEB_UI_ACTION_*` destructive-action gates (402–409). Each typically corresponds to a top-level page or a sensitive action in `wms2-web-ui`. See §3 for the full table.
 
 ### 2.3 `MOBILE_UI_*` — Mobile UI page gates
 
-12 constants at `WmsConstants.FunctionEnum:410–421`. Each one (except `LOG_IN` and `NEVER_TIME_OUT`) is mapped to exactly one mobile workflow page in `wms2-mobile-ui/store/home.js:setStaticMenus`.
+**13 constants** at `WmsConstants.FunctionEnum:410–422` (`MOBILE_UI_VIEW_CANCELLATION` at :422 was added since the prior audit). Each one (except `LOG_IN` and `NEVER_TIME_OUT`) is mapped to a mobile workflow page in `wms2-mobile-ui/store/home.js:setStaticMenus`.
 
 ### 2.4 `SPECIAL_DEVELOPER` (and the orphans)
 
-`WmsConstants.FunctionEnum:422`. Defined but no referenced consumer found. §5.
+`WmsConstants.FunctionEnum:423`. Defined but no referenced consumer found. §5.
 
 ---
 
@@ -78,22 +87,22 @@ Rows marked — (em dash) in a column mean "not referenced there."
 
 | Role | Backend | Web UI gate | Mobile UI gate | Purpose |
 |---|---|---|---|---|
-| `sb_admin` | `Authority.IS_SB_ADMIN` → `AdminController:93-309` (10 endpoints, `/v3/user/*` + `/v3/groups/*`) | — | — | SiteBoss global admin — user/group management |
+| `sb_admin` | `Authority.IS_SB_ADMIN` → `AdminController` (**8 active** `@PreAuthorize` endpoints at :93,121,134,147,156,168,189,207; `/v3/user/*` + `/v3/groups/*`) | — | — | SiteBoss global admin — user/group management. ⚠️ **4 endpoints now commented-out (:197,261,282,310) + new unguarded `/user/existsInKeycloak` (:350) — see §2.1 security gap** |
 
 ### 3.2 Web UI — `WEB_UI_LOG_IN` + admin pages
 
 | Role | Web UI page / feature | Backend consumer | Purpose |
 |---|---|---|---|
-| `WEB_UI_LOG_IN` | Login gate | `UtilRestController` — assigned as baseline to every role | App entry |
-| `WEB_UI_VIEW_USER_MANAGEMENT` | User management page | `UtilRestController` (assigned to `role_inventory_manager`) | User admin |
-| `WEB_UI_VIEW_IMPORT_DATA` | Data import | — (orphan, see §5) | File import |
-| `WEB_UI_VIEW_SYSTEM_PROPERTY` | Sysprop admin | — (orphan) | See [wms2-sysprop-catalog.md](../data-dictionary/wms2-sysprop-catalog.md) |
-| `WEB_UI_VIEW_CLIENT` | Client/tenant admin | — (orphan) | Client config |
-| `WEB_UI_VIEW_USER` | User list | — (orphan) | User listing |
-| `WEB_UI_VIEW_GROUP` | Group admin | — (orphan) | Keycloak group mgmt |
-| `WEB_UI_VIEW_ROLE` | Role admin | — (orphan) | Role mgmt |
-| `WEB_UI_VIEW_FUNCTION` | Function admin | — (orphan) | Permission/function mgmt |
-| `WEB_UI_VIEW_MESSAGES` | Message queue | — (orphan) | OMS message audit |
+| `WEB_UI_LOG_IN` | Login gate | `UtilRestController` — assigned as baseline to most roles (admin user :258, inventory-manager :278, outbound-manager :302, receiving :331, super-admin :355) | App entry |
+| `WEB_UI_VIEW_USER_MANAGEMENT` | User management page | `UtilRestController` — assigned to the `admin` user directly (:257) **and** `role_super_admin` (:406). **Not** `role_inventory_manager`. | User admin |
+| `WEB_UI_VIEW_IMPORT_DATA` | Data import | `role_super_admin` (:370) | File import |
+| `WEB_UI_VIEW_SYSTEM_PROPERTY` | Sysprop admin | `role_super_admin` (:401) | See [wms2-sysprop-catalog.md](../data-dictionary/wms2-sysprop-catalog.md) |
+| `WEB_UI_VIEW_CLIENT` | Client/tenant admin | `role_super_admin` (:360) | Client config |
+| `WEB_UI_VIEW_USER` | User list | `role_super_admin` (:405) | User listing |
+| `WEB_UI_VIEW_GROUP` | Group admin | `role_super_admin` (:369) | Keycloak group mgmt |
+| `WEB_UI_VIEW_ROLE` | Role admin | `role_super_admin` (:393) | Role mgmt |
+| `WEB_UI_VIEW_FUNCTION` | Function admin | `role_super_admin` (:366) | Permission/function mgmt |
+| `WEB_UI_VIEW_MESSAGES` | Message queue | `role_super_admin` (:381) | OMS message audit |
 
 ### 3.3 Web UI — Master data & inventory
 
@@ -121,7 +130,7 @@ Rows marked — (em dash) in a column mean "not referenced there."
 |---|---|
 | `WEB_UI_VIEW_CREATE_INBOUND_BOL` | Inbound BOL entry |
 | `WEB_UI_VIEW_RECEIVING` | Receiving dashboard |
-| `WEB_UI_VIEW_INBOUND_BOL` / `*_POSITION` | Inbound BOL detail |
+| `WEB_UI_VIEW_INBOUND_BOL` / `WEB_UI_VIEW_INBOUND_BOL_ITEM_LINES` | Inbound BOL header + item lines |
 | `WEB_UI_VIEW_GOODS_RECEIPT` / `*_POSITION` | Goods receipt detail |
 
 ### 3.5 Web UI — Outbound / Picking / BOL
@@ -155,62 +164,75 @@ Rows marked — (em dash) in a column mean "not referenced there."
 
 ### 3.7 Web UI — Destructive / sensitive actions
 
-| Role | Purpose | Enforcement |
-|---|---|---|
-| `WEB_UI_ACTION_DELETE_UNIT_LOAD` / `*_POSITION` | Delete unit load or its position | `UnitLoadController` → service-level `FunctionEnum` check |
-| `WEB_UI_ACTION_ADJUST_STOCK` / `*_ORDER` / `*_RESERVATION` | Stock/order/reservation adjustments | Service-level check |
-| `WEB_UI_ACTION_PRINT_TOTE_LABELS` | Print labels | Service-level check |
+There are exactly **8** `WEB_UI_ACTION_*` constants (`WmsConstants.FunctionEnum:402–409`). All 8 are assigned to `role_super_admin` in `UtilRestController` (:351–354, 413–416); enforcement is otherwise service-level `FunctionEnum` checks, not annotations.
 
-### 3.8 Mobile UI — all 12 roles
+| Role | Constant line | Purpose | Enforcement |
+|---|---|---|---|
+| `WEB_UI_ACTION_DELETE_UNIT_LOAD` | :402 | Delete unit load | Service-level `FunctionEnum` check |
+| `WEB_UI_ACTION_DELETE_UNIT_LOAD_RECURSIVE` | :403 | Recursive unit-load delete | Service-level check |
+| `WEB_UI_ACTION_ADJUST_AMOUNT` | :404 | Adjust stockunit amount | Service-level check |
+| `WEB_UI_ACTION_ADJUST_RESERVED_AMOUNT` | :405 | Adjust reserved amount | Service-level check |
+| `WEB_UI_ACTION_ADJUST_LOCK_RELEASE_LOCK` | :406 | Release stock lock | Service-level check |
+| `WEB_UI_ACTION_ADJUST_LOCK_ON_HOLD` | :407 | Place on-hold lock | Service-level check |
+| `WEB_UI_ACTION_ADJUST_LOCK_DAMAGED` | :408 | Place damaged lock | Service-level check |
+| `WEB_UI_ACTION_PRINT_TOTE_LABELS` | :409 | Print tote labels | Service-level check |
 
-These are the authoritative Mobile role set. Source: `wms2-mobile-ui/store/home.js:19-94` (`setStaticMenus`).
+### 3.8 Mobile UI — all 13 roles
+
+These are the authoritative Mobile role set (13 `MOBILE_UI_*` constants, `WmsConstants.FunctionEnum:410–422`). Menu source: `wms2-mobile-ui/store/home.js:19-99` (`setStaticMenus`).
 
 | Role | Mobile page | Link | Backend consumer |
 |---|---|---|---|
-| `MOBILE_UI_LOG_IN` | (gate) | — | `UtilRestController` — assigned to `role_inventory_*`, `role_outbound_*` |
-| `MOBILE_UI_NEVER_TIME_OUT` | session override | — | Mobile UI session manager (bypasses auto-logout) |
+| `MOBILE_UI_LOG_IN` | (gate) | — | `UtilRestController` — assigned to all 6 mobile personas (inventory-manager/-worker, outbound-forklift/-manager/-worker, receiving) + super-admin |
+| `MOBILE_UI_NEVER_TIME_OUT` | session override | — | Not in menu / not seeded to any persona — Mobile UI session manager only (bypasses auto-logout). Orphan, §5 |
 | `MOBILE_UI_VIEW_INFO` | Lookup | `/lookup` | — |
-| `MOBILE_UI_VIEW_PUT_AWAY` | Putaway | `/putaway` | — (see [wms2-receiving-putaway-workflow.md](../workflows/wms2-receiving-putaway-workflow.md)) |
+| `MOBILE_UI_VIEW_PUT_AWAY` | Putaway | `/putaway` | `role_receiving` (:327), `role_super_admin` (:346) (see [wms2-receiving-putaway-workflow.md](../workflows/wms2-receiving-putaway-workflow.md)) |
 | `MOBILE_UI_VIEW_TRANSFER` | Move Unitload | `/move-unitload` | — |
 | `MOBILE_UI_VIEW_STOCK_TRANSFER` | Move Stock | `/move-stock` | — |
-| `MOBILE_UI_VIEW_PICKING` | Picking | `/picking` | — (see [wms2-picking-workflow.md](../workflows/wms2-picking-workflow.md)) |
-| `MOBILE_UI_VIEW_PALLETIZING` | Palletizing | `/palletizing` | — |
-| `MOBILE_UI_VIEW_TRUCK_LOADING` | Truck Loading | `/truck-loading` | — (see [wms2-bol-truck-loading-workflow.md](../workflows/wms2-bol-truck-loading-workflow.md)) |
-| `MOBILE_UI_VIEW_CYCLE_COUNT` | Cycle Count | `/cycle-count` | — |
-| `MOBILE_UI_VIEW_REPLENISHMENT` | Replenish Process + Replenish Request | `/replenish`, `/replenish-request` | — |
-| `MOBILE_UI_VIEW_LPN_ASSOCIATION` | (not in static menu) | — (orphan) | Reserved for future LPN flow |
+| `MOBILE_UI_VIEW_PICKING` | Picking | `/picking` | `role_outbound_manager`/`-worker`, `role_super_admin` (see [wms2-picking-workflow.md](../workflows/wms2-picking-workflow.md)) |
+| `MOBILE_UI_VIEW_PALLETIZING` | Palletizing | `/palletizing` | `role_outbound_manager`/`-worker`, `role_super_admin` |
+| `MOBILE_UI_VIEW_TRUCK_LOADING` | Truck Loading | `/truck-loading` | `role_outbound_forklift`/`-manager`, `role_super_admin` (see [wms2-bol-truck-loading-workflow.md](../workflows/wms2-bol-truck-loading-workflow.md)) |
+| `MOBILE_UI_VIEW_CYCLE_COUNT` | Cycle Count | `/cycle-count` | `role_inventory_manager`/`-worker`, `role_super_admin` |
+| `MOBILE_UI_VIEW_REPLENISHMENT` | Replenish Process + Replenish Request | `/replenish`, `/replenish-request` | `role_receiving` (:328), `role_super_admin` (:347) |
+| `MOBILE_UI_VIEW_CANCELLATION` | Cancellation Process | `/cancellation` | — (menu role at `store/home.js:89-92`; not seeded to any persona in `UtilRestController`). New since prior audit. Orphan, §5 |
+| `MOBILE_UI_VIEW_LPN_ASSOCIATION` | (LPN Associate — menu block **commented out**, `store/home.js:94-98`) | — | Reserved for future LPN flow. Orphan, §5 |
 
-**Note the odd one:** `WEB_UI_VIEW_TRANSFER_ORDER` appears in the mobile menu (line 86) as the Transfer Process page. This is the only mobile menu entry that uses a `WEB_UI_*` role — likely a naming oversight. Don't rename without coordinating a realm-role migration.
+**Note the odd one:** `WEB_UI_VIEW_TRANSFER_ORDER` appears in the mobile menu (`store/home.js:82-87`, the Transfer Process page) as the only mobile menu entry that uses a `WEB_UI_*` role — likely a naming oversight. Don't rename without coordinating a realm-role migration.
 
 ---
 
-## 4. Composite Roles → Function Assignments
+## 4. Personas (DB-backed `UserRole` / `UserGroup` seed rows) → Function Assignments
 
-`UtilRestController` initializes a fixed set of **composite roles** on first run. Each composite role grants a bundle of functions (the realm roles above). These are the practical "job titles" Keycloak administrators assign to end users.
+`UtilRestController` seeds a fixed set of **7 personas** on first run (`:239-245` create `UserRole`s; `:247-253` create matching `UserGroup`s). **These are NOT Keycloak realm/composite roles** — they are rows in the tenant DB `UserRole` / `UserGroup` tables, created via `userRoleService.createEntity(...)` and `userGroupService.createEntity(...)`, then wired by `accessService.addFunctionToRole(...)` / `addRoleToGroup(...)` / `addGroupToUser(...)`. The `WEB_UI_*` / `MOBILE_UI_*` "roles" they grant are `UserFunction` rows (the `FunctionEnum` constants). The mapping is code-declared in `UtilRestController` — changing it requires a backend deploy, not a Keycloak admin change.
 
-| Composite role | Persona | Granted functions (summary) |
+The 7 seeded `UserRole`s (`:239-245`):
+
+| Persona (`UserRole`) | Job title | Granted functions (from `UtilRestController`) |
 |---|---|---|
-| `group_super_admin` | SiteBoss admin | `WEB_UI_VIEW_USER_MANAGEMENT`, `WEB_UI_LOG_IN` + more |
-| `role_inventory_manager` | Warehouse inventory ops lead | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_CYCLE_COUNT`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_STOCK_TRANSFER`, `MOBILE_UI_VIEW_TRANSFER`, `WEB_UI_LOG_IN`, `WEB_UI_VIEW_STOCK_UNIT_LOCK_OVERVIEW`, `WEB_UI_VIEW_REPLENISHMENT_MONITOR`, `WEB_UI_VIEW_FLOWBIN_MONITOR`, `WEB_UI_VIEW_PARCEL_MONITOR`, `WEB_UI_VIEW_DB_QUERIES` |
-| `role_inventory_worker` | Floor inventory worker | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_CYCLE_COUNT`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_STOCK_TRANSFER`, `MOBILE_UI_VIEW_TRANSFER` |
-| `role_outbound_manager` | Outbound ops lead | Mobile picking/palletizing + most `WEB_UI_VIEW_*` monitors |
-| `role_outbound_forklift` | Forklift operator | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_TRUCK_LOADING` |
-| `role_outbound_worker` | Packing/palletizing floor | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_PALLETIZING` |
+| `inventory-manager` (:239) | Warehouse inventory ops lead | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_CYCLE_COUNT`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_STOCK_TRANSFER`, `MOBILE_UI_VIEW_TRANSFER`, `WEB_UI_LOG_IN`, `WEB_UI_VIEW_STOCK_UNIT_LOCK_OVERVIEW`, `WEB_UI_VIEW_REPLENISHMENT_MONITOR`, `WEB_UI_VIEW_FLOWBIN_MONITOR`, `WEB_UI_VIEW_PARCEL_MONITOR`, `WEB_UI_VIEW_DB_QUERIES` (:273-283) |
+| `inventory-worker` (:240) | Floor inventory worker | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_CYCLE_COUNT`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_STOCK_TRANSFER`, `MOBILE_UI_VIEW_TRANSFER` (:285-289) |
+| `outbound-forklift` (:241) | Forklift operator | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_TRUCK_LOADING` (:291-293) |
+| `outbound-manager` (:242) | Outbound ops lead | Mobile: `LOG_IN`, `INFO`, `PALLETIZING`, `PICKING`, `STOCK_TRANSFER`, `TRANSFER`, `TRUCK_LOADING`; Web: `LOG_IN`, `BILL_OF_LADING`(+`_POSITION`), `ORDER`(+`_BATCH`/`_POSITION`), `PICKING_ORDER`/`_POSITION`/`_UNIT_LOAD`, `LOCATION_OVERVIEW`, `ORDER_MONITOR`, `REPLENISHMENT_MONITOR`, `FLOWBIN_MONITOR`, `PARCEL_MONITOR`, `DB_QUERIES` (:295-316) |
+| `outbound-worker` (:243) | Packing/palletizing floor | `MOBILE_UI_LOG_IN`, `MOBILE_UI_VIEW_INFO`, `MOBILE_UI_VIEW_PALLETIZING`, `MOBILE_UI_VIEW_PICKING`, `MOBILE_UI_VIEW_STOCK_TRANSFER`, `MOBILE_UI_VIEW_TRANSFER` (:318-323) |
+| `receiving` (:244) | Inbound / receiving | Mobile: `LOG_IN`, `INFO`, `PUT_AWAY`, `REPLENISHMENT`, `STOCK_TRANSFER`, `TRANSFER`; Web: `LOG_IN`, `CREATE_INBOUND_BOL`, `GOODS_RECEIPT`(+`_POSITION`), `INBOUND_BOL`(+`_ITEM_LINES`), `RECEIVED_STOCK_OVERVIEW`, `RECEIVING`, `REPLENISHMENT_ORDER` (:325-339) |
+| `super-admin` (:245) | SiteBoss / global admin | Nearly every `WEB_UI_*` and `MOBILE_UI_*` function, including all 8 `WEB_UI_ACTION_*`, all 8 admin-panel `WEB_UI_VIEW_*`, and `WEB_UI_VIEW_USER_MANAGEMENT` (:341-416) |
 
-These composites are wired at `UtilRestController` during app init. The mapping is code-declared — changing it requires a backend deploy, not a Keycloak admin change.
+**Group wiring** (`:260-271`): each `UserGroup` aggregates one or more `UserRole`s — e.g. `group_inventory_manager` contains both `role_inventory_manager` and `role_inventory_worker` (:260-261); `group_outbound_manager` contains forklift+manager+worker (:264-266); `group_receiving` aggregates `inventory-worker` + `outbound-worker` + `receiving` (:268-270). The seed `admin` user is placed directly in `group_super_admin` (:255) and additionally granted `WEB_UI_VIEW_USER_MANAGEMENT` + `WEB_UI_LOG_IN` as user-level functions (:257-258).
 
 ---
 
 ## 5. Orphans
 
-**Defined but no consumer found (as of 2026-04-19):**
+**Defined but no consumer found (as of 2026-06-24):**
+
+The 8 admin-panel `WEB_UI_VIEW_*` (`IMPORT_DATA`, `SYSTEM_PROPERTY`, `CLIENT`, `USER`, `GROUP`, `ROLE`, `FUNCTION`, `MESSAGES`) and **all 8 `WEB_UI_ACTION_*`** are **no longer orphans** — each is now assigned to `role_super_admin` in `UtilRestController` (admin-panel views at :360-405, actions at :351-354, 413-416). The only remaining true orphans:
 
 | Role | Likely status |
 |---|---|
-| `WEB_UI_VIEW_IMPORT_DATA`, `WEB_UI_VIEW_SYSTEM_PROPERTY`, `WEB_UI_VIEW_CLIENT`, `WEB_UI_VIEW_USER`, `WEB_UI_VIEW_GROUP`, `WEB_UI_VIEW_ROLE`, `WEB_UI_VIEW_FUNCTION`, `WEB_UI_VIEW_MESSAGES` | Admin-panel pages that may be gated at the UI router level only (not yet confirmed in web-ui source) |
-| `MOBILE_UI_VIEW_LPN_ASSOCIATION` | Not in static menu; reserved |
-| `SPECIAL_DEVELOPER` | Purpose unclear |
-| All `WEB_UI_ACTION_*` (5 roles) | Service-level `FunctionEnum` checks — not annotation-level |
+| `SPECIAL_DEVELOPER` (`FunctionEnum:423`) | Defined; never seeded to any persona, no consumer found. Purpose unclear |
+| `MOBILE_UI_VIEW_LPN_ASSOCIATION` (`:421`) | Menu block commented out (`store/home.js:94-98`); not seeded. Reserved for future LPN flow |
+| `MOBILE_UI_VIEW_CANCELLATION` (`:422`) | New; present in mobile menu (`store/home.js:89-92`) but **not seeded to any persona** in `UtilRestController` — UI-only gate, backend `getAllRoles` will never return it from the seeded data |
+| `MOBILE_UI_NEVER_TIME_OUT` (`:411`) | Session-timeout override; not a view role, not in the menu, not seeded |
 
 Orphans fall into two honest categories:
 
@@ -233,11 +255,26 @@ Two sysprop-backed group paths gate tenant / warehouse scoping. They are Keycloa
 
 Consumed by:
 
-- `AdminController` endpoints `/v3/user/addUserToWarehouseGroup`, `/removeUserFromWarehouseGroup`, `/isWarehouseUser/{username}`
+- `AdminController` endpoints `POST /v3/user/addUserToWarehouseGroup`, `POST /v3/user/removeUserFromWarehouseGroup`, `GET /v3/user/isWarehouseUser` — ⚠️ all three now have their `@PreAuthorize` commented out (§2.1)
 - `KeycloakService` (service-level integration with Keycloak Admin API)
 - Token parsing on the mobile UI (`tokenParsed.warehouse` claim exposes the array of facility codes the user can access — see [wms2-end-to-end-request-journey.md](./wms2-end-to-end-request-journey.md) §3)
 
 Group paths determine *which* tenant+facility a user belongs to. Realm roles determine *what* they can do within that tenant+facility. Both must match for a request to succeed.
+
+### 6.1 `SecurityConfiguration` path-level authority rules
+
+The only HTTP-path-level authority enforcement lives in `SecurityConfiguration.java:116-136`. It is coarse — there are **no per-function path matchers**; everything below the actuator tier collapses to `wms_user`:
+
+| Matcher | Authority | Source line |
+|---|---|---|
+| `/actuator/health/**`, `/actuator/info` | permitAll | :116 |
+| `/actuator/**` | `ADMIN` or `wms_admin` | :117 |
+| `/`, `/v3`, `/v3/token`, `/error`, `/rest/**`, `/api/**`, `/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`, `/api/public/**` | permitAll | :120-124 |
+| `/v3/adminAction/**`, `/v3/sysprop/**`, `/v3/systemProperty/**`, `/v3/printer/**`, `/userDetailsById/**`, `/userGroup/**`, `/user/**` | `wms_user` | :127-130 |
+| `/v3/**` | `wms_user` | :133 |
+| everything else | authenticated | :136 |
+
+This is why the commented-out `@PreAuthorize` guards in §2.1 matter: with the annotation gone, `/v3/user/**` endpoints are reachable by any `wms_user`, not just `sb_admin`.
 
 ---
 
@@ -257,10 +294,10 @@ Not a realm role in the sense above — it's a service-account principal. Its au
 1. **Mobile UI gating is client-side only.** `MOBILE_UI_VIEW_*` roles filter the static menu but the backend does not re-enforce them. API replay / deep link bypasses the gate. Security-sensitive mobile workflows should duplicate the check at the backend service layer.
 2. **`WEB_UI_VIEW_TRANSFER_ORDER` in the mobile menu** (§3.8) is a naming oversight — the mobile Transfer Process page uses a `WEB_UI_*` role. Don't rename without a realm-role migration.
 3. **Most `WEB_UI_ACTION_*` roles are enforced at service layer, not annotation layer.** Removing a service-internal `FunctionEnum` check silently broadens access.
-4. **Composite roles are hard-coded in `UtilRestController`.** A new persona requires a code change + deploy, not a Keycloak-only operation.
+4. **Personas are DB-backed seed rows hard-coded in `UtilRestController`, not Keycloak composite roles.** They are `UserRole`/`UserGroup`/`UserFunction` rows seeded on first run (`:239-416`). A new persona — or a new function added to an existing persona — requires a code change + deploy, not a Keycloak-only operation.
 5. **Group paths vs realm roles are distinct.** A user with all the right roles but no matching group membership will still fail tenant routing — and vice versa.
-6. **Orphan roles are defined but unused.** Granting them to a composite role is a no-op. Use the table in §5 before expecting a new permission to take effect.
-7. **`sb_admin` is the only annotation-enforced role** (`@PreAuthorize(Authority.IS_SB_ADMIN)` on `AdminController`). Everywhere else, enforcement is service-layer — easier to miss when refactoring.
+6. **Orphan roles are defined but unused.** Granting them to a persona is a no-op until a consumer exists. Use the table in §5 before expecting a new permission to take effect.
+7. **`@PreAuthorize(Authority.IS_SB_ADMIN)` annotation enforcement is shrinking.** It now guards only **8 active** `AdminController` endpoints — **4 were commented out and 1 new endpoint is unguarded** (§2.1 security gap). Everywhere else, enforcement is service-layer — easier to miss when refactoring, and easy to silently disable by commenting an annotation.
 8. **`MOBILE_UI_NEVER_TIME_OUT` is not a view role.** Granting it changes session timeout behavior on the mobile UI only. Don't assign casually.
 
 ---
@@ -269,11 +306,11 @@ Not a realm role in the sense above — it's a service-account principal. Its au
 
 | Task | Start at |
 |---|---|
-| Security audit (who can hit endpoint X?) | §3 find the role → §4 find the composites that grant it → Keycloak admin (users of that composite) |
-| Adding a new mobile page | §3.8 reserve a `MOBILE_UI_VIEW_*` constant in `WmsConstants.FunctionEnum` → add entry in `store/home.js:setStaticMenus` → enforce at service layer (§8 item 1) |
-| Adding a new admin page | §2.1 if truly admin-only, guard with `@PreAuthorize(Authority.IS_SB_ADMIN)` on the controller |
-| Adding a new composite role | §4 edit `UtilRestController` composite init block → code deploy |
-| Debugging "user can't see a page" | Keycloak → composite role → §4 → §3 view-role → UI gate |
+| Security audit (who can hit endpoint X?) | §3 find the role → §4 find the personas that grant it → the users in that persona's `UserGroup` |
+| Adding a new mobile page | §3.8 reserve a `MOBILE_UI_VIEW_*` constant in `WmsConstants.FunctionEnum` → add entry in `store/home.js:setStaticMenus` → seed it to a persona in `UtilRestController` → enforce at service layer (§8 item 1) |
+| Adding a new admin page | §2.1 if truly admin-only, guard with `@PreAuthorize(Authority.IS_SB_ADMIN)` on the controller (and check it isn't commented out — §2.1 gap) |
+| Adding a new persona | §4 edit `UtilRestController` seed block (`:239-416`) → code deploy |
+| Debugging "user can't see a page" | persona (`UserGroup`/`UserRole`) → §4 → §3 view-role → UI gate |
 | Debugging "user can hit an endpoint they shouldn't" | §8 item 1 — likely service-layer check missing |
 | Cleaning up orphans | §5 — audit web UI source, classify, decide keep/remove |
 
@@ -284,5 +321,6 @@ Not a realm role in the sense above — it's a service-account principal. Its au
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | All constants in `WmsConstants.FunctionEnum:344-422`, `AdminController` `@PreAuthorize` usage, `UtilRestController` composite role init, `wms2-mobile-ui/store/home.js:setStaticMenus`, `Authority.java` SB_ADMIN definition | All 51 realm-role constants accounted for; 3 composite roles + 3 additional personas enumerated | Code read (grep-based across 3 repos) |
+| 2026-06-24 | Full re-read of `WmsConstants.FunctionEnum:344-423`, `Authority.java`, `AdminController.java` (every `@PreAuthorize`), `UtilRestController.java:239-416` (persona seed + function bundles), `SecurityConfiguration.java:116-136`, `wms2-mobile-ui/store/home.js:setStaticMenus` | **80 constants** (66 `WEB_UI_*` :344-409, 13 `MOBILE_UI_*` :410-422, 1 `SPECIAL_*` :423) — up from 51. **7 DB-backed personas** (added `receiving`); personas are `UserRole`/`UserGroup` seed rows, **not** Keycloak composites — prior characterization corrected. The 8 admin-panel `WEB_UI_VIEW_*` + all 8 `WEB_UI_ACTION_*` are no longer orphans (seeded to `super-admin`). ⚠️ **Security gap:** 4 `AdminController` `@PreAuthorize` guards commented out (:197,261,282,310) + 1 new unguarded endpoint (:350 `/user/existsInKeycloak`) — only 8 endpoints still guarded. | Code read (executor re-verify) |
 
-**Re-verify every 60 days.** Next due: **2026-06-18** — role churn is typically 2-4 constants per quarter; any feature that adds a new protected page invalidates this matrix.
+**Re-verify every 60 days.** Next due: **2026-08-23** — role churn is typically 2-4 constants per quarter; any feature that adds a new protected page invalidates this matrix.

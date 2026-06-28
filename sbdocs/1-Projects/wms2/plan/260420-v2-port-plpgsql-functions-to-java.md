@@ -4,18 +4,18 @@ ticket: ""
 ticket_url: ""
 type: refactor
 priority: medium
-status: draft
+status: reviewed
 project: [wms2-api]
 version: v2
 requester: "nam.park@siteboss.net"
 created: 2026-04-20
-updated: 2026-06-17
+updated: 2026-06-22
 related:
   - ./260420-v2-integration-tests-h2-migration-report.md
   - ../../../2-Areas/runbooks/wms1-cancel-packed-parcel.md
 tags:
   - plan
-  - draft
+  - reviewed
   - wms2
   - refactor
   - testing
@@ -28,7 +28,7 @@ tags:
 **Ticket:** — (to be filed) — owner: nam.park@siteboss.net
 **Project:** wms2-api | **Version:** v2 | **Type:** refactor
 **Priority:** medium
-**Status:** DRAFT — pending review
+**Status:** REVIEWED (2026-06-22) — approved; Phase A baseline gate cleared (13/13, see rollup §8/§9 D3)
 **Date:** 2026-04-20
 
 > **Re-grounding note (2026-06-17):** Re-verified against HEAD on 2026-06-17. On the `develop` baseline the Flyway head is `V2.1.14__add_outbox_aggregate_order_index.sql`. All facts, line numbers, bean names, and SQL-body claims below reflect that baseline. Re-derive the next-free migration number again at Phase D execution time — more migrations will likely land first.

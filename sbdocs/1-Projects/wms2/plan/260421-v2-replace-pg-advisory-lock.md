@@ -4,19 +4,19 @@ ticket: ""
 ticket_url: ""
 type: refactor
 priority: medium
-status: draft
+status: reviewed
 project: [wms2-api]
 version: v2
 requester: "nam.park@siteboss.net"
 created: 2026-04-21
-updated: 2026-06-17
+updated: 2026-06-22
 related:
   - ./260420-v2-port-plpgsql-functions-to-java.md
   - ./260420-v2-integration-tests-h2-migration-report.md
   - ../../../3-Resources/architecture/wms2-scheduled-jobs-catalog.md
 tags:
   - plan
-  - draft
+  - reviewed
   - wms2
   - refactor
   - testing
@@ -30,7 +30,7 @@ tags:
 **Ticket:** — (to be filed) — owner: nam.park@siteboss.net
 **Project:** wms2-api | **Version:** v2 | **Type:** refactor
 **Priority:** medium
-**Status:** DRAFT — pending review
+**Status:** REVIEWED (2026-06-22) — approved; lock confirmed load-bearing for outbox + REST-idempotency paths (rollup §9 D2), parallel/rename-first (D6)
 **Date:** 2026-04-21
 
 > **Re-grounding note (2026-06-17):** Re-verified against HEAD on 2026-06-17; current state below reflects the live code, not the 2026-04-21 snapshot. Since the original draft the lock surface grew from 5 jobs to **8** (SBDEV-2221 added `OUTBOX_DISPATCHER`, plus `STALE_CLUB_BATCH_CLEANUP` and `CLEANUP_REST_IDEMPOTENCY`), the production `AdvisoryLockService` was rewritten to a **raw-JDBC ThreadLocal-connection-pinning** implementation (no longer `@PersistenceContext`/`@Transactional`), a reflection-based contract test now references `AdvisoryLockService.JobLockId`, and at least the outbox path now runs `@Scheduled` on **all** replicas — making the lock load-bearing, not merely defensive (see §2.3). Every numbered claim below has been re-checked against current line numbers.

@@ -22,10 +22,10 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 - [260523-UTC-TIMEZONE-MIGRATION.md](260523-UTC-TIMEZONE-MIGRATION.md)
 - [260527-hydra-v1-to-v2-migration-runbook.md](260527-hydra-v1-to-v2-migration-runbook.md) — *Hydra (wh01, NY) UTC migration **run record**; procedure lives in the [SOP](../../../2-Areas/wms-utc-timezone-migration/README.md). A→C→F rehearsed on dev 2026-06-05; G–K pending*
 - [260606-wineco-v1-to-v2-migration-runbook.md](260606-wineco-v1-to-v2-migration-runbook.md) — *WineCo (wsl) v1→v2 UTC migration **run record**; sibling of the Hydra runbook above; procedure lives in the [SOP](../../../2-Areas/wms-utc-timezone-migration/README.md)*
-- [260422-v2-testing-migration-rollup.md](260422-v2-testing-migration-rollup.md) — *draft; coordination layer for the 3 testing plans below (start here)*
-- [260420-v2-integration-tests-h2-migration-report.md](260420-v2-integration-tests-h2-migration-report.md) — *draft; pending review*
-- [260420-v2-port-plpgsql-functions-to-java.md](260420-v2-port-plpgsql-functions-to-java.md) — *draft; pending review*
-- [260421-v2-replace-pg-advisory-lock.md](260421-v2-replace-pg-advisory-lock.md) — *draft; pending review — sibling of PL/pgSQL plan*
+- [260422-v2-testing-migration-rollup.md](260422-v2-testing-migration-rollup.md) — *reviewed 2026-06-22; coordination layer for the 3 testing plans below (start here) — see §9 decisions (D1 PG-lane owner hard-blocks P1 §4)*
+- [260420-v2-integration-tests-h2-migration-report.md](260420-v2-integration-tests-h2-migration-report.md) — *reviewed 2026-06-22; approved execution plan*
+- [260420-v2-port-plpgsql-functions-to-java.md](260420-v2-port-plpgsql-functions-to-java.md) — *reviewed 2026-06-22; Phase A baseline gate cleared 13/13 (#47 merged)*
+- [260421-v2-replace-pg-advisory-lock.md](260421-v2-replace-pg-advisory-lock.md) — *reviewed 2026-06-22; sibling of PL/pgSQL plan — lock confirmed load-bearing (rollup D2)*
 - [260520-rest-security-permitall-hardening.md](260520-rest-security-permitall-hardening.md)
 - [SBDEV-2238-4.6-oms-sync-reconciliation-job.md](SBDEV-2238-4.6-oms-sync-reconciliation-job.md) — *draft; MEDIUM — daily WMS↔OMS drift-detection job (last SBDEV-2238 sibling). Code prereqs (SBDEV-2221 + 4.1) now merged; still externally blocked on the OMS GET endpoint (stub below) + state-mapping sign-off + SRE alert rule.*
 - [SBDEV-2238-4.6-oms-order-state-get-endpoint.md](SBDEV-2238-4.6-oms-order-state-get-endpoint.md) — *draft STUB; MEDIUM — paired OMS prerequisite for 4.6: OMS must expose read-only `GET /api/order/{externalId}` (200+state / 404-unknown) for the reconciliation job to compare against. Not found in oms-laravel-api 2026-06-16.*

@@ -1,20 +1,20 @@
 ---
 title: "WMS v2 Integration Tests — H2 Migration Feasibility Report"
 type: plan
-status: draft
+status: reviewed
 version: v2
 scope: wms2-api
 owner: "nam.park@siteboss.net"
 created: 2026-04-20
-updated: 2026-06-17
-last_verified: 2026-06-17
-verified_by: "re-grounded against HEAD — pending user review"
+updated: 2026-06-22
+last_verified: 2026-06-22
+verified_by: "re-grounded against HEAD — reviewed & approved 2026-06-22"
 related:
   - ../../../2-Areas/runbooks/wms1-cancel-packed-parcel.md
   - ../../../2-Areas/wms-v1-v2-sync/README.md
 tags:
   - plan
-  - draft
+  - reviewed
   - wms2
   - testing
   - h2
@@ -24,7 +24,7 @@ tags:
 
 # WMS v2 Integration Tests — H2 Migration Feasibility Report
 
-**Status: DRAFT — awaiting review.** If approved, this document becomes the execution plan.
+**Status: REVIEWED (2026-06-22) — approved as the execution plan.** Subject to the rollup §9 decisions (notably D1: PG-lane owner before P1 §4).
 
 > **Re-grounding note (2026-06-17).** Re-verified against HEAD on 2026-06-17. The test infrastructure described as "to build" in the 2026-04-20 draft **already exists** — the H2 `integration` profile (`application-integration.properties`), the `BaseIntegrationTest` / `BasePostgresIntegrationTest` pair, `TestDataFactory`, and the `TestDatabaseConfig` landlord/tenant H2 wiring all shipped between the draft and today. The draft's central diagnosis (a "broken landlord datasource" gating ~9 tests) is **inverted**: the landlord datasource is wired and integration tests boot on H2 right now. The sections below reflect the live tree, not the April plan-of-record. The strategic direction (hybrid H2-default + opt-in PG profile) is retained; the work has shifted from *building plumbing* to *migrating the remaining legacy tests onto the plumbing that already exists*.
 
@@ -255,6 +255,8 @@ The H2 default lane verifies **Java/JPA wiring and business logic only — not S
 
 **Precondition for this plan:** before the PG lane is split out, it must have (a) a **named owner** accountable for keeping it green, and (b) an **enforced, blocking CI cadence** — the PG stage runs as a required check pre-merge-to-`main` (or at minimum a required nightly that blocks the next merge on failure). A "nightly if someone remembers" cadence is explicitly rejected; an unowned, unenforced PG lane will rot and silently void the fidelity guarantee that justifies the whole hybrid model.
 
+> **✅ Precondition SATISFIED (2026-06-22, rollup §9 D1):** Owner = **nam.park@siteboss.net**; cadence = **required, blocking pre-merge check**. This is the explicit hybrid-model commitment (§6). Phase 4 is unblocked.
+
 ---
 
 ## 6. Phased Execution (if approved)
@@ -279,11 +281,11 @@ The H2 default lane verifies **Java/JPA wiring and business logic only — not S
 - [ ] `ReplenishorderRepositoryIntegrationTest` — provide the Itemdata + Location graph via `TestDataFactory` and move onto `BaseRepositoryIntegrationTest` (H2); or, if the fixtures stay native, keep it on `BasePostgresIntegrationTest`.
 - [ ] Delete the duplicate root-package `AppPostgresDBSetupExtension`; retire `H2TestExtension` if nothing still references it. (Optional) collapse `BaseRepositoryIntegrationTest` / `BaseRollbackIntegrationTest` into `BaseIntegrationTest` — cosmetic, low priority.
 
-### Phase 4 — Make the PG lane real (1–2 days) — **gated on §5.5 ownership precondition**
+### Phase 4 — Make the PG lane real (1–2 days) — **§5.5 ownership precondition SATISFIED (2026-06-22)**
 
 - [ ] Fix `BasePostgresIntegrationTest` landlord wiring (add `@ActiveProfiles("integration")` or a dedicated landlord config; resolves its SBDEV-2217 TODO) so the Category-B repo tests and the 3 SELECT-FOR-UPDATE concurrency ITs can boot.
 - [ ] Add the Failsafe profile that activates **only** the enumerated PG-only set (§4.3); keep it bounded.
-- [ ] Wire the PG stage as a **required, blocking** CI check (pre-merge or blocking nightly) with the named owner from §5.5.
+- [ ] Wire the PG stage as a **required, blocking pre-merge** CI check; owner = **nam.park@siteboss.net** (§5.5 / rollup D1).
 
 ### Phase 5 — Scenario test scaffold (3–5 days, optional)
 

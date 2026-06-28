@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-05-10
+last_verified: 2026-06-27
 verified_by: Claude (executor)
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
@@ -74,12 +74,12 @@ All methods throw `BusinessException` (user-facing) or `FacadeException` (system
 | Method | Signature summary | `@Transactional` | Throws | Notes |
 |---|---|---|---|---|
 | `create` | `(clientId, unitLoadId, itemDataId, amount) → Stockunit` | No | — | Low-level raw create; no `Stockrecord` written. Used only in import/legacy paths. |
-| `transferStock` | `(stockUnit, amountToTransfer, isTransferToExistingContainer, locationName, unitLoadLabelId, comment, printLabel)` | Yes — `tenantTransactionManager` | B, F | Orchestrates all manual split/transfer flows. Handles pallet, flowbin, and plain location cases. Triggers `replenishmentOrderMaintenanceService.recalculateForItem` after every transfer. |
-| `setLockOnHold` | `(stockUnit, comment, principal) → Stockunit` | No | B, F | Sets `entityLock = ON_HOLD (104)`. Guards: stock must be `NOT_LOCKED (0)`, unit load unlocked, location unlocked, location not a flowbin, single SU on unit load, unit load not on a carrier, amount > 0, no reserved amount. |
-| `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new Box-type unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. Clamps to `stockUnit.amount` if given amount exceeds it. Requires `availableamount >= amount`. |
-| `adjustAmount` | `(stockUnit, amount, comment) → Stockunit` | No | F, B | Sets absolute quantity. Blocked on `SHIPPED` or `GOING_TO_DELETE`. Delegates to `changeAmount`. Sends OMS stock-change notification via `messageService`. Triggers replenishment recalculation. |
-| `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit` | Yes — `tenantTransactionManager` | F, B | Sets absolute reserved amount. Blocked if any linked picking position has `state >= STARTED`. Deliberately does NOT trigger replenishment recalculation. |
-| `removeLock` | `(stockUnitId, comment, principal) → Stockunit` | No | B | Clears `entityLock` back to `NOT_LOCKED`. Only works for `QUALITY_FAULT` and `ON_HOLD`. Blocked on flowbin locations. `SHIPPED` and `GOING_TO_DELETE` throw. |
+| `transferStock` | `(stockUnit, amountToTransfer, isTransferToExistingContainer, locationName, unitLoadLabelId, comment, printLabel)` | Yes — `tenantTransactionManager` | B, F | Orchestrates all manual split/transfer flows. Handles pallet, flowbin, and plain location cases. **Does NOT trigger replenishment recalc** (removed by SBDEV-2033 / `38fcc13`: a synchronous recalc re-grabbed the still-`NOT_LOCKED` source the operator just moved). |
+| `setLockOnHold` | `(stockUnit, comment, principal) → Stockunit` | Yes — `tenantTransactionManager` | B, F | Sets `entityLock = ON_HOLD (104)`. Guards: stock must be `NOT_LOCKED (0)`, unit load unlocked, location unlocked, location not a flowbin, single SU on unit load, unit load not on a carrier, amount > 0, no reserved amount. **Triggers `recalculateForItem` (SBDEV-2033 follow-up / `d3f5ce18`)** as the last statement before return; safe because the now-relocated, ON_HOLD UL is excluded by `isSourceUsable`. |
+| `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new Box-type unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. Clamps to `stockUnit.amount` if given amount exceeds it. Requires `availableamount >= amount`. **Triggers `recalculateForItem`** (excluded source = the new QUALITY_FAULT UL at the Damaged location). |
+| `adjustAmount` | `(stockUnit, amount, comment) → Stockunit` | No | F, B | Sets absolute quantity. Blocked on `SHIPPED` or `GOING_TO_DELETE`. Delegates to `changeAmount`. Sends OMS stock-change notification via `messageService`. **Triggers replenishment recalculation** — kept ON in v2 (deliberate divergence from v1, which deferred it: an amount edit changes availability and is not a re-reservation path). |
+| `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit` | Yes — `tenantTransactionManager` | F, B | Sets absolute reserved amount. Blocked if any linked picking position has `state >= STARTED`. Deliberately does NOT trigger replenishment recalculation (SBDEV-2033 re-reservation boundary). |
+| `removeLock` | `(stockUnitId, comment, principal) → Stockunit` | No | B | Clears `entityLock` back to `NOT_LOCKED`. Only works for `QUALITY_FAULT` and `ON_HOLD`. Blocked on flowbin locations. `SHIPPED` and `GOING_TO_DELETE` throw. **Triggers `recalculateForItem` (SBDEV-2033 follow-up / `d3f5ce18`)** in its own tenant tx (method is non-`@Transactional`); re-enabling the freed stock as a replenishment source is the intended outcome. |
 | `getStockunitDetails` | `(id) → Map<String, Object>` | No | — | Read-only detail map for UI. |
 | `createCaseLabel` | `(unitLoad, stockUnit, warehouseName) → byte[]` | No | — | Generates ZPL case label bytes (single-SKU). |
 | `createCaseLabelMultiStock` | `(unitLoad, warehouseName, amount, clientName) → byte[]` | No | — | Multi-SKU label variant. |
@@ -121,7 +121,7 @@ StockunitService          (orchestration, user-facing — no @Transactional at c
   ├─► UnitloadService            (createUnitload)
   │     ├─► UnitloadRecordService      (writes UnitloadRecord audit rows)
   │     └─► UnitloadBusinessService
-  ├─► ReplenishmentOrderMaintenanceService  (recalculateForItem after every stock transfer)
+  ├─► ReplenishmentOrderMaintenanceService  (recalculateForItem on lock-state changes + amount edits — see §8)
   │     └─► [StockunitRepository, ReplenishorderRepository, …]
   ├─► MessageService             (OMS stock-change notifications via sendStockChangeMessage —
   │                                SBDEV-2214: delegates to StockChangeNotificationService →
@@ -455,9 +455,9 @@ At pick confirmation (`confirmPickPosition`):
 - Source SU stock is transferred to the pick-face unit load; reservation is released as part of the transfer.
 
 **At replenishment maintenance (`ReplenishmentOrderMaintenanceService.recalculateForItem`):**
-- Called automatically after every `transferStock` via `StockunitService.triggerReplenishmentMaintenance(itemDataId)`.
+- Called via `StockunitService.triggerReplenishmentMaintenance(itemDataId)` from four lock-state / amount sites: `setLockOnHold`, `setLockDamaged`, `removeLock` (the three restored by SBDEV-2033 follow-up `d3f5ce18`), and `adjustAmount` (kept ON in v2). **NOT** called from `transferStock` or `adjustReservedAmount` (the SBDEV-2033 re-reservation paths — see the method table).
 - May switch source SU, adjust `reservedamount`, or cancel orders.
-- Called with a try/catch in `triggerReplenishmentMaintenance` — failures are logged as warnings and do not roll back the stock transfer.
+- Called with a try/catch in `triggerReplenishmentMaintenance` — failures are logged as warnings and do not roll back the host operation.
 
 **At cancel:**
 - `changeReservedAmount(sourceStock, -requestedAmount, true, CODE_REPLENISHMENT_CANCELLED, …)`.

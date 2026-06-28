@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms1
-last_verified: 2026-04-27
+last_verified: 2026-06-26
 verified_by: Claude (executor)
 tags: [wms1, stock, inventory, unitload, reservation]
 ---
@@ -88,12 +88,12 @@ All methods throw `BusinessException` (user-facing, i18n-ready) or `FacadeExcept
 | Method | Signature summary | `@Transactional` | Throws | Notes |
 |---|---|---|---|---|
 | `create` | `(clientId, unitLoadId, itemDataId, amount) → Stockunit` | No | — | Low-level raw create; no `Stockrecord` written. Used only in legacy/import paths. |
-| `transferStock` | `(stockUnit, amountToTransfer, isTransferToExistingContainer, locationName, unitLoadLabelId, comment, printLabel)` | Yes (method-level) | B, F | Orchestrates all manual split/transfer flows. Calls `stockunitBusinessService.transferStockToUnitLoad` internally. Triggers `replenishmentOrderMaintenanceService.recalculateForItem` after every transfer. |
-| `setLockOnHold` | `(stockUnit, comment, principal) → Stockunit` | No | B, F | Sets `entityLock = ON_HOLD (104)`. Guards: stock must be `NOT_LOCKED (0)`, unit load unlocked, location unlocked, location not a flowbin, single SU on unit load, unit load not on a carrier. |
-| `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. |
-| `adjustAmount` | `(stockUnit, amount, comment) → Stockunit` | No | F, B | Sets absolute quantity. Blocked on `SHIPPED` or `GOING_TO_DELETE`. Delegates to `changeAmount`. Sends OMS notification deferred to commit. |
-| `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit` | No | F, B | Sets absolute reserved amount. Blocked if picking already `STARTED`. Deliberately does NOT trigger replenishment recalculation (see comment at line 447). |
-| `removeLock` | `(stockUnitId, comment, principal) → Stockunit` | No | B | Clears `entityLock` back to `NOT_LOCKED`. Only works for `QUALITY_FAULT` and `ON_HOLD`. Blocked on flowbin locations. |
+| `transferStock` | `(stockUnit, amountToTransfer, isTransferToExistingContainer, locationName, unitLoadLabelId, comment, printLabel)` | Yes (method-level) | B, F | Orchestrates all manual split/transfer flows. Calls `stockunitBusinessService.transferStockToUnitLoad` internally. Does **NOT** trigger replenishment recalc — the trigger was removed by SBDEV-2033 (it re-grabbed the stock the operator was mid-move) and is intentionally left off (260626 follow-up). |
+| `setLockOnHold` | `(stockUnit, comment, principal) → Stockunit` | No | B, F | Sets `entityLock = ON_HOLD (104)`. Guards: stock must be `NOT_LOCKED (0)`, unit load unlocked, location unlocked, location not a flowbin, single SU on unit load, unit load not on a carrier. **Triggers `replenishmentOrderMaintenanceService.recalculateForItem` after persisting the lock** (260626 — safe: the on-hold UL is relocated/locked, so `isSourceUsable` excludes it). |
+| `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. **Triggers `recalculateForItem` after persisting** (260626 — the damaged UL is excluded by `isSourceUsable`; the source's reduced available pool is recalculated correctly). |
+| `adjustAmount` | `(stockUnit, amount, comment) → Stockunit` | No | F, B | Sets absolute quantity. Blocked on `SHIPPED` or `GOING_TO_DELETE`. Delegates to `changeAmount`. Sends OMS notification deferred to commit. Does not trigger replenishment recalc (deferred — 260626 follow-up). |
+| `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit` | No | F, B | Sets absolute reserved amount. Blocked if picking already `STARTED`. Deliberately does NOT trigger replenishment recalculation (SBDEV-2033 — would re-reserve the stock the user just released). |
+| `removeLock` | `(stockUnitId, comment, principal) → Stockunit` | No | B | Clears `entityLock` back to `NOT_LOCKED`. Only works for `QUALITY_FAULT` and `ON_HOLD`. Blocked on flowbin locations. **Triggers `recalculateForItem` after unlocking** (260626 — re-enables the stock as a valid replenishment source). |
 | `getStockunitDetails` | `(id) → Map<String, Object>` | No | B | Read-only detail view used by UI. |
 | `createCaseLabel` | `(unitLoad, stockUnit, warehouseName) → byte[]` | No | B | Generates ZPL/case label bytes for printing. |
 | `createCaseLabelMultiStock` | `(unitLoad, warehouseName, amount, clientName) → byte[]` | No | — | Multi-SKU variant of case label. |
@@ -120,7 +120,7 @@ StockunitService          (orchestration, user-facing)
         └─► StockrecordService         (writes Stockrecord audit rows)
         └─► UnitloadBusinessService    (sendToNirvana, transferToLocation, transferToCarrier)
   └─► UnitloadService            (createUnitload)
-  └─► ReplenishmentOrderMaintenanceService  (recalculateForItem after every stock transfer)
+  └─► ReplenishmentOrderMaintenanceService  (recalculateForItem after lock-state changes: setLockOnHold / setLockDamaged / removeLock — NOT transferStock / adjustReservedAmount, per SBDEV-2033)
   └─► MessageService             (OMS notification via OmsNotificationHelper.deferToCommit)
   └─► PrintService               (CUPS label printing)
   └─► AccessService              (permission checks, e.g. WEB_UI_ACTION_ADJUST_LOCK_DAMAGED)
@@ -369,7 +369,7 @@ At pick confirmation (`confirmPickPosition`, lines 268–306):
 - Reservation is released as part of the transfer.
 
 **At replenishment maintenance** (`ReplenishmentOrderMaintenanceService.recalculateOrder`):
-- Called after every `transferStock` via `triggerReplenishmentMaintenance` (StockunitService:594).
+- Called synchronously via `triggerReplenishmentMaintenance` (`StockunitService`) after the three lock-state ops `setLockOnHold`, `setLockDamaged`, `removeLock` (260626 follow-up to SBDEV-2033). NOT called after `transferStock` or `adjustReservedAmount` (those re-grabbed operator-controlled stock — the SBDEV-2033 bug). Also runs on the scheduled `ReplenishOrderJob` cadence (the primary backstop).
 - Recalculates whether source stock is still sufficient; may switch source SU, adjust `reservedamount`, or cancel orders.
 
 **At cancel** (`ReplenishorderService.cancelReplenishment`, line 197):

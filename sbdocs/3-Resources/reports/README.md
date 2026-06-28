@@ -30,6 +30,7 @@ Filename convention: `YYMMDD-kebab-description.md` (date-prefixed) or a stable t
 
 | Report | Scope | Created |
 |---|---|---|
+| [Stock-Unit History Not Logged on Unit-Load Location Move (Move Fixed Location)](260624-stock-unit-history-gap-on-unitload-location-move.md) | wms1 | 2026-06-24 |
 | [WMS2 Horizontal Scalability Readiness Audit (June 2026)](260610-wms2-horizontal-scalability-readiness-audit.md) | wms2 | 2026-06-10 |
 | [WMS v2 UI ↔ API Datetime Audit (read + write paths)](260609-wms2-ui-outbound-datetime-audit.md) | wms2 | 2026-06-09 |
 | [SBDEV-2384 — Replenishment Monitor Fix: Validation & Manual Test Plan](260602-SBDEV-2384-replenishment-monitor-fix-validation-and-test-plan.md) | wms1 | 2026-06-02 |
