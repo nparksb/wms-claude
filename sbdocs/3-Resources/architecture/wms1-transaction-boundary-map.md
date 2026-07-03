@@ -6,9 +6,9 @@ version: v1
 scope: transactions
 owner: Nam Park
 created: 2026-04-26
-updated: 2026-04-26
-last_verified: 2026-04-26
-verified_by: code read of v1/wms-api src/main at HEAD
+updated: 2026-07-01
+last_verified: 2026-07-01
+verified_by: code read of v1/wms-api src/main at HEAD; §4.2 refreshed for SBDEV-2507 (ParcelMonitorViewService palletize now @Transactional, PR #189)
 related:
   - wms2-transaction-osiv-boundary-map.md
   - wms1-vs-wms2-delta.md
@@ -117,6 +117,7 @@ Each annotated method opens its own transaction; non-annotated methods run witho
 | `MobileReplenishService` | Lines 388, 732 | None (bare) |
 | `MobilePickingService` | Lines 115, 176, 242, 341, 576, 599, 797 | `{BusinessException.class, FacadeException.class}` on all; `registerSynchronization` at line 440 |
 | `MobileMoveUnitloadService` | Line 182 | None (bare) |
+| `ParcelMonitorViewService` | `palletise` (:77), `palletiseAndTruckLoad` (:174) | `{BusinessException.class, FacadeException.class}` — **added SBDEV-2507** (PR #189). Makes the desktop palletize batch atomic so a mid-loop guard rejection (`assertParcelCarrierNotShipped` / `assertPalletNotAssignedToGate`) rolls back any parcels already transferred in the same request. Previously non-transactional. |
 
 ### 4.3 No `@Transactional` at class or method level
 

@@ -147,7 +147,7 @@ At `service/TransferOrderService.java`:
 | `activateTransferOrder(Location lane, Customerorder co)` | 111 | `co.state = CUSTOMER_ORDER_ACTIVATED` (505) | `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` |
 | `assignTransferLaneToTransferOrder(Location lane, Customerorder co)` | 86 | `co.state = CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED` (510); sets `transferlaneId` | same |
 | `assignTransferLane(Customerorder co)` | 125 | `co.state = 510` (variant without location arg) | none |
-| `unlinkTransferLaneFromTransferOrder(Customerorder co)` | 104 | clears `transferlaneId` — no state change | none |
+| `unlinkTransferLaneFromTransferOrder(Customerorder co)` | 104 | clears `transferlaneId` — no state change | `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` *(added 2026-06-29, fix `260629-transfer-lane-leak-on-cancel`; previously **none** → ran on the `@Primary` landlord TM in auto-commit)* |
 | `isEnoughStockOnTransferLane(Customerorder co)` | 132 | validation only; returns error string or null | none |
 
 ### 4.2 Pack step — `BillofladingService.transferOrder()`
@@ -257,6 +257,7 @@ All post-commit via `omsNotificationService.sendAfterCommit(...)` or `Transactio
 - **Pessimistic lock on BOL row** during `finishTransfer` via `findByIdForUpdate` — prevents concurrent `closeBOL` + `finishTransfer` on the same BOL.
 - `TransfersController.activateTransferOrder` (line 159) calls both `activateTransferOrder()` and `assignTransferLaneToTransferOrder()` — two separate transactions. If activate succeeds but lane assign fails, the order sits in state 505 without a lane. Recover via `assignTransferLane` or `unlinkTransferLane` admin paths.
 - Bulk JPQL in `finishTransfer` (position state, unitload relocation) — one SQL statement per entity type. See [wms2-bol-truck-loading-workflow §6.3](./wms2-bol-truck-loading-workflow.md).
+- **Lane release on cancel (fix `260629-transfer-lane-leak-on-cancel`, 2026-06-29).** `CustomerorderService.cancelOrder` and `forceCancelOrder` now clear `transferlaneId` (guarded direct `setTransferlaneId(null)`) at the cancel transition, in addition to the existing `finalizeBatchIfComplete` release. Cancel paths use a **direct** clear, *not* `unlinkTransferLaneFromTransferOrder` (that helper resets state to `505` and would un-cancel). The lane-availability gate (`LocationRepository.getAvailableTransferLanes`) only excludes lanes held by orders with `state < FINISHED(700)`; since `CANCELED(800) ≥ 700`, the **real leak is abandonment** — a transfer order activated to 505/510 but never run *or* cancelled holds its lane forever. Operator recovery for a stuck order: `GET /v3/transfers/unlinkTransferLane/{customerOrderId}`. The activate→assign two-transaction split (above) that strands orders at 505-with-lane is tracked as follow-up `260629-activate-transfer-atomicity`.
 
 ---
 

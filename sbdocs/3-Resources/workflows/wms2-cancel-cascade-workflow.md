@@ -94,6 +94,8 @@ cancelOrder(customerorderId)                            [CustomerorderService.ja
         (finalizeBatchIfComplete called from the order-cancel path)
 ```
 
+**Transfer-lane release (fix `260629-transfer-lane-leak-on-cancel`, 2026-06-29).** For a *transfer* order, `cancelOrder` (and `forceCancelOrder`, §9) now also clears `transferlaneId` — a guarded direct `setTransferlaneId(null)` before the save, freeing the held transfer lane at the cancel transition. This is **defense-in-depth in addition to** the existing `finalizeBatchIfComplete` release (which only fires when every sibling order in the batch is terminal, `state ≥ FINISHED`). Both run on the same managed entity inside the one tenant TX, so the second clear is an idempotent no-op (the `if (getTransferlaneId() != null)` guard in `finalizeBatchIfComplete` short-circuits) — single flush, single `@Version` bump. The cancel paths use a **direct** clear, never `TransferOrderService.unlinkTransferLaneFromTransferOrder` (that helper resets state to `505` and would un-cancel the order). Note: because `CANCELED(800) ≥ FINISHED(700)`, a cancelled order never blocks lane availability anyway — the real lane leak is *abandonment* of orders stuck at 505/510, covered in [wms2-transfer-order-workflow.md §8](./wms2-transfer-order-workflow.md).
+
 See [wms2-state-machine-catalog.md](../architecture/wms2-state-machine-catalog.md) §5.1 for the full cascade map, and [wms2-picking-workflow.md](./wms2-picking-workflow.md) §6 for the side-door.
 
 ---
@@ -190,6 +192,7 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; `Opt
 2. Always writes `Customerorder.state = CANCELED` regardless of prior state.
 3. Writes `Pickingorder.state = PICKED` (line 356) — a deliberately unusual choice: the physical work is done, the order is cancelled, but the pick itself stays terminal-success so downstream repack / restock flows see consistent state.
 4. Does **not** unwind the `PickingorderUnitload` cascade the way `cancelOrder` does — the force path trusts the caller has reviewed child state.
+5. **Releases the transfer lane** (fix `260629`, 2026-06-29): a guarded `setTransferlaneId(null)` before the final save, so a force-cancelled transfer order frees its lane. Direct clear only — never `unlinkTransferLaneFromTransferOrder` (which would reset state to `505`).
 
 ---
 
@@ -225,5 +228,6 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; `Opt
 |---|---|---|---|
 | 2026-04-19 | All 6 cancel entry points (cancelOrder / forceCancelOrder / handleRapidPickingForCancelledOrder / cancelBatch / finalizeBatchIfComplete / cancelOrderIfMergeFails); guard locations (lines 180, 382, 471, 550, 554, 639); OMS callback sysprop default | All file:line refs confirmed against `src/main/java` | Code read + state-machine architecture doc |
 | 2026-05-08 | `CustomerorderService.cancelOrder` method now starts at line 588 (was cited as 300) — write of `customerOrder.setState(CANCELED)` is at line 675; `forceCancelOrder` method declaration line 323; rapid-pick guard line 639 + setState write line 645 — all updated. Group X parcel-cancel port (v1 `46130c3` → v2 `e2b82ed`) lives in `unifyScanParcelCancelMessage` user-message path — no impact to cancel-cascade map. Picking-flow follow-up commits (Group P) didn't touch the cancel cascade entry points. SBDEV-2214 changes intentionally NOT pre-documented per audit constraint. | All file:line refs updated; cascade story unchanged. | Code read + state-machine architecture doc |
+| 2026-06-29 | Fix `260629-transfer-lane-leak-on-cancel`: `cancelOrder` and `forceCancelOrder` now clear `transferlaneId` for transfer orders (guarded direct `setTransferlaneId(null)` before save) — documented in §3 and §9. **Scope: transfer-lane behavior only** — the pre-existing line-number drift in this doc (cancelOrder now at 651, `setState(CANCELED)` at 750, save at 754; forceCancelOrder at 349, save at 438) was observed but NOT fully re-audited, so the frontmatter `last_verified` is left at 2026-05-08. Interaction with `finalizeBatchIfComplete` verified safe (same managed entity, one tenant TX, idempotent second clear → single flush). | Transfer-lane release confirmed by 143-test green run + code review (SHIP); full doc re-sweep still pending. | Fix `260629` implementation + code review |
 
 **Re-verify every 60 days.** Next due: **2026-07-07** — cancel is a high-traffic fix surface; any new landed plan touching `CustomerorderService` or `CustomerorderBatchService` should trigger a re-sweep.

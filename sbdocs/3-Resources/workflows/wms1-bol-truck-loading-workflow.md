@@ -6,9 +6,9 @@ version: v1
 scope: bol-truck-loading
 owner: Nam Park
 created: 2026-04-26
-updated: 2026-04-26
-last_verified: 2026-04-26
-verified_by: code read of v1/wms-api BillofladingService + BillofladingPositionService + MobileTruckLoadingService + ParcelMonitorViewService + BillOfLadingController + TruckLoadingController + WmsConstants
+updated: 2026-07-01
+last_verified: 2026-07-01
+verified_by: code read of v1/wms-api BillofladingService + BillofladingPositionService + MobileTruckLoadingService + ParcelMonitorViewService + BillOfLadingController + TruckLoadingController + WmsConstants; §2 palletize refreshed for SBDEV-2507 guards (PR #189)
 related:
   - ./wms2-bol-truck-loading-workflow.md
 tags:
@@ -182,21 +182,23 @@ What happens:
 ### Step 2 — Palletize Orders (Desktop path)
 
 **REST:** `POST /v3/billOfLading/palletize` (`BillOfLadingController:316`)
-**Service:** `ParcelMonitorViewService.palletise:72` (palletize only, no BOL yet) or `.palletiseAndTruckLoad:165` (palletize + load in one call)
+**Service:** `ParcelMonitorViewService.palletise:77` (palletize only, no BOL yet) or `.palletiseAndTruckLoad:174` (palletize + load in one call). Both are `@Transactional(rollbackFor = {BusinessException, FacadeException})` (added SBDEV-2507 / PR #189) so a mid-batch guard rejection rolls the whole request back atomically.
 
-#### `palletise` (palletize only) — `ParcelMonitorViewService:72`
+#### `palletise` (palletize only) — `ParcelMonitorViewService:77`
 
 1. Accepts a list of `ParcelMonitorDto` objects (customer order external numbers).
 2. Guards: if any order `state >= FINISHED`, rejects.
-3. For each order with `state < PALLETIZED`: sets `state = PALLETIZED`, saves.
-4. Transfers each order's parcel `Unitload` onto the pallet carrier via `unitloadBusinessService.transferUnitLoadToCarrier(parcel, pallet, CODE_PALLETISING, ...)`.
-5. Guards: if parcel already appears in an existing BOL position (non-CANCELLED state), throws `BusinessException("Parcel=X loaded to truck more than once!")`.
+3. **Target-pallet guard (SBDEV-2507 Fix B):** when reusing an *existing* named pallet, `billofladingPositionService.assertPalletNotAssignedToGate(palletName)` rejects it if the pallet is already a source on any BOL position — `BusinessException("Pallet already assigned to gate!")` (mobile parity).
+4. For each order with `state < PALLETIZED`: sets `state = PALLETIZED`, saves.
+5. **Source-parcel guard (SBDEV-2507 Fix A):** before transfer, `billofladingPositionService.assertParcelCarrierNotShipped(parcel)` rejects a parcel whose **current carrier pallet** is on a **CLOSED or TRANSFER** BOL position (already shipped out) — `BusinessException("Parcel=X is on pallet Y already shipped (closed/transfer BOL)!")`. OPEN/TRUCK_LOADING/CREATED/CANCELLED carriers are allowed (legitimate in-progress correction). This closes the SBDEV-2507 double-ship: a parcel shipped *as part of a pallet* is not itself a BOL position, so the "loaded to truck more than once" check below misses it.
+6. Transfers each order's parcel `Unitload` onto the pallet carrier via `unitloadBusinessService.transferUnitLoadToCarrier(parcel, pallet, CODE_PALLETISING, ...)`.
+7. Guards: if parcel already appears in an existing BOL position (non-CANCELLED state), throws `BusinessException("Parcel=X loaded to truck more than once!")`.
 
-Note: `palletise` alone does **not** create BOL positions or change BOL state.
+Note: `palletise` alone does **not** create BOL positions or change BOL state. The two guards live in `BillofladingPositionService` (`assertPalletNotAssignedToGate`, `assertParcelCarrierNotShipped`) and are shared with the mobile palletizing flow so the two paths cannot drift.
 
-#### `palletiseAndTruckLoad` — `ParcelMonitorViewService:165`
+#### `palletiseAndTruckLoad` — `ParcelMonitorViewService:174`
 
-Does palletize **and** creates the full BOL position tree in one transaction. BOL state advances:
+Does palletize **and** creates the full BOL position tree in one transaction (also carries the source-parcel guard from Fix A). BOL state advances:
 
 - `CREATED` or `OPEN` → `TRUCK_LOADING` (waterfall)
 - Already `TRUCK_LOADING` → continues

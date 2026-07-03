@@ -4,7 +4,7 @@ type: index
 status: active
 version: both
 scope: reports
-updated: 2026-06-02
+updated: 2026-07-02
 tags: [moc, index, reports]
 ---
 
@@ -30,6 +30,9 @@ Filename convention: `YYMMDD-kebab-description.md` (date-prefixed) or a stable t
 
 | Report | Scope | Created |
 |---|---|---|
+| [SBDEV-2514 — WineCo post-release (v1.26.43): Reserved-Out unit-load block + Replen Monitor QTY accuracy](260702-sbdev-2514-wineco-post-release-reserved-out-and-replen-monitor.md) | wms1 | 2026-07-02 |
+| [SBDEV-2507 — Parcel Re-Palletized & Double-Shipped After Closed BOL (Web Palletize Check Gap)](260701-sbdev-2507-repalletize-double-ship-after-closed-bol.md) | wms1 | 2026-07-01 |
+| [WineCo Replenishment Job Slow Runtime — Root Cause & Index Evaluation](260701-wineco-replenishment-job-slow-runtime-index-eval.md) | wms1 | 2026-07-01 |
 | [Stock-Unit History Not Logged on Unit-Load Location Move (Move Fixed Location)](260624-stock-unit-history-gap-on-unitload-location-move.md) | wms1 | 2026-06-24 |
 | [WMS2 Horizontal Scalability Readiness Audit (June 2026)](260610-wms2-horizontal-scalability-readiness-audit.md) | wms2 | 2026-06-10 |
 | [WMS v2 UI ↔ API Datetime Audit (read + write paths)](260609-wms2-ui-outbound-datetime-audit.md) | wms2 | 2026-06-09 |
