@@ -24,12 +24,13 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 ### Ongoing areas
 
 - **v1 → v2 sync** → [2-Areas/wms-v1-v2-sync/README.md](2-Areas/wms-v1-v2-sync/README.md) · [sync-log.md](2-Areas/wms-v1-v2-sync/sync-log.md) · [sweeps/](2-Areas/wms-v1-v2-sync/sweeps/)
+- **WMS v2 DB setup (START HERE to provision a tenant DB)** → [3-Resources/architecture/wms2-database-setup-guide.md](3-Resources/architecture/wms2-database-setup-guide.md) (fresh-start Flyway base dump vs v1→v2 migration toolkit — picks the path and links the runbooks)
 - **UTC timezone migration (SOP)** → [2-Areas/wms-utc-timezone-migration/README.md](2-Areas/wms-utc-timezone-migration/README.md) (per-client v1→v2 schema-bridge + UTC `timestamptz` migration)
 - **Runbooks** → [2-Areas/runbooks/README.md](2-Areas/runbooks/README.md) (2 docs — MOC)
 
 ### Reference material
 
-- **Architecture** → [3-Resources/architecture/README.md](3-Resources/architecture/README.md) (24 docs — MOC)
+- **Architecture** → [3-Resources/architecture/README.md](3-Resources/architecture/README.md) (25 docs — MOC)
 - **Workflows** → [3-Resources/workflows/README.md](3-Resources/workflows/README.md) (22 docs — MOC)
 - **Data dictionary** → [3-Resources/data-dictionary/README.md](3-Resources/data-dictionary/README.md) (5 docs — MOC)
 - **Design (module-level)** → [3-Resources/design/README.md](3-Resources/design/README.md) (3 docs — MOC)

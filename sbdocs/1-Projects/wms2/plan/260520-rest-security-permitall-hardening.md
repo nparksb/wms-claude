@@ -4,13 +4,14 @@ ticket: ""
 ticket_url: ""
 type: "security"
 priority: "high"
-status: "draft"
+status: "blocked"
+blocked_on: "OMS v2 must send a Keycloak Bearer JWT on all /rest/** calls before this can deploy. Interim stopgap in effect: app.idempotency.require-auth=false (commit 40bdc13, Option 1 of 260522-wms2-rest-idempotency-without-jwt-options). Deploy this fix + flip require-auth back to true in the same release."
 project:
   - wms2
 version: "v2"
 requester: ""
 created: "2026-05-20"
-updated: "2026-05-20"
+updated: "2026-07-16"
 db_verified: false
 db_verified_rationale: "No DB change — pure Spring Security configuration. No Flyway migration or SQL query involved."
 related:
@@ -26,7 +27,7 @@ tags:
 
 **Project:** wms2 | **Version:** v2 | **Type:** security hardening
 **Priority:** high
-**Status:** draft
+**Status:** Blocked (design ready; awaiting OMS-v2 JWT prerequisite)
 **Date:** 2026-05-20
 
 ---
@@ -469,7 +470,13 @@ All 9 assertions encoded in the verify script. Final acceptance: `Result: 9 pass
 
 ## 11. Implementation Status
 
-*To be filled in after implementation.*
+**BLOCKED — not implemented as of 2026-07-16.** Verify script `verify-260520-rest-security-permitall-hardening.sh` reports 1 pass / 11 fail: `/rest/**` is still inside the `permitAll()` group (`SecurityConfiguration.java:121`); `SecurityDisabledWarning.java` and `SecurityFilterChainIntegrationTest.java` do not exist.
+
+**Blocker:** OMS v2 does not yet send a Keycloak Bearer JWT on `/rest/**` calls. Deploying Fix A now would 401 all OMS→WMS traffic (the §8 top risk / §5.1 pre-deploy audit).
+
+**Interim stopgap in effect:** commit `40bdc13` (Option 1 of the report `[[260522-wms2-rest-idempotency-without-jwt-options]]`) added `app.idempotency.require-auth`, currently set to `false` in `application.properties:138`, so `IdempotencyFilter` skips the 401 gate and runs full dedup for anonymous callers. The commit message ties the two together: *"Flip back to true together with the plan 260520 Spring Security /rest/**=authenticated() fix in the same deploy."*
+
+**Unblock path:** once OMS v2 sends a JWT on `/rest/**`, ship Fix A + Fix B and flip `require-auth=false → true` in the same release.
 
 ---
 

@@ -7,7 +7,7 @@ scope: scheduled-jobs
 owner: Nam Park
 created: 2026-04-26
 updated: 2026-04-26
-last_verified: 2026-05-06
+last_verified: 2026-07-09
 verified_by: code read of v1/wms-api src/main at commit HEAD
 related:
   - ./wms2-scheduled-jobs-catalog.md
@@ -27,11 +27,11 @@ tags:
 
 ## 1. Overview
 
-`wms-api` runs six recurring cron jobs in-process, all gated behind `app.cron=true` (`application.properties:94`, default `false`). There is no advisory-lock mechanism — **v1 assumes a single-replica deployment.** Running multiple replicas with `app.cron=true` will cause duplicate job execution with no mutual exclusion.
+`wms-api` runs six recurring cron jobs in-process, all gated behind `app.cron=true` (`application.properties:94`, default `false`). Historically there was no advisory-lock mechanism — **v1 assumed a single-replica deployment**, and running multiple replicas with `app.cron=true` would cause duplicate job execution with no mutual exclusion. As of plan `260709` (duplicate-replenishment guard), **`ReplenishOrderJob` is now the exception**: its generation pass runs under a transaction-scoped PostgreSQL advisory lock (`pg_try_advisory_xact_lock`, `WmsConstants.ADVISORY_CLASS_REPLENISH_RUN`) and skips if another run already holds it (see §3.2). The other five jobs remain unguarded.
 
 Three load-bearing facts:
 
-1. **No cross-replica lock.** v1 has no equivalent of v2's `pg_try_advisory_lock`. Mutual exclusion is assumed by architecture (one node runs cron). This is the most important operational constraint that differs from v2.
+1. **No cross-replica lock (except `ReplenishOrderJob`).** Historically v1 had no equivalent of v2's `pg_try_advisory_lock`; mutual exclusion was assumed by architecture (one node runs cron). Since plan `260709`, `ReplenishOrderJob.doCalculation` acquires a run-level `pg_try_advisory_xact_lock` (cross-replica safe, per-tenant DB), so overlapping replenishment generations no longer duplicate. The remaining five jobs still rely on single-node deployment.
 2. **Cron schedules are read from the DB at startup, not dynamically.** `SchedulingConfiguration.configureTasks()` reads `LosSysprop` once when the application starts and wires fixed `CronTrigger`s. Changing a schedule sysprop at runtime has no effect until the next restart.
 3. **`ReleaseExpiredPickingOrdersFromUserJob` has a hard-coded cron.** Its schedule `0 * * * * *` (every minute at :00) is not driven by any sysprop. All other jobs read their hour/minute from the DB.
 
@@ -111,7 +111,7 @@ public void doCalculation(Boolean isCronJob) {
 }
 ```
 
-There is no JVM-local `AtomicBoolean` RUNNING guard on any v1 job (unlike v2's `ReplenishOrderJob`).
+No v1 job uses a JVM-local `AtomicBoolean` RUNNING guard (unlike v2's `ReplenishOrderJob`). `ReplenishOrderJob` instead uses a **DB-level** transaction-scoped advisory lock (cross-replica, not JVM-local) since plan `260709` — see §3.2.
 
 ---
 
@@ -174,6 +174,8 @@ There is no JVM-local `AtomicBoolean` RUNNING guard on any v1 job (unlike v2's `
 | **Activation keys** | `NEW_CRON_JOB_ACTIVATED` + `REPLENISHMENT_TIMER_ACTIVATED` (default `true`) |
 | **Sub-feature gates** | `MERGE_PICKING_ORDERS` (default `true`), `FIX_LOCATION_ASSIGNMENT_DELETE_WHEN_EMTPY` (default `false` — note: typo preserved) |
 | **Tunables** | `PICKING_BOX_PER_CART` (default `6`), `FIX_LOCATION_ASSIGNMENT_DEFAULT_VALUE_UPPER_BOUND` (default `84`) |
+
+**Run serialization (plan `260709`):** `doCalculation` delegates to `@Transactional doCalculationGuarded()` (via the `self` proxy). Its first statement acquires a non-blocking transaction-scoped advisory lock `pg_try_advisory_xact_lock(ADVISORY_CLASS_REPLENISH_RUN, 0)` (`AdvisoryLockRepository`); if another run/replica already holds it, this run logs and skips. The lock is held for the whole run (the `REQUIRES_NEW` sub-steps only suspend the outer transaction) and auto-releases at run end — no session lock, no explicit unlock. This closes the concurrent-double-run that generated duplicate replenishment orders. Note: the outer transaction now pins one connection for the run (peak 3 of `maximumPoolSize=5` with the nested `REQUIRES_NEW` steps), and `recalculateReplenishmentOrderWithoutFixedLocationAssignment` / `recalculateOpenOrders` now participate in the run transaction (idempotent; self-heals next run).
 
 **Nine sub-operations per run (in order):**
 

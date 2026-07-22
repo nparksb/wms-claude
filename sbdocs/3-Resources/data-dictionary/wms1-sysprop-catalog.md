@@ -6,8 +6,8 @@ version: v1
 scope: sysprops
 owner: Nam Park
 created: 2026-04-27
-updated: 2026-04-27
-last_verified: 2026-05-06
+updated: 2026-07-09
+last_verified: 2026-07-09
 verified_by: code read of v1/wms-api WmsConstants.java:862-1062 and active consumer grep across all Java sources
 system: wms1
 related:
@@ -31,7 +31,7 @@ tags:
 
 Runtime configuration in `wms-api` v1 is stored in the `los_sysprop` PostgreSQL table (tenant DB) and accessed via `LosSyspropRepository`. Every key has a canonical constant in `WmsConstants.java:862-1062`; most have a `*_DEFAULT_VALUE` or `*_VALUE` companion constant used as a fallback when the DB row is missing.
 
-**Total keys documented:** 91 (all `SYSTEM_PROPERTY_*_KEY` constants, lines 862–1070).
+**Total keys documented:** 92 (all `SYSTEM_PROPERTY_*_KEY` constants, lines 862–1070; +1 `ENFORCE_PARTITIONALLOWED` SBDEV-2512, §14).
 
 Three things to keep in mind:
 
@@ -317,6 +317,7 @@ No `*_DEFAULT_VALUE` constants — all values are `"TO_BE_ADDED"` placeholders. 
 |---|---|---|---|---|
 | `SYSTEM_PROPERTY_PICK_SCREEN_SIMPLE_KEY` | `PICK_SCREEN_SIMPLE` | Boolean | `false` | Use simplified pick screen variant on mobile |
 | `SYSTEM_PROPERTY_PICK_PATH_DIRECTION_KEY` | `PICK_PATH_DIRECTION` | String (enum) | `VERTICAL` | Location traversal order for picking, putaway, stock moves, and cycle counts. `VERTICAL` = column-first; `HORIZONTAL` = row-first. Read by `service/PickPathConfig.java` (30 s TTL cache). Valid values: `HORIZONTAL`, `VERTICAL`. Seeded by `db/migration/V1.1.09__pick_path_direction.sql` (id=143). |
+| `SYSTEM_PROPERTY_ENFORCE_PARTITIONALLOWED_KEY` | `ENFORCE_PARTITIONALLOWED` | Boolean | **ON** (absent/null row or any value != `false` enforces) | SBDEV-2512 kill-switch (reinstated PR #194). When ON, order release honors `CustomerorderPosition.partitionallowed`: a non-partitionable position that cannot be filled from a **single** stock unit is **held** (state 55 → order 50) rather than fragmented across source unit loads, and a fillable one gets exactly one pick. Set `false` to restore the legacy fragment-and-ship behavior for all positions without a redeploy. Read once per released order by `service/job/ReleaseOrderJobService.releaseOrder` via `findSysvalueBySyskey`. No seed row required (default ON). |
 
 ---
 
@@ -414,5 +415,6 @@ This key is consumed both via Java code and **directly in a native SQL view** (`
 |---|---|---|---|
 | 2026-04-27 | `WmsConstants.java:862-1062` full constant block, `LosSyspropRepository.java` method signatures and SQL, all active consumer references via grep across `src/main/java/`, `schedulejob/SchedulingConfiguration.java` startup reads, `PrintService.java`, `OrderMonitorViewService.java`, `BillofladingService.java`, `ReplenishmentOrderMaintenanceService.java`, `CustomerorderBatchService.java`, `AdviceRestController.java`, `ReceivingController.java`, `PickingController.java`, `AdminActionController.java`, `ItemDataController.java`, `AbstractRestController.java` | All 87 keys cataloged; active consumer file:line references confirmed; default values verified against constant declarations; commented-out provisioning block identified | Code read (grep-based) |
 | 2026-05-06 | `WmsConstants.java:1009-1014` (STALE_CLUB_BATCH_CLEANUP_* constants), `WmsConstants.java:1069-1070` (PICK_PATH_DIRECTION constant), `db/migration/V1.1.07__wms_updates.sql` (IDs 140-142), `db/migration/V1.1.09__pick_path_direction.sql` (id=143), `SchedulingConfiguration.java:164-165`, `service/PickPathConfig.java`, `util/DefaultStrategy.java`, `util/CycleCountStrategy.java` | 4 new keys added (§4.6 STALE_CLUB_BATCH_CLEANUP_* × 3, §14 PICK_PATH_DIRECTION × 1); total count updated 87 → 91 | Code grep |
+| 2026-07-09 | `WmsConstants.java` `SYSTEM_PROPERTY_ENFORCE_PARTITIONALLOWED_KEY = "ENFORCE_PARTITIONALLOWED"`, `service/job/ReleaseOrderJobService.releaseOrder` (`findSysvalueBySyskey` read) | 1 new key added (§14 ENFORCE_PARTITIONALLOWED, SBDEV-2512 kill-switch, default ON); total 91 → 92. Reinstated via PR #194 after the #192 revert. | Code read (SBDEV-2512 impl) |
 
 **Re-verify every 90 days.** Next due: **2026-07-26** — sysprop surface in v1 grows slowly; additions are typically added as paired `_KEY` + `_DEFAULT_VALUE` constants in `WmsConstants.java`.

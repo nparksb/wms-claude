@@ -20,12 +20,12 @@ See also: [vault index](../INDEX.md) · [plan template](../9-System/templates/wm
 
 | Folder | Contents | Live count |
 |---|---|---|
-| [wms1/plan/](wms1/plan/) | Completed v1 plans (fixes, feature ports, migrations, audits) | ~41 |
-| [wms1/analysis/](wms1/analysis/) | Closed v1 investigations & root-cause reports | ~3 |
-| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | ~111 |
-| [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | *(currently empty)* |
+| [wms1/plan/](wms1/plan/) | Completed v1 plans (fixes, feature ports, migrations, audits) | 54 |
+| [wms1/analysis/](wms1/analysis/) | Closed v1 investigations & root-cause reports | 3 |
+| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 140 |
+| [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | 0 *(empty)* |
 
-> Live counts are approximate — run `ls wms*/plan | wc -l` to refresh. Treat Dataview output below as authoritative in Obsidian.
+> Counts refreshed against the filesystem 2026-07-15 (`ls wms*/plan/*.md | wc -l`); they drift as plans are archived — re-run to refresh. Treat Dataview output below as authoritative in Obsidian.
 
 ---
 

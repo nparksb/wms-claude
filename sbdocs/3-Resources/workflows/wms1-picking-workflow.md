@@ -7,7 +7,7 @@ scope: picking
 owner: Nam Park
 created: 2026-04-26
 updated: 2026-04-26
-last_verified: 2026-04-26
+last_verified: 2026-07-09
 verified_by: code read of v1/wms-api src/main — all four picking services + mobile service + controllers
 related:
   - ./wms2-picking-workflow.md
@@ -110,6 +110,8 @@ No JPA association annotations exist — all FK relationships are `Long foreignK
    - Sets each `CustomerorderPosition.state = ASSIGNED` (lines 480, 500, 516).
    - Sets `Customerorder.state = ASSIGNED` (line 547).
    - If an `OrderBatch` is present, advances batch state to `STARTED` (line 550–551).
+
+> **SBDEV-2512 (reinstated 2026-07-09, PR #194) — `partitionallowed` guard in overstock release.** When the `ENFORCE_PARTITIONALLOWED` sysprop is ON (default), a `CustomerorderPosition` with `partitionallowed = false` must be filled from a **single** stock unit. In phase 2 a cumulative per-order per-SKU ledger (`reserveSingleCoveringUnit`) checks whether one unit can still cover the amount after prior same-SKU admissions; if not, the position is held (`RAW_ON_HOLD_NOT_ENOUGH_STOCK_ON_LOCATION` → order `RAW_ON_HOLD`) instead of being fragmented across source unit loads. In phase 3 a non-partitionable position takes exactly one pick from a single covering unit (no greedy split). Set the sysprop `false` to restore the legacy fragment-and-ship behavior. **Line numbers above predate SBDEV-2512 — grep before trusting them.**
 
 **`PickingorderService.create()`** (`service/PickingorderService.java:32`):
 - Loops up to 10 000 times generating a candidate number via `BasicService.generatePickOrderNumber()`, checking uniqueness via `PickingorderRepository.findByNumber`.
@@ -440,5 +442,7 @@ The fallback synchronous OMS call in `finishPickingOrder` (line 169) fires only 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-26 | All four picking services (full read) + `MobilePickingService` (full read, 1032 lines) + `PickingController` (full read) + `PickingOrderPositionController` (full read) + `ReleaseOrderJobService` (grep + targeted read) + `WmsConstants.State` constants | All file:line refs confirmed against `v1/wms-api/src/main/java` | Code read |
+
+| 2026-07-09 | SBDEV-2512 impl in `ReleaseOrderJobService.releaseOrder` (phase-2 cumulative `partitionallowed` hold guard + `reserveSingleCoveringUnit`, phase-3 single-pick branch, `ENFORCE_PARTITIONALLOWED` kill-switch) — reinstated via PR #194 after the #192 revert | Re-added §4 SBDEV-2512 note; §4 numbered line refs predate this change (grep before trusting) | Code read (SBDEV-2512 impl) |
 
 **Re-verify when any of these files change:** `PickingorderBusinessService.java`, `MobilePickingService.java`, `ReleaseOrderJobService.java`.

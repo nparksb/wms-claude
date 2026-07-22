@@ -4,7 +4,7 @@ type: workflow
 project: wms1
 status: stable
 created: 2026-04-26
-last_verified: 2026-05-01
+last_verified: 2026-07-09
 tags: [wms1, workflow, replenish]
 ---
 
@@ -36,7 +36,9 @@ In every case above, the actual order calculation work happens inside `Replenish
 
 ## Order Calculation and Persistence
 
-`ReplenishGeneratorService.calculateOrder` is the single place where a `Replenishorder` object is instantiated and persisted, regardless of which trigger called it (`src/main/java/net/aim_ai/wms/service/ReplenishGeneratorService.java:74-151`). The method performs the following deterministic steps:
+`ReplenishGeneratorService.calculateOrder` is the single place where a `Replenishorder` object is instantiated and persisted, regardless of which trigger called it. The method performs the following deterministic steps:
+
+> **Concurrency guard (plan `260709`).** The lock-bearing 4-arg overload is `@Transactional(propagation = REQUIRES_NEW, rollbackFor = {FacadeException, BusinessException})`; the 3-arg overload is a plain delegator that routes to it through the `self` proxy so the transaction engages. After validation, it takes a **blocking** per-demand advisory lock `pg_advisory_xact_lock(ADVISORY_CLASS_REPLENISH_DEMAND, hash(item,dest))` and then re-checks `ReplenishorderRepository.existsOpenForItemAndDestination`; if an open order already covers the demand it returns **`null`** (skip — no duplicate). `REQUIRES_NEW` isolates rollback so the routine no-stock `FacadeException` (swallowed by the job callers) never poisons a caller's transaction. `createOrderFromTemplate` (multi-UL split) is intentionally NOT guarded — it legitimately creates several orders for one demand. Callers already null-check the return (`MobileReplenishService.requestReplenish`, `ReplenishorderService.create`).
 
 1. **Validation** – load the `Itemdata` row for `itemDataId` and reject non-positive `amount` values with a `FacadeException`.
 2. **Source stock search** – query `stockunitRepository.getStockUnitsByNotLockedAndItemIdAndUseForDeepStorage` twice: first against non-deep-storage areas, then (if nothing is found) against deep-storage areas. Each row returns a stock unit ID and its available amount in a location that allows replenishment and is completely unlocked (`src/main/java/net/aim_ai/wms/repo/jpa/StockunitRepository.java:61-93`).

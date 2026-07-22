@@ -7,7 +7,7 @@ scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-12
+last_verified: 2026-07-15
 verified_by: code read of v2/wms2-api landlord/model + model packages
 related:
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -36,7 +36,7 @@ tags:
 | Side | Entities | Repositories | Package |
 |---|---|---|---|
 | Landlord | 4 | 4 | `net.aim_ai.wms.landlord.model` / `...landlord.jpa` |
-| Tenant | 62 | 61 | `net.aim_ai.wms.model` / `...repo.jpa` |
+| Tenant | 63 | 62 | `net.aim_ai.wms.model` / `...repo.jpa` |
 
 One reference table to scan whenever you're about to:
 
@@ -82,7 +82,7 @@ Repositories (1:1):
 **Multi-tenancy strategy:** `hibernate.multiTenancy=DATABASE` via `TenantIdentifierResolver` → `TenantDynamicRoutingDataSource`
 **Config:** `landlord/config/TenantDatabaseConfig.java`
 
-All 63 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-packages). Grouped below by domain.
+All 64 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-packages). Grouped below by domain.
 
 ### 3.1 Order management (5)
 
@@ -219,7 +219,8 @@ All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `sa
 | `CyclecountDtoView` | `cyclecount_dto_view` | Cycle count dashboard |
 | `StockView` | `stock_view` | Stock overview |
 | `ViewWarehouseLocationReport` | `view_warehouse_location_report` | Location report |
-| `LockOverviewDtoView` | `lock_overview_dto_view` | Locked-pick visibility |
+| `LockOverviewDtoView` | `lock_overview_dto_view` | Locked-pick visibility (default; excludes Shipped=405 — SBDEV-2474) |
+| `LockOverviewAllDtoView` | `lock_overview_all_view` | Locked-pick visibility incl. Shipped ("Include Shipped Locks" toggle — SBDEV-2474) |
 
 ---
 
@@ -227,7 +228,7 @@ All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `sa
 
 Landlord: 4 repos for 4 entities — 1:1. All under `net/aim_ai/wms/landlord/jpa/`.
 
-Tenant: 62 repos for 63 entities — one of the view entities has no explicit repository. All under `net/aim_ai/wms/repo/jpa/`. Full 1:1 list is noisy; the rule is **repo name = entity name + `Repository`** with these confirmed exceptions:
+Tenant: 63 repos for 64 entities — one of the view entities has no explicit repository. All under `net/aim_ai/wms/repo/jpa/`. Full 1:1 list is noisy; the rule is **repo name = entity name + `Repository`** with these confirmed exceptions:
 
 - `Billoflading` → `BillofladingRepository` (confusingly named, but correct)
 - `BillofladingPosition` → `BillofladingPositionRepository` (with Position suffix)
@@ -267,7 +268,7 @@ Consequence: there are no cross-DB foreign keys, no distributed joins, no `Chain
 
 1. **Bare `@Transactional` routes to landlord.** See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §5 Rule 1. An unqualified `@Transactional` on a tenant service method uses the landlord manager — which either commits to the wrong DB or throws "entity not managed" depending on the entity's persistence unit. This is the single most common mistake when adding new service methods. Use `@Transactional("tenantTransactionManager")` or the `@TenantTransactional` meta-annotation.
 2. **`Sysprop` table is tenant-scoped.** The sysprop catalog feels like system configuration, but each tenant has its own row set. Debugging a "config value not found" often traces back to a tenant-specific row being missing — the landlord has no say.
-3. **Views use `*Repository` but you can't `save()` them.** All 11 view entities (§3.13) are read-only. A `.save(...)` call on one will fail with a database-level permission or non-insertable-target error. Guard against this in code review.
+3. **Views use `*Repository` but you can't `save()` them.** All 12 view entities (§3.13) are read-only. A `.save(...)` call on one will fail with a database-level permission or non-insertable-target error. Guard against this in code review.
 4. **`mywms_*` table names ≠ class names.** User / role / group tables use the legacy `mywms_` prefix. When reading raw SQL logs, map `mywms_user` → class `User` etc. Don't grep the codebase for `mywms_user` expecting to find Java usages.
 5. **`los_sysprop` and `los_sequencenumber` likewise.** The `los_` prefix is a legacy naming convention. Only these two tenant tables carry it.
 6. **Schema drift per tenant is possible.** Each tenant DB runs migrations independently. If a migration fails on tenant A but succeeds on tenant B, you have heterogeneous schema state and must reconcile manually — there's no central tracker.

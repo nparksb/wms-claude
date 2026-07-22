@@ -36,10 +36,14 @@ tags:
 - OMS reports a SKU "already exists" / "not found" mismatch traced to leading/trailing whitespace.
 - A whitespace-duplicate `itemdata` pair is discovered (same trimmed `item_nr`, one padded row).
 
-**Do NOT run the trim UPDATEs (§5) before resolving collision pairs (§4) — the UPDATE would
-violate identity uniqueness expectations and can leave two identical `(client_id, item_nr)` rows.**
-(There is no DB unique index on `(client_id, item_nr)` today; the trim UPDATE on an unresolved
-collision pair would create two *exactly* identical item numbers.)
+**Do NOT run the trim UPDATEs (§5) before resolving collision pairs (§4).**
+(Correction, SBDEV-2496 review 2026-07-10: a DB unique constraint on `(client_id, item_nr)` **does
+exist** — `uk3l3dgof3l6mc1dl7s3lmida65`, `V1.0.01__wms_tables.sql:363`, with `item_nr NOT NULL` at
+`:347`. An earlier version of this runbook claimed no index exists — that was false. The practical
+consequence is *safer* than previously documented: a trim UPDATE hitting an unresolved collision
+pair raises Postgres `23505 unique_violation` and **rolls back the statement** rather than silently
+creating identical rows. The §4-before-§5 ordering still stands — resolve pairs first so the UPDATE
+succeeds instead of aborting mid-runbook.)
 
 ## 2. Known State (DB-verified 2026-06-10, dev)
 
@@ -54,7 +58,22 @@ environment before any change.
 ## 3. Sequencing Choreography (authoritative — plan §5 Phase 1b)
 
 Phase 1 (write-boundary + `findByClientIdAndItemNr` trim) and Phase 1b (`loadItemDataSet` set-lookup
-trim) ship in the same build. Per tenant:
+trim) ship in the same build.
+
+**Gated normalized surfaces (updated for SBDEV-2496, 2026-07-10).** The sequencing rule below
+applies to *every* trimmed lookup surface, now four:
+
+| # | Surface | Shipped in |
+|---|---------|-----------|
+| 1 | `ItemdataService.findByClientIdAndItemNr` (arg trim; ~18 caller sites) | 260610 Phase 1 (`d1a224d`) |
+| 2 | `ItemdataService.loadItemDataSet` (set trim) | 260610 Phase 1b (`d1a224d`) |
+| 3 | `OrderRestController.resolveItemData` (`:389` set-lookup, `:397` equality, `:411` map keys — order import) | **SBDEV-2496 v2 port** |
+| 4 | `OrderBatchCreationService` line bind (`:188` normalized bind key + null guard) | **SBDEV-2496 v2 port** |
+
+Surfaces 3–4 mean the **order-batch import path** now also resolves trimmed — deploying the
+SBDEV-2496 build to a tenant with an unresolved duplicate pair carries the same wrong-row-bind
+hazard as Phase 1b (see [[SBDEV-2496-prshw222-trailing-space-sku-duplication]] §5.1 Prereq 1,
+a blocking per-tenant gate). Per tenant:
 
 1. Run the collision census (§4.1) on the tenant.
 2. **Zero collision pairs** (e.g., wineco as of 2026-06-10): deploy Phase 1+1b and run the trivial-trim

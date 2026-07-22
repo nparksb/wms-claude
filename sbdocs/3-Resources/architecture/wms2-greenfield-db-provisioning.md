@@ -6,9 +6,9 @@ version: v2
 scope: db-provisioning
 owner: Nam Park
 created: 2026-05-31
-updated: 2026-05-31
-last_verified: 2026-05-31
-verified_by: code read of v2/wms2-api db/migration + pom.xml at HEAD (2026-05-31)
+updated: 2026-07-19
+last_verified: 2026-07-19
+verified_by: SBDEV-2607 provisioning + client-config tooling (provision-fresh-v2-db.sh, configure-client-sysprops.sh) — 2026-07-19; migration-dir reorg 2026-07-10; original analysis 2026-05-31
 related:
   - ./wms-database-migration-guide.md
   - ./wms2-tenant-routing-datasource-topology.md
@@ -22,7 +22,21 @@ tags: [architecture, database, onboarding, flyway, provisioning, wms2]
 
 How to stand up a **brand-new client's** warehouse database directly on WMS v2, without replaying the v1→v2 history or running the UTC migration. This is the companion to [wms-database-migration-guide.md](./wms-database-migration-guide.md) (which covers *migrating existing* DBs) and to the v1→v2 + UTC plans ([260523](../../1-Projects/wms2/plan/260523-UTC-TIMEZONE-MIGRATION.md), [260527](../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md)).
 
-> **Status: draft / proposed.** The consolidated baseline this note recommends **cannot be generated yet** — it depends on the UTC migration artifacts (`V1.2.0x` SQL + Phase-2 app code) landing first. See [§7 Sequencing](#7-sequencing--prerequisite). Until then, greenfield clients are provisioned by the legacy replay described in §2 and inherit its caveats.
+> **Status: IMPLEMENTED (2026-07-10).** The recommendation below has been realized. The migration
+> directory was reorganized: `db/migration/` now holds the consolidated base dump
+> **`V2.2.00__base_v2_schema.sql`** (the squashed baseline this note called `V2.0.00`, captured at the
+> `V2.1.16` watermark) plus future `V2.2.x` deltas; the historical `V1.0.*→V2.1.16` scripts, the UTC
+> rollback, and the per-TZ variants moved to **`db/v1-to-v2-onboarding/`** (`schema/`, `rollback/`,
+> `onboarding-tz-variants/`). A greenfield client is now provisioned by applying the single base dump.
+> Authoritative layout: `v2/wms2-api/src/main/resources/db/migration/README.md` +
+> `.../db/v1-to-v2-onboarding/README.md`. The analysis in §§2–9 below is retained for rationale; read
+> file/watermark names as `V2.2.00` / `db/v1-to-v2-onboarding/schema/` where older names appear.
+>
+> **Update (SBDEV-2607, 2026-07-19):** the two operator steps are now scripted.
+> `db/provision-fresh-v2-db.sh` creates the DB + privilege model + applies `db/migration/`;
+> `db/configure-client-sysprops.sh` performs the per-client `los_sysprop` seed described in §5
+> (rewriting the `CHANGE-ME-FOR-NEW-CLIENT` placeholders baked into the base dump). §4/§5 below
+> are updated to reference these tools.
 
 ---
 
@@ -96,10 +110,14 @@ pg_dump --schema-only --no-owner --no-privileges \
 #  client-independent; EXCLUDE per-client values — see §5.)
 
 # 3. Per new client: create the DB and apply the baseline.
-createdb -h <host> -U <user> <new_client_db>
-psql -v ON_ERROR_STOP=1 -h <host> -U <user> -d <new_client_db> -f V2.0.00__greenfield_baseline.sql
+#    Realized tool (SBDEV-2607): db/provision-fresh-v2-db.sh does create + privileges + apply + verify.
+db/provision-fresh-v2-db.sh --host <host> --port <port> --dbname <new_client_db> --owner <app_role>
 
 # 4. Seed client-specific config (see §5), then register the tenant in the landlord DB.
+#    Realized tool (SBDEV-2607): db/configure-client-sysprops.sh rewrites the los_sysprop placeholders.
+db/configure-client-sysprops.sh --dbname <new_client_db> \
+  --oms-tenant-id <id> --warehouse <CODE> --timezone <TZ> \
+  --mobile-ui-url <mobile_url> --oms-api-base-url <oms_api_base>
 ```
 
 > Verify the baseline produces the target state: `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND data_type='timestamp without time zone';` must be **0** (all converted to `timestamp with time zone`).
@@ -118,12 +136,25 @@ Fastest provisioning, but requires keeping the golden DB current with every sche
 
 ## 5. Client-specific values to seed (NOT in the baseline)
 
-The baseline carries only client-independent defaults. Each new client needs:
+The baseline carries only client-independent defaults — in the `V2.2.00` base dump the client-specific
+`los_sysprop` rows ship with `CHANGE-ME-FOR-NEW-CLIENT` placeholders. **`db/configure-client-sysprops.sh`**
+(SBDEV-2607) rewrites them in one transaction and verifies no placeholder remains. The keys it sets:
+
+| `los_sysprop` key | Source flag | Notes |
+|---|---|---|
+| `MOBILE_UI_URL` | `--mobile-ui-url` | Full mobile UI URL, e.g. `https://nywh-hydra.wms.dev.sbo.li/mobile`. |
+| `MULTIWAREHOUSE_IDENTIFIER` | `--warehouse` | e.g. `NYWH`. |
+| `WAREHOUSE_NAME` | derived = `--warehouse` (overridable) | e.g. `NYWH`. |
+| `OMS_TENANT_ID` | `--oms-tenant-id` | e.g. `hydra`. |
+| `System Time Zone` | `--timezone` | IANA zone; drives per-tenant business-date logic + `connectionInitSql` session TZ. e.g. `America/New_York`. |
+| `SYSTEM_OMS_NAME` | derived = `OMS-<UPPER(tenant)>` (overridable) | e.g. `OMS-HYDRA`. |
+| `SYSTEM_WMS_NAME` | derived = `WMS-<warehouse>` (overridable) | e.g. `WMS-NYWH`. |
+| `WEBS%` (all `WEBSERVICE_*` callback URLs) | `--oms-api-base-url` | Replaces the `CHANGE-ME-FOR-NEW-CLIENT/` prefix with the client's real OMS API base, e.g. `https://api-oms.dev.sbo.li/`. Idempotent. |
+
+Still done separately (not by the script):
 
 | Value | Where | Notes |
 |---|---|---|
-| `System Time Zone` sysprop | tenant DB `los_sysprop` | Drives per-tenant business-date logic + `connectionInitSql` session TZ. e.g. `America/New_York`. |
-| OMS endpoint host | tenant DB `los_sysprop` | The `WEBSERVICE_ORDER_BATCH_*` URLs (the placeholder host baked into `V2.1.02` / `V2.1.13`). Substitute the client's real OMS host. |
 | Tenant / facility identity | tenant DB seed | Client code, facility codes, warehouse config. |
 | `tenant_db_configuration` + `tenant_discovery` | **landlord DB** | Routing entry + `tenant_discovery.timezone` (read by the frontend via `GET /api/public/authConfig`). See [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-datasource-topology.md). |
 
@@ -142,7 +173,7 @@ Greenfield clients write UTC from the first row (UTC-configured app + `timestamp
 
 This baseline can only be generated **after** the UTC migration ships, because the snapshot must be taken from a DB that is *already in the target state*. As of 2026-05-31 the prerequisites do **not** exist (verified):
 
-1. `V1.2.01–V1.2.04` + `V1.2.99` UTC SQL authored and committed to `db/migration/` (currently absent — they live only as blocks in the 260523 plan).
+1. ~~`V1.2.01–V1.2.04` + `V1.2.99` UTC SQL authored and committed~~ — **DONE.** The `V1.2.0x` UTC scripts landed and now live in `db/v1-to-v2-onboarding/schema/` (rollback in `db/v1-to-v2-onboarding/rollback/`).
 2. Phase-1/Phase-2 app code merged (`TimezoneService`, `resolveWarehouseTz`/`connectionInitSql`, UTC `application.properties`).
 3. A reference DB migrated through baseline → `V2.1.x` → `V1.2.0x` to snapshot.
 

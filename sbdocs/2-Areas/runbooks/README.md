@@ -3,7 +3,7 @@ title: "Runbooks — MOC"
 type: index
 status: active
 scope: runbooks
-updated: 2026-06-11
+updated: 2026-07-09
 tags: [moc, index, runbooks]
 ---
 
@@ -27,6 +27,7 @@ See also: [vault index](../../INDEX.md) · [runbook template](../../9-System/tem
 
 | Runbook | Scope | Severity | When to use |
 |---|---|---|---|
+| [wms1-cancel-preqa-parcel.md](./wms1-cancel-preqa-parcel.md) | wms-api v1 | SEV3 | Cancelling **one** parcel of a multi-parcel order that is **not yet packed** (state < PACKED 650) — standard `POST /rest/order/cancelPositions`, no manual SQL. Covers the correct `batch_id`/`unique_id` payload, per-parcel isolation (each parcel is its own `customerorder`/batch), and `cancelOrder` → batch-finalize verification |
 | [wms1-cancel-packed-parcel.md](./wms1-cancel-packed-parcel.md) | wms-api v1 | SEV3 | Cancelling a customer order past QA (state ≥ PACKED 650) — REST blocks this for PICK_PACK, runbook covers the CLUB REST path and the manual-SQL path with OMS notification + BOL cleanup |
 | [wms1-revert-shipped-order-to-cancelled.md](./wms1-revert-shipped-order-to-cancelled.md) | wms-api v1 | SEV3 | Reverting an order that WMS shipped *after* OMS cancelled it — order state 700/800 with parcel still on `Shipped`. Covers the pallet-detach, Option A (parcel→Clearing only) vs Option B (return quantities to source stockunits), sibling-order safety, and BOL-position rollback |
 | [wms2-resend-picking-finished-notification.md](./wms2-resend-picking-finished-notification.md) | wms2-api v2 | SEV2 | OMS reports "No Parcel Found" / QA does not trigger after picking — dropped `ORDER_BATCH_PICKING_FINISHED` notification due to double `afterCommit` registration. Covers curl resend, `batch_criteria.batch_label` fix, direct OMS SQL repair, and outbox INSERT fallback |

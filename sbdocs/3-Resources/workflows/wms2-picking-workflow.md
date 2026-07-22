@@ -7,7 +7,7 @@ scope: picking
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-06-01
-last_verified: 2026-06-01
+last_verified: 2026-07-10
 verified_by: code read of v2/wms2-api src/main + state-machine + transaction architecture docs
 related:
   - ../architecture/wms2-state-machine-catalog.md
@@ -42,6 +42,8 @@ Two entry points trigger picking work:
 - **On-demand**: REST endpoints `/v3/clubLine/runClubLine/{batchId}` (for club runs) and `/v3/orders/*` (individual releases) produce the same downstream work synchronously.
 
 Both paths converge on `ReleaseOrderJobService.releaseOrder(...)` and thereafter through the mobile pick flow.
+
+> **Overstock `partitionallowed` guard (SBDEV-2512, default ON).** In the overstock branch of `releaseOrder`, a non-partitionable position (`partitionallowed=false`, which every v2 position is today) is only released if a **single** stock unit covers its full amount. Round-2 cumulative check (`reserveSingleCoveringUnit`, seeded from the non-locking `getStockUnitsByItemDataId`) **holds** the whole order (position → `RAW_ON_HOLD_NOT_ENOUGH_STOCK_ON_LOCATION`, order → `RAW_ON_HOLD`, mandatory `LOG.info`) when no single unit can cover — instead of fragmenting the pick across units. Phase 3 (Fix B) then takes exactly one pick from a single covering unit off the already-locked `getStockUnitsByItemDataIdForUpdate` list, with a failsafe `BusinessException` only for the residual inter-order race. Partitionable positions (`partitionallowed=true`) keep the legacy split/greedy path. Kill-switch: sysprop `ENFORCE_PARTITIONALLOWED=false` restores legacy fragmenting with no redeploy (≤2-min Caffeine TTL).
 
 ---
 
@@ -238,7 +240,7 @@ Picking-lifecycle OMS callbacks use **two delivery mechanisms** depending on the
 
 ## 9. Transaction Boundaries
 
-- `OrderReleaseJob` → `ReleaseOrderJobService.releaseOrder(...)` — each order release is `@Transactional(propagation=REQUIRES_NEW, value="tenantTransactionManager")`. A single order failure does not abort the rest of the tenant's run.
+- `OrderReleaseJob` → `ReleaseOrderJobService.releaseOrder(...)` — each order release is `@Transactional(propagation=REQUIRES_NEW, value="tenantTransactionManager", rollbackFor={BusinessException, FacadeException})`. A single order failure does not abort the rest of the tenant's run. **`rollbackFor` is load-bearing (SBDEV-2512):** without it, the checked `BusinessException` throws inside `releaseOrder` (the pre-existing "Section not configured" `orElseThrow` and the Fix B overstock failsafe) would COMMIT partial work in this `REQUIRES_NEW` tx rather than roll it back.
 - `finalizePicking` runs under a single `@Transactional("tenantTransactionManager")` — all 5 entity writes succeed or all roll back atomically. No cascade is "halfway through" on an exception.
 - Optimistic locking on `AbstractBaseEntity.version` guards every save; retries are NOT automatic inside the picking transactions — a conflict surfaces at commit and is mapped to HTTP 409 (`RestExceptionHandler`) for the operator to retry. The former `OptimisticLockRetry` wrapper inside `confirmPick` was removed as inert (260610 Phase A: inside an open `@Transactional` the optimistic-lock exception only fires at the outer commit, outside the retry loop); the path is serialized by the CO/PO `findByIdForUpdate` locks taken at method entry.
 - OMS POSTs use either `omsNotificationService.sendAfterCommit(...)` (fire-and-forget, no retry) or `outboxService.enqueue(...)` (at-least-once, retried by `OutboxDispatcherJob`) — see §8 table. Never block the TX on network I/O.
@@ -282,5 +284,6 @@ For the full transaction + locking picture see [wms2-transaction-osiv-boundary-m
 | 2026-04-19 | `PickingorderBusinessService.finalizePicking` (lines 238-568) + all mobile guards (lines 222-340) + release job release path + merge service + rapid-pick side-door | All file:line refs confirmed against `src/main/java` | Code read + state-machine / transaction architecture docs |
 | 2026-05-08 | Group P verification follow-up (commits da64cc0, 99340b0, 4430824, 892169b, 930be52, b68cbbf, d61040c). Re-confirmed `ReleaseOrderJobService.releaseOrder` pessimistic lock at line 107, `findByIdForUpdate` sites in `MobilePickingService` (4 sites incl. line 400 in `processPick` per the Group-P lock-ordering note in the file), `PickingOrderMergeService.saveAll` at lines 194/198 (state writes still at 127 / 161). `finalizePicking` write sites shifted +1 (line 451/464/485 etc.) and §4 table was rebumped to current line numbers. §6 rapid-pick guard cite updated from `645` to `639` (guard) + `645` (state write). | Code read of v2/wms2-api at HEAD |
 | 2026-06-01 | SBDEV-2381: `confirmPick` now skips the `PICKING_STARTED` outbox enqueue when the CO already advanced (`state ≥ PICKED` OR `pickingconfirmationsent`), snapshot taken before `setState(STARTED)`. §8 note added. | Confirmed against `PickingorderBusinessService.confirmPick` (PR #35, commits 567fba3 + 41ad7d3) | Code read (grep-based) |
+| 2026-07-10 | SBDEV-2512 (v1→v2 port of 30a6ca4): added the overstock `partitionallowed` hold-or-single-pick guard note to §2 and the `rollbackFor` clause to the §9 `releaseOrder` transaction boundary. | Code read of `ReleaseOrderJobService.releaseOrder` on branch `port/SBDEV-2512-partitionallowed-guard` | SBDEV-2512 v2 port |
 
-**Re-verify every 60 days.** Next due: **2026-07-31** — picking is the most change-prone surface; a single PR to `finalizePicking` invalidates §4.
+**Re-verify every 60 days.** Next due: **2026-09-08** — picking is the most change-prone surface; a single PR to `finalizePicking` invalidates §4.

@@ -6,7 +6,7 @@ project: [wms2]
 version: v2
 requester: nam.park@siteboss.net
 created: 2026-06-06
-updated: 2026-06-11
+updated: 2026-07-20
 db_verified: true
 related:
   - ../../../2-Areas/wms-utc-timezone-migration/README.md
@@ -191,10 +191,60 @@ reachable from this session — apply `V2.1.16` there too** (open item below).
 
 ---
 
+## 4.7 uat `wh01_om1_v2` (@10.0.0.6) — Phase A + C run, 2026-07-20
+
+The earlier real run (§4.1–4.4) targeted the copy behind the `localhost:25060` tunnel (`dev.sbo.li` →
+`@10.0.0.4`). The **uat copy `@10.0.0.6`** (behind `localhost:25062` → `uat.sbo.li`, the same DB the
+`wsl-wineco-uat` MCP connects to) had **never been bridged** — it was clean v1 (native syskeys 140–143)
+plus a few manual view/sysprop hotfixes. This run brought it through Phase C.
+
+**Pre-req cleared — schema privileges.** The app role `wh01_om1` lacked `USAGE`/`CREATE` on `public`
+(schema owned by `postgres`, NULL ACL) and 2 tables were `postgres`-owned. Fixed (run as `postgres`):
+`GRANT USAGE, CREATE ON SCHEMA public TO wh01_om1` + reassigned the 2 tables. `wh01_om1` now owns the DB
+and all 53+ objects.
+
+| Step | Result |
+|---|---|
+| A `01-preflight` (25062) | ✅ **ALL HARD GATES PASS** — PREP-1 LA (naive `12:36`→`19:36+00`, +7h PDT), PREP-2 `America/Los_Angeles`, PREP-3 ids 140–143 = expected syskeys (0 unexpected), PREP-4 0 stuck, PREP-6 pass **(measured the LOCAL box via the tunnel — re-verify on the `@10.0.0.6` host before Phase F)**. Fresh baseline: stockrecord 7,359,847 · unitload_record 6,322,285 · inventory_record 13,710,775 · pickingorder_position 923,296 (≈ 28.3 M). |
+| A `03-gen-scripts` | ✅ LA originals; OMS host → `api-oms.wineco.sbo.li`; V2.1.02 sysprops land at free ids 144/145. |
+| C `04-schema-bridge` | ✅ V2.1.01→**V2.1.15** applied clean (constraint, sysprops, ~22 indexes, `transaction_detail` fn, and the 3 previously-missing tables `rest_idempotency`/`outbox_message`/`customerorder_cancellation_log`). **V2.1.16 aborted** `cannot drop columns from view` — see resolution below. |
+| C — V2.1.16 resolution | The uat `replenishment_monitor_view` had been hotfixed flag-based **with `ro_id` already appended**, so V2.1.16's older 17-col body would have to *drop* `ro_id` (PG refuses). V2.1.16 is **superseded by V2.2.01**, so instead: atomic `DROP VIEW` + apply `db/migration/V2.2.01` (no dependents; single tx → no gap for the live app) → view now flag-based with `section_name` + `ro_id` in canonical order. |
+| C — V2.2.x parity | ✅ `V2.2.01` (replen view section_name/ro_id, above) + `V2.2.02` (`lock_overview_dto_view`, `lock_overview_all_view`) applied. |
+| C `05-verify-bridge` | ✅ **ALL PASS** (3 tables, 6 syskeys, `API_TIMESTAMP_FORMAT`, cancellation fn + log timestamptz, 0 stuck, outbox aggregate_order index valid, transaction_detail amount≠0, replen view flag-based, reversal URL = `api-oms.wineco.sbo.li`). |
+
+**Phase E/F on `@10.0.0.6` — done for real 2026-07-20** (after clearing two false starts, below).
+Fresh post-bridge backup `wineco_pre_utc_20260720_2018.dump` (1.3 GB, `pg_restore --list` verified);
+`migration.env` `EXTERNAL_BACKUP_DUMP` re-pointed to it (the old dev2 `wh01_om1.dump` did not match this host).
+
+| Step | Result |
+|---|---|
+| E `06-drain` | ✅ outbox 0; `rest_idempotency` → `rest_idempotency_predrain` (empty) |
+| F `07-utc-migrate` | ✅ V1.2.01→05 clean; large tables + fn signatures `timestamptz` |
+| F `08-verify-utc` | ✅ **ALL PASS** — large-table cols `timestamptz`, fn sigs `timestamptz`, 11 views recreated, `sku_id`/`order_loaded_to_truck` present, replen flag-based, outbox index, **row counts == baseline** (stockrecord 7,359,847 · unitload_record 6,322,285 · inventory_record 13,710,775 · pickingorder_position 923,296). Spot-check: `advice.created` `12:36:53.972` naive-LA → `19:36:53.972+00` UTC (+7h PDT), reads back to original wall-clock. |
+| Post-F parity | ✅ re-applied `V2.2.01` (replen view `section_name`+`ro_id` appended — clean, since V1.2.04 rebuilt the base 17-col view) and `V2.2.02` (rebuilt `lock_overview_all_view` + `lock_overview_dto_view` on the converted columns). 12 views total. |
+
+**Two false starts before success (both non-destructive — died in the transactional `V1.2.01`, rolled back clean):**
+1. **Deadlock** — the wms2-api at `10.0.0.2` was NOT actually scaled to 0. Live Hibernate `unitload` reads (`AccessShareLock`) deadlocked V1.2.01's `ALTER`. Repeatedly killing sessions was futile (pool refilled in ~3 s); resolved only when the app **process** was stopped. Confirmed a **sustained** zero-session state (~45 s, not a post-kill blip) via a `pg_stat_activity` watcher before retrying.
+2. **View-dependency** — `ERROR: cannot alter type … lock_overview_all_view depends on column "created"`. Root cause: **`V2.2.02` was applied during Phase C (before F)**; its new `lock_overview_all_view` sits outside Phase F's frozen 11-view drop-list, so V1.2.01 couldn't drop it before converting the columns it references. Fix: `DROP VIEW … lock_overview_all_view CASCADE` before F, then re-apply V2.2.01/V2.2.02 **after** F.
+
+> **⚠️ Runbook lesson (feeds the SOP): the `V2.2.x` *view* deltas must be applied AFTER Phase F, not in Phase C.**
+> Any V2.2.x view that references a converted timestamp column and isn't in V1.2.01's frozen drop-list will
+> block the `ALTER`. Bridge (Phase C, stop at V2.1.16) → Phase F → then V2.2.x. (Non-view V2.2.x deltas are fine in Phase C.)
+
+**Remaining on uat `@10.0.0.6`: human phases G–K** — bring wms2-api up on the UTC image + scale back up
+(it is still at 0), `09-smoke` + go/no-go, frontends, Phase J flag, and Phase K cleanup (drop
+`rest_idempotency_predrain`). App-path session-TZ check (`SHOW timezone` via the app conn) still pending.
+
+---
+
 ## 5. Open items for WineCo
 
-- **Apply `V2.1.16` to `wh01_om1_v2` on uat (@10.0.0.6)** — the dev2 (@10.0.0.16) copy and `dev_wh01_om1`
-  were patched 2026-06-11 (§4.6); the uat instance still carries the name-list view.
+- ~~**Apply `V2.1.16` to `wh01_om1_v2` on uat (@10.0.0.6)**~~ **DONE 2026-07-20 (§4.7)** — resolved via
+  `DROP VIEW` + `V2.2.01` (supersedes V2.1.16); uat view is now flag-based with `section_name`+`ro_id`.
+  The full Phase C bridge (V2.1.01→15 + V2.2.01/02) was applied and `05-verify-bridge` is ALL PASS.
+  **Phase E/F (UTC conversion) also DONE 2026-07-20** — `08-verify-utc` ALL PASS, row counts == baseline
+  (§4.7). Remaining on uat `@10.0.0.6` = **human phases G–K** (deploy UTC image + scale up, smoke/go-no-go,
+  frontends, Phase J flag, Phase K cleanup incl. dropping `rest_idempotency_predrain`).
 
 - **App-path session-TZ check** — bring wms2 up against `wh01_om1_v2` and confirm `SHOW timezone =
   America/Los_Angeles` via the app connection (the only un-greened `09` line; §4.4).

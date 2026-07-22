@@ -7,7 +7,7 @@ scope: function-map
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-07-15
 verified_by: enumeration of wms2-web-ui + wms2-mobile-ui menus + wms2-api endpoints
 related:
   - ./wms2-keycloak-role-matrix.md
@@ -115,7 +115,7 @@ Source: `util/appMenuList.js` + `pages/`. Role selection by Keycloak **group** (
 | Function | Web page | Group(s) | Primary endpoint | Backed by |
 |---|---|---|---|---|
 | Inventory Report | `/reports/inventory-report` | all with reports access | `/stockUnit/search/*` | entity `Stockunit` + view `StockView` |
-| Lock Report | `/reports/lock-report` | super-admin, inventory-manager | search for locks | view `LockOverviewDtoView` |
+| Lock Report | `/reports/lock-report` | super-admin, inventory-manager | search for locks | views `LockOverviewDtoView` (default, excludes Shipped=405) + `LockOverviewAllDtoView` ("Include Shipped Locks" toggle) — SBDEV-2474 |
 | Receiving Report | `/reports/receiving-report` | super-admin, inventory-manager, receiving, outbound+receiving | `/inboundNotice/*` | views `ReceivedDtoView`, `ReceivingDtoView` |
 | SKU Location Report | `/reports/sku-location-report` | all with reports | mixed | entities + views |
 | Flowbin Report | `/reports/flowbin-report` | all with reports | monitor-view endpoint | view `FlowbinMonitorView` |

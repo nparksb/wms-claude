@@ -6,9 +6,9 @@ version: v2
 scope: bol-truck-loading
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-05-19
-last_verified: 2026-05-19
-verified_by: code read of v2/wms2-api BillofladingService + ParcelMonitorViewService + MobileTruckLoadingService
+updated: 2026-07-10
+last_verified: 2026-07-10
+verified_by: SBDEV-2507 v2 port (palletize guards added; §4 updated; code read of ParcelMonitorViewService + BillofladingPositionService + MobilePalletizingService)
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -137,6 +137,11 @@ Customerorder.state = PALLETIZED
 4. Registers a post-commit hook → `ManageOrderService.customerOrderPalletized(...)` which fires `WEBSERVICE_ORDER_BATCH_PALLETIZED`.
 
 Guard: `state < PALLETIZED` prevents double-apply (matches the `state == PACKED OR PALLETIZED` check in `CustomerorderService:382` — see `Cancel_Club_Parcels_Packed_State_Fix`).
+
+**SBDEV-2507 guards (added 2026-07-10, v2 port of v1 `9134417`):** two shared helpers in `BillofladingPositionService` close the re-palletize double-ship vectors:
+- `assertParcelCarrierNotShipped(parcel)` — called in **both** `palletise` and `palletiseAndTruckLoad` per-parcel loops, after the parcel-own-position handling (`removeBOLPositionIfExists`) and immediately before `transferUnitLoadToCarrier`. Rejects a parcel whose **current carrier pallet** has a `CLOSED` or `TRANSFER` BOL position (the migrated-v1-data shape where only the pallet is the source position; v2-native data creates per-parcel positions and is already caught by the parcel-own guard). Fail-open on null/dangling carrier.
+- `assertPalletNotAssignedToGate(label)` — called in `palletise`'s existing-pallet reuse branch (alongside the `carrierunitloadId` guard) and by all 4 `MobilePalletizingService` gate sites (previously 4 inline copies; now single-sourced). Rejects a pallet with **any** BOL position — `"Pallet already assigned to gate!"`, mobile-parity.
+Plan: `1-Projects/wms2/plan/SBDEV-2507-web-palletize-already-truckloaded-guard.md`.
 
 `palletiseAndTruckLoad` at line 232-470 does palletize **and** truck-load in one transaction. BOL state rolls `CREATED`/`OPEN → TRUCK_LOADING`. BOL position tree (pallet → parcels → stock) is created inline. Two post-commit callbacks fire: PALLETIZED then LOADED_TO_TRUCK.
 

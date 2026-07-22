@@ -4,7 +4,7 @@ type: architecture
 project: wms2
 status: stable
 created: 2026-02-06
-last_verified: 2026-05-12
+last_verified: 2026-07-15
 tags: [wms2, entities, jpa, database, architecture]
 ---
 
@@ -19,10 +19,12 @@ Generated: 2026-02-06
 
 | Metric | Count |
 |--------|-------|
-| Total @Entity Annotated Classes | 61 |
+| Total @Entity Annotated Classes | 62 |
 | WITH custom equals() & hashCode() | 1 |
 | WITHOUT custom equals() & hashCode() | 60 |
-| Missing Implementation Rate | 98.4% |
+| Missing Implementation Rate | 96.8% |
+
+> ⚠️ **Stale classification (pre-existing, flagged 2026-07-15 during SBDEV-2474):** the custom-`equals()`/`hashCode()` breakdown above and the "WITH (1) / WITHOUT (60)" split below predate the `LockOverviewDtoView`, `LockOverviewAllDtoView`, `OutboxMessage`, and `RestIdempotency` entities — the two `LockOverview*DtoView` entities do define id-based equals/hashCode, so "only Location has custom equals" is no longer accurate. SBDEV-2474 updated the entity list + totals (now 62) but a full re-audit of the equals/hashCode split is out of scope here and tracked separately.
 
 ---
 
@@ -95,6 +97,7 @@ public int hashCode() {
 | LocationRackRow | `src/main/java/net/aim_ai/wms/model/LocationRackRow.java` |
 | LocationType | `src/main/java/net/aim_ai/wms/model/LocationType.java` |
 | LockOverviewDtoView | `src/main/java/net/aim_ai/wms/model/LockOverviewDtoView.java` |
+| LockOverviewAllDtoView | `src/main/java/net/aim_ai/wms/model/LockOverviewAllDtoView.java` |
 | LosSequencenumber | `src/main/java/net/aim_ai/wms/model/LosSequencenumber.java` |
 | Message | `src/main/java/net/aim_ai/wms/model/Message.java` |
 | MessageArchived | `src/main/java/net/aim_ai/wms/model/MessageArchived.java` |
@@ -138,7 +141,7 @@ public int hashCode() {
 ## Key Findings
 
 ### 1. Widespread Missing Implementations
-- **60 of 61 entities (98.4%)** rely on default `Object.equals()` & `Object.hashCode()`
+- **60 of 62 entities (96.8%)** rely on default `Object.equals()` & `Object.hashCode()` (the two `LockOverview*DtoView` entities define id-based equals/hashCode)
 - Default implementations use **object identity** (memory address), not field values
 - This causes issues in `HashSet`/`HashMap` when multiple object instances have identical logical data
 
@@ -189,8 +192,8 @@ Message, MessageArchived, Printer, User, Sysprop, LosSequencenumber, ShippingMet
 
 **Risk Level:** MEDIUM-HIGH - some may be used in HashMaps/Sets
 
-### View/Monitor Entities (10 entities)
-OrderMonitorView, OrderDetailMonitorView, ParcelMonitorView, FlowbinMonitorView, ReplenishmentMonitorView, LockOverviewDtoView, StockView, ReceivedDtoView, ReceivingDtoView, CyclecountDtoView
+### View/Monitor Entities (11 entities)
+OrderMonitorView, OrderDetailMonitorView, ParcelMonitorView, FlowbinMonitorView, ReplenishmentMonitorView, LockOverviewDtoView, LockOverviewAllDtoView, StockView, ReceivedDtoView, ReceivingDtoView, CyclecountDtoView
 
 **Risk Level:** LOW - typically read-only, view-based (but verify usage)
 

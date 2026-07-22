@@ -244,7 +244,7 @@ For the v2 matrix see [wms2-keycloak-role-matrix.md](./wms2-keycloak-role-matrix
 Same test pattern in both:
 
 - Testcontainers `PostgreSQL` singleton via `AppPostgresDBContainer` + `AppPostgresDBSetupExtension` (JUnit 5)
-- Flyway migrations in `src/main/resources/db/migration/V*.sql`
+- Flyway migrations in `src/main/resources/db/migration/V*.sql` (v1); v2 historical scripts in `src/main/resources/db/v1-to-v2-onboarding/schema/V*.sql`, new v2 deltas in `db/migration/V2.2.x`
 - H2 profile for fast repo tests (`application-h2test.properties`)
 - Jasypt `ENC(...)` support for encrypted sysprops; `-Djasypt.encryptor.password` runtime flag
 

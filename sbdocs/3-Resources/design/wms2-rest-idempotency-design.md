@@ -29,7 +29,7 @@ related:
 | `landlord/config/IdempotencyFilter.java` | Servlet filter — key derivation, claim/replay/conflict routing, response capture |
 | `service/RestIdempotencyService.java` | DB operations — `tryClaim`, `persistResponse`, `getCachedResponse` |
 | `schedulejob/RestIdempotencyCleanupJob.java` | Nightly cleanup — deletes `SENT` rows older than 7 days |
-| `db/migration/V2.1.10__rest_idempotency.sql` | `rest_idempotency` table DDL (tenant DB) |
+| `db/v1-to-v2-onboarding/schema/V2.1.10__add_rest_idempotency.sql` | `rest_idempotency` table DDL (tenant DB) |
 
 ---
 

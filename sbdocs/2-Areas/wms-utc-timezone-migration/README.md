@@ -6,7 +6,7 @@ version: "v2/wms2-api (Java 21, Spring Boot 3.5.9, PostgreSQL 16)"
 scope: "Per-client v1→v2 schema bridge + UTC timestamptz migration (any source write-TZ)"
 owner: "nam.park@siteboss.net"
 created: 2026-06-05
-updated: 2026-06-11
+updated: 2026-07-16
 last_verified: 2026-06-05
 verified_by: "Hydra wh01 dev rehearsal (A→C→F end-to-end on PostgreSQL 16.10)"
 related:
@@ -27,9 +27,11 @@ This SOP is the reusable source of truth. Each actual execution is captured in a
 [260527-hydra-v1-to-v2-migration-runbook.md](../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md).
 
 > **Source of truth for the executable artifacts** is the repo, not this doc:
-> `v2/wms2-api/src/main/resources/db/onboarding-tz-variants/scripts/` (`_lib.sh`, `00`–`09`, `99`,
-> `migration.env.example`, `README.md`) plus the SQL in `db/migration/`, `db/rollback/`, and the
-> per-source-TZ variants in `db/onboarding-tz-variants/`. This SOP describes the *procedure, decisions,
+> `v2/wms2-api/src/main/resources/db/v1-to-v2-onboarding/onboarding-tz-variants/scripts/` (`_lib.sh`,
+> `00`–`09`, `99`, `migration.env.example`, `README.md`) plus the SQL in `db/v1-to-v2-onboarding/schema/`,
+> `db/v1-to-v2-onboarding/rollback/`, and the per-source-TZ variants in
+> `db/v1-to-v2-onboarding/onboarding-tz-variants/`. (Reorganized 2026-07-10 — the toolkit moved out of
+> `db/migration/`, which now holds only the greenfield base dump + `V2.2.x` deltas.) This SOP describes the *procedure, decisions,
 > gates, and validated facts* — run the scripts from the repo.
 
 ---
@@ -41,14 +43,14 @@ The whole design hinges on this split. **Do not fork the scripts or SQL per clie
 | Asset | Reuse | Notes |
 |---|---|---|
 | Toolkit scripts `00`–`09`, `99`, `_lib.sh` | ♻️ **As-is** | Never edited per client. `_lib.sh` derives the repo root from its own location. |
-| `db/migration/` V1.2.01–05 + `db/rollback/` V1.2.99 (LA originals) | ♻️ **As-is** | Selected automatically for an `America/Los_Angeles`-source client. |
-| `db/onboarding-tz-variants/V1.2.0x_<TZ>` (e.g. `_America_New_York`) | ♻️ **As-is** | Selected automatically by `CLIENT_HIBERNATE_TZ`. **The NY variant is validated** (§5) — reuse it for every NY-source client, no regeneration. |
+| `db/v1-to-v2-onboarding/schema/` V1.2.01–05 + `db/v1-to-v2-onboarding/rollback/` V1.2.99 (LA originals) | ♻️ **As-is** | Selected automatically for an `America/Los_Angeles`-source client. |
+| `db/v1-to-v2-onboarding/onboarding-tz-variants/V1.2.0x_<TZ>` (e.g. `_America_New_York`) | ♻️ **As-is** | Selected automatically by `CLIENT_HIBERNATE_TZ`. **The NY variant is validated** (§5) — reuse it for every NY-source client, no regeneration. |
 | V2.1.x bridge scripts | ♻️ **As-is** | Applied directly to a v1 DB; no v1-compat branch (§5). |
 | `migration.env` | ✍️ **New per client** | The single per-client artifact. Copy `migration.env.example`, fill it. |
 | **Run record** (this client's results) | ✍️ **New per client** | A thin plan in `1-Projects/wms2/plan/`, archived when done. |
 
 **A new *source TZ* (other than NY/LA) is a one-time committed variant**, authored per
-`db/onboarding-tz-variants/README.md` — still not a per-client artifact.
+`db/v1-to-v2-onboarding/onboarding-tz-variants/README.md` — still not a per-client artifact.
 
 ---
 
@@ -66,7 +68,7 @@ Copy `migration.env.example` → `migration.env` (gitignored; holds DB creds) an
 | `WORK_DIR`, `BACKUP_DIR`, `V1_DEPLOYED_PROPERTIES` | ✍️ | Paths; `V1_DEPLOYED_PROPERTIES` points at *that client's* deployed v1 config for the PREP-1 hard gate. |
 
 > **For an LA-source client:** set `CLIENT_HIBERNATE_TZ` + `TENANT_DISCOVERY_TZ` to `America/Los_Angeles`,
-> update creds + OMS host, leave everything else. `03-gen-scripts.sh` selects the `db/migration` LA originals.
+> update creds + OMS host, leave everything else. `03-gen-scripts.sh` selects the `db/v1-to-v2-onboarding/schema` LA originals.
 
 ---
 
@@ -107,6 +109,7 @@ PHASE A  🤖  Pre-flight + backup + assemble client scripts        (read-only, 
 PHASE B  👤  Human prerequisites & sign-offs (PREP-9..14)          (no downtime)
    │  ── GATE B→C: all PREP sign-offs green ──
 PHASE C  🤖  §0.6 schema bridge V2.1.01–V2.1.16                    (no downtime)
+   │        + apply db/migration/V2.2.x deltas → fresh-v2 parity (§4 Phase C)
    │  ── GATE C→D: 05-verify-bridge ALL PASS ──
 PHASE D  👤  Deploy 1 — stabilize wms2-api code (global, behavior-preserving)
    │  ── GATE D→E: schedule maintenance window ──
@@ -155,6 +158,29 @@ predicate so Phase F and rollback can't resurrect the name list. Runs that conve
 (WineCo 2026-06-06; hydra dev rehearsals) need it applied standalone — it is safe on a converted DB
 (patched 2026-06-11: hydra-dev2, wineco `wh01_om1_v2` dev2 copy, `dev_wh01_om1`; wineco uat @10.0.0.6
 still pending — see that run record's §4.6).
+
+**Post-bridge: reaching fresh-v2 parity (`V2.2.x`) — REQUIRED to make a migrated DB current.** The
+schema bridge deliberately stops at the **`V2.1.16` watermark** — exactly what the greenfield base dump
+`db/migration/V2.2.00__base_v2_schema.sql` captures. It does **not** apply the fresh-v2 deltas that have
+landed since, so a freshly-bridged tenant sits at `V2.2.00`-equivalent, **not current**. To bring it to
+parity with a greenfield v2 DB, apply the `db/migration/V2.2.x` deltas **in order** after the bridge —
+as of 2026-07-17: `V2.2.01` (`replenishment_monitor_view` section/ro_id, SBDEV-2384), `V2.2.02`
+(`lock_report_exclude_shipped`, SBDEV-2474 — **PR #77, not yet on `develop`**). (The former
+`V2.2.01__los_sequencenumber_init` seed is now folded into the `V2.2.00` base dump, and the two deltas
+above were renumbered down by one when the dump was re-exported on 2026-07-17.) **Re-check the highest
+`V2.2.*` in `db/migration/` at run time — the list grows.** Apply
+them as SQL against the tenant DB; the running wms2-api does **not** invoke Flyway. Each is
+`CREATE OR REPLACE VIEW` / index / seed and safe (idempotent) on a converted DB.
+
+> **Why the fix lives in `db/migration/`, not the onboarding `schema/` lineage.** `db/v1-to-v2-onboarding/schema/`
+> is **frozen at the `V2.1.16` watermark by design** (it must equal what `V2.2.00` captures). Post-watermark
+> changes belong in `db/migration/V2.2.x` and reach migrated tenants via *this* post-bridge step — the same
+> deltas a greenfield DB gets. **Exception (test-only):** the IT harness scans *only* `schema/` via
+> `src/test/resources/flyway.conf` and never applies `db/migration/V2.2.x`, so a change may be **mirrored**
+> into `schema/` purely for test visibility — e.g. `V2.1.17__lock_report_exclude_shipped.sql` is a
+> byte-identical copy of `V2.2.02` (`lock_report_exclude_shipped`). That mirror is a **test-harness shim, not an onboarding requirement**,
+> and does not change this operator step (a migrated tenant still gets the fix from `V2.2.02`). If the harness
+> is ever pointed at `db/migration` too, the `V2.1.x` mirrors can be dropped to restore the frozen watermark.
 
 **Phase E — quiesce (👤 + 🤖).** `06-drain.sh` polls the outbox to 0 and **fails closed** on undelivered
 rows (override only with a conscious `DRAIN_ACCEPT_PENDING=1`). It snapshots `rest_idempotency` →

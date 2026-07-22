@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-05-20
+last_verified: 2026-07-20
 verified_by: Claude (executor)
 tags: [wms2, replenishment, fix-location, stock, inventory]
 ---
@@ -14,7 +14,8 @@ tags: [wms2, replenishment, fix-location, stock, inventory]
 - State machine: `PROCESSABLE(300)` → `STARTED(500)` → `FINISHED(700)` or `CANCELED(800)`; `PICKED(600)` is unused in this flow.
 - FLA `middlebound` is the refill trigger — a refill order is generated when on-hand drops below it; `upperbound` is the cancel-if-full threshold.
 - Critical constraint: `refillFixedLocations()` has no outer `@Transactional`; calling it inside `finishReplenishmentOrderInternal` means an unexpected refill failure can roll back the finish transaction.
-- Read this doc for: replenishment stuck-state bugs, over-replenishment, FLA assignment failures, multi-unitload replenishment path (`MobileReplenishService`), or the `ReplenishOrderJob` cron pipeline.
+- **SBDEV-2074 (2026-07-20):** moving a unit load with an active replen reservation onto a NON-replenishable location is now handled synchronously at move time — `ReplenishmentOrderSourceSyncService.syncForMovedStockUnit` delegates to the new `ReplenishmentOrderMaintenanceService.reassignOrCancelForMovedStockUnit`, which reassigns the same order to another eligible source or cancels it. This closes a gap neither cron path (`recalculateOrder`, gated on `state==300`; `cancelUnreachableReplenishment`, gated on `state<=300`) could reach for a `RESERVED(400)` order re-pointed onto a lane. See §9 and §11.
+- Read this doc for: replenishment stuck-state bugs, over-replenishment, FLA assignment failures, multi-unitload replenishment path (`MobileReplenishService`), the `ReplenishOrderJob` cron pipeline, or move-time reservation reassignment (`ReplenishmentOrderSourceSyncService`).
 
 # WMS2 Replenishment Subsystem Design
 
@@ -32,7 +33,9 @@ All files under `v2/wms2-api/src/main/java/net/aim_ai/wms/` unless noted.
 | File | Lines | Role | Covered in |
 |---|---|---|---|
 | `service/ReplenishGeneratorService.java` | 250 | Order creation + stock reservation — the "generator" half | §2, §3, §6 |
-| `service/ReplenishmentOrderMaintenanceService.java` | 575 | Periodic recalculation, source redirect, cancellation — the "maintenance" half | §2, §3, §5 |
+| `service/ReplenishmentOrderMaintenanceService.java` | 688 | Periodic recalculation, source redirect, cancellation, move-time reassign/cancel (SBDEV-2074) — the "maintenance" half | §2, §3, §5, §9, §11 |
+| `service/ReplenishmentOrderSourceSyncService.java` | 125 | Move-time source re-point (SBDEV-2492) / reassign-or-cancel delegation (SBDEV-2074) for stock units in an active replen | §2, §3, §9 |
+| `util/LocationReplenishabilityUtil.java` | 32 | Shared `isReplenishableArea` helper (SBDEV-2074 M1) — single source of truth for the area `useforreplenish` check | §9, §11 |
 | `service/ReplenishorderService.java` | 347 | Public CRUD API: create, update, cancel, priority, redirect | §2, §3 |
 | `service/job/ReplenishOrderJobService.java` | 277 | Transactional wrappers called by the cron job | §2, §8 |
 | `service/mobile/MobileReplenishService.java` | 1004 | Mobile execution: start → check source/dest → finish; multi-unitload path | §2, §7 |
@@ -128,6 +131,15 @@ No `@Transactional` annotations at method level — all DB writes are done direc
 | `recalculateForItem(itemDataId)` | `(Long) → void` | Targeted recalc for a specific item; called by job after detecting affected items. `null` itemDataId falls back to full recalc. |
 | `recalculateOrder(order)` | package-private `(Replenishorder) → void` | Test entry point — wraps with empty context. |
 | `recalculateOrder(order, ctx)` | **public** `@Transactional(tenantTransactionManager, REQUIRED)` `(Replenishorder, RecalcContext) → void` | Core logic: re-fetches order with `findByIdForUpdate(@Lock PESSIMISTIC_WRITE)`, checks FLA, validates/redirects source, computes shortage, cancels or adjusts amount. Per-order short tx when called from sweep; annotation bypassed (this. call) when called from `recalculateForItem`. (260520 fix) |
+| `reassignOrCancelForMovedStockUnit(movedStock, destination)` | **public** `@Transactional(tenantTransactionManager, REQUIRED)` `(Stockunit, Location) → void` throws `BusinessException` | **SBDEV-2074 (2026-07-20).** Move-time entry point called by `ReplenishmentOrderSourceSyncService.syncForMovedStockUnit` when `destination` is NON-replenishable. Re-checks `isReplenishableDestination` defensively (public method, standalone-callable), finds the active (`state < FINISHED`) order bound to `movedStock` via `findByStateLessThanAndStockunitId`, re-reads it under `findByIdForUpdate` to serialize with the cron, blocks with `BusinessException` if `state >= STARTED (500)` (incl. `530`), then calls `redirectSource` — cancelling via `cancelOrder` only if `redirectSource` returns `false` (no candidate or reserve failure). Joins the caller's tenant tx (the move is already `@Transactional(tenantTransactionManager)`), so reassign/cancel commits atomically with the relocation. |
+
+### `ReplenishmentOrderSourceSyncService`
+
+**SBDEV-2492**, extended by **SBDEV-2074 (2026-07-20)**. Re-points or reassigns the replen bound to a stock unit whose unit load has just moved. No class- or method-level `@Transactional` — deliberately joins the caller's tenant transaction (`UnitloadBusinessService.transferUnitLoadToLocation` is already `@Transactional(tenantTransactionManager)`); a bare `@Transactional` here would route to the `@Primary` landlord TM and silently disable rollback on tenant writes.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `syncForMovedStockUnit(stockUnit, destinationLocation)` | `(Stockunit, Location) → void` throws `BusinessException` | Branches on destination replenishability (via `LocationReplenishabilityUtil.isReplenishableArea`): **non-replenishable** → delegates to `ReplenishmentOrderMaintenanceService.reassignOrCancelForMovedStockUnit` (SBDEV-2074) and returns; **replenishable** → falls through to the original SBDEV-2492 behavior, unchanged: re-points `requestedlocationId` / `requestedrackId` / `sourcelocationname` onto the destination for the active order bound to `stockUnit`, leaving `stockunitId` / `reservedamount` / `requestedamount` untouched (I-1). Blocks with `BusinessException` if the bound order is already `state >= STARTED`. `ReplenishmentOrderMaintenanceService` is injected via a `@Lazy` constructor parameter to break the DI cycle introduced by the new delegation edge. |
 
 ### `ReplenishorderService`
 
@@ -205,14 +217,14 @@ ReplenishOrderJob (cron)
 │   │   └── [repositories]
 │   └── FixLocationAssignmentService     ← delete FLA
 │
-├── ReplenishmentOrderMaintenanceService ← recalculate open orders
+├── ReplenishmentOrderMaintenanceService ← recalculate open orders; reassign/cancel on move (SBDEV-2074)
 │   ├── StockunitBusinessService
 │   ├── SyspropService                   ← cadence, threshold, upper-bound sysprops
 │   ├── ReplenishorderRepository
 │   ├── StockunitRepository
 │   ├── UnitloadRepository
 │   ├── LocationRepository
-│   ├── LocationAreaRepository
+│   ├── LocationAreaRepository           ← also: LocationReplenishabilityUtil.isReplenishableArea
 │   └── FixLocationAssignmentRepository
 │
 └── [also drives] MobileReplenishService (via recalculateOpenOrders post-finish)
@@ -226,6 +238,14 @@ MobileReplenishService (mobile API)
 
 ReplenishorderService (desktop API)
 └── ReplenishGeneratorService (via create → calculateOrder)
+
+[stock-move choke point, e.g. UnitloadBusinessService.transferUnitLoadToLocation]
+└── ReplenishmentOrderSourceSyncService.syncForMovedStockUnit   ← SBDEV-2492 / SBDEV-2074
+    ├── ReplenishorderRepository
+    ├── LocationRackRepository
+    ├── LocationAreaRepository           ← LocationReplenishabilityUtil.isReplenishableArea
+    └── ReplenishmentOrderMaintenanceService (@Lazy — DI-cycle breaker)
+        └── reassignOrCancelForMovedStockUnit → redirectSource / cancelOrder
 ```
 
 ---
@@ -257,6 +277,10 @@ Extends `AbstractBaseEntity` (provides `id`, `version`, `created`, `modified`).
 | `requestedrack_id` (FK→location_rack) | `requestedrackId` | `Long` | Y | Source rack snapshot |
 | `destination_id` (FK→location) | `destinationId` | `Long` | Y | Target fixed location; may be `null` for items without FLA |
 | `operator_id` (FK→mywms_user) | `operatorId` | `Long` | Y | Operator who claimed the order (`startOrder`) |
+| `moved_amount` | `movedAmount` | `NUMERIC(17,4)` | Y | **SBDEV-1714 finish-time snapshot.** Actual moved qty (`amountPicked`), frozen at finish. NULL on pre-V2.2.03 rows. |
+| `moved_source_unitload_label` | `movedSourceUnitloadLabel` | `String` | Y | **SBDEV-1714.** Source UL label captured **before** the transfer re-homes the source stock unit. NULL on pre-V2.2.03 rows. |
+| `moved_destination_unitload_label` | `movedDestinationUnitloadLabel` | `String` | Y | **SBDEV-1714.** Destination (FLA-assigned) UL label at finish. NULL on pre-V2.2.03 rows. |
+| `moved_destination_location_name` | `movedDestinationLocationName` | `String` | Y | **SBDEV-1714.** Destination location name at finish. NULL on pre-V2.2.03 rows. |
 
 #### `FixLocationAssignment` — table `fix_location_assignment`
 
@@ -306,6 +330,8 @@ The `Replenishorder.state` field uses `WmsConstants.State` integer constants.
 | `PROCESSABLE` or `STARTED` | `cancelReplenishmentOrder` | `CANCELED (800)` | State < `FINISHED (700)` | `ReplenishorderService.cancelReplenishmentOrder:219` |
 
 Note: `PICKED (600)` exists in `WmsConstants.State` but is not used by the replenishment state machine. The state skips from `STARTED (500)` directly to `FINISHED (700)`.
+
+**SBDEV-1714 finish-time audit snapshot (2026-07-20):** at `FINISHED`, `finishReplenishmentOrderInternal` now freezes what was moved onto the order — `moved_amount` (= `amountPicked`), `moved_source_unitload_label`, `moved_destination_unitload_label`, `moved_destination_location_name` (§4.1). The source-UL label is captured **before** `transferStockToUnitLoad` because that call re-homes the source stock unit's `unitloadId` in place (full move → destination UL `StockunitBusinessService:346`; partial-to-zero → `Nirwana` `:380/:422`) — reading it afterward would record the wrong label. The closed-record detail (`ReplenishorderService.getReplenishorderDetails`) and the desktop closed/detail list views (`getDetailViewByKeyword`, `getClosedViewByKeyword`) now read these frozen values via `COALESCE(frozen, live)`; `getOpenViewByKeyword` still reads the live join. Forward-only: pre-`V2.2.03` FINISHED rows keep NULL snapshots and degrade to the live join.
 
 ### Priority values (`WmsConstants.Priority`)
 
@@ -492,6 +518,19 @@ The replenish job's phase 8 reads `customerorder.prio` to derive replenishment p
 
 This means replenishment execution can create FLAs as a side effect.
 
+### With stock movement (unit load relocation) — SBDEV-2492 / SBDEV-2074
+
+When a unit load carrying stock bound to an active replen (`state < FINISHED`) is relocated, the move choke point (`UnitloadBusinessService.transferUnitLoadToLocation`, `@Transactional(tenantTransactionManager)`) calls `ReplenishmentOrderSourceSyncService.syncForMovedStockUnit(stockUnit, destinationLocation)` synchronously, inside the move's own transaction. It branches on whether the destination's `LocationArea.useforreplenish` flag is `TRUE` (via `LocationReplenishabilityUtil.isReplenishableArea`; a `null` area is treated as NON-replenishable):
+
+- **Replenishable destination** — original **SBDEV-2492** behavior, unchanged: re-point `requestedlocationId` / `requestedrackId` / `sourcelocationname` on the bound order onto the new location. `stockunitId` and the reservation amounts are never touched (same stock unit, only its location changed).
+- **NON-replenishable destination** — **SBDEV-2074 (2026-07-20)**: delegates to `ReplenishmentOrderMaintenanceService.reassignOrCancelForMovedStockUnit`, which releases the reservation from the moved stock unit and reassigns the *same* `Replenishorder` to another eligible source via `redirectSource`, or cancels it via `cancelOrder` if no candidate exists.
+
+Both branches block with `BusinessException` (rejecting the move, HTTP 422) if the bound order is already `state >= STARTED (500)`, including `530` — an in-progress replenishment must be completed or cancelled first, not silently re-pointed or reassigned underneath the operator picking it.
+
+**Why a move-time entry point was needed:** before SBDEV-2074, the only place that could redirect a `RESERVED (400)`-adjacent order's source was the maintenance cron — `recalculateOrder` (gated on `state == PROCESSABLE (300)`) or `ReplenishOrderJob.cancelUnreachableReplenishment` (gated on `state <= 300`). A `RESERVED (400)` order whose source got moved onto a non-replenishable lane at move time fell into neither gate and stayed stuck until the state regressed or a human intervened. `reassignOrCancelForMovedStockUnit` closes that gap by reacting at the moment of the move itself, reusing the same `redirectSource` / `cancelOrder` primitives the cron already relies on.
+
+**DI cycle:** `ReplenishmentOrderSourceSyncService` now depends on `ReplenishmentOrderMaintenanceService`. The dependency is injected via a `@Lazy` constructor parameter to avoid a circular-bean-creation failure (neither service depended on the other before SBDEV-2074).
+
 ---
 
 ## §10 Repository Native Queries
@@ -589,6 +628,12 @@ Once `manuallyoverridepriority = true`, all automatic priority updates are skipp
 
 Each job iteration calls `TenantContext.setCurrentTenant(profile)` before any query. All repositories route to the current tenant's database. There is no mechanism for cross-tenant stock movement.
 
+### 10. `redirectSource` reserve-before-release ordering — fixed 2026-07-20 (SBDEV-2074 M4)
+
+`redirectSource` (used by both `recalculateOrder`'s `ensureValidSource` path and the new `reassignOrCancelForMovedStockUnit` move-time path) now reserves the alternate source stock **before** releasing the old one. Previously it released the old reservation first; if the subsequent reserve on the alternate then threw `FacadeException`, the old source was already released, the order still pointed at it, and the caller's `cancelOrder` released it a *second* time — driving `reservedamount` negative. The reordering fixes this: on a reserve failure the old source is left untouched, `redirectSource` returns `false`, and the caller's `cancelOrder` releases the old source exactly once. The success-path end state is unchanged.
+
+**Accepted follow-on contract (M5):** `changeReservedAmount` is `@Transactional(rollbackFor = FacadeException.class)` and joins the caller's tenant tx, so a `FacadeException` on the alternate reserve marks the shared tx rollback-only even though `redirectSource` swallows it and returns `false`. The outer commit then throws `UnexpectedRollbackException`, rolling back the whole unit — for the move-time path, the relocation is rejected (HTTP 422) and the operator retries; the cron sweep remains the backstop for orders that never get retried through a move. This is intentional: the reserve is **not** `REQUIRES_NEW`, because a committed reservation on the alternate would be orphaned if the outer move then rolled back.
+
 ---
 
 ## §12 Related Docs
@@ -600,6 +645,8 @@ Each job iteration calls `TenantContext.setCurrentTenant(profile)` before any qu
 | WMS2 Replenish Order Creation Workflow | `sbdocs/3-Resources/workflows/wms2-replenish-order-creation.md` |
 | WMS1 Replenish Workflow | `sbdocs/3-Resources/workflows/wms1-replenish-workflow.md` |
 | WMS1 StockUnit Design | `sbdocs/3-Resources/design/wms1-stockunit-design.md` |
+| SBDEV-2074 plan (move-time reassign/cancel) | `sbdocs/1-Projects/wms2/plan/SBDEV-2074-replen-reservation-reassign-on-nonreplenishable-move.md` |
+| SBDEV-2492 plan (archived — source re-point on move) | `sbdocs/4-Archieves/wms2/plan/SBDEV-2492-replen-order-source-sync-on-unitload-move.md` |
 
 ---
 
@@ -611,3 +658,5 @@ Each job iteration calls `TenantContext.setCurrentTenant(profile)` before any qu
 | 2026-05-08 | Claude (executor) | SBDEV-1699 (commit `c4fcfc1`) verified live: `ViewDtoService.getStockPerLocation` (line 672 onwards) uses batched `fixLocationAssignmentRepository.findByItemdataIdIn(itemdataIds)` (line 684); `ReplenishmentMonitorViewRepository` SQL exposes `f.upperbound AS fix_assignment_upperbound` (line 64) with re-projected aggregate column at line 31; `ReplenishMonitorSummaryView.getFix_assignment_upperbound()` getter present (line 32); `ViewDtoService.getReplenishMonitorViewSummary` (line 1194) emits DTO `locationStock` (line 1232 — `dto.put("locationStock", fixUpperBound.subtract(qtyOnLoc).longValue())`); `ViewDtoService.getReplenishMonitorViewSummary` and the detail-view method at line 601 both annotated `@Transactional(value = "tenantTransactionManager", readOnly = true)`. No drift to module body required. |
 | 2026-05-19 | Claude (executor) | SBDEV-2234 (merged 2026-05-18): `recalculateForItem(Long)` now `@Transactional(tenantTransactionManager)` — §4 limitation #4 updated to reflect this; `recalculateOpenOrders(boolean)` intentionally remains non-transactional (260331 decision, confirmed in tx-osiv-boundary-map 2026-05-15 entry). `ReplenishorderRepository.findByIdForUpdate` now actively called by `recalculateOrder` (already documented in §key files table). `SyspropService.setSysvalue` added (documented in wms2-sysprop-catalog 2026-05-15). `REPLENISHMENT_RECALCULATION_LAST_RUN_EPOCH_MS` sysprop replaces JVM-local `lastRun` field. |
 | 2026-05-20 | Claude (executor) | 260520 fix: `recalculateOrder(Replenishorder, RecalcContext)` now `public @Transactional(tenantTransactionManager, REQUIRED)` (Fix A — plan `260520-replenishment-open-orders-missing-tx`). `@Lazy @Autowired self` field added to service; `recalculateOpenOrders(boolean)` sweep loop changed to call `self.recalculateOrder(order, ctx)` (per-order short REQUIRED tx). §4 method table updated (visibility + annotation), §4 limitation #4 rewritten to reflect new 3-method tx boundary table. §5.4 WARNING documented. |
+| 2026-07-20 | Claude (executor) | **SBDEV-1714** (V2), implemented 2026-07-20: finished replenishments lost audit data (closed record showed source UL `Nirwana` / stock-unit amount 0 because it held only a live FK to the drained source stock unit — 164/168 on wms2-wineco-dev). Added 4 nullable finish-time snapshot columns to `replenishorder` (Flyway `V2.2.03`); `finishReplenishmentOrderInternal` captures the source-UL label + amount **before** `transferStockToUnitLoad` mutates the source, and freezes them on the order before `setState(FINISHED)`. `findDetailMapById`/`getReplenishorderDetails` surface the frozen values (additive, NULL-safe); `getDetailViewByKeyword` + `getClosedViewByKeyword` `COALESCE(moved_source_unitload_label, u.labelid)` for both display and keyword search; `getOpenViewByKeyword` unchanged. Forward-only. §4.1 table + §5 note updated. Plan: `sbdocs/1-Projects/wms2/plan/SBDEV-1714-replenishment-finish-audit-snapshot.md`. |
+| 2026-07-20 | Claude (writer) | SBDEV-2074 (V2), implemented 2026-07-20: verified against `ReplenishmentOrderMaintenanceService.java` (575→688 lines, new public `reassignOrCancelForMovedStockUnit`), `ReplenishmentOrderSourceSyncService.java` (`syncForMovedStockUnit` now branches on destination replenishability), and new `util/LocationReplenishabilityUtil.java` (M1 shared `isReplenishableArea` helper). §0 module inventory updated (new files + line counts); §2 gained `reassignOrCancelForMovedStockUnit` row and a new `ReplenishmentOrderSourceSyncService` subsection; §3 dependency tree gained the move-choke-point → `ReplenishmentOrderSourceSyncService` → (`@Lazy`) `ReplenishmentOrderMaintenanceService` edge; §9 gained a new "With stock movement" subsection describing the branch and the cron-gap it closes (`recalculateOrder` needs `state==300`; `cancelUnreachableReplenishment` needs `state<=300`; neither reaches a `RESERVED(400)` order re-pointed onto a non-replenishable lane at move time); §11 gained limitation #10 documenting the `redirectSource` reserve-before-release reorder (M4) that fixes a double-release/negative-`reservedamount` bug, plus the M5 accepted rollback contract (reserve is intentionally not `REQUIRES_NEW`); §12 cross-referenced the SBDEV-2074 plan and the archived SBDEV-2492 plan. No unrelated sections touched. |

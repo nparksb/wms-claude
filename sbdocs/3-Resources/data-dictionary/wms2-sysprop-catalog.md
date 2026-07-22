@@ -7,7 +7,7 @@ scope: sysprops
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-15
+last_verified: 2026-07-10
 verified_by: code read of v2/wms2-api WmsConstants.java:879-1069 and SyspropService.java
 related:
   - ../architecture/wms2-scheduled-jobs-catalog.md
@@ -38,7 +38,7 @@ Three things to keep in mind:
 2. **`@Cacheable(value = "sysprops", key = "{facilityCode}:{key}")`** is applied to `getSysvalue` and `getByKey`. Changes to `sysprop` table rows are **not** immediately visible to running processes — the cache TTL must expire or the service restart.
 3. **Fallback chain** is tenant-DB row → system-client default value (constant) → null. There is no env-var or `application.properties` path.
 
-**Total keys documented:** ~75 (WmsConstants.java lines 879–1069). A handful more use magic strings passed as parameters (see §11).
+**Total keys documented:** ~76 (WmsConstants.java lines 879–1069). A handful more use magic strings passed as parameters (see §11).
 
 ---
 
@@ -298,6 +298,12 @@ No `*_DEFAULT_VALUE` constants — **these rows must be populated per-tenant** o
 | `PICK_SCREEN_SIMPLE` | `false` | Simplified pick screen variant |
 | `PICK_PATH_DIRECTION` | `VERTICAL` | Sort direction for picking, putaway, cycle-count, and move-stock: `VERTICAL` = column-first (X→Y), `HORIZONTAL` = row-first (Y→X). Read via `PickPathConfig` → `SyspropService` (cached per-tenant). Seeded by migration V2.1.09. |
 
+### Picking — Order-release behavioral guards
+
+| Key | Default | Purpose |
+|---|---|---|
+| `ENFORCE_PARTITIONALLOWED` | `true` (default ON) | **SBDEV-2512** kill-switch for the overstock-release `partitionallowed` guard in `ReleaseOrderJobService.releaseOrder`. When ON, a non-partitionable (`partitionallowed=false`) customer-order position that no **single** stock unit can cover is **held** (position `RAW_ON_HOLD_NOT_ENOUGH_STOCK_ON_LOCATION`, order `RAW_ON_HOLD`) rather than fragmented across units (Fix A, round-2 cumulative), and a coverable one takes exactly **one** pick from a single covering unit (Fix B, phase 3). Read once per release via `SyspropService.getSysvalue`; **absent/null row also enforces** (`!"false".equalsIgnoreCase(...)`), so it is safe before seeding. Set `false` to restore legacy fragmenting behavior with **no redeploy** (Caffeine `sysprops` TTL ~2 min). Every v2 position is non-partitionable today (`OrderBatchCreationService` hard-codes `setPartitionallowed(false)`), so this is a 100%-blast-radius cron guard — the Fix A hold emits a mandatory `LOG.info`. |
+
 ### Misc
 
 | Key | Default | Purpose |
@@ -354,8 +360,9 @@ The `UtilRestController` case is expected — it's a generic read-any-sysprop ad
 
 | Task | Start at |
 |---|---|
+| Provision a fresh client DB's per-client sysprops | Run **`db/configure-client-sysprops.sh`** (SBDEV-2607) — rewrites the base-dump `CHANGE-ME-FOR-NEW-CLIENT` placeholders (`MOBILE_UI_URL`, `MULTIWAREHOUSE_IDENTIFIER`, `WAREHOUSE_NAME`, `OMS_TENANT_ID`, `System Time Zone`, `SYSTEM_OMS_NAME`, `SYSTEM_WMS_NAME`, `WEBS%`) in one verified pass. See `[[wms2-greenfield-db-provisioning]]` §5. |
 | Enable a cron job in a new tenant | §3 + §4 (set both the master + per-job `_ACTIVATED` flag + any `_TIMER_*` overrides) |
-| Configure OMS callbacks | §5 — every `WEBSERVICE_*` must be overridden away from the `XXXXX` placeholder |
+| Configure OMS callbacks | §5 — every `WEBSERVICE_*` must be overridden away from the placeholder (`CHANGE-ME-FOR-NEW-CLIENT/` in the `V2.2.00` base-dump seed; `configure-client-sysprops.sh --oms-api-base-url` sets them all at once) |
 | Bring up a new Keycloak realm | §9 — all 8 keys are mandatory; no defaults exist |
 | Tune replenish behavior | §6 |
 | Change label print behavior | §7 |
@@ -369,5 +376,7 @@ The `UtilRestController` case is expected — it's a generic read-any-sysprop ad
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | `WmsConstants.java:879-1069` constants, `SyspropService.java` method signatures + caching annotation, fallback chain, magic-string consumers, "missing default" set | All keys + defaults + consumer shape confirmed | Code read (grep-based) |
+| 2026-07-10 | Added `ENFORCE_PARTITIONALLOWED` (SBDEV-2512 overstock-release guard kill-switch, default ON) to §10 Picking — Order-release behavioral guards; total ~75→~76. | New key documented | SBDEV-2512 v2 port |
+| 2026-07-19 | Documented `db/configure-client-sysprops.sh` (SBDEV-2607) as the greenfield per-client sysprop seeding tool; noted the `V2.2.00` base-dump placeholder is `CHANGE-ME-FOR-NEW-CLIENT`. No new keys. | Onboarding tooling documented | SBDEV-2607 |
 
-**Re-verify every 90 days.** Next due: **2026-07-18** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.
+**Re-verify every 90 days.** Next due: **2026-10-08** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.

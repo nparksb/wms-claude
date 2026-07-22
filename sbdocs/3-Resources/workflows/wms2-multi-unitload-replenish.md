@@ -4,7 +4,7 @@ type: workflow
 project: wms2
 status: stable
 created: 2026-04-19
-last_verified: 2026-05-01
+last_verified: 2026-07-10
 tags: [wms2, workflow, replenish]
 ---
 
@@ -106,6 +106,7 @@ tags: [wms2, workflow, replenish]
 - **All-or-nothing semantics**: `MobileReplenishService.fulfillMultipleUnitLoads` runs in a single transaction. If any validation or finishing step fails, the request is treated as failed and no new replenish orders remain finished from this call (no partial success).
 - **Destination override**: The provided `destinationLocationId` is validated once and persisted as the authoritative destination on the template order. The same destination is applied to every ad-hoc order; unit-load entries never influence the destination.
 - **Explicit stock and quantity**: Each unit-load instruction validates the `Unitload` and matching `Stockunit`, then reserves exactly the requested `qty` on that stock via `stockunitBusinessService.changeReservedAmount`. `ReplenishMobileOrderDto.amountPicked` is set to `qty` so only the requested quantity is moved for each order.
+- **Availability (not gross-stock) entry guard (260709, v1 port `1ff0d85`)**: `validateUnitLoadEntry` gates on **availability** (`amount − reservedamount`), not gross `amount`. A selected UL whose stock is already reserved by another open replen (available < qty) is rejected up front with `FacadeException("MsgUnitLoadStockAlreadyReserved", <available>)` — so the operator picks a different UL instead of the request exploding downstream in `changeReservedAmount` with `CANNOT_RESERVE_MORE_THAN_AVAILABLE (0.0000)`. A **self-source add-back** credits the template order's own recoverable share (`requestedamount` capped at `reserved`, only when `reserved > 0`) so re-selecting the template's own current source UL is not wrongly rejected. The reserved read is null-safe (the `reservedamount` column is nullable). Because all ULs are validated before any reservation, this single gate covers both the first-UL (`applyExplicitSourceToOrder`) and ad-hoc (`createOrderFromTemplate`) reserve paths. **v1/v2 divergence:** the v2 credit is `min(requestedamount, reserved)` under `reserved > 0` (null-guard + `reserved==0` over-credit fix); v1 credits plain `requestedamount`. Behaviorally identical where `reserved ≥ requested` (all known-reachable states); the cap only diverges in the atypical `0 < reserved < requested` leak. Do NOT "correct" the v2 form back to v1 arithmetic.
 - **Single refill pass**: `finishReplenishmentOrderWithoutRefill` never calls `replenishGeneratorService.refillFixedLocations()`. The orchestrator calls `refillFixedLocations()` exactly once after the entire batch loop completes successfully.
 - **Deterministic numbering**: Ad-hoc orders created from the template derive their numbers as `<templateNumber>-<index+1>` (e.g., `RPL1234-2`, `RPL1234-3`, …), while inheriting priority, client, and item from the template order.
 
@@ -124,5 +125,6 @@ tags: [wms2, workflow, replenish]
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-05-01 | Frontmatter and staleness tracking added | — | verify-docs audit |
+| 2026-07-10 | 260709 (v1 port `1ff0d85`): documented the `validateUnitLoadEntry` availability-not-gross entry guard + self-source add-back (`MsgUnitLoadStockAlreadyReserved`) in Behavior Guarantees; noted the v1/v2 credit-arithmetic divergence. | Code read of `MobileReplenishService.validateUnitLoadEntry` on branch `port/260709-multiul-replen-availability` | 260709 v2 port |
 
-**Re-verify every 60 days.** Next due: **2026-06-30**.
+**Re-verify every 60 days.** Next due: **2026-09-08**.

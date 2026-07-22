@@ -44,14 +44,15 @@ For a **hotfix** that must land on both `release` and `develop`, prefer the **`V
 
 ### v2/wms2-api sequences
 
-The v2 migration directory currently ends at `V2.1.13`.
+**Layout reorganized (2026-07-10).** `db/migration/` no longer holds the incremental history. It now holds only the fresh-start **base dump** (`V2.2.00__base_v2_schema.sql`, captured at the `V2.1.16` watermark) plus **new** post-cutover deltas (`V2.2.x`). The historical linear scripts `V1.0.*→V2.1.16` moved to `db/v1-to-v2-onboarding/schema/` (the v1→v2 migration toolkit); see `v1-to-v2-onboarding/README.md`.
 
-**Next migration to add**: `V2.1.14__your_description.sql`
+**Next migration to add**: the next free `V2.2.x__your_description.sql` in `db/migration/`.
 
-To confirm:
+To confirm the highest existing v2 version (check **both** dirs — the historical head is in `schema/`, new deltas in `migration/`):
 
 ```bash
-ls /home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db/migration/ | sort -V | tail -5
+D=/home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db
+ls "$D"/v1-to-v2-onboarding/schema/ "$D"/migration/ | grep -E '^V' | sort -V | tail -5
 ```
 
 ### Rules
@@ -62,7 +63,7 @@ ls /home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db/migration/ | s
 
 ### Migration target
 
-Both v1 and v2 apply Flyway migrations against **tenant databases only**. The landlord (master config) database is managed separately and has no migration files in these repos. The test harness (`AppPostgresDBSetupExtension`) spins up a Testcontainers PostgreSQL instance and runs `flyway.migrate()` against `classpath:db/migration` — the same files as production.
+Both v1 and v2 apply Flyway migrations against **tenant databases only**. The landlord (master config) database is managed separately and has no migration files in these repos. The v2 test harness (`AppPostgresDBSetupExtension`) spins up a Testcontainers PostgreSQL instance and runs `flyway.migrate()` against `classpath:db/v1-to-v2-onboarding/schema` — the clean, duplicate-free linear history (v1 still uses `classpath:db/migration`).
 
 ---
 
@@ -196,6 +197,7 @@ Also grep views and functions in the migration files themselves — v1 has compl
 grep -rn "col_name" \
   /home/nampark/dev/wms-claude/v1/wms-api/src/main/resources/db/migration/
 grep -rn "col_name" \
+  /home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db/v1-to-v2-onboarding/schema/ \
   /home/nampark/dev/wms-claude/v2/wms2-api/src/main/resources/db/migration/
 ```
 
@@ -220,7 +222,7 @@ v2/wms2-api has a dual DataSource / dual EntityManager setup:
 - **Landlord database** (`dev_landlord`): stores tenant configuration (which DB each tenant uses, Keycloak settings). Managed by `LandlordDatabaseConfig`. No migration files in this repo target the landlord DB.
 - **Tenant databases**: one PostgreSQL database per tenant, routed dynamically by `TenantDynamicRoutingDataSource` using a 4-char key derived from `tenant_name` + `facility_code` HTTP headers.
 
-**All migration files in `v2/wms2-api/src/main/resources/db/migration/` target tenant databases.** There is no mechanism in this codebase to auto-apply a migration to the landlord DB — that must be done by hand against `dev_landlord` (or the equivalent in each environment).
+**All v2 migration files — the base dump + `V2.2.x` deltas in `src/main/resources/db/migration/`, and the historical scripts in `db/v1-to-v2-onboarding/schema/` — target tenant databases.** There is no mechanism in this codebase to auto-apply a migration to the landlord DB — that must be done by hand against `dev_landlord` (or the equivalent in each environment).
 
 ### Applying a new migration to all tenant DBs
 
