@@ -12,7 +12,11 @@
       "Bash(omc --version)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(grep -rli \"lock\" src/main/java --include='*.java')",
+      "Bash(grep -rln \"LockOverview\" src/main/java)",
+      "Bash(grep -rln \"lock_overview_dto_view\\\\|lock_overview\" src/main/resources/db/migration/)",
+      "Bash(grep -rli \"lock_overview\\\\|lock_overview_dto\" src/main/resources/db/migration/)"
     ]
   }
 }

@@ -6,9 +6,9 @@ version: v2
 scope: cross-cutting
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-06-14
-verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui; §4.2 re-confirmed against 260610 Phase B (PR #41)
+updated: 2026-07-03
+last_verified: 2026-07-03
+verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui; §3.1/§3.2 updated for SBDEV-2390 (check-sso + kc-redirect-guard loop-breaker); §4.2 re-confirmed against 260610 Phase B (PR #41)
 related:
   - ./wms2-tenant-routing-datasource-topology.md
   - ./wms2-transaction-osiv-boundary-map.md
@@ -53,7 +53,7 @@ Two load-bearing facts to anchor the journey:
  │       b. plugins/initTenantAuth.client.js  — subdomain → clientName+warehouse;         │
  │          fetches /api/public/authConfig?key={warehouse}-{clientName}                   │
  │          stores tenantKeycloakConfig in localStorage + dispatches setWarehouse         │
- │       c. plugins/keycloak.client.js — new Keycloak(config).init(login-required, PKCE)  │
+ │       c. plugins/keycloak.client.js — new Keycloak(config).init(check-sso, PKCE)       │
  │          stashes state on window.__keycloakState                                       │
  │       d. plugins/persistedState.client.js — rehydrates Vuex from localStorage          │
  │       e. plugins/cookie.js (client only) — inject $cookies                             │
@@ -164,6 +164,8 @@ const getGlobalState = () => {
 Why `window`? Nuxt's module system can re-evaluate the plugin module when navigating between pages. A module-scope variable would be `null` on the new page, triggering a second `Keycloak.init(...)` and a double login redirect. `window` survives navigation.
 
 Web UI has an analogous setup; confirm against `v2/wms2-web-ui/plugins/keycloak.client.js`.
+
+**Redirect-loop breaker (SBDEV-2390).** Both UIs init with `onLoad: 'check-sso'` (not `login-required`), so `init()` resolves without a forced redirect and hands control back to app code. Every `keycloak.login()` is then routed through `guardedLogin()` in `plugins/kc-redirect-guard.js`, which counts attempts in per-tab `sessionStorage` and, after `MAX_KC_REDIRECTS` (2), redirects to `/unknown-tenant?reason=auth` (mobile: `/mobile/unknown-tenant?reason=auth`) instead of bouncing again — the hard termination guarantee against the refresh/redirect loop. `resetRedirectCount()` fires on successful auth. A bare `login-required` would redirect *inside* `init()` before the guard could run, which is why `check-sso` is load-bearing here, not cosmetic.
 
 ### 3.3 `axios.js` — headers and retry
 
@@ -329,5 +331,6 @@ Retry-inside-axios (step 4 in the journey) is the second layer: when a request c
 |---|---|---|---|
 | 2026-04-19 | Frontend plugin chain (both UIs), backend `TenantFilter` → `MultiTenantJwtDecoder` → `TenantIdentifierResolver` → `TenantDynamicRoutingDataSource`, axios interceptor header contract, token refresh loop on `window.__keycloakState`, post-commit hook pattern | All file:line refs confirmed against source; cross-linked to tenant-routing + transaction architecture docs | Code read + accumulated evidence from prior doc sweeps |
 | 2026-06-14 | §4.2 `MultiTenantJwtDecoder` per-tenant decoder cache — confirmed body matches the merged 260610 hardening Phase B (`expireAfterWrite(24h)`, `maximumSize(200)`, GAP F fix, PR #41). Spot-check of §4.2 only, not a full doc re-sweep | Matches code; `last_verified` bumped | Doc-drift audit (verify-docs) |
+| 2026-07-03 | §3.1 diagram + §3.2 — updated for SBDEV-2390: both UIs now init with `onLoad: 'check-sso'` (was `login-required`) and gate `login()` through the `kc-redirect-guard.js` sessionStorage loop-breaker (`MAX_KC_REDIRECTS=2` → `/unknown-tenant?reason=auth`). Confirmed against branches `tasks/SBDEV-2390-pickpack-keycloak-refresh-loop` (wms2-web-ui PR #6, wms2-mobile-ui PR #6) | Diagram was stale (`login-required`); corrected + loop-breaker documented | Doc update (verify-docs follow-up) |
 
-**Re-verify every 60 days.** Next due: **2026-08-13** — this doc spans 3 projects; any plugin change or backend filter change invalidates sections here.
+**Re-verify every 60 days.** Next due: **2026-09-01** — this doc spans 3 projects; any plugin change or backend filter change invalidates sections here.
