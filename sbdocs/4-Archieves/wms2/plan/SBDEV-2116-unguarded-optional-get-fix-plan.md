@@ -12,7 +12,7 @@ requester: ""
 created: "2026-05-03"
 updated: "2026-05-03"
 related:
-  - "sbdocs/1-Projects/wms1/plan/SBDEV-2116-unguarded-optional-get-fix-plan.md"
+  - "sbdocs/4-Archieves/wms1/plan/SBDEV-2116-unguarded-optional-get-fix-plan.md"
 tags:
   - plan
   - v2-port
@@ -27,7 +27,7 @@ db_verified: true
 **Status:** ready
 **Date:** 2026-05-03
 
-**V1 Source Plan:** `sbdocs/1-Projects/wms1/plan/SBDEV-2116-unguarded-optional-get-fix-plan.md`
+**V1 Source Plan:** `sbdocs/4-Archieves/wms1/plan/SBDEV-2116-unguarded-optional-get-fix-plan.md`
 **V1 Commits:** `5c4fc5d` (Phase 0+1) · `cca3cc9` (Phases 2–4) · `7e4d7ad` (throws propagation) · `271958e` (test throws)
 
 ---

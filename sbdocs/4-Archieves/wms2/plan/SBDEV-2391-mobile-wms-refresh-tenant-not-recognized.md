@@ -4,7 +4,7 @@ ticket: "SBDEV-2391"
 ticket_url: "https://app.clickup.com/t/868jwjyg1"
 type: "bugfix"
 priority: "High"
-status: "implemented"
+status: archived
 project: ["wms2-mobile-ui"]
 version: "v2"
 requester: "Brent Campbell"
@@ -566,3 +566,6 @@ _Filled in after authoring the script (see §9 for expectations)._ Recorded in t
 - [x] ADR present (Decision, Drivers, Alternatives, Why chosen, Consequences, Follow-ups).
 - [x] AC1–AC8 adapted for mobile; each maps to a named Jest test.
 - [x] Verify-script path + dry-run expectation documented.
+
+
+> **Archived 2026-07-25.** Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2391-mobile-wms-refresh-tenant-not-recognized.sh`.

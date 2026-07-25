@@ -30,7 +30,7 @@ tags:
 **Status:** draft
 **Date:** 2026-07-21
 
-**Pairs with:** `sbdocs/1-Projects/wms2/plan/SBDEV-2485-club-split-unitload-reprint-label.md` (identical logic; same base name).
+**Pairs with:** `sbdocs/4-Archieves/wms2/plan/SBDEV-2485-club-split-unitload-reprint-label.md` (identical logic; same base name; v2 archived 2026-07-25 after wms2-api PR #86).
 
 > **Review of record:** Per the `wms-bugfix-plan` small-fix exception, the ralplan consensus loop is skipped. The fix is a one-line semantic change plus dead-code removal in a single private method with one caller. The Explore code trace + live UAT DB verification (§1) + full-method read serve as the review of record. Test-first via `wms-tdd-gate`.
 

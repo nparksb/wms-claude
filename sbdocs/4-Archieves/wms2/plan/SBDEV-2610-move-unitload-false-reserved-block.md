@@ -4,12 +4,12 @@ ticket: "SBDEV-2610"
 ticket_url: "https://app.clickup.com/t/9006034209"
 type: bugfix
 priority: high
-status: draft
+status: archived
 project: [wms2]
 version: v2
 requester: "Scott Dalton (ST#1047, WineCo)"
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-07-22
 db_verified: partial
 related:
   - "[[SBDEV-2610-move-unitload-false-reserved-block]]"
@@ -27,12 +27,16 @@ tags:
 **Ticket:** [SBDEV-2610](https://app.clickup.com/t/9006034209) (ST#1047, WineCo)
 **Project:** wms2 | **Version:** v2 (`wms2-api`, Java 21 / Spring Boot 3.5.9) | **Type:** bugfix (UX/observability) + latent-bug hardening
 **V1 source plan:** [[SBDEV-2610-move-unitload-false-reserved-block]] (`sbdocs/1-Projects/wms1/plan/`)
-**Status:** Draft — revised after v2 critic + architect review (2026-07-20)
-**Date:** 2026-07-20
+**Status:** Draft — revised after v2 critic + architect review (2026-07-20); **ops gate resolved from v1 `release` evidence (2026-07-22)**
+**Date:** 2026-07-20 (updated 2026-07-22)
 
 > **Port of the corrected v1 plan, then hardened by a v2-specific critic + architect pass.** The v1 incident cause is the **SBDEV-2492 in-progress-replenishment block**, not `checkReservedStock`. **v2 review found a decisive gap the v1 story doesn't have:** because of the v2 SBDEV-2074 refactor, that block is thrown from **two byte-identical sites** — see Bug 1. `checkReservedStock` dead-end is a separate latent bug (Part 2), splittable.
 
-> **🚦 BLOCKING gate:** confirm (1) deployed v2 build on the affected tenant, (2) exact operator error text, (3) **whether any tenant is live on v2 for this flow**, and (4) **whether the incident move targeted a replenishable or non-replenishable destination** — this decides which of the two throw sites (§2 Bug 1) the operator actually hit.
+> **📍 Incident origin (confirmed 2026-07-22):** this defect was reported on **WineCo production running `wms1-wineco` (WMS v1)** — it is a **WMS v1 incident being fixed forward in v2**. On v1 `release` (production) the block is thrown from **exactly ONE unconditional site**, `ReplenishmentOrderSourceSyncService.java:61` (`syncForMovedStockUnit`), with **no `isReplenishableDestination` gate** — it fires for *every* destination type. The two-site split is a **v2-only artifact of the SBDEV-2074 refactor**. The v1 `release` message **already includes** `replenOrderNumber=` + `ro.getNumber()`; v2 regressed on the port (bare string), so Fix A1 *restores* v1 behavior.
+
+> **🚦 Ops gate — RESOLVED (2026-07-22), see §10:**
+> - **(Q5) which throw site?** N/A for a v1-origin incident — v1 has one *unconditional* site, so the incident is **destination-agnostic**; **both** v2 sites are on the incident path → the shared `replenBlockMessage` builder is **mandatory** (not "preferred"), and the "replenishable vs non-replenishable destination" sub-question is **moot**.
+> - **(Q6) any tenant live on v2?** **No.** WineCo v2 cutover is mid-flight (dev+uat done, human phases G–K outstanding). This plan is a **pre-emptive forward-port**; there is **no live v2 tenant DB** to reproduce against or to run C1 reconciliation on. Reproduce on v1 `release`/`wms1-wineco` or a v2 dev/uat copy.
 
 ## 2. Summary
 
@@ -81,6 +85,8 @@ if (state >= WmsConstants.State.STARTED) {
 ```
 **Fix:** extract `replenBlockMessage(Replenishorder ro)` (order number + source-location name) and call it from both sites. Both have the loaded order in hand (`SourceSync:89`, `Maintenance:179`, both `findByIdForUpdate`). The mobile UI renders the `BusinessException` message verbatim (`RestExceptionHandler`), so this text *is* the operator-facing channel for the block itself.
 
+> **Shared builder is MANDATORY (not "preferred").** v1 `release` (production) throws this block from a **single unconditional** site (`ReplenishmentOrderSourceSyncService:61`, no destination-replenishability gate) that fires for *both* destination types. The v2 SBDEV-2074 refactor split that one site into two conditional ones, so patching only one would leave the other destination-type path behaving **unlike v1 production**. Both v2 sites MUST route through `replenBlockMessage`. Note v1's message already carries `replenOrderNumber=`; v2 must restore it at both sites.
+
 **Truth table (why both sites matter):**
 | Destination | Replen state | Outcome |
 |---|---|---|
@@ -102,15 +108,16 @@ Guarded, per-tenant one-off admin job/endpoint iterating orphans and calling `St
 
 | # | Prerequisite | Value / action | Notes |
 |---|---|---|---|
-| 1 | **🚦 Ops confirmation (BLOCKING)** | deployed v2 build + exact operator message + is any tenant live on v2 + **replenishable vs non-replenishable destination** | (4) decides which throw site (§2) was hit |
-| 2 | Reconciliation | audited admin job, per tenant DB (NEW-1); **no Flyway migration** | fresh DBs have no orphans |
-| 3 | Reconciliation target | re-run §6 orphan query on the **live v2 tenant** — dev count is a migration artifact | dynamic |
+| 1 | ~~🚦 Ops confirmation (BLOCKING)~~ **RESOLVED 2026-07-22** | v1-origin incident (`wms1-wineco` prod); no v2 tenant live; both v2 sites on incident path | Q5/Q6 answered from v1 `release`; sub-question (4) moot — see §10 |
+| 2 | Reconciliation | audited admin job, per tenant DB (NEW-1); **no Flyway migration** | fresh DBs have no orphans; **defer until a tenant is live on v2 (Q6)** |
+| 3 | Reconciliation target | re-run §6 orphan query on the **live v2 tenant** — dev count is a migration artifact | dynamic; **no live v2 tenant yet (Q6)** |
 | 4 | Deploy order | wms2-api (A1/B1) before wms2-mobile-ui (A2) | UI relies on API message + new DTO field |
 | 5 | Flags / sysprops / external / access | admin-job trigger may need a role gate | otherwise N/A |
+| 6 | Reproduction env | v1 `release` / `wms1-wineco` copy, or a v2 dev/uat copy | no v2 production tenant exists for this flow (Q6) |
 
 ### 5.2 Implementation Checklist
-- [ ] Gate: ops confirms build + operator message + v2-live status + destination replenishability.
-- [ ] Fix A1: shared `replenBlockMessage` builder; call from `ReplenishmentOrderSourceSyncService:92-94` **and** `ReplenishmentOrderMaintenanceService:181-184`.
+- [x] Gate: RESOLVED 2026-07-22 — v1-origin incident (`wms1-wineco` prod), no v2 tenant live, both v2 sites on incident path, destination-replenishability sub-question moot (§10 Q5/Q6).
+- [ ] Fix A1: **MANDATORY** shared `replenBlockMessage` builder; call from `ReplenishmentOrderSourceSyncService:92-94` **and** `ReplenishmentOrderMaintenanceService:181-184` (v1 had one unconditional site → both v2 sites must match).
 - [ ] Fix A2: `TransferInfoDto` active-replen field populated in `scanUnitLoad`; wms2-mobile-ui view.
 - [ ] Fix B1: rewrite `checkReservedStock` (read-only; reuse `findByPickfromstockunitId`; pick-state<600; no broadened lookup; keep recursion).
 - [ ] Fix C1: audited per-tenant admin job via `changeReservedAmount`; orphan-report SQL.
@@ -187,14 +194,29 @@ v2 tests: modern Mockito; H2-suffixed unit tests or Testcontainers (ITs `@Disabl
 | 1 | Keep the `>=STARTED` block? | **Keep** (mirror v1); make it clear + visible. |
 | 2 | Part 2 here or sibling ticket? | Kept, separable. |
 | 3 | Broadened `findOpenSourceHolder` | **Dropped** (architect H2, mirror v1). |
-| 4 | Reconciliation delivery | **Audited admin job** (NEW-1); no Flyway migration; SQL for report only. |
-| 5 | Which throw site did the incident hit? | **OPEN — ops gate row 1(4):** replenishable → SourceSync:94; non-replenishable → Maintenance:183. |
-| 6 | Is any tenant live on v2 for this flow? | **OPEN — ops gate.** |
+| 4 | Reconciliation delivery | **Audited admin job** (NEW-1); no Flyway migration; SQL for report only. Defer execution until a tenant is live on v2 (Q6). |
+| 5 | Which throw site did the incident hit? | **RESOLVED 2026-07-22 — N/A / both.** The incident is a **v1 production** defect (`wms1-wineco`). On v1 `release` the block is thrown from a **single unconditional** site (`ReplenishmentOrderSourceSyncService:61`, no destination gate) that fires for every destination type. That one site maps onto **both** v2 sites (SourceSync:94 + Maintenance:183), so the incident is **destination-agnostic** and both must be fixed — the replenishable-vs-non-replenishable sub-question is **moot**. Shared `replenBlockMessage` builder is therefore **mandatory**. |
+| 6 | Is any tenant live on v2 for this flow? | **RESOLVED 2026-07-22 — No.** Incident was on WineCo prod (WMS v1); WineCo v2 cutover is mid-flight (human phases G–K outstanding). This plan is a **pre-emptive forward-port**; no live v2 tenant DB exists to reproduce against or to run C1 on. Reproduce on v1 `release`/`wms1-wineco` or a v2 dev/uat copy. |
 | 7 | `V2.2.04` migration? | **Dropped** — fresh DBs have no orphans. |
+| 8 | Does v1 `release` already show the order number? | **Yes** — v1 message includes `replenOrderNumber=` + `ro.getNumber()`. If the reported operator saw a numbered message and was *still* confused, the real UX gap is **A2 (early surfacing on first scan)**, not A1 (message text). Confirm which message the operator actually saw before treating A1 as the ticket-closer. |
 
 ## 11. Implementation Status
 
-_Not implemented. Blocked on the §5.1 ops gate. Record on execution: v2 build confirmation, commit SHA(s), test names, `mvn clean compile`/`mvn test` summary, verify-script line._
+**IMPLEMENTED 2026-07-22** (ops gate resolved from v1 `release` evidence — v1 production incident `wms1-wineco`, fixed forward in v2; C1 reconciliation *execution* deferred until a v2 tenant is live per Q6).
+
+| Fix | Delivered |
+|---|---|
+| A1 | Shared `ReplenishmentOrderMessages.replenBlockMessage` (new) called from `ReplenishmentOrderSourceSyncService` + `ReplenishmentOrderMaintenanceService` — both throw sites name the replen order |
+| B1 | `MobileMoveUnitloadService.checkReservedStock` honest read-only rewrite (+ `PickingorderPositionRepository` collaborator); stranded→allow, active-pick→block(named), recursion kept, dead-end throw removed, invariant documented |
+| A2 | `TransferInfoDto.activeReplenNumber` populated in `scanUnitLoad`; `wms2-mobile-ui` `scanDestination.vue` alert |
+| C1 | `ReplenishmentReservationReconciliationService` + `ReplenishmentReconciliationController` (`sb_admin`, new) via audited `changeReservedAmount`; `StockunitRepository.findStrandedReservationStockunitIds` / `countStrandedReservationById` (report-only); no Flyway migration |
+
+- **Commits:** wms2-api `78ae88b`, wms2-mobile-ui `1dc3e35`
+- **PRs (into `develop`):** wms2-api [#90](https://github.com/SiteBossInc/wms2-api/pull/90); wms2-mobile-ui [#23](https://github.com/SiteBossInc/wms2-mobile-ui/pull/23) — **merge #90 first** (UI reads the new DTO field)
+- **Tests:** 9 new/updated unit tests, all green; full affected suite 113/0. `mvn clean compile` clean. Acceptance script `verify-SBDEV-2610-...-v2.sh` → **17 pass / 0 fail**. ITs `@Disabled` (SBDEV-2217).
+- **Review:** code-reviewer (thorough) — 0 CRITICAL / 0 HIGH; 2 MEDIUM fixed (B1 invariant doc + lifecycle-pinning test; C1 per-row stranded re-validation + softened idempotency claim); 4 LOW assessed as non-defects.
+- **Docs:** `wms2-move-stock-unitload-workflow.md` guard table + `last_verified` updated to match the new B1 behavior (verify-docs).
+- **Q8 (open, non-blocking):** v1 `release` already shows the order number, so confirm whether the operator's real gap was A1 (message) or A2 (early surfacing); A2 shipped regardless, covering both.
 
 ### Review trail
 - v1 plan: critic + architect (corrected the root cause from `checkReservedStock` → SBDEV-2492 block).
@@ -216,3 +238,6 @@ _Not implemented. Blocked on the §5.1 ops gate. Record on execution: v2 build c
 | 10 | Cross-version | ✓ paired v1 [[SBDEV-2610-move-unitload-false-reserved-block]] |
 
 **Acceptance script:** `sbdocs/9-System/scripts/verify-SBDEV-2610-move-unitload-false-reserved-block-v2.sh`
+
+
+> **Archived 2026-07-25.** The v2 acceptance script was retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2610-move-unitload-false-reserved-block-v2.sh`. The v1 script (`sbdocs/9-System/scripts/verify-SBDEV-2610-move-unitload-false-reserved-block.sh`, targets `v1/wms-api`) remains active — the v1 plan is still in `1-Projects/wms1/`.

@@ -12,7 +12,7 @@ created: "2026-07-10"
 updated: "2026-07-10"
 db_verified: false
 related:
-  - "../wms2/plan/260710-location-import-stale-rack-reference-optimistic-lock.md"
+  - "../../../4-Archieves/wms2/plan/260710-location-import-stale-rack-reference-optimistic-lock.md"
 tags:
   - plan
 ---
@@ -21,7 +21,7 @@ tags:
 
 **Status:** draft stub — filed 2026-07-10 concurrently with the v2 plan per its Critic review, to eliminate follow-up forget-risk. Flesh out before implementation.
 
-**Authoritative analysis:** `sbdocs/1-Projects/wms2/plan/260710-location-import-stale-rack-reference-optimistic-lock.md` (db_verified: true, Architect + Critic reviewed). Read it first — full RCA, DB evidence, fix rationale, and test design live there. This stub records only the v1 deltas.
+**Authoritative analysis:** `sbdocs/4-Archieves/wms2/plan/260710-location-import-stale-rack-reference-optimistic-lock.md` (db_verified: true, Architect + Critic reviewed). Read it first — full RCA, DB evidence, fix rationale, and test design live there. This stub records only the v1 deltas.
 
 ## v1 affected sites (verified 2026-07-10 in `v1/wms-api`)
 

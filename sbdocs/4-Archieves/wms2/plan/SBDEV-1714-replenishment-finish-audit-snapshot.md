@@ -4,7 +4,7 @@ ticket: "SBDEV-1714"
 ticket_url: "https://app.clickup.com/t/SBDEV-1714"
 type: bugfix
 priority: medium
-status: implemented
+status: archived
 project: [wms2]
 system: wms2
 version: "v2"
@@ -567,3 +567,6 @@ Three mechanisms were evaluated:
 ### Deferred (unchanged from plan)
 - `wms2-web-ui` follow-on to *display* `movedAmount`/`movedSourceUnitload` on closed records (API is additive; UI still shows legacy fields until then).
 - v1/wms-api paired plan — candidate, not started.
+
+
+> **Archived 2026-07-25.** Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-1714-replenishment-finish-audit-snapshot.sh`.

@@ -11,7 +11,7 @@ requester: Nam Park
 created: 2026-06-26
 updated: "2026-07-15"
 related:
-  - sbdocs/1-Projects/wms1/plan/260626-restore-replenishment-triggers-on-lock-state-changes.md
+  - sbdocs/4-Archieves/wms1/plan/260626-restore-replenishment-triggers-on-lock-state-changes.md
   - sbdocs/2-Areas/wms-v1-v2-sync/sweeps/2026-06-26b-wms-v1-sync.md
   - sbdocs/3-Resources/architecture/wms2-transaction-osiv-boundary-map.md
   - sbdocs/3-Resources/architecture/wms2-scheduled-jobs-catalog.md

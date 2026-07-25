@@ -2,16 +2,16 @@
 title: "Split Unit Load Missing Reprint Label Button in Club Process — v2 API"
 ticket: "SBDEV-2485"
 ticket_url: "https://app.clickup.com/t/868k4txce"
-pr: ""
+pr: "wms2-api PR #86 (merged → develop)"
 type: bug
 priority: high
-status: draft
+status: archived
 project:
   - wms2-api
 version: v2
 requester: "Brent Campbell (ClickUp SBDEV-2485)"
 created: 2026-07-21
-updated: 2026-07-21
+updated: 2026-07-25
 db_verified: true
 v1_source_plan: "[[SBDEV-2485-club-split-unitload-reprint-label]] (v1/wms-api)"
 related:
@@ -385,3 +385,6 @@ Checks: (A-pos-stock) `setPrintable(... entry.getValue() > 0 ...)`; (A-pos-lock)
 ### Follow-ups
 - v1 pair not yet implemented (same change; strict-stubbing removal required there).
 - Not committed — create `task/SBDEV-2485` branch + PR into `develop` on go-ahead.
+
+
+> **Archived 2026-07-25.** Merged as wms2-api PR #86 → develop. The v2 acceptance script was retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2485-club-split-unitload-reprint-label-v2.sh`. The v1 script (`sbdocs/9-System/scripts/verify-SBDEV-2485-club-split-unitload-reprint-label-v1.sh`, targets `v1/wms-api`) remains active — the v1 plan is still in `1-Projects/wms1/`.

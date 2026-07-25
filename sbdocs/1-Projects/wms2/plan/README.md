@@ -4,7 +4,7 @@ type: index
 status: active
 version: v2
 scope: wms2-planning
-updated: 2026-07-17
+updated: 2026-07-25
 tags: [moc, index, wms2]
 ---
 
@@ -18,7 +18,6 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 
 ## Current plans (filesystem snapshot)
 
-- [SBDEV-2485-club-split-unitload-reprint-label.md](SBDEV-2485-club-split-unitload-reprint-label.md) — **draft**; HIGH (urgent). v2 pair of the v1 plan — byte-identical path, ports 1:1. Club staging-lane view hides the print/reprint label button for **split-created** unit loads: `printable` gated on `goodsreceiptposition` membership (`CustomerorderBatchService:1161` via `findPrintableUnitLoadIds`), which split ULs never have. Fix (requester-approved + architect-refined): `printable = entry.getValue() > 0 && entityLock==NOT_LOCKED` (null-safe; has stock AND active — matches `reprintLabel`'s precondition, else button 500s on locked ULs) + delete the dead query — API-only, no UI change; `reprintLabel` Path-2 (`UnitloadService:241-255`) already prints split ULs. **db_verified** on wsl-wineco-uat (97.9% of stock-bearing ULs wrongly `printable=false`) + wms2-hydra-uat. Pairs [[../../wms1/plan/SBDEV-2485-club-split-unitload-reprint-label|v1]]
 - [260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md](260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md)
 - [260523-UTC-TIMEZONE-MIGRATION.md](260523-UTC-TIMEZONE-MIGRATION.md)
 - [260527-hydra-v1-to-v2-migration-runbook.md](260527-hydra-v1-to-v2-migration-runbook.md) — *Hydra (wh01, NY) UTC migration **run record**; procedure lives in the [SOP](../../../2-Areas/wms-utc-timezone-migration/README.md). A→C→F rehearsed on dev 2026-06-05; G–K pending*
@@ -32,8 +31,6 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 - [SBDEV-2238-4.6-oms-sync-reconciliation-job.md](SBDEV-2238-4.6-oms-sync-reconciliation-job.md) — *draft; MEDIUM — daily WMS↔OMS drift-detection job (last SBDEV-2238 sibling). Code prereqs (SBDEV-2221 + 4.1) now merged; still externally blocked on the OMS GET endpoint (stub below) + state-mapping sign-off + SRE alert rule.*
 - [SBDEV-2238-4.6-oms-order-state-get-endpoint.md](SBDEV-2238-4.6-oms-order-state-get-endpoint.md) — *draft STUB; MEDIUM — paired OMS prerequisite for 4.6: OMS must expose read-only `GET /api/order/{externalId}` (200+state / 404-unknown) for the reconciliation job to compare against. Not found in oms-laravel-api 2026-06-16.*
 - [SBDEV-1921-oms-batch-reversal-completed-endpoint.md](SBDEV-1921-oms-batch-reversal-completed-endpoint.md) — *draft STUB; HIGH — paired OMS prerequisite for SBDEV-1921: OMS must add `POST /services/call/batchReversalCompleted` (audit/status only, NO inventory write). Verified absent in oms-laravel-api 2026-06-16. Closes the parent plan once shipped + sysprop URL set per env.*
-- [SBDEV-1714-replenishment-finish-audit-snapshot.md](SBDEV-1714-replenishment-finish-audit-snapshot.md) — ***implemented** 2026-07-20 (wms2-api PR #83 → develop); MEDIUM — finished replenishments lose audit data (source UL shows `Nirwana`, Stock Unit Amount 0); confirmed on wms2-wineco-dev 164/168. Freeze moved qty + source/dest UL onto `replenishorder` at finish (Flyway V2.2.03, capture BEFORE the transfer mutates the source); forward-only. v2-only; UI display is a wms2-web-ui follow-on.*
-- [SBDEV-2610-move-unitload-false-reserved-block.md](SBDEV-2610-move-unitload-false-reserved-block.md) — **draft**; HIGH — v2 port of the corrected v1 plan (ST#1047, WineCo). Move Unit Load blocked while UI shows 0 reserved-out. Both mechanisms present in v2: incident = SBDEV-2492 in-progress-replen block `ReplenishmentOrderSourceSyncService:95` (v2 message OMITS the replen number that v1 has → Fix A1 bigger delta); `checkReservedStock:188-205` is byte-identical to v1 (latent dead-end, Part 2). Part 1 = clarify block + surface replen state (wms2-mobile-ui); Part 2 (splittable) = guard honesty + orphan reconciliation. NEW-1: reconciliation is an OPERATOR script, not startup Flyway (v2 app doesn't run Flyway); fresh-DB delta = V2.2.04. Dropped: replen release-target rework. 🚦 gate: confirm v2 deployed build + operator message + whether any tenant is live on v2 for this flow. Pairs [[../../wms1/plan/SBDEV-2610-move-unitload-false-reserved-block|v1]].
 
 > This list can drift. The Dataview section below is always authoritative in Obsidian; elsewhere run `ls sbdocs/1-Projects/wms2/plan/*.md`.
 

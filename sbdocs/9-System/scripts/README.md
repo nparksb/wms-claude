@@ -52,7 +52,9 @@ Cherry-picks v1 UI commits forward to v2 (Lane A of the weekly WMS v1→v2 sync 
 
 Per-plan verification harnesses (`verify-SBDEV-####-*.sh`, `verify-YYMMDD-*-*.sh`). These are generated alongside their plans by the `wms-bugfix-plan`, `wms-feature-plan`, and `wms-v2-migrate` skills, and are owned by the plan they ship with — not stable enough to enumerate here. To find the harness for a plan, match the filename stem (e.g. `verify-SBDEV-2216-*.sh` ↔ `SBDEV-2216-*.md`).
 
-Active scripts include `verify-SBDEV-2222-rest-inbound-no-idempotency-contract.sh` (REST inbound idempotency contract — pairs with `sbdocs/1-Projects/wms2/plan/SBDEV-2222-rest-inbound-no-idempotency-contract.md`).
+This directory holds **only** scripts whose paired plan is still active (in `1-Projects/wms{1,2}/plan/`). When a plan is archived, its verify script is retired to `sbdocs/4-Archieves/scripts/` alongside it (see the `archive-plan` skill, step 5e, and `4-Archieves/scripts/README.md` for the script→plan index). Durable regression protection lives in each repo's JUnit/CI suite; these harnesses are pre-merge acceptance gates.
+
+An example still active here: `verify-260520-rest-security-permitall-hardening.sh` (pairs with the active `sbdocs/1-Projects/wms2/plan/260520-rest-security-permitall-hardening.md`).
 
 ## Conventions
 

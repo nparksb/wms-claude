@@ -4,7 +4,7 @@ type: index
 status: active
 version: both
 scope: archives
-updated: 2026-04-25
+updated: 2026-07-24
 tags: [moc, index, archive]
 ---
 
@@ -22,10 +22,11 @@ See also: [vault index](../INDEX.md) · [plan template](../9-System/templates/wm
 |---|---|---|
 | [wms1/plan/](wms1/plan/) | Completed v1 plans (fixes, feature ports, migrations, audits) | 54 |
 | [wms1/analysis/](wms1/analysis/) | Closed v1 investigations & root-cause reports | 3 |
-| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 140 |
+| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 148 |
 | [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | 0 *(empty)* |
+| [scripts/](scripts/) | Retired plan verification harnesses (`verify-<plan-id>.sh`) whose plan is archived | 73 |
 
-> Counts refreshed against the filesystem 2026-07-15 (`ls wms*/plan/*.md | wc -l`); they drift as plans are archived — re-run to refresh. Treat Dataview output below as authoritative in Obsidian.
+> Counts refreshed against the filesystem 2026-07-25 (`ls wms*/plan/*.md | wc -l`; `ls scripts/verify-*.sh | wc -l`); they drift as plans are archived — re-run to refresh. Treat Dataview output below as authoritative in Obsidian.
 
 ---
 

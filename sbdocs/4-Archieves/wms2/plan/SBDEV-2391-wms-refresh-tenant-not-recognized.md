@@ -4,7 +4,7 @@ ticket: "SBDEV-2391"
 ticket_url: "https://app.clickup.com/t/868jwjyg1"
 type: "bugfix"
 priority: "High"
-status: "implemented"
+status: archived
 project: ["wms2-web-ui"]
 version: "v2"
 requester: "Brent Campbell"
@@ -472,3 +472,6 @@ Implemented in `v2/wms2-web-ui`, committed `1ecaf08` on branch `feature/SBDEV-23
 **Review trail:** code-reviewer round 1 → CHANGES-REQUIRED (CRITICAL: `DISCOVERY_REDIRECT_KEY` unimported → runtime `ReferenceError`, masked by helper-only tests). Fixed + added plugin-level test (proven red→green by mutation). code-reviewer round 2 (delta) → **SHIP** (CRITICAL closed by mutation-check; no new Critical/High/Medium; one LOW verify-script precision nit on F4, since folded in).
 
 **Follow-ups:** (1) mobile-ui paired `SBDEV-2391` (Fix D + Fix E only — mobile already has `response.ok`; see §10 audit note). (2) Commit pending user approval (branch off `main` first).
+
+
+> **Archived 2026-07-25.** Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2391-wms-refresh-tenant-not-recognized.sh`.

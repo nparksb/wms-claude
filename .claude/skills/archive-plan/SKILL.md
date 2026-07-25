@@ -5,7 +5,7 @@ description: Move a completed plan file from 1-Projects/wms{1,2}/plan/ to 4-Arch
 
 # archive-plan
 
-Cleanly complete a plan's lifecycle: move the file, update the frontmatter, patch both MOCs. Manual archival is error-prone (people skip the frontmatter flip or forget one README); this skill does all four steps in the right order.
+Cleanly complete a plan's lifecycle: move the file, update the frontmatter, patch both MOCs. Manual archival is error-prone (people skip the frontmatter flip or forget one README); this skill does all the steps in the right order.
 
 ## What this skill IS and is NOT
 
@@ -42,9 +42,9 @@ Flag if:
 - `status` is already `archived` — probably already done; confirm with user.
 - `version` mismatches the folder (v1 plan in wms2 folder or vice versa) — stop and surface.
 
-### 3. Plan the four operations
+### 3. Plan the operations
 
-Print this list verbatim so the user can confirm:
+Print this list verbatim so the user can confirm (the script line applies only when step 5e finds a script whose base has no active sibling plan):
 
 ```
 Archival plan for <filename>:
@@ -55,11 +55,13 @@ Archival plan for <filename>:
          (preserve all other fields; append today's date to the Verification Log if the plan has one)
   3. Remove the plan's row from sbdocs/1-Projects/wms{1,2}/plan/README.md
   4. Bump the archive count in sbdocs/4-Archieves/README.md (~N → ~N+1 for wms{1,2}/plan/)
+  5. (if a paired verify script exists — see 5e) mv sbdocs/9-System/scripts/verify-<plan-id>.sh
+        sbdocs/4-Archieves/scripts/verify-<plan-id>.sh, then refresh 4-Archieves/scripts/README.md
 ```
 
 ### 4. Require explicit confirmation
 
-In dry-run mode, stop here. Otherwise, prompt: "Proceed with these 4 operations?" and wait for "yes" / "proceed" / explicit confirmation.
+In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" and wait for "yes" / "proceed" / explicit confirmation.
 
 ### 5. Execute in order
 
@@ -67,10 +69,11 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these 4 operations?
 - **5b.** Edit the moved file's frontmatter — flip `status` and append a row to the Verification Log table if one exists.
 - **5c.** Edit the source (active) README — remove the matching `- [<filename>](<filename>)` line (or its equivalent in the inventory table). Preserve the rest of the README.
 - **5d.** Edit `4-Archieves/README.md` — increment the `~N` count by 1 for the matching row. Leave the commentary untouched.
-- **5e.** Handle the verify script (added 2026-04-25). For every plan the actionable-plan skills emit (`wms-bugfix-plan`, `wms-feature-plan`), there is a paired acceptance script at `sbdocs/9-System/scripts/verify-<plan-id>.sh` where `<plan-id>` is the plan filename without `.md`.
-   - **Default: leave the script in place.** Verify scripts are permanent regression-checks; they prove the structural fix is still applied years later. A future contributor changing the touched code can run the script and confirm the contract isn't regressed.
-   - In the moved plan's frontmatter (or in a new "Archive note" sub-section), append a one-line cross-reference: `> Acceptance script retained at sbdocs/9-System/scripts/verify-<plan-id>.sh`.
-   - **If the user explicitly asks to archive the script too**, move it to `sbdocs/4-Archieves/scripts/verify-<plan-id>.sh` (create the directory if missing) and update the plan's reference accordingly. Default to retain unless asked.
+- **5e.** Handle the verify script (default flipped 2026-07-24). For every plan the actionable-plan skills emit (`wms-bugfix-plan`, `wms-feature-plan`, `wms-v2-migrate`), there is a paired acceptance script at `sbdocs/9-System/scripts/verify-<plan-id>.sh` where `<plan-id>` is the plan filename without `.md` (some plans also have suffixed siblings — `-v2`, `-web`, `-mobile`, `-followup`, `-prekickoff`).
+   - **Default: retire the script alongside the plan.** Move it to `sbdocs/4-Archieves/scripts/verify-<plan-id>.sh` (create the dir if missing). Rationale: these harnesses are *pre-merge acceptance gates*, not living CI — durable regression protection belongs in each repo's JUnit suite. Keeping the active pool (`9-System/scripts/`) signal-rich matters more than the rarely-realized "future contributor greps for the script" case (there is no code→script index).
+   - **Guardrail — map each script to a version, not just a base (refined 2026-07-25).** v1/v2 plan pairs share a base name and usually have *two* scripts distinguished by suffix (`verify-<base>.sh` / `verify-<base>-v2.sh`, or `-v1`/`-v2`). Each script pins its target repo in its `PROJECT_ROOT` line (`.../v1/wms-api` vs `.../v2/wms2-api`) — `grep -n PROJECT_ROOT` to read it. Retire only the script(s) whose target repo matches the plan being archived; **keep any script pointing at a repo whose sibling plan is still active in `1-Projects/`.** Example: archiving the v2 plan of a pair retires `...-v2.sh` (targets `v2/wms2-api`) but leaves the base/`-v1` script (targets `v1/wms-api`) because the v1 plan is still active. If a script's `PROJECT_ROOT` is ambiguous or a single script covers both repos, fall back to the conservative rule: keep it until every plan sharing the base is archived.
+   - After moving, append/refresh the row in `sbdocs/4-Archieves/scripts/README.md` (the script→plan index table) and add a one-line pointer to the moved plan's Archive-note/frontmatter: `> Acceptance script retired to sbdocs/4-Archieves/scripts/verify-<plan-id>.sh`.
+   - **Opt-out (`--keep-script`):** if the user wants the script to stay an active regression check, leave it in `9-System/scripts/` and instead add `> Acceptance script retained at sbdocs/9-System/scripts/verify-<plan-id>.sh` to the plan.
    - If no script exists for this plan (e.g. legacy archive predating the convention), simply skip 5e — do not auto-generate one.
 
 ### 6. Re-audit
@@ -102,4 +105,4 @@ The archival plumbing is atomic at the filesystem level but the user may want to
 
 ## Exit criteria
 
-Done when the 4 operations are applied, re-audit shows 0 drift, and the user confirms visually (or runs `git status` and sees a clean diff).
+Done when the operations are applied (including any verify-script retirement from 5e), re-audit shows 0 drift, and the user confirms visually (or runs `git status` and sees a clean diff).

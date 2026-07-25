@@ -22,8 +22,10 @@ file_contains()     { grep -qE "$1" "$2"; }
 file_not_contains() { ! grep -qE "$1" "$2"; }
 # any file under a set of dirs contains the regex (globstar-based, no compgen multi-pattern bug)
 tree_contains() { local re=$1; shift; grep -rqlE "$re" "$@" 2>/dev/null; }
-mvn_compiles()    { mvn -q clean compile 2>&1 | grep -qE "BUILD SUCCESS"; }
-mvn_test_passes() { mvn test -Dtest="$1" -DfailIfNoTests=false -q 2>&1 | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"; }
+# Rely on mvn's EXIT CODE (0 = success), not on a "BUILD SUCCESS" banner — `-q` suppresses that
+# banner, so grepping for it always failed even on a clean build (verify-script bug, fixed here).
+mvn_compiles()    { mvn -q clean compile >/dev/null 2>&1; }
+mvn_test_passes() { mvn -q test -Dtest="$1" -DfailIfNoTests=false >/dev/null 2>&1; }
 
 SRC=src/main/java/net/aim_ai/wms/service/ReplenishmentOrderSourceSyncService.java
 MNT=src/main/java/net/aim_ai/wms/service/ReplenishmentOrderMaintenanceService.java

@@ -7,8 +7,8 @@ scope: transfer-order
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-08
-verified_by: code read of v2/wms2-api TransferOrderService + TransfersController + BillofladingService.transferOrder/finishTransfer + AdviceService.acceptTransferAdvice
+last_verified: 2026-07-23
+verified_by: code read of v2/wms2-api TransferOrderService + TransfersController + BillofladingService.transferOrder/finishTransfer + AdviceService.acceptTransferAdvice; SBDEV-1762 partial-depletion toggle added (see plan SBDEV-1762-transfer-lane-club-like-depletion)
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -149,6 +149,7 @@ At `service/TransferOrderService.java`:
 | `assignTransferLane(Customerorder co)` | 125 | `co.state = 510` (variant without location arg) | none |
 | `unlinkTransferLaneFromTransferOrder(Customerorder co)` | 104 | clears `transferlaneId` — no state change | `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` *(added 2026-06-29, fix `260629-transfer-lane-leak-on-cancel`; previously **none** → ran on the `@Primary` landlord TM in auto-commit)* |
 | `isEnoughStockOnTransferLane(Customerorder co)` | 132 | validation only; returns error string or null | none |
+| `isEnoughStockOnTransferLane(Customerorder co, boolean partial)` | — | **SBDEV-1762** overload. `partial=false` (default/OFF) delegates to the single-arg exact-match gate (byte-identical). `partial=true` (per-tenant opt-in) uses **reserved-adjusted** availability (`amount − reservedamount`), keeps only the "not enough" block, and DROPS the "too much" + foreign-SKU rejects so mixed/excess stock can share the lane. | none |
 
 ### 4.2 Pack step — `BillofladingService.transferOrder()`
 
@@ -283,6 +284,7 @@ Mobile page `/mobile/transfer-order` — role gate is `WEB_UI_VIEW_TRANSFER_ORDE
 8. **No reopen for a finished transfer.** Once `Advice.state = FINISHED` at destination and BOL closes, there's no rollback path. A bad transfer needs a brand-new return / adjustment cycle.
 9. **Mobile uses `WEB_UI_*` role.** The mobile transfer-order page is gated by `WEB_UI_VIEW_TRANSFER_ORDER`, not a `MOBILE_UI_*` role. A Keycloak realm that strictly separates web and mobile role sets will block mobile operators. Document this in tenant onboarding.
 10. **`isEnoughStockOnTransferLane` validation is advisory.** It returns an error string the caller must check — it doesn't throw. A caller that ignores the return value will happily proceed with insufficient stock and produce an inconsistent pack.
+11. **SBDEV-1762 — club-like partial depletion (per-tenant opt-in, default OFF).** Sysprop `TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED` (`WmsConstants.SYSTEM_PROPERTY_TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED_KEY`, read once at the top of `transferOrder`). When ON, `transferOrder` depletes only the order's required SKUs/quantities (`min(needed, amount − reservedamount)`), leaves foreign SKUs / same-SKU excess / reserved stock on the lane, walks lane ULs + leaf SUs in ascending id order (deterministic lock acquisition), and fails loud (`BusinessException "Transfer under-delivered…"`) if any required SKU is unmet. OFF is byte-identical to the exact-match sweep above. Concurrency: the ON path stays on the canonical SU→UL→Location lock order (no cross-caller inversion); a rare same-lane concurrent-transfer 40P01 is an accepted atomic-rollback fail-fast (a deadlock-retry / primitive Location-first reorder is deferred to a follow-up). Carrier-staged lanes: ON only relocates a carrier UL to Nirvana if it is genuinely empty after depletion (else `relocateEmptiedContainer` would throw "is carrier!"). Full design: plan `SBDEV-1762-transfer-lane-club-like-depletion`.
 
 ---
 
@@ -306,5 +308,6 @@ Mobile page `/mobile/transfer-order` — role gate is `WEB_UI_VIEW_TRANSFER_ORDE
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | `TransferOrderService` (6 methods), `TransfersController` (14 endpoints), `BillofladingService.transferOrder` (line 702), `BillofladingService.finishTransfer` (line 898), `AdviceService.acceptTransferAdvice` (line 356), `OrderBatchType` constants, `MobileTransferOrderService`, OMS callback wiring | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
+| 2026-07-23 | SBDEV-1762 implemented on `feature/SBDEV-1762-transfer-lane-club-like-depletion`: `TransferOrderService.isEnoughStockOnTransferLane(co, boolean)` reserved-adjusted overload; `BillofladingService.transferOrder`/`combineStock` partial-depletion behind the `TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED` sysprop (default OFF); §4.1 + §10 item 11 added. States unchanged (CO→PACKED, batch→ORDER_BATCH_CLUB_RUN_FINISHED). 14 unit tests + verify script green. | §4.1/§10 updated; OFF byte-identical confirmed | Code read + unit suite |
 
-**Re-verify every 90 days.** Next due: **2026-07-18** — transfer flow is stable but any new `OrderBatchType` value invalidates §6.
+**Re-verify every 90 days.** Next due: **2026-10-21** — transfer flow is stable; any new `OrderBatchType` value invalidates §6, and any change to the SBDEV-1762 partial-depletion path invalidates §10 item 11.

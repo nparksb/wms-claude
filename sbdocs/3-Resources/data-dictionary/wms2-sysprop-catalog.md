@@ -6,9 +6,9 @@ version: v2
 scope: sysprops
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-07-10
-verified_by: code read of v2/wms2-api WmsConstants.java:879-1069 and SyspropService.java
+updated: 2026-07-24
+last_verified: 2026-07-24
+verified_by: SBDEV-1762/1666 lane-toggle seed provenance (Flyway V2.2.04, PR #93); constants land via open PRs #91/#92. Prior full read of WmsConstants.java + SyspropService.java (2026-04-19)
 related:
   - ../architecture/wms2-scheduled-jobs-catalog.md
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -24,7 +24,7 @@ tags:
 # WMS v2 — System Property (Sysprop) Catalog
 
 **Scope:** Every `sysprop` key consumed by `v2/wms2-api` · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-04-19
+**Owner:** Nam Park · **Last verified:** 2026-07-24
 
 ---
 
@@ -38,7 +38,7 @@ Three things to keep in mind:
 2. **`@Cacheable(value = "sysprops", key = "{facilityCode}:{key}")`** is applied to `getSysvalue` and `getByKey`. Changes to `sysprop` table rows are **not** immediately visible to running processes — the cache TTL must expire or the service restart.
 3. **Fallback chain** is tenant-DB row → system-client default value (constant) → null. There is no env-var or `application.properties` path.
 
-**Total keys documented:** ~76 (WmsConstants.java lines 879–1069). A handful more use magic strings passed as parameters (see §11).
+**Total keys documented:** ~77 (WmsConstants.java lines 879–1069). A handful more use magic strings passed as parameters (see §11).
 
 ---
 
@@ -195,6 +195,7 @@ These drive `ReplenishOrderJob` and `ReplenishmentOrderMaintenanceService`.
 | `REPLENISHMENT_PAGE_LIMIT` | `100` | Max drain-queue iterations per sub-op (all 6 sub-ops including 6a). All sub-ops use drain-queue; empty-page terminates normally. Introduced SBDEV-2228. |
 | `FIX_LOCATION_PAGE_LIMIT` | `100` | Max pages for the fix-location prefetch loop in `OrderReleaseJob.releaseOrders`. Logs a warning when cap is hit (map may be incomplete). Introduced SBDEV-2228. |
 | `OMS_EXPORT_CONSUMER_TIMEOUT_S` | `120` | Seconds the `StockSummaryExportJob` OMS consumer thread waits to enqueue a chunk, receive the POISON_PILL, and for `join()`. Min 30. Prevents the advisory lock being held indefinitely when OMS is slow. Introduced SBDEV-2228. |
+| `REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED` | `false` | Per-tenant opt-in (SBDEV-1666). When `true`, staging/transfer lanes (`location.staginglane`/`transferlane`) are never selected as a replenishment **source** — threaded as a bound `:excludeLanes` boolean into the gated source/shortage queries (`getStockUnitsByNotLockedAndItemIdAndUseForDeepStorage`, `getAvailableReplenishmentSources`, `findUnitloadsByItemDataIdForReplenish`, `getRefillFixedLocations(Ids)`, `getIdsForItemDataWithoutFixedAssignment(+Page)`), and mirrored in `isSourceUsable`, `syncForMovedStockUnit` (destination-lane guard), and the mobile manual re-source check. OFF path is plan-identical (`:excludeLanes = FALSE` constant-folds). Absent row → `Boolean.parseBoolean(null)=false` → OFF. NOTE: the two HAL display queries (`getStockUnitInfoForReplenishment`, `getStockUnitsForReplenishment`) and the replenishment monitor view exclude lanes **unconditionally** (display-only, not gated by this key). **Seed:** row seeded **default OFF** by Flyway **V2.2.04** (`V2.2.04__seed_lane_behavior_sysprop_toggles.sql`, PR #93); constant + gating land via PR #92 (SBDEV-1666, open). |
 
 ---
 
@@ -304,6 +305,12 @@ No `*_DEFAULT_VALUE` constants — **these rows must be populated per-tenant** o
 |---|---|---|
 | `ENFORCE_PARTITIONALLOWED` | `true` (default ON) | **SBDEV-2512** kill-switch for the overstock-release `partitionallowed` guard in `ReleaseOrderJobService.releaseOrder`. When ON, a non-partitionable (`partitionallowed=false`) customer-order position that no **single** stock unit can cover is **held** (position `RAW_ON_HOLD_NOT_ENOUGH_STOCK_ON_LOCATION`, order `RAW_ON_HOLD`) rather than fragmented across units (Fix A, round-2 cumulative), and a coverable one takes exactly **one** pick from a single covering unit (Fix B, phase 3). Read once per release via `SyspropService.getSysvalue`; **absent/null row also enforces** (`!"false".equalsIgnoreCase(...)`), so it is safe before seeding. Set `false` to restore legacy fragmenting behavior with **no redeploy** (Caffeine `sysprops` TTL ~2 min). Every v2 position is non-partitionable today (`OrderBatchCreationService` hard-codes `setPartitionallowed(false)`), so this is a 100%-blast-radius cron guard — the Fix A hold emits a mandatory `LOG.info`. |
 
+### Transfer orders — lane depletion
+
+| Key | Default | Purpose |
+|---|---|---|
+| `TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED` | `false` | Per-tenant opt-in (SBDEV-1762). When `true`, the Transfer-Order "run transfer" flow (`BillofladingService.transferOrder`) deplete-consumes **only** the order's required SKUs + quantities from the transfer lane — club-like — instead of the legacy exact-match + sweep-everything. Read once per `transferOrder` call via `SyspropService.getSysvalue`; absent row → `Boolean.parseBoolean(null)=false` → OFF (byte-identical to legacy). Constant + gating land via PR #91 (SBDEV-1762, open). **Seed:** row seeded **default OFF** by Flyway **V2.2.04** (`V2.2.04__seed_lane_behavior_sysprop_toggles.sql`, PR #93). |
+
 ### Misc
 
 | Key | Default | Purpose |
@@ -378,5 +385,6 @@ The `UtilRestController` case is expected — it's a generic read-any-sysprop ad
 | 2026-04-19 | `WmsConstants.java:879-1069` constants, `SyspropService.java` method signatures + caching annotation, fallback chain, magic-string consumers, "missing default" set | All keys + defaults + consumer shape confirmed | Code read (grep-based) |
 | 2026-07-10 | Added `ENFORCE_PARTITIONALLOWED` (SBDEV-2512 overstock-release guard kill-switch, default ON) to §10 Picking — Order-release behavioral guards; total ~75→~76. | New key documented | SBDEV-2512 v2 port |
 | 2026-07-19 | Documented `db/configure-client-sysprops.sh` (SBDEV-2607) as the greenfield per-client sysprop seeding tool; noted the `V2.2.00` base-dump placeholder is `CHANGE-ME-FOR-NEW-CLIENT`. No new keys. | Onboarding tooling documented | SBDEV-2607 |
+| 2026-07-24 | Added `TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED` (SBDEV-1762) as new §10 Transfer-orders subsection; added Flyway **V2.2.04** seed provenance (PR #93, default OFF) to it and the existing `REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED` (SBDEV-1666) §6 entry. Feature constants land via open PRs #91/#92. Total ~76→~77. | New key + seed provenance documented | V2.2.04 seed work |
 
 **Re-verify every 90 days.** Next due: **2026-10-08** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.

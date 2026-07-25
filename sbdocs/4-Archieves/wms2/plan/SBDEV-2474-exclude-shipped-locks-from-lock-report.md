@@ -4,12 +4,13 @@ ticket: "SBDEV-2474"
 ticket_url: "https://app.clickup.com/t/868k3kr3b"
 type: "enhancement"
 priority: "normal"
-status: "draft"
+status: "superseded"
+superseded_by: "[[SBDEV-2474-lock-report-exclude-shipped-locks]] (two-view design; merged wms2-api PR #77 + wms2-web-ui PR #21 → develop 2026-07-16)"
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell"
 created: "2026-07-04"
-updated: "2026-07-04"
+updated: "2026-07-25"
 related:
   - "[[wms2-function-to-docs-map]]"
   - "[[wms2-landlord-vs-tenant-entity-map]]"
@@ -372,3 +373,6 @@ Plan is **V2 only** by decision. Recorded for future porting:
 
 #### Persistence
 - On ship, if the `row_number()`-before-`WHERE` perf caveat proves impactful, `project_memory_add_directive`: *"Report views using `row_number() OVER ()` don't benefit from outer-query WHERE for scan cost — filter inside the view for perf."*
+
+
+> **Archived (superseded) 2026-07-25.** This early draft proposed a single-view + `includeShipped` query-param filter, which was **explicitly rejected** in favor of the two-view design in [[SBDEV-2474-lock-report-exclude-shipped-locks]] — the plan that actually shipped (wms2-api PR #77 + wms2-web-ui PR #21 → develop 2026-07-16). Kept for historical trail only; not the implemented design.

@@ -12,7 +12,7 @@ created: "2026-06-26"
 updated: "2026-07-15"
 db_verified: true
 related:
-  - "[[SBDEV-2496-prshw222-duplicate-sku-remediation]]"
+  - "[[SBDEV-2496-prshw222-duplicate-sku-remediation.sql]]"
 tags:
   - plan
   - wms1
@@ -29,7 +29,7 @@ tags:
 
 > **Scope note.** This plan covers the **permanent code fix** (whitespace normalization on SKU master-data write/lookup boundaries + a one-time data migration) to prevent recurrence.
 >
-> **The original WineCo/Pike Road incident is already resolved.** Verified against `wms1-wineco` on 2026-06-26: the duplicate was consolidated by another actor onto the **clean** row `33714616` (now holds the 60 units @ 03-B05 + the active fixed-location assignment), the trailing-space twin `33355356` was deleted, and parcel **PR261039** released (line `33715138` → state 200 ASSIGNED). The companion runbook [[SBDEV-2496-prshw222-duplicate-sku-remediation]] has been **retired (do not run)** — it assumed the opposite survivor and would corrupt the released order. This plan is no longer the unblock path; it is recurrence prevention only.
+> **The original WineCo/Pike Road incident is already resolved.** Verified against `wms1-wineco` on 2026-06-26: the duplicate was consolidated by another actor onto the **clean** row `33714616` (now holds the 60 units @ 03-B05 + the active fixed-location assignment), the trailing-space twin `33355356` was deleted, and parcel **PR261039** released (line `33715138` → state 200 ASSIGNED). The companion runbook [[SBDEV-2496-prshw222-duplicate-sku-remediation.sql]] has been **retired (do not run)** — it assumed the opposite survivor and would corrupt the released order. This plan is no longer the unblock path; it is recurrence prevention only.
 
 ---
 
@@ -234,7 +234,7 @@ Rows skipped by the `NOT EXISTS` guard (a residual unresolved collision) are **s
 
 | # | Prerequisite | Required value / action | Owner | Notes |
 |---|---|---|---|---|
-| 1 | **Database state** | Confirm Flyway head (was `V1.26.30` on 2026-06-26) and name the new migration `V1.26.31` (or next free). The PRSHW222 incident is **already resolved** in prod — no data prerequisite remains; the migration only trims the two latent zero-stock whitespace SKUs | DBA / support | Companion runbook is **retired (do not run)** — see [[SBDEV-2496-prshw222-duplicate-sku-remediation]] |
+| 1 | **Database state** | Confirm Flyway head (was `V1.26.30` on 2026-06-26) and name the new migration `V1.26.31` (or next free). The PRSHW222 incident is **already resolved** in prod — no data prerequisite remains; the migration only trims the two latent zero-stock whitespace SKUs | DBA / support | Companion runbook is **retired (do not run)** — see [[SBDEV-2496-prshw222-duplicate-sku-remediation.sql]] |
 | 2 | **Feature flags / system properties** | N/A — no toggle | — | Pure code + migration |
 | 3 | **Config / env changes** | N/A | — | |
 | 4 | **Deploy-order dependencies** | None. The migration is **order-independent for correctness**: with no remaining collisions in prod, it trims `23WINERYBLOCKPN ` and `NVAYBMS ` cleanly regardless of deploy sequence; the collision guard is the safety net if a new collision appears before deploy | Release owner | |
@@ -317,7 +317,7 @@ N/A — this is a v1/wms-api plan. v1 is not deployed as horizontally-scaled rep
 - **Setter-trim vs call-site-trim — resolved.** Keep **both**: Fix A (setter) is safe here specifically because `Itemdata` uses field-access JPA, so the trimming setter never fires on hydration (see §3.1); Fix B (lookup normalization) is independently required. The load-then-flush test in §6 is the gate that keeps Fix A honest if the access type ever changes.
 - **Deferred defense-in-depth — partial unique index.** A `CREATE UNIQUE INDEX ... ON itemdata (client_id, btrim(item_nr))` would make the DB itself reject a space-twin even if a future un-normalized caller slips through. **Deferred, not adopted:** it changes the failure mode for SKU import to a `DataIntegrityViolationException` (Postgres 23505), and `SkuRestController.create` currently catches only `WebserviceBusinessExceptionClientSide`, so the 23505 would bubble to a 500 until a handler is added. Revisit as a follow-up once the application-layer normalization has soaked.
 - **OMS-side root cause.** WMS normalization makes WMS resilient, but if the OMS SKU master itself stores `'PRSHW222 '`, every export carries the space. Raise an OMS-side data-cleanup ticket (Prereq 6) so the canonical source is clean too.
-- **Companion runbook:** [[SBDEV-2496-prshw222-duplicate-sku-remediation]] — apply first to unblock PR261039.
+- **Companion runbook:** [[SBDEV-2496-prshw222-duplicate-sku-remediation.sql]] — apply first to unblock PR261039.
 
 ---
 

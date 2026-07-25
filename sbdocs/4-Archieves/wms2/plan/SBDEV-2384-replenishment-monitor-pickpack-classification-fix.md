@@ -11,7 +11,7 @@ requester: "nam.park@siteboss.net"
 created: "2026-07-13"
 updated: "2026-07-17"
 related:
-  - "sbdocs/1-Projects/wms1/plan/SBDEV-2384-replenishment-monitor-pickpack-classification-fix.md"
+  - "sbdocs/4-Archieves/wms1/plan/SBDEV-2384-replenishment-monitor-pickpack-classification-fix.md"
 tags:
   - plan
 ---

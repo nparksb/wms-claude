@@ -7,7 +7,7 @@ scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-10
+last_verified: 2026-07-22
 verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -181,7 +181,8 @@ Never invent a new code at a call site — add a constant to `WmsConstants` firs
 | UL on SHIPPED location | `"Can not move from shipped"` | 144 |
 | UL / stockunit ON_HOLD lock | `"Unit load/Stock unit is locked on hold!"` | 148–155 |
 | UL has fixed assignment | `"Cannot move fixed assigned"` | 161 |
-| Has reserved stock | `"Reserved stock! can not move"` | 200 |
+| Reserved stock held by an in-progress pick (state<600) | `"Stock is reserved by in-progress pick <PICK#>; complete or cancel it before moving..."` | 230 |
+| Reserved stock, no active replen, no active pick (stranded) | **allowed** — warn + proceed (SBDEV-2610 B1; the old `"Reserved stock! can not move"` dead-end throw was removed) | 233 |
 | Destination = Nirvana | `"Can not move to nirvana"` | 246 |
 | Destination = Shipped | `"Can not move to shipped"` | 251 |
 | Target pallet not empty (empty-pallet destination) | `"Pallet not empty!"` | 271 |
@@ -273,4 +274,6 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 |---|---|---|---|
 | 2026-04-19 | `MobileMoveUnitloadService` (scanUnitLoad, scanDestination, handleTruckOffLoading), `MobileMoveStockService` (selectSource, selectStockUnit, selectDestination), `UnitloadBusinessService.transferUnitLoadToLocation / transferUnitLoadToCarrier`, `StockunitBusinessService.transferStockToUnitLoad`, REST endpoints, activity code constants, pessimistic lock site | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 
-**Re-verify every 90 days.** Next due: **2026-07-18**.
+**Re-verify every 90 days.** Next due: **2026-10-20**.
+
+_2026-07-22 (SBDEV-2610): reserved-stock guard (`checkReservedStock`) rewritten — now blocks only on an in-progress pick and allows stranded reservations; `TransferInfoDto.activeReplenNumber` added and surfaced on the source-scan screen._

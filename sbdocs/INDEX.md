@@ -30,12 +30,12 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 
 ### Reference material
 
-- **Architecture** → [3-Resources/architecture/README.md](3-Resources/architecture/README.md) (25 docs — MOC)
+- **Architecture** → [3-Resources/architecture/README.md](3-Resources/architecture/README.md) (26 docs — MOC)
 - **Workflows** → [3-Resources/workflows/README.md](3-Resources/workflows/README.md) (22 docs — MOC)
 - **Data dictionary** → [3-Resources/data-dictionary/README.md](3-Resources/data-dictionary/README.md) (5 docs — MOC)
-- **Design (module-level)** → [3-Resources/design/README.md](3-Resources/design/README.md) (3 docs — MOC)
+- **Design (module-level)** → [3-Resources/design/README.md](3-Resources/design/README.md) (5 docs — MOC)
 - **ADRs / decisions** → [3-Resources/decisions/](3-Resources/decisions/)
-- **Reports** → [3-Resources/reports/](3-Resources/reports/) *(5 reports)*
+- **Reports** → [3-Resources/reports/](3-Resources/reports/) *(22 reports)*
 
 ### Archives
 
