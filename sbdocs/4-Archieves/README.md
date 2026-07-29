@@ -22,7 +22,7 @@ See also: [vault index](../INDEX.md) · [plan template](../9-System/templates/wm
 |---|---|---|
 | [wms1/plan/](wms1/plan/) | Completed v1 plans (fixes, feature ports, migrations, audits) | 54 |
 | [wms1/analysis/](wms1/analysis/) | Closed v1 investigations & root-cause reports | 3 |
-| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 148 |
+| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 150 |
 | [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | 0 *(empty)* |
 | [scripts/](scripts/) | Retired plan verification harnesses (`verify-<plan-id>.sh`) whose plan is archived | 73 |
 

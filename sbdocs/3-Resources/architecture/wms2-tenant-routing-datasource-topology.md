@@ -6,9 +6,9 @@ version: v2
 scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-06-24
-last_verified: 2026-06-24
-verified_by: code read of v2/wms2-api src/main 2026-06-24 (SBDEV verify-docs refresh)
+updated: 2026-07-26
+last_verified: 2026-07-26
+verified_by: SBDEV-2727 landmine §10.13 added (active-flag deactivation / split-brain) — code read of landlord/service + config + schedulejob 2026-07-26; other sections carry forward the 2026-06-24 verification
 related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ./wms2-state-machine-catalog.md
@@ -317,6 +317,11 @@ This is an unaddressed secret-handling debt — any `application.properties` lea
 10. **Landlord password in plain text** (`application.properties:41`). Not a production posture; see §9.
 11. **`BOOTSTRAP` tenant identifier.** `TenantIdentifierResolver` returns the literal string `"BOOTSTRAP"` when `TenantContext` is null. Queries routed to Hibernate during context-less code paths use this identifier — they may surface as "tenant not found" downstream, or (worse) succeed against the landlord schema via the `@Primary` fallback, depending on which EMF the path engages.
 12. **`TenantPoolEvictor` does not check active work.** Eviction calls `HikariDataSource.close()` which drains gracefully, but a rare pathological case (very long-running single transaction ≥ 15 min idle in the middle) could interact badly with eviction. In practice transactions that long are themselves a bug, but worth keeping in mind.
+13. **Tenant deactivation is TWO independent flags — flip BOTH or you get split-brain (SBDEV-2727).** A client is deactivated by setting `active = false`, but the flag lives on **two separate landlord tables**, each gating a different surface:
+    - `tenant_discovery.active` → the **login/discovery** gate. `LandlordService.getTenantDiscoveryByKey` uses `findByKeyAndActiveTrue`, so an inactive row makes `/api/public/authConfig` return **404** → the Web/Mobile UI redirect to `/unknown-tenant` (pre-login, uncached — takes effect immediately).
+    - `tenant_db_configuration.active` → the **request-path routing** gate. `getAllDbConfigurations` uses `findByActiveTrue`, so an inactive row never enters `TenantDbConfigCache` → `determineTargetDataSource` throws `TenantException` on a cache miss, and `TenantConfigLoader` calls `TenantDynamicRoutingDataSource.evictAbsentPools()` each 5-min refresh to force-close the deactivated tenant's live pool (≤1 cycle, not the 15-min idle evictor). The 8 cron jobs also enumerate via `findByActiveTrue`.
+
+    **Split-brain if only one is flipped:** discovery-only (`tenant_discovery.active=false`) blocks *new* logins but any already-tokened session keeps routing until the db-config flag is also flipped; db-config-only blocks the API but the login page still resolves. Deactivate a client with the atomic both-table `UPDATE` in `db/landlord/L001__add_active_flag.sql`. Note the landlord schema is **not** Flyway-managed (`ddl-auto=none`) — L001 must be applied to every landlord DB before the JAR that reads `active` ships, or a fresh replica's config load fails and it serves an empty cache (all tenants 500; `TenantConfigLoader` now logs a loud startup banner for this case).
 
 ---
 
@@ -360,6 +365,7 @@ If PgBouncer is introduced in `transaction` mode, the four items marked "broken"
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | `TenantContext`, `TenantFilter`, `TenantDynamicRoutingDataSource`, `TenantConfigLoader`, `TenantPoolEvictor`, `TenantIdentifierResolver`, `TenantAwareTaskDecorator`, `AdvisoryLockService`, all scheduled job classes, Hikari settings (per-tenant and landlord), `application.properties` lines 1–122, Jasypt usage | All counts and file:line refs confirmed against `src/main/java` + `src/main/resources` | Code read (grep-based) |
+| 2026-07-26 | **§10.13 added — tenant `active`-flag deactivation & split-brain guard (SBDEV-2727, wms2-api PR #95)**. Verified: `LandlordService.getTenantDiscoveryByKey`→`findByKeyAndActiveTrue` and `getAllDbConfigurations`→`findByActiveTrue`; `TenantDynamicRoutingDataSource.evictAbsentPools()` + `TenantConfigLoader` call after `evictChangedPools()`; 8 cron jobs enumerate via `findByActiveTrue`; actuator `TenantPoolEndpoint` guard; manual DDL `db/landlord/L001__add_active_flag.sql`. Only §10.13 re-verified this pass. | Confirmed against `src/main/java/net/aim_ai/wms/landlord/**` + `schedulejob/**` | Code read (SBDEV-2727) |
 | 2026-06-24 | **§6.2/§11 virtual-threads correction** (`application.properties:2` now `spring.threads.virtual.enabled=true` — doc previously claimed VTs off); `TenantAwareTaskDecorator` now used manually at `StockSummaryExportJob.java:186` (still not a `TaskExecutor` bean); §4.2 added `connectionInitSql` UTC session-TZ block (`TenantDynamicRoutingDataSource.java:95-105`, `resolveWarehouseTz` `:118-160`); cron table expanded to 8 jobs + `JobMetrics`/`JobMetricsConfiguration` infra; line-ref fixes: `autoCommit` `:83`, `computeIfAbsent` `:50`, `app.cron` `:113`, actuator probes `:85`, exposure list adds `prometheus` `:87`; `TenantAwareTaskDecorator.java` range `:1-47`; `TenantHealthController` delegation note. PgBouncer still NOT landed — §4.2/§10.3–4 hazards remain valid. | All edits confirmed against `src/main/java` + `src/main/resources` | Code read of v2/wms2-api src/main (SBDEV verify-docs refresh) |
 
 **Re-verify every 60 days.** Next due: **2026-08-23** — or sooner if the PgBouncer plan lands, since §4.2 hard-coded values and §10 items 3/4 will all change.

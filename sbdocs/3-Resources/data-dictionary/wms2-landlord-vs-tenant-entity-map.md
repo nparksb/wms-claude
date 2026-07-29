@@ -6,9 +6,9 @@ version: v2
 scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-07-15
-verified_by: code read of v2/wms2-api landlord/model + model packages
+updated: 2026-07-26
+last_verified: 2026-07-26
+verified_by: SBDEV-2727 `active` column added to §2 (tenant_discovery + tenant_db_configuration) + §7.8 split-brain landmine — code read of landlord/model + service 2026-07-26; entity enumeration carries forward the 2026-07-15 verification
 related:
   - ../architecture/wms2-tenant-routing-datasource-topology.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -58,9 +58,9 @@ Four tables only. All of them describe *which* tenant exists and *how* to connec
 | Class | Table | Purpose |
 |---|---|---|
 | `Tenant` | `tenant` | Tenant record (name, facility codes list, active flag) |
-| `TenantDbConfiguration` | `tenant_db_configuration` | JDBC URL / user / password / HikariCP overrides per tenant-facility |
+| `TenantDbConfiguration` | `tenant_db_configuration` | JDBC URL / user / password / HikariCP overrides per tenant-facility. **`active boolean NOT NULL DEFAULT true`** (SBDEV-2727) gates the request-path routing surface — `getAllDbConfigurations` filters `findByActiveTrue`. |
 | `TenantAuthConfiguration` | `tenant_auth_configuration` | Keycloak server / realm / client ID per tenant |
-| `TenantDiscovery` | `tenant_discovery` | Subdomain / facility-code → tenant resolution metadata |
+| `TenantDiscovery` | `tenant_discovery` | Subdomain / facility-code → tenant resolution metadata. **`active boolean NOT NULL DEFAULT true`** (SBDEV-2727) gates the login/discovery surface — `getTenantDiscoveryByKey` filters `findByKeyAndActiveTrue`; no `tenant_id` FK, so it can't be driven off `Tenant.active`. |
 
 Repositories (1:1):
 
@@ -273,6 +273,7 @@ Consequence: there are no cross-DB foreign keys, no distributed joins, no `Chain
 5. **`los_sysprop` and `los_sequencenumber` likewise.** The `los_` prefix is a legacy naming convention. Only these two tenant tables carry it.
 6. **Schema drift per tenant is possible.** Each tenant DB runs migrations independently. If a migration fails on tenant A but succeeds on tenant B, you have heterogeneous schema state and must reconcile manually — there's no central tracker.
 7. **`LosSequencenumber` is the only entity that both declares its own `@Version` and carries a pessimistic-write lock.** See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.2 — treat this as a hot row; do not add optimistic-only callers.
+8. **Tenant deactivation lives on TWO `active` flags — flip both (SBDEV-2727).** `tenant_discovery.active` gates login/discovery and `tenant_db_configuration.active` gates API routing; there is **no** single `Tenant.active` that drives them (`TenantDiscovery` has no `tenant_id` FK). Setting only one leaves a split-brain (new logins blocked but existing sessions route, or vice-versa). Use the atomic both-table `UPDATE` in `db/landlord/L001__add_active_flag.sql`. The landlord schema is not Flyway-managed (`ddl-auto=none`) — apply L001 to every landlord DB before the JAR ships. See [wms2-tenant-routing-datasource-topology.md](../architecture/wms2-tenant-routing-datasource-topology.md) §10.13 for the routing/eviction detail.
 
 ---
 
@@ -294,5 +295,6 @@ Consequence: there are no cross-DB foreign keys, no distributed joins, no `Chain
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | All classes in `landlord/model/` (4) and `model/` (62) enumerated; repos in `landlord/jpa/` and `repo/jpa/` counted; FK fields spot-checked for cross-DB references | All counts confirmed against `src/main/java` | Code read (grep + package listing) |
+| 2026-07-26 | **§2 `active` column + §7.8 split-brain landmine (SBDEV-2727, wms2-api PR #95)** — confirmed `TenantDiscovery.active` / `TenantDbConfiguration.active` (`@Column nullable=false`, `= Boolean.TRUE`), `findByKeyAndActiveTrue` / `findByActiveTrue`, and that `TenantDiscovery` has no `tenant_id` FK. Only these additions re-verified this pass. | Confirmed against `landlord/model` + `landlord/service` | Code read (SBDEV-2727) |
 
 **Re-verify every 90 days.** Next due: **2026-07-18** — entity count grows slowly but monitor-view additions are frequent enough to warrant a periodic sweep.

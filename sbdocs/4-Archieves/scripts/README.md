@@ -32,6 +32,7 @@ Acceptance / verification harnesses (`verify-<plan-id>.sh`) whose paired plan ha
 | `verify-260610-wms2-sku-trim-normalization.sh` | [260610-wms2-sku-trim-normalization](../wms2/plan/260610-wms2-sku-trim-normalization.md) |
 | `verify-260614-outbox-stuck-aggregate-metric.sh` | [260614-outbox-stuck-aggregate-metric](../wms2/plan/260614-outbox-stuck-aggregate-metric.md) |
 | `verify-260624-stock-unit-history-on-unitload-relocation.sh` | [260624-stock-unit-history-on-unitload-relocation](../wms1/plan/260624-stock-unit-history-on-unitload-relocation.md) |
+| `verify-SBDEV-2727-landlord-tenant-active-flag.sh` | [SBDEV-2727-landlord-tenant-active-flag](../wms2/plan/SBDEV-2727-landlord-tenant-active-flag.md) |
 | `verify-260626-restore-replenishment-triggers-on-lock-state-changes.sh` | [260626-restore-replenishment-triggers-on-lock-state-changes](../wms1/plan/260626-restore-replenishment-triggers-on-lock-state-changes.md) |
 | `verify-260629-activate-transfer-atomicity.sh` | [260629-activate-transfer-atomicity](../wms2/plan/260629-activate-transfer-atomicity.md) |
 | `verify-260629-transfer-lane-leak-on-cancel.sh` | [260629-transfer-lane-leak-on-cancel](../wms2/plan/260629-transfer-lane-leak-on-cancel.md) |

@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms2
-last_verified: 2026-06-01
+last_verified: 2026-07-29
 ---
 
 # WMS2 ↔ OMS Integration Map
@@ -146,6 +146,50 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 - `processType` — the OMS process-type enum (e.g. `ORDER_BATCH_LOADED_TO_TRUCK`, `STOCK_UPDATE`, `ADVICE_ACCEPT_HUB_AND_SPOKE`, etc.)
 
 Operators consume this counter via `/actuator/metrics/wms2.oms.notification.failed` or via Prometheus scrape. Suggested alert: any non-zero increment in a 5-min window pages the on-call engineer because every failed POST means OMS state is now drifting from WMS state for that tenant + process-type.
+
+### 2.5.2 OMS response envelopes — HTTP 2xx does NOT mean accepted (SBDEV-2736)
+
+**The legacy `/services/call/*` surface answers HTTP 200 for business-level failures and carries the real verdict in the response body.** A caller that decides on the status code alone records a refusal as a successful delivery. Until SBDEV-2736 all three WMS→OMS egress paths did exactly that.
+
+Three body shapes exist in production. All three must be handled — a root-only check misses 37.5% of real rejections and reports **zero** for the entire picking family:
+
+| Shape | Where the verdict lives | Example |
+|---|---|---|
+| (a) raw | root `Status` | `{"Status":"Error","Message":"There are no pallets to process.","Result":[]}` |
+| (b) wrapped | `data.Status`, root stamped `"success"` | `{"status":"success","message":"…","data":{"Status":"Error","Result":[…]}}` |
+| (c) lowercase | `data.status` | `{"status":"success","data":{"status":"exported","record_count":9232}}` |
+
+Shape (b) comes from `BaseLegacyController::legacySuccessResponse`, which nests the verdict under `data` and hard-codes a top-level lowercase `"success"` regardless of what it is wrapping — so **the root lowercase `status` is a wrapper artefact and must never be read as a verdict.** Normalizing this is [SBDEV-2738](https://app.clickup.com/t/868kgp4h6) on the OMS side.
+
+Measured over 1,206,656 `message` rows on `wms2-wineco-dev` (2026-07-29): 1,193,179 shape (a), 805 shape (b), 12,652 shape (c), 16 null bodies, and 4 PHP fatal-error HTML pages returned with HTTP 200.
+
+> **⚠️ Shape (a) is extinct on `INVENTORY_FULL_EXPORT`.** Last seen 2025-08-12 (`Partially Failed`) and 2025-04-01 (`Error`). OMS moved that process to shape (c) during 2025 and changed the shape-(c) verdict word from `exported` to `SUCCESS` on 2026-07-13. Any analysis of export rejections that filters on a root `Status` is reading a dead envelope and will report zero.
+
+> **⚠️ A shape-(c) `SUCCESS` does not mean every record landed.** The reconcile variant reports per-record outcomes *inside* a success verdict:
+> ```json
+> {"status":"success","data":{"status":"SUCCESS","records_processed":149,"records_failed":1,
+>   "failed_records":[{"record":147,"sku":"LKET1","error":"Product with SKU 'LKET1' not found"}]}}
+> ```
+> In July 2026 that was **714 of 1,842 export responses and 1,071 dropped records** — the same unmapped-SKU class as SBDEV-2748. Shape (a) expressed this as `Status:"Partially Failed"`. Shapes (a) and (b) do **not** have this problem on the order endpoints: OMS sets `Status:"Error"` whenever `processed < total` there (verified — zero counter-examples across 731 rows with a `total` field).
+
+`service/OmsResponseClassifier.java` is the single decision point, consumed by all three egress paths. Shapes (a) and (b) match **negative space** (anything not `Success` is a rejection) so OMS can add failure words without WMS going blind. Shape (c) matches an **accept-list** (`exported`, `SUCCESS`) instead, because negative space would invert `exported`; an unlisted value there is `UNRECOGNIZED`, never `REJECTED`. A shape-(c) accept-list hit is additionally downgraded to `REJECTED` when `records_failed > 0` or `failed_records` is non-empty.
+
+**The recognition counter does not detect this class of drift.** `recognized="no"` fires when WMS cannot *parse* an envelope; it says nothing about OMS changing what an envelope *means*. Both drifts that have actually occurred were of the second kind and were absorbed by widening the accept-list. **Re-validate the accept-list *and the failure-evidence fields* (`records_failed`, `failed_records`) against a fresh corpus whenever OMS changes this surface**, and watch `response_envelope` broken down by process type — a distribution shift is visible there even while recognition stays `"yes"`. Note the evidence check reads only the root and `data` objects, and only those two field names: a deeper nesting or a differently-named field (`records_skipped`, `errors`) would be missed. That is deliberate — the predicate stays closed, and inventing anchors without corpus evidence is what produced the original defect.
+
+**Phase 1 is observation only** — delivery semantics are unchanged and every 2xx is still marked `SENT`. Counters:
+
+| Counter | Path | Tags |
+|---|---|---|
+| `wms2.outbox.oms_rejected` | outbox dispatcher | `tenant`, `facility`, `processType` |
+| `wms2.outbox.response_envelope` | outbox dispatcher | + `recognized=yes\|no` |
+| `wms2.oms.notification.rejected` | `OmsNotificationService.doSend` | `tenant`, `processType` |
+| `wms2.oms.export_rejected` | `StockSummaryExportJob` | `tenant`, `facility` |
+
+`response_envelope{recognized="no"}` is the shape-drift alarm: it goes non-zero when OMS emits an envelope WMS cannot read, which is the condition that would otherwise silently reset the rejection baseline to zero.
+
+> **Expect `wms2.oms.export_rejected` to be non-zero on the first deploy.** It reports a pre-existing backlog, not a regression. On WineCo the live rate is ~700 rejections/month, essentially all of them shape-(c) partial failures naming an unmapped SKU ([SBDEV-2748](https://app.clickup.com/t/868khcak2)) — a class that went unnoticed for nineteen months precisely because this counter did not exist. The 10,306 historical shape-(a) refusals on the same process are all pre-2025-08 and will not recur.
+
+Phase 2 (acting on the verdict — retry or terminal instead of `SENT`) is gated behind `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED`, seeded `false` by Flyway `V2.2.05` and **read by nothing yet**.
 
 ### 2.6 Facility Lookup (BillofladingService — WMS calls OMS to GET data)
 
