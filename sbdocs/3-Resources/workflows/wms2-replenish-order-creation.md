@@ -4,7 +4,7 @@ type: workflow
 project: wms2
 status: stable
 created: 2026-04-19
-last_verified: 2026-05-01
+last_verified: 2026-07-22
 tags: [wms2, workflow, replenish]
 ---
 
@@ -36,7 +36,11 @@ In every case above, the actual order calculation work happens inside `Replenish
 
 ## Order Calculation and Persistence
 
-`ReplenishGeneratorService.calculateOrder` is the single place where a `Replenishorder` object is instantiated and persisted, regardless of which trigger called it (`src/main/java/net/aim_ai/wms/service/ReplenishGeneratorService.java:74-151`). The method performs the following deterministic steps:
+`ReplenishGeneratorService.calculateOrder` is the single place where a `Replenishorder` object is instantiated and persisted, regardless of which trigger called it (`src/main/java/net/aim_ai/wms/service/ReplenishGeneratorService.java`).
+
+**Idempotency pre-check (added SBDEV-2690, guard originally commit `a6b8d6bf`):** before any of the steps below, `calculateOrder` calls `findBlockingPendingOrder(itemDataId, destinationId)` — if a replenish order in state `< FINISHED` already exists for the same item **and** destination, the method returns `null` immediately without creating anything. Scheduled-job / mobile / refill callers treat this `null` as "nothing to replenish today"; the admin `create` path converts it into an HTTP 409 (see caller notes below).
+
+The method then performs the following deterministic steps:
 
 1. **Validation** – load the `Itemdata` row for `itemDataId` and reject non-positive `amount` values with a `FacadeException`.
 2. **Source stock search** – query `stockunitRepository.getStockUnitsByNotLockedAndItemIdAndUseForDeepStorage` twice: first against non-deep-storage areas, then (if nothing is found) against deep-storage areas. Each row returns a stock unit ID and its available amount in a location that allows replenishment and is completely unlocked (`src/main/java/net/aim_ai/wms/repo/jpa/StockunitRepository.java:61-93`).
@@ -62,7 +66,7 @@ If no suitable stock unit exists, the method throws a `FacadeException` detailin
 
 - **Scheduled job** – The job has no further action after `calculateOrder` returns; orders sit in the PROCESSABLE state until devices pick them up. The job’s final step (`recalculateReplenishmentOrderWithoutFixedLocationAssignment`) recalculates metadata for any PROCESSABLE orders without fixed locations, but it does not change the creation logic (`src/main/java/net/aim_ai/wms/schedulejob/ReplenishOrderJob.java:100-109` and `src/main/java/net/aim_ai/wms/service/job/ReplenishOrderJobService.java:201-223`).
 
-- **Administrative service** – `ReplenishorderService.create` simply relays the `Replenishorder` returned from the generator back to its own caller. No additional mutations occur (`src/main/java/net/aim_ai/wms/service/ReplenishorderService.java:59-73`).
+- **Administrative service** – `ReplenishorderService.create` relays a successfully created `Replenishorder` back to its caller. When `calculateOrder` returns `null` (idempotency skip), `create` re-reads the blocker via `findBlockingPendingOrder` and throws `DuplicateReplenishmentException` naming it; `ReplenishOrderController.create` (`POST /v3/replenishOrder/create`) catches that and returns **HTTP 409** with an `{errors:[…]}` body — instead of the previous silent HTTP 200 with an empty body (SBDEV-2690). See `src/main/java/net/aim_ai/wms/service/ReplenishorderService.java` and `controller/ReplenishOrderController.java`.
 
 With these components combined, every path that creates a new replenish order is fully documented and traceable to concrete code locations.
 
@@ -74,5 +78,6 @@ With these components combined, every path that creates a new replenish order is
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-05-01 | Frontmatter and staleness tracking added | — | verify-docs audit |
+| 2026-07-22 | SBDEV-2690 — added idempotency pre-check (`findBlockingPendingOrder`) to §Order Calculation; corrected admin-caller note (now throws `DuplicateReplenishmentException` → HTTP 409, not silent 200) | updated | SBDEV-2690 impl |
 
-**Re-verify every 60 days.** Next due: **2026-06-30**.
+**Re-verify every 60 days.** Next due: **2026-09-20**.

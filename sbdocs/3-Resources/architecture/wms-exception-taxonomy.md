@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms1+wms2
-last_verified: 2026-05-10
+last_verified: 2026-07-22
 ---
 
 # WMS Exception Taxonomy
@@ -52,6 +52,7 @@ All classes live in `net.aim_ai.wms.exceptions`. Classes marked with (*new*) do 
 java.lang.Exception (checked)
 ├── BusinessException                          # Domain rule violations (i18n via ResourceBundle "messages")
 ├── FacadeException                            # External-service / integration boundary errors (i18n)
+├── DuplicateReplenishmentException  (*new*)   # Replenish-create idempotency skip; caught in ReplenishOrderController → HTTP 409 (SBDEV-2690)
 └── ApiException (abstract, checked)
     ├── ApiInvalidParameterException           # Bad / malformed input parameter
     ├── ApiConstraintViolationException        # Uniqueness / DB constraint conflict
@@ -70,6 +71,7 @@ java.lang.RuntimeException (unchecked)
 ### v2-only additions explained
 - **`EntityNotFoundException`** — thrown from service `.orElseThrow()` calls in place of raw `NoSuchElementException`. Takes `(entityName, id)` or `(entityName, identifier)` overloads. Mapped to 404 + RFC 9457 `ProblemDetail` by `RestExceptionHandler`.
 - **`TenantException`** — thrown by `TenantDynamicRoutingDataSource` and `TenantHealthService` when tenant DB config or Keycloak config cannot be resolved. Unchecked; not currently mapped in `RestExceptionHandler` (propagates as 500 unless caught upstream).
+- **`DuplicateReplenishmentException`** (SBDEV-2690) — checked; thrown by `ReplenishorderService.create` when `ReplenishGeneratorService.calculateOrder` skips creation because a pending replenish order already exists for the same item + destination. **Deliberately not a `BusinessException`** so the controller's local `catch (BusinessException)` cannot swallow it into a 200. Carries the blocking order number (`getExistingOrderNumber()`); message is hardcoded English (does not use the `messages` ResourceBundle). **Not** registered in `RestExceptionHandler` — instead caught locally in `ReplenishOrderController.create` and mapped to **HTTP 409** with an `{errors:[{field,message}]}` body.
 
 ---
 
@@ -108,6 +110,8 @@ java.lang.RuntimeException (unchecked)
 | `PessimisticLockingFailureException` | **409** Conflict | RFC 9457 `ProblemDetail` |
 
 > **Note:** `TenantException`, `FacadeException`, and `BusinessException` are **not** registered handlers in v2's `RestExceptionHandler` as of last verification. Unhandled checked exceptions propagate as 500. `TenantException` is unchecked and will surface as 500.
+>
+> **Controller-local mapping (not via `RestExceptionHandler`):** `ReplenishOrderController.create` catches `DuplicateReplenishmentException` and returns **409** with `{errors:[{field,message}]}` (SBDEV-2690). This is the endpoint's first non-2xx response — `BusinessException`/`FacadeException` on the same endpoint are still caught locally and returned as **200** with an `{errors:[…]}` body.
 
 ### `/rest/**` OMS endpoints (both versions)
 

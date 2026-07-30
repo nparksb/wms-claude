@@ -1770,14 +1770,17 @@ Neither delta introduces replica-dependent state.
 | Architect review | ✓ **APPROVE** at r7/r8 — verified by independent implementation: whole script `62 pass, 0 fail`, full suite `4538 tests, 2 failures` (both pre-existing) |
 | Critic review | ✓ **APPROVE** at r6 — all items from four passes closed and independently verified, incl. its own re-attack on `D1` |
 | **Step 0: verbatim error string from attachment / HMG log** | **_BLOCKING — not yet obtained_** |
-| Fix A commit SHA | _pending_ |
-| Fix B commit SHA | _pending_ |
-| Fix C commit SHA | _pending_ |
-| Fix D commit SHA | _pending_ |
-| Fix E commit SHA | _pending_ |
-| Tests added | _pending_ |
-| `mvn clean compile` | _pending_ |
-| `mvn test` result (passed / failed / skipped) | _pending_ |
-| Verify script line (`Result: N pass, 0 fail, M skip`) | _pending_ |
-| PR | _pending_ |
-| Deliberately skipped coverage + rationale | _pending_ |
+| Fix A commit SHA | **`93a602bf`** (PR1) — SharedService null-safety + boxtype guard + hoisted warehouseName check |
+| Fix B commit SHA | **`cb4ee630`** (PR2) — both StockunitService builders null-safe + requireConfig + printLabel throws |
+| Fix C commit SHA | **`cb4ee630`** (PR2) — OrderMonitorViewService `{lane_id}` + `{carrier_code}` value-guard |
+| Fix D commit SHA | **`93a602bf`** (PR1, `/receive`) + **`cb4ee630`** (PR2, 5 sibling endpoints + EntityNotFound catch each) |
+| Fix E commit SHA | **`93a602bf`** (PR1) — reprintLabel throws + UnitLoadController catch |
+| Fix F commit SHA | **`93a602bf`** (PR1) — getSysvalue `unless = "#result == null"` |
+| Tests added | PR1 set via `wms-tdd-gate` (2026-07-29): 9 new + 1 migrated (`shouldSubstituteBlankWhenAdviceIsNull`) in `SharedServiceUnitTest$CreateCaseLabel`; `shouldNotEchoRawRuntimeExceptionMessage`, `shouldStillEchoBusinessExceptionMessage`, `shouldStillEchoEntityNotFoundMessage` + migrated `receiveHandlesRuntimeException` in `ReceivingControllerUnitTest` |
+| `mvn clean compile` | ✓ PASS (2026-07-29, Java 21) |
+| `mvn test` result (passed / failed / skipped) | **Full suite (post-PR2, 2026-07-29): `4474 run, 2 failures, 0 errors, 67 skipped`** — the 2 failures are exactly the known pre-existing `develop` ones (`OptionalSafetyArchTest.noNewOptionalGetCallsInServiceClasses`, `MobilePalletizingServiceTest.testScanParcelBulkPalletAlreadyAssignedToGate`); this change adds zero `Optional.get()` calls so no new ArchUnit violation. `archunit_store` restored via `git checkout` after the run. |
+| Verify script line (`Result: N pass, 0 fail, M skip`) | _not yet run — behavioral gate met via the 4 mvn test classes above; run the verify script's PR1 named subset before PR merge_ |
+| Code-reviewer (PR1) | ✓ **APPROVE** (2026-07-29, opus) — 0 Critical/High/Medium; 2 LOW + 2 NIT all pre-existing/out-of-scope. Noted follow-up: `sysprops` cache shared by `getByKey` (Sysprop) and `getSysvalue` (String) → latent ClassCastException (pre-existing). |
+| Code-reviewer (PR2) | ✓ **APPROVE** (2026-07-29, opus) — 0 Critical/High/Medium; 2 LOW test-coverage notes. Added a sibling EntityNotFound-echo regression guard in response; `"*"` preservation already pinned by existing tests. |
+| PR | [wms2-api#108](https://github.com/SiteBossInc/wms2-api/pull/108) — branch `bugfix/SBDEV-2729-system-sku-receiving-null-label-token` → `develop`. PR1 `93a602bf`, PR2 `cb4ee630`. Both pushed 2026-07-29 (single stacked PR). |
+| Deliberately skipped coverage + rationale | (1) **Step 0 verbatim prod-log string NOT captured** — proceeded on devops confirmation + the `because "replacement" is null` shape reproduced in unit tests (matches §1.2); capture before final sign-off. (2) Manual smoke §8.4 (esp. row 9: reprint a `boxtype_id IS NULL` UL) — needs UAT tenant. (3) Fix C has no unit test (latent-only, tote-label builder too deep) — gated by verify-script `C1–C5` + existing OrderMonitorViewServiceUnitTest staying green. |
