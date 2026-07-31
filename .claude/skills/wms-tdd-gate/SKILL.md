@@ -1,7 +1,7 @@
 ---
 name: wms-tdd-gate
-description: Write failing tests from a reviewed WMS plan's acceptance criteria, confirm they fail for the right reason, and pause for human approval before implementation starts.
-version: 1.0.0
+description: Write failing tests from a reviewed WMS plan's acceptance criteria, confirm they fail for the right reason, and pause for human approval before implementation starts. Normally invoked automatically as the final phase of wms-bugfix-plan / wms-feature-plan; can also be run standalone against an approved plan from an earlier session.
+version: 1.1.0
 ---
 
 # WMS TDD Gate
@@ -14,7 +14,12 @@ Bridges plan review and implementation. Given a critic-approved plan, writes the
 /wms-tdd-gate <path-to-plan-file>
 ```
 
-Invoke after critic sign-off on a `wms-bugfix-plan` or `wms-feature-plan` output. The plan must have passed its Layer 2 completeness checklist before this skill runs.
+Two entry paths, both valid:
+
+- **Chained (the normal path).** `wms-bugfix-plan` / `wms-feature-plan` invoke this skill automatically as their final phase, once the plan is saved and `verify-<plan-id>.sh` exists. The plan is already in context — still re-read §0 / §3 / §8 from the file rather than working from memory of the drafting conversation, so the tests encode what was actually written to disk.
+- **Standalone.** A human runs `/wms-tdd-gate <path>` against an already-approved plan from an earlier session.
+
+Either way the plan must have passed ralplan Critic sign-off and its Layer 2 completeness checklist before this skill runs. If it hasn't, stop and say so — do not gate a draft.
 
 ---
 
@@ -32,7 +37,20 @@ If the plan has no §0 table, §3 Fix Design, or §8 Acceptance section, stop an
 
 ---
 
-## Step 2 — Map to test classes
+## Step 2 — Branch precondition, then map to test classes
+
+### 2a. Confirm the branch BEFORE writing any file
+
+Plans live in `sbdocs/` (not git), but this skill writes Java into `v1/wms-api` or `v2/wms2-api` — real repositories. On the chained path nothing has checked out a branch yet, so verify it here:
+
+1. Read the branch name from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout — for phased plans use the **Phase 1** branch). If the plan names none, derive `feature/<plan-id>`.
+2. ```bash
+   cd v{1|2}/wms-api && git status --short && git branch --show-current
+   ```
+3. Working tree must be clean and the branch must be the plan's branch, created off `develop` (unless the plan says otherwise). Create it if absent.
+4. **Never write tests onto `develop` or `main`.** If the tree is dirty or the base looks wrong, stop and ask — do not guess, and do not stash someone else's work.
+
+### 2b. Map criteria to test classes
 
 For each service in §0:
 
@@ -143,9 +161,21 @@ Classify each result:
 
 Do not proceed to Step 5 until every new test is in the "Correct failure" column.
 
+### Also capture the verify-script baseline (chained path)
+
+The plan ships with `sbdocs/9-System/scripts/verify-<plan-id>.sh`. Run it once here, against the unfixed build:
+
+```bash
+bash sbdocs/9-System/scripts/verify-<plan-id>.sh 2>&1 | tail -20
+```
+
+Expect failures — that is the point. **If it reports `Result: N pass, 0 fail` before any production code changed, the script is asserting nothing** (usually filename-level checks instead of call-site regexes). Flag it in the Step 5 report and tighten it now; a verify script that cannot fail cannot later prove the work was done. This is the same trap that let a plan score 57 pass / 0 fail on a build that still contained the defect it was written to catch.
+
 ---
 
 ## Step 5 — Checkpoint (pause OR auto-proceed)
+
+**On the chained path this is the only human checkpoint between plan approval and production code being written.** The plan→gate boundary was deliberately removed (a separate "shall I run the gate?" prompt re-approved a decision already made at ralplan Critic sign-off), so the pause below carries the whole weight. Bias toward pausing: the auto-proceed criteria are a narrow exemption for genuinely small changes, not the default.
 
 ### Auto-proceed criteria (ALL must be true to skip the pause)
 
@@ -163,6 +193,8 @@ If ANY is false: **pause**. Print the report and wait for "go" or equivalent. Do
 ```
 ## TDD Gate Baseline — <plan-id>
 
+Branch: <repo>@<branch> (clean, off develop)
+
 ### Tests written
 | Test class | Method | Criterion |
 |---|---|---|
@@ -170,6 +202,12 @@ If ANY is false: **pause**. Print the report and wait for "go" or equivalent. Do
 
 ### Failure output (excerpt)
 <paste the key assertion failure lines — not the full Maven log>
+
+### Verify-script baseline
+<paste the `Result: N pass, M fail` line from `bash sbdocs/9-System/scripts/verify-<plan-id>.sh`>
+<!-- Chained path only. M must be > 0 — a verify script that already passes on the
+     unfixed build is asserting nothing. If M == 0, say so loudly: the script needs
+     tighter call-site regexes before implementation starts. -->
 
 ### Verdict
 ✓ <N> tests fail for the right reason (assertion failures)
@@ -191,15 +229,17 @@ If auto-proceeding, append: `Auto-proceeding to implementation (≤2 criteria, n
 
 ## Step 6 — Handoff on approval
 
-When the user approves:
+When the user approves, hand off to **`wms-plan-executor`** — it owns the implementation loop, code review, commit, PR, and ClickUp update. Do not implement here.
 
-1. State the run command the executor should use to verify completion:
+1. State the run command that defines completion:
    ```bash
-   cd v{1|2}/wms-api && mvn test -Dtest=<ClassName>#<method1>+<method2>
+   cd v{1|2}/wms-api && mvn test -Dtest=<ClassName>
    ```
-2. Pass this as the completion criterion to any implementation agent or executor:
-   > "Implementation is complete when this command exits 0 with all N tests passing."
-3. Remind: run the **full** test suite (`mvn test`) only after the targeted tests pass, to catch regressions.
+   Target the **class**, not `<Class>#<method>` — the method form silently runs zero tests on `@Nested` classes and reports success.
+2. Pass this as the completion criterion:
+   > "Implementation is complete when this command exits 0 with all N tests passing, and `verify-<plan-id>.sh` reports `Result: N pass, 0 fail`."
+3. Invoke `Skill("wms-plan-executor", "<path-to-plan-file>")`, or tell the user to run it in a fresh session if they want to stop here. The tests and the verify script are the two contracts the executor must satisfy — it may not weaken either.
+4. Remind: the **full** suite (`mvn test`) runs only after the targeted tests pass, and its failures get compared against the pre-existing baseline, not read as new regressions.
 
 ---
 
@@ -211,6 +251,7 @@ When the user approves:
 4. **Do not run the full test suite.** Only run the tests you wrote. Pre-existing failures are outside scope.
 5. **Do not proceed past Step 5 without explicit user approval — unless auto-proceed criteria are met.** See Step 5 for the four conditions. When in doubt, pause.
 6. **If the plan has no acceptance criteria**, stop at Step 1 and ask for them. A TDD gate without criteria is just test theater.
+7. **Never write a test file before Step 2a passes.** Not on `develop`, not on `main`, not onto someone else's dirty working tree. On the chained path this skill is the first thing that touches a real git repo.
 
 ---
 

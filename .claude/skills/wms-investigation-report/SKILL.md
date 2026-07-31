@@ -88,6 +88,7 @@ Walk every row. Mark `✓ <reference>` or `no — <rationale>`. Empty rows block
 | 8 | §9 Open Questions populated with any sub-questions you couldn't answer |  |
 | 9 | §8 Recommendation explicitly picks one of: Fix now / Fix later / Do NOT fix / Monitor / Investigate further |  |
 | 10 | If recommendation = Fix now/later — note that the downstream plan must ship a verify script |  |
+| 11 | **Ticket** — inbound ticket (if any) recorded in frontmatter + §10; if recommendation = Fix now/later, either an `SBDEV-####` was created per §Ticket resolution or §8 says explicitly that none is filed yet. `Do NOT fix` / `Monitor` / `Investigate further` → `no — no ticket warranted` |  |
 
 ## Output document
 
@@ -104,6 +105,7 @@ Save to `sbdocs/3-Resources/reports/`. **Filename MUST follow the naming convent
 
 - New report: `YYMMDD-kebab-description.md` (e.g., `260424-wms-oms-notification-delivery-guarantees.md`).
 - Existing reports without the prefix in `4-Archieves/` are legacy and remain as-is.
+- **Reports never take an `SBDEV-####` filename prefix**, even when a ticket exists or gets created at handoff — that prefix belongs to plans. The ticket lives in the frontmatter (`ticket:` / `ticket_url:`), not the filename. See §Ticket resolution.
 
 Required sections (in template order):
 1. Context & Trigger
@@ -140,10 +142,36 @@ Same gotchas as the other skills — bring them in when relevant:
 - Verdict conflicts with user's expectation → call it out plainly in §7. Don't soften.
 - Question turns out ill-posed → stop and offer to re-frame rather than answering a question that can't be answered.
 
+## Ticket resolution (outcome-gated — NOT up front)
+
+Unlike `wms-bugfix-plan` / `wms-feature-plan`, this skill does **not** open a ticket before the work starts. An investigation can legitimately conclude "nothing is wrong" or "do not fix", and filing a ticket for a defect that turns out not to exist pollutes the backlog. Report filenames stay `YYMMDD-kebab-description.md` either way — a report is never renamed to `SBDEV-####`.
+
+**Inbound — a ticket already exists (check at protocol step 1):**
+- If the prompt names an `SBDEV-####`, a ClickUp URL, or a bare task id, fetch it with `mcp__clickup__clickup_get_task` and use the reporter's own wording in §1 Context & Trigger.
+- Record it in the report frontmatter as `ticket: "SBDEV-####"` and `ticket_url: "https://app.clickup.com/t/<id>"` (add both keys — the report template doesn't ship them), and link it from §10 References.
+- When the report concludes, post the §7 Verdict + §8 Recommendation back to that ticket via `mcp__clickup__clickup_create_comment` so the investigation isn't stranded in the vault. Confirm with the user before commenting — it notifies watchers.
+
+**Outbound — create a ticket ONLY when the report hands off to a plan:**
+
+Trigger: §8 Recommendation is **Fix now** or **Fix later**, no ticket already covers the finding, and the user wants the plan drafted. `Do NOT fix`, `Monitor`, and `Investigate further` get **no ticket** — the report itself is the deliverable.
+
+1. **Search first** — `mcp__clickup__clickup_search` on the 2–3 most distinctive keywords from the verdict (service/class name, exception type, config key). Reuse an existing open ticket rather than duplicating; tell the user which one matched.
+2. **Create it** with `mcp__clickup__clickup_create_task`:
+   - `list_id: "901103718309"` — Fulfillment Development Backlog, the default for all WMS work. Don't ask which list.
+   - `name` — `[WMS v{1|2}] <one-line symptom or capability>`, drawn from §7 Verdict rather than the investigation question (the question is what you didn't know; the verdict is what you found).
+   - `markdown_description` — the verdict in 2–4 sentences, the primary evidence (file:line, query output, log line) that carries it, affected version + tenant(s), and `Investigation: sbdocs/3-Resources/reports/YYMMDD-kebab-description.md`. The report is the evidence of record — link it, don't restate it.
+   - `priority` — `"high"` for confirmed data corruption / stuck workflow / production impact; `"normal"` otherwise. `"urgent"` only when the user says production is down.
+   - `task_type` — `"Bug"` when handing to `wms-bugfix-plan`, `"Feature"` when handing to `wms-feature-plan`; retry without it if the type doesn't exist in the workspace.
+   - **Show the user the proposed `name` + `priority` and get a go-ahead before the call** — this writes to a shared tracker.
+3. **Record it in the report before handing off** — write the `SBDEV-####` and URL into §8 Recommendation and §10 References, plus the `ticket:` / `ticket_url:` frontmatter keys. This is what stops a duplicate: the downstream skill's own Ticket-resolution phase sees the ticket named in the prompt and reuses it instead of creating a second one.
+
+**If the handoff happens in a later session** and you did not create the ticket here, say so explicitly in §8 ("no ticket filed yet — `wms-bugfix-plan` will open one"). Leave `ticket: ""`, so nobody assumes the work is tracked when it isn't.
+
 ## Handoff to other skills
 
 The report ends an investigation; it does not start a fix. When the recommendation is "Fix now" or "Fix later":
 - Note the target skill in §8: "draft via `wms-bugfix-plan` for v1" or "via `wms-feature-plan` for v2".
+- Run the outbound ticket flow in §Ticket resolution above, and pass the resulting `SBDEV-####` into the plan skill so it reuses the ticket rather than opening a duplicate.
 - Cross-link the plan from §10 References after it's created.
 - If v1 fix is applicable, expect a `wms-v2-migrate` follow-up plan; flag that too.
 

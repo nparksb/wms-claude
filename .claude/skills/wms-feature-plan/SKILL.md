@@ -1,13 +1,15 @@
 ---
 name: wms-feature-plan
-description: Produce a reviewable implementation plan document for a new feature, enhancement, refactor, or architecture change in the WMS codebase (v1/wms-api or v2/wms2-api). Use when the input is a design description, feature request, performance goal, configuration toggle, new endpoint, or broader architectural change (connection pooling, transaction refactoring, caching strategy, horizontal scaling, pick path config, API redesign). Output is a plan document only — does NOT implement the feature.
+description: Produce a reviewable implementation plan document for a new feature, enhancement, refactor, or architecture change in the WMS codebase (v1/wms-api or v2/wms2-api). Use when the input is a design description, feature request, performance goal, configuration toggle, new endpoint, or broader architectural change (connection pooling, transaction refactoring, caching strategy, horizontal scaling, pick path config, API redesign). Output is a plan document plus the failing tests written by the chained TDD gate — it does NOT implement the feature.
 ---
 
 ## Execution model
 
-Two phases:
+Three phases:
+0. **Ticket resolution** — Stay in the main session for this (the confirmation gate needs the user). Resolve or create the ClickUp ticket and move it to `in development` (see "Ticket resolution" below), then pass the resulting `SBDEV-####` and plan filename into the phases below. Complete this phase before delegating analysis — it is two fast MCP calls, and the ticket id feeds the filename, the verify-script name, and the board state.
 1. **Analysis phase** — Delegate to an `executor` subagent with `model: opus`. The executor runs pre-investigation agents, analysis protocol, and pre-draft enumeration, producing all file:line evidence, current architecture mapping, callsite enumeration, and design constraints.
 2. **Plan drafting phase** — Pass the analysis output to `ralplan` (see "Plan generation" below). Do not write the plan document directly from the analysis output.
+3. **TDD gate phase** — After the plan is saved and its verify script exists, chain straight into `wms-tdd-gate` in the same session (see "Chain to the TDD gate" below). Do not end the session at the approved plan.
 
 # WMS Feature Implementation Plan
 
@@ -35,6 +37,38 @@ If the input is an error/stack trace, use **wms-bugfix-plan** instead.
 | Frontend-only | Ask which UI (wms-web-ui, wms-mobile-ui, omsv2-UI) |
 
 Read the target sub-project's `CLAUDE.md` first. For v2, also scan `sbdocs/3-Resources/architecture/` for entity / package analysis that's already been done.
+
+## Ticket resolution (MANDATORY — run after version detection, before drafting)
+
+Every plan this skill emits is ticket-backed. **If the prompt does not name a ticket, create one in ClickUp** — do not fall straight through to `YYMMDD-` naming.
+
+1. **Look for a ticket in the prompt** — `SBDEV-####`, a ClickUp task URL (`https://app.clickup.com/t/<id>`), or a bare task id. If found, fetch it with `mcp__clickup__clickup_get_task` to pull the requester's own wording into §1 Problem Statement, then skip to step 4.
+
+2. **Search before creating** — run `mcp__clickup__clickup_search` with the 2–3 most distinctive keywords (service/class name, config key, feature name). If an open ticket already covers this work, reuse it instead of opening a duplicate, and tell the user which one you matched. This matters more for features than bug fixes — feature requests often already exist in the backlog under different wording.
+
+3. **Create the ticket** with `mcp__clickup__clickup_create_task`:
+   - `list_id: "901103718309"` — Fulfillment Development Backlog, the default for all WMS work. Don't ask which list.
+   - `name` — `[WMS v{1|2}] <one-line capability>` (e.g. `[WMS v2] Make pick path direction configurable per warehouse`). Describe the outcome, not the implementation.
+   - `markdown_description` — the goal, current behavior vs desired behavior, affected version, any measurable target the user gave, and the phases if the work is already known to be multi-PR. Append `Plan: sbdocs/1-Projects/wms{1|2}/plan/<filename>.md` once the filename is settled.
+   - `priority` — `"high"` when the feature unblocks a customer commitment or a migration; `"normal"` otherwise. `"urgent"` only when the user says so.
+   - `task_type: "Feature"` — if the call errors because the type doesn't exist in the workspace, retry without it.
+   - **Show the user the proposed `name` + `priority` and get a go-ahead before the call** — this writes to a shared tracker. Skip the confirm only when the user already said "file the ticket" / "just draft it", or has authorized ticket creation earlier in the session.
+
+4. **Record the ticket** — take `custom_id` (the `SBDEV-####` form; fall back to `id` if the workspace returns no custom id) and the task `url` from the create/get response, then use them for:
+   - the plan filename — `SBDEV-####-kebab-description.md`
+   - frontmatter `ticket: "SBDEV-####"` and `ticket_url: "https://app.clickup.com/t/<id>"`
+   - the verify script — `sbdocs/9-System/scripts/verify-SBDEV-####-kebab-description.sh`
+
+5. **Move the ticket to `in development`** — the last thing before analysis begins. `mcp__clickup__clickup_update_task` with `status: "in development"`. This applies to **both** paths: a ticket the user supplied and one you just created. The board should show the work as picked up before you spend a single agent on it, not after the plan lands.
+   - The exact string on Fulfillment Development Backlog is lowercase **`in development`**. Do not invent `In Progress` / `In Development` — the API rejects a status the list doesn't define. The ladder has no separate planning state, so `in development` covers planning through implementation.
+   - **Never move a ticket backwards.** If it is already at `in development` or beyond (`comitted local`, `pr submitted`, `on dev`, …), leave it and say what you found — a ticket already at `pr submitted` probably means this plan duplicates work in flight.
+   - Feature tickets often sit at `ready for sprint`; moving that to `in development` is the normal forward transition. A ticket still at `pending` is a hint the work may not be sprint-committed yet — flip it, but mention it.
+   - No confirmation needed for this one. The user asking for a plan is the authorization; it's a status flip, not a new artifact on a shared board.
+   - No ticket (the fallback below) → nothing to update. Say so.
+
+For a phased feature, still open **one** ticket for the plan; per-phase tickets (if the user wants them) come later at implementation time, as subtasks via `parent`.
+
+**Fall back to `YYMMDD-kebab-description.md`** only when the ClickUp MCP is unavailable or the user explicitly declines a ticket. In that case leave `ticket: ""`, skip step 5, and note at the top of §1 that the ticket still needs filing.
 
 ## Pre-draft question phase (Layer 3 — MANDATORY when triggered)
 
@@ -263,6 +297,29 @@ A `no — rationale` answer is acceptable when defensible. An empty row means th
 
 **A feature plan delivered without a corresponding verify script is not review-ready.**
 
+## Chain to the TDD gate (automatic — do NOT stop at the approved plan)
+
+Once the plan is saved AND `verify-<plan-id>.sh` exists, invoke `Skill("wms-tdd-gate", "<path-to-plan-file>")` in the same session. **Do not ask the user whether to run it.** Plan approval already happened at the ralplan Critic step; the human checkpoint for the tests themselves is the gate's own Step 5. A "shall I run the gate?" prompt approves a decision that was already made and forces the gate to re-read the plan cold in a fresh session.
+
+**Why chain rather than defer.** The verify script and the failing tests are both *baselines*, and a baseline is only trustworthy when captured against the unbuilt feature. A grep-based verify script cannot prove its own assertions have teeth — it can report `Result: N pass, 0 fail` against code that does not yet do what §3 Design describes. The gate's Step 4 "unexpectedly passes" row is the negative test that catches exactly that, and for feature work it also catches the opposite error: a criterion that the existing code already satisfies, meaning the design section over-claims what is new.
+
+**Branch precondition — MANDATORY before the gate writes any file.** The plan lives in `sbdocs/` (not git), but the gate writes Java into `v{1|2}/wms-api`, a real repository. Before invoking:
+
+1. Take the branch name from the plan (§5 Phased Implementation Plan / §8 Rollout Plan — feature plans usually name one per phase). Use the **Phase 1** branch. If the plan names none, derive `feature/<plan-id>`.
+2. `cd` into the target repo, confirm the working tree is clean, and create/checkout that branch off the correct base (`develop` unless the plan says otherwise).
+3. **Never let the gate write tests onto `develop` or `main`.** If the tree is dirty or the base is wrong, stop and ask — do not guess.
+
+**Skip the chain only for these rows.** Name the row that applies and tell the user the gate still owes them a run:
+
+| Condition | Why | Instead |
+|---|---|---|
+| Multi-phase plan | Later phases' criteria aren't stable until earlier phases land — the common case for feature work | Gate **Phase 1 criteria only**, then re-run the gate at the start of each later phase |
+| Plan is a v1+v2 pair | Tests land in two repos; one gate run can't own both | Chain for the version being implemented first; flag the sibling as pending |
+| `db_verified: false` where the feature touches queries / schema / state machines | Acceptance criteria may rest on an unproven data shape — the tests would encode a guess | Resolve the DB check first, then gate |
+| §10 Open Questions has an unresolved item | The design contract is still moving; tests written now get rewritten. Feature plans carry open questions far more often than bug-fix plans — check this row before the others | Close the question, then gate |
+| No Java test surface | Sysprop row seed, doc-only, infra/config-only (e.g. a PgBouncer topology change) | Rely on the verify script + §7 Manual Test Plan. **Flyway view / function / DDL changes do NOT qualify** — those have a Testcontainers integration-test surface; don't use this row to dodge them |
+| Frontend-only phase | The gate targets `mvn test` in the Java repos | Gate the API phase; cover the UI phase via its own Jest suite per §7 |
+
 ## Non-negotiable WMS context
 
 Bake these in when they apply. Reviewers will push back if you miss them.
@@ -303,7 +360,7 @@ Bake these in when they apply. Reviewers will push back if you miss them.
 
 ## Plan naming convention
 
-Same rules as `wms-bugfix-plan` §Plan naming convention. Ticketed: `SBDEV-####-kebab.md`. Untracked: `YYMMDD-kebab.md` (e.g., `260405-pgbouncer-connection-pool-strategy.md`). v1/v2 pairs share the same base name. No PascalCase or SCREAMING_SNAKE_CASE.
+Same rules as `wms-bugfix-plan` §Plan naming convention. Ticketed is the normal case: `SBDEV-####-kebab.md` — per §Ticket resolution above, a plan with no ticket in the prompt gets one created. Untracked is a fallback only (ClickUp unavailable or the user declined): `YYMMDD-kebab.md` (e.g., `260405-pgbouncer-connection-pool-strategy.md`). v1/v2 pairs share the same base name. No PascalCase or SCREAMING_SNAKE_CASE.
 
 ## Horizontal scalability validation (mandatory for every v2 plan)
 

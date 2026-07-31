@@ -65,7 +65,7 @@ Greps run in `v2/wms2-api/src/main/java`: `computeIfAbsent` (landlord), `removeT
 
 **User-visible impact.** During onboarding / DB cutover, an operator points a tenant at a freshly-provisioned database (SBDEV-2607 flow), triggers a "config refresh", and the app continues returning the **old** database's contents. There is no error — it silently serves stale data, which is worse than a hard failure.
 
-**Reproduction (live, dev — `wms1-landlord-dev`):**
+**Reproduction (live, dev — MCP `landlord-dev`, `localhost:25060/dev_landlord`):**
 1. Hydra tenant = `tenant_id = 4`; its only DB-config row is `tenant_db_configuration` `id=21`, `warehouse='nywh'`.
 2. `db_url` was switched from `jdbc:postgresql://dev.sbo.li:25060/wh01_hydra_v2t` → `.../wh01_hydra_v2t2`.
 3. After a config refresh, the app still returns `wh01_hydra_v2t` content.
@@ -73,7 +73,7 @@ Greps run in `v2/wms2-api/src/main/java`: `computeIfAbsent` (landlord), `removeT
 **DB verification (`db_verified: true`).** Confirmed against the landlord DB that the config change is correctly persisted — the defect is entirely app-side (stale in-JVM pool), not a landlord-data problem:
 
 ```sql
--- wms1-landlord-dev
+-- MCP landlord-dev (localhost:25060/dev_landlord)
 SELECT id, warehouse, db_url, tenant_id, created, modified
 FROM tenant_db_configuration WHERE tenant_id = 4;
 -- id=21 | nywh | jdbc:postgresql://dev.sbo.li:25060/wh01_hydra_v2t2 | 4

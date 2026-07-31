@@ -103,7 +103,7 @@ Backend-only (`v2/wms2-api`). No UI change, no admin endpoint (deactivation is a
 
 Active-only `findByKeyAndActiveTrue` ⇒ inactive key → empty → 404 → existing UI redirect. **No UI change.**
 
-### 2.3 Live landlord DB state (dev `wms1-landlord-dev`, recorded pre-change; db_verified: true)
+### 2.3 Live landlord DB state (dev — MCP `landlord-dev`, `localhost:25060/dev_landlord`; recorded pre-change; db_verified: true)
 
 **`tenant_discovery`** (4 rows): id24 `wsl-wineco`/`wineco`; id25 `nywh-hydra`/`hydra`; id27 `nywh-shipitez`/`shipitez`; id28 `c1wh-shipitez`/`shipitez`.
 

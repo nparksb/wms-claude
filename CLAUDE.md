@@ -61,9 +61,10 @@ Custom Claude Code skills used by this repo live at `owl/.claude/skills/<skill-n
 
 | Skill | Purpose |
 |-------|---------|
-| `wms-bugfix-plan` | Produce a deeply-grounded bug-fix plan into `sbdocs/1-Projects/wms{1\|2}/plan/` |
-| `wms-feature-plan` | Produce a feature/refactor plan into `sbdocs/1-Projects/wms{1\|2}/plan/` |
-| `wms-tdd-gate` | Write failing tests from a reviewed plan's acceptance criteria, confirm correct failures, pause for approval before implementation |
+| `wms-bugfix-plan` | Produce a deeply-grounded bug-fix plan into `sbdocs/1-Projects/wms{1\|2}/plan/`, then chain into `wms-tdd-gate` |
+| `wms-feature-plan` | Produce a feature/refactor plan into `sbdocs/1-Projects/wms{1\|2}/plan/`, then chain into `wms-tdd-gate` |
+| `wms-tdd-gate` | Write failing tests from a reviewed plan's acceptance criteria, confirm correct failures, pause for approval before implementation. Runs automatically as the last phase of the two plan skills; also runnable standalone |
+| `wms-plan-executor` | Execute a reviewed plan: ralph-loop to green, code review + fix High/Medium, verify-docs, commit, PR into `develop`, update plan doc + ClickUp to `pr submitted`. Stops at PR — does not merge, deploy, or archive |
 | `wms-investigation-report` | Produce an evidence-based investigation report into `sbdocs/3-Resources/reports/` |
 | `wms-architecture-doc` | Produce a system-level architecture doc into `sbdocs/3-Resources/architecture/` |
 | `wms-design-doc` | Produce a module-level design doc into `sbdocs/3-Resources/design/` |

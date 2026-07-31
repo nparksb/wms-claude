@@ -5,13 +5,13 @@ ticket_url: "https://app.clickup.com/t/868kgfhcq"
 type: "bugfix"
 severity: "high"
 priority: "urgent"
-status: "reviewed"
+status: "implemented"
 project: ["wms2-api"]
 version: "v2"
 requester: "Brent Campbell"
 assignee: "Nam Park / David Oppenheim"
 created: "2026-07-28"
-updated: "2026-07-28"
+updated: "2026-07-30"
 revision: 8
 db_verified: partial
 db_verified_note: >
@@ -1782,5 +1782,5 @@ Neither delta introduces replica-dependent state.
 | Verify script line (`Result: N pass, 0 fail, M skip`) | _not yet run — behavioral gate met via the 4 mvn test classes above; run the verify script's PR1 named subset before PR merge_ |
 | Code-reviewer (PR1) | ✓ **APPROVE** (2026-07-29, opus) — 0 Critical/High/Medium; 2 LOW + 2 NIT all pre-existing/out-of-scope. Noted follow-up: `sysprops` cache shared by `getByKey` (Sysprop) and `getSysvalue` (String) → latent ClassCastException (pre-existing). |
 | Code-reviewer (PR2) | ✓ **APPROVE** (2026-07-29, opus) — 0 Critical/High/Medium; 2 LOW test-coverage notes. Added a sibling EntityNotFound-echo regression guard in response; `"*"` preservation already pinned by existing tests. |
-| PR | [wms2-api#108](https://github.com/SiteBossInc/wms2-api/pull/108) — branch `bugfix/SBDEV-2729-system-sku-receiving-null-label-token` → `develop`. PR1 `93a602bf`, PR2 `cb4ee630`. Both pushed 2026-07-29 (single stacked PR). |
+| PR | **MERGED 2026-07-30** — [wms2-api#108](https://github.com/SiteBossInc/wms2-api/pull/108) merged into `develop`, merge commit **`72a58d6`**; branch `bugfix/SBDEV-2729-system-sku-receiving-null-label-token`. PR1 `93a602bf`, PR2 `cb4ee630` (single stacked PR, both pushed 2026-07-29). ClickUp SBDEV-2729 → **on dev**. |
 | Deliberately skipped coverage + rationale | (1) **Step 0 verbatim prod-log string NOT captured** — proceeded on devops confirmation + the `because "replacement" is null` shape reproduced in unit tests (matches §1.2); capture before final sign-off. (2) Manual smoke §8.4 (esp. row 9: reprint a `boxtype_id IS NULL` UL) — needs UAT tenant. (3) Fix C has no unit test (latent-only, tote-label builder too deep) — gated by verify-script `C1–C5` + existing OrderMonitorViewServiceUnitTest staying green. |

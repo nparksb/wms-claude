@@ -1,13 +1,15 @@
 ---
 name: wms-bugfix-plan
-description: Produce a deeply-grounded bug fix plan document for the WMS codebase (v1/wms-api or v2/wms2-api) from an error description, stack trace, exception message, HTTP 500 report, or SBDEV ticket. Use when the input is a concrete defect — error logs, stack traces, StaleObjectStateException, ObjectOptimisticLockingFailureException, NullPointerException, NoSuchElementException, optimistic-lock failures, race conditions, stuck states, workflow breakages (putaway / picking / replenishment / receiving / cycle count / palletizing / truck loading / BOL / move stock). Output is a plan document only — does NOT implement the fix.
+description: Produce a deeply-grounded bug fix plan document for the WMS codebase (v1/wms-api or v2/wms2-api) from an error description, stack trace, exception message, HTTP 500 report, or SBDEV ticket. Use when the input is a concrete defect — error logs, stack traces, StaleObjectStateException, ObjectOptimisticLockingFailureException, NullPointerException, NoSuchElementException, optimistic-lock failures, race conditions, stuck states, workflow breakages (putaway / picking / replenishment / receiving / cycle count / palletizing / truck loading / BOL / move stock). Output is a plan document plus the failing tests written by the chained TDD gate — it does NOT implement the fix.
 ---
 
 ## Execution model
 
-Two phases:
+Three phases:
+0. **Ticket resolution** — Stay in the main session for this (the confirmation gate needs the user). Resolve or create the ClickUp ticket and move it to `in development` (see "Ticket resolution" below), then pass the resulting `SBDEV-####` and plan filename into the phases below. Complete this phase before delegating analysis — it is two fast MCP calls, and the ticket id feeds the filename, the verify-script name, and the board state.
 1. **Analysis phase** — Delegate to an `executor` subagent with `model: opus`. The executor runs pre-investigation agents, analysis protocol, and pre-draft enumeration, producing all file:line evidence, root-cause hypotheses, and affected-sites data.
 2. **Plan drafting phase** — Pass the analysis output to `ralplan` (see "Plan generation" below). Do not write the plan document directly from the analysis output.
+3. **TDD gate phase** — After the plan is saved and its verify script exists, chain straight into `wms-tdd-gate` in the same session (see "Chain to the TDD gate" below). Do not end the session at the approved plan.
 
 # WMS Bug Fix Plan
 
@@ -34,6 +36,35 @@ Decide v1 vs v2 BEFORE analyzing. Ask the user if ambiguous.
 | Ticket mentioned without version | **Ask the user** |
 
 Read the sub-project `CLAUDE.md` for the detected version FIRST — it contains critical rules like "only `Location` has `equals/hashCode` (and it's broken)" for v1.
+
+## Ticket resolution (MANDATORY — run after version detection, before drafting)
+
+Every plan this skill emits is ticket-backed. **If the prompt does not name a ticket, create one in ClickUp** — do not fall straight through to `YYMMDD-` naming.
+
+1. **Look for a ticket in the prompt** — `SBDEV-####`, a ClickUp task URL (`https://app.clickup.com/t/<id>`), or a bare task id. If found, fetch it with `mcp__clickup__clickup_get_task` to pull the reporter's own wording into §1 Problem Statement, then skip to step 4.
+
+2. **Search before creating** — run `mcp__clickup__clickup_search` with the 2–3 most distinctive keywords (service/class name, exception type, workflow name). If an open ticket already covers this defect, reuse it instead of opening a duplicate, and tell the user which one you matched.
+
+3. **Create the ticket** with `mcp__clickup__clickup_create_task`:
+   - `list_id: "901103718309"` — Fulfillment Development Backlog, the default for all WMS work. Don't ask which list.
+   - `name` — `[WMS v{1|2}] <one-line symptom>` (e.g. `[WMS v2] Stock history report mis-aggregates shared SKUs across clients`). Describe the symptom the operator sees, not the code fix.
+   - `markdown_description` — symptom, affected version + tenant(s), reproduction steps or the triggering data condition, and the stack trace / error message verbatim when one was supplied. Append `Plan: sbdocs/1-Projects/wms{1|2}/plan/<filename>.md` once the filename is settled.
+   - `priority` — `"high"` for data corruption, stuck workflows, or a production outage; `"normal"` otherwise. `"urgent"` only when the user says production is down. State the reasoning in one line.
+   - `task_type: "Bug"` — if the call errors because the type doesn't exist in the workspace, retry without it.
+   - **Show the user the proposed `name` + `priority` and get a go-ahead before the call** — this writes to a shared tracker. Skip the confirm only when the user already said "file the ticket" / "just draft it", or has authorized ticket creation earlier in the session.
+
+4. **Record the ticket** — take `custom_id` (the `SBDEV-####` form; fall back to `id` if the workspace returns no custom id) and the task `url` from the create/get response, then use them for:
+   - the plan filename — `SBDEV-####-kebab-description.md`
+   - frontmatter `ticket: "SBDEV-####"` and `ticket_url: "https://app.clickup.com/t/<id>"`
+   - the verify script — `sbdocs/9-System/scripts/verify-SBDEV-####-kebab-description.sh`
+
+5. **Move the ticket to `in development`** — the last thing before analysis begins. `mcp__clickup__clickup_update_task` with `status: "in development"`. This applies to **both** paths: a ticket the user supplied and one you just created. The board should show the work as picked up before you spend a single agent on it, not after the plan lands.
+   - The exact string on Fulfillment Development Backlog is lowercase **`in development`**. Do not invent `In Progress` / `In Development` — the API rejects a status the list doesn't define. The ladder has no separate planning state, so `in development` covers planning through implementation.
+   - **Never move a ticket backwards.** If it is already at `in development` or beyond (`comitted local`, `pr submitted`, `on dev`, …), leave it and say what you found — a ticket already at `pr submitted` probably means this plan duplicates work in flight.
+   - No confirmation needed for this one. The user asking for a plan is the authorization; it's a status flip, not a new artifact on a shared board.
+   - No ticket (the fallback below) → nothing to update. Say so.
+
+**Fall back to `YYMMDD-kebab-description.md`** only when the ClickUp MCP is unavailable or the user explicitly declines a ticket. In that case leave `ticket: ""`, skip step 5, and note at the top of §1 that the ticket still needs filing.
 
 ## Pre-draft question phase (Layer 3 — MANDATORY when triggered)
 
@@ -275,6 +306,28 @@ A `no — rationale` answer is acceptable when defensible (e.g. "no — this is 
 
 **A bug-fix plan delivered without a corresponding verify script is not review-ready.**
 
+## Chain to the TDD gate (automatic — do NOT stop at the approved plan)
+
+Once the plan is saved AND `verify-<plan-id>.sh` exists, invoke `Skill("wms-tdd-gate", "<path-to-plan-file>")` in the same session. **Do not ask the user whether to run it.** Plan approval already happened at the ralplan Critic step; the human checkpoint for the tests themselves is the gate's own Step 5. A "shall I run the gate?" prompt approves a decision that was already made and forces the gate to re-read the plan cold in a fresh session.
+
+**Why chain rather than defer.** The verify script and the failing tests are both *baselines*, and a baseline is only trustworthy when captured against the unfixed build. A grep-based verify script cannot prove its own assertions have teeth — it can report `Result: N pass, 0 fail` on a build that still contains the defect the plan was written to kill. The gate's Step 4 "unexpectedly passes" row is the negative test that catches exactly that. Capture both baselines in one session, before any production code changes.
+
+**Branch precondition — MANDATORY before the gate writes any file.** The plan lives in `sbdocs/` (not git), but the gate writes Java into `v{1|2}/wms-api`, a real repository. Before invoking:
+
+1. Take the branch name from the plan (§5 Implementation Steps / §8 Rollout — e.g. `feature/SBDEV-####-kebab`). If the plan names none, derive `feature/<plan-id>`.
+2. `cd` into the target repo, confirm the working tree is clean, and create/checkout that branch off the correct base (`develop` unless the plan says otherwise).
+3. **Never let the gate write tests onto `develop` or `main`.** If the tree is dirty or the base is wrong, stop and ask — do not guess.
+
+**Skip the chain only for these rows.** Name the row that applies and tell the user the gate still owes them a run:
+
+| Condition | Why | Instead |
+|---|---|---|
+| Plan is a v1+v2 pair | Tests land in two repos; one gate run can't own both | Chain for the version being implemented first; flag the sibling as pending |
+| `db_verified: false` | Acceptance criteria may rest on an unproven data condition — the tests would encode a guess | Resolve the DB check first, then gate |
+| §10 Open Questions has an unresolved item | The contract is still moving; tests written now get rewritten | Close the question, then gate |
+| No Java test surface | Sysprop row seed, doc-only, config-only change | Rely on the verify script + §8 Manual test plan. **Flyway view / function / DDL changes do NOT qualify** — those have a Testcontainers integration-test surface; don't use this row to dodge them |
+| Multi-phase plan | Later phases' criteria aren't stable yet | Gate **Phase 1 criteria only**, then re-run the gate per phase |
+
 ## Non-negotiable WMS context
 
 Bake these into the plan whenever relevant — they're the most common sources of actual bugs in this repo.
@@ -302,10 +355,10 @@ Bake these into the plan whenever relevant — they're the most common sources o
 
 ## Plan naming convention
 
-**The `YYMMDD-` prefix is REQUIRED for every plan that does not have an SBDEV ticket.** It makes the latest plans sort to the top of the directory listing, which is how reviewers identify which plans are current vs. stale. Use today's date in YYMMDD format (e.g., `260424-` for 2026-04-24).
+**Ticketed is the default** — see §Ticket resolution above; a plan without a ticket in the prompt gets a ClickUp ticket created for it. **The `YYMMDD-` prefix is REQUIRED for the residual case of a plan with no SBDEV ticket** (ClickUp unavailable, or the user declined). It makes the latest plans sort to the top of the directory listing, which is how reviewers identify which plans are current vs. stale. Use today's date in YYMMDD format (e.g., `260424-` for 2026-04-24).
 
-- Ticketed: `SBDEV-####-kebab-description.md` — no YYMMDD prefix; the ticket number is the sortable identifier.
-- Untracked (the common case): `YYMMDD-kebab-description.md` (e.g., `260424-runclubline-transaction-boundary-hardening.md`).
+- Ticketed (the normal case): `SBDEV-####-kebab-description.md` — no YYMMDD prefix; the ticket number is the sortable identifier.
+- Untracked (fallback only): `YYMMDD-kebab-description.md` (e.g., `260424-runclubline-transaction-boundary-hardening.md`).
 - Investigation/debug plans may keep the `-debug-plan` suffix when it adds clarity: `YYMMDD-kebab-description-debug-plan.md`.
 - When a v1 plan has a v2 counterpart, use the **same base name** (including the YYMMDD prefix) in both `wms1/plan/` and `wms2/plan/` so v1 and v2 plans are easy to pair.
 
@@ -351,7 +404,7 @@ For any **Yes** row: cite the specific file:line or document in the plan body wh
 
 ## Post-implementation gate (mandatory when executing the plan)
 
-This skill produces a *plan*, not code. But whenever the plan is later executed, the executor (future session or another skill like `wms-v2-migrate`) MUST enforce this gate. Reflect the gate in the plan's §8 Testing Plan so downstream work inherits the requirement.
+This skill produces a *plan* plus the chained TDD gate's failing tests — never production code. Whenever the plan is later executed, the executor (future session or another skill like `wms-v2-migrate`) MUST enforce this gate. Reflect the gate in the plan's §8 Testing Plan so downstream work inherits the requirement. When the TDD gate ran, its tests ARE the primary completion criterion — point 1 below is already partly satisfied, and the executor's job is to make those tests pass without weakening them.
 
 A fix (single-commit OR phase of a batch plan) is NOT complete until all four hold:
 

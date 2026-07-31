@@ -6,10 +6,11 @@ version: v2
 scope: sysprops
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-07-24
-last_verified: 2026-07-24
-verified_by: SBDEV-1762/1666 lane-toggle seed provenance (Flyway V2.2.04, PR #93); constants land via open PRs #91/#92. Prior full read of WmsConstants.java + SyspropService.java (2026-04-19)
+updated: 2026-07-30
+last_verified: 2026-07-30
+verified_by: "Full constant extraction (124 keys) + live los_sysprop census across 5 active DEV+UAT tenants, 2026-07-30 — see reports/260730-wms2-sysprop-current-value-census.md"
 related:
+  - ../reports/260730-wms2-sysprop-current-value-census.md
   - ../architecture/wms2-scheduled-jobs-catalog.md
   - ../architecture/wms2-tenant-routing-datasource-topology.md
   - ./wms2-landlord-vs-tenant-entity-map.md
@@ -24,13 +25,13 @@ tags:
 # WMS v2 — System Property (Sysprop) Catalog
 
 **Scope:** Every `sysprop` key consumed by `v2/wms2-api` · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-07-24
+**Owner:** Nam Park · **Last verified:** 2026-07-30
 
 ---
 
 ## 1. Overview
 
-Configuration in `wms2-api` flows through a per-tenant `sysprop` table in the **tenant DB**, accessed via `SyspropService`. Each key has a canonical constant in `WmsConstants.java:879-1069` paired with a `*_DEFAULT_VALUE` companion; the default is used only when the DB row is missing. There is **no application.properties fallback** — if the constant exists in code but has no DB row and no default constant, the consumer either hard-codes a default inline or fails at read time.
+Configuration in `wms2-api` flows through a per-tenant `sysprop` table in the **tenant DB**, accessed via `SyspropService`. Each key has a canonical constant in `WmsConstants.java:899-1136` paired with a `*_DEFAULT_VALUE` companion; the default is used only when the DB row is missing. Only 80 of the 124 keys have that companion — the other 44 either hard-code a fallback at the call site or fail at read time. There is **no application.properties fallback** — if the constant exists in code but has no DB row and no default constant, the consumer either hard-codes a default inline or fails at read time.
 
 Three things to keep in mind:
 
@@ -38,7 +39,20 @@ Three things to keep in mind:
 2. **`@Cacheable(value = "sysprops", key = "{facilityCode}:{key}")`** is applied to `getSysvalue` and `getByKey`. Changes to `sysprop` table rows are **not** immediately visible to running processes — the cache TTL must expire or the service restart.
 3. **Fallback chain** is tenant-DB row → system-client default value (constant) → null. There is no env-var or `application.properties` path.
 
-**Total keys documented:** ~77 (WmsConstants.java lines 879–1069). A handful more use magic strings passed as parameters (see §11).
+**Total keys:** **124** constants — 123 `SYSTEM_PROPERTY_*_KEY` (WmsConstants.java lines 899–1136) plus the nested `LocationAreaService.PROPERTY_KEY_AREA_DEFAULT`. A handful more use magic strings passed as parameters (see §11).
+
+> The earlier "~77" figure in this section was wrong — it undercounted from the start (the file already held
+> 108 keys on 2026-04-19, this doc's own baseline date). Corrected 2026-07-30 from a full extraction; see
+> [`260730-wms2-sysprop-current-value-census`](../reports/260730-wms2-sysprop-current-value-census.md) §2.10.
+
+**Live values are not in this doc.** This catalog answers *"what is this key and what is its default."* For what
+each tenant actually holds right now, see the dated census report above — values are per-tenant and
+operator-editable, so they are captured as point-in-time snapshots rather than embedded here.
+
+**Not every live key has a constant.** A census of the 5 active DEV+UAT tenants found 146 distinct keys against
+124 constants. Most of the difference is legitimate: ~20 keys are pure UI-managed config that the Admin screen
+reads generically via `GET /sysprop/search/findByGroupname?groupname=…` and Java never references by name
+(`Warehouse Details`, `Operation Options`, `System Settings`, `System Info` groups). See §11 and census §2.2–2.5.
 
 ---
 
@@ -112,6 +126,12 @@ Format: cron fields are assembled as `{sec} {MINUTE} {HOUR} * * *`. `*` means "e
 | `STOCK_SUMMARY_EXPORT_TIMER_ACTIVATED` | `true` | Per-job activation |
 | `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_ACTIVATED` | `true` | Split export into batches |
 | `STOCK_SUMMARY_EXPORT_TIMER_SPLIT_AMOUNT_SKU_PER_BATCH` | `250` | Batch size |
+| `STOCK_SUMMARY_EXPORT_STREAMING_ENABLED` | `true` | Stream the export instead of materialising it |
+| `STOCK_SUMMARY_EXPORT_MAX_ROWS` | `1000000` | Hard row ceiling for one export run |
+
+> Neither of the two rows above exists in **any** DEV or UAT tenant (census 2026-07-30 §2.6) — the whole fleet
+> runs on the code defaults. There is also a live, constant-less `STOCK_SUMMARY_EXPORT_SUPPRESS_ARCHIVED` key on
+> two tenants that **nothing reads**; see census §2.3 before assuming it does anything.
 
 ### 4.5 ReleaseExpiredPickingOrdersFromUserJob
 
@@ -132,6 +152,16 @@ This job does **not** use DB sysprop rows. Its schedule and idempotency enforcem
 | `app.idempotency.max-body-bytes` | `5242880` (5 MB) | Requests with body exceeding this size bypass dedup (DoS guard). Checked against Content-Length header first; authoritative post-buffering check handles chunked encoding. |
 | `app.idempotency.bridge-mode` | `false` | Set `true` during the UUID→SHA-256 transition window (first 7 days after 260520 deploy) to replay pre-existing UUID-keyed 2xx rows. Disable after Day+7 to avoid extra DB roundtrip on every CLAIMED request. |
 
+### 4.6b StaleClubBatchCleanupJob (SBDEV-2164)
+
+`schedulejob/StaleClubBatchCleanupJob.java`, serialised via `AdvisoryLockService`.
+
+| Key | Default | Role |
+|---|---|---|
+| `STALE_CLUB_BATCH_CLEANUP_ACTIVATED` | `false` | Per-job activation — **off by default** |
+| `STALE_CLUB_BATCH_CLEANUP_TIMER_HOUR` | `3` | Cron hour field |
+| `STALE_CLUB_BATCH_CLEANUP_TIMER_MINUTE` | `0` | Cron minute field (→ 03:00 daily when activated) |
+
 ### 4.7 OutboxDispatcherJob (SBDEV-2221) — application.properties only
 
 This job does **not** use DB sysprop rows. All tuning knobs are controlled by `application.properties` entries.
@@ -143,6 +173,17 @@ This job does **not** use DB sysprop rows. All tuning knobs are controlled by `a
 | `app.outbox.dispatcher.max-attempts` | `5` | Attempts before a row is marked `FAILED_TERMINAL`; conservative until OMS confirms idempotency-key support |
 | `app.outbox.dispatcher.retention-days` | `7` | Days to retain `SENT` rows before cleanup at the end of each tick |
 
+Two outbox keys **are** DB sysprops, despite the job's tuning living in `application.properties`. Both are seeded by `V2.2.05` — note that neither has a `*_DEFAULT_VALUE` constant, so a missing row reaches `Boolean.parseBoolean(null)` and reads as `false`:
+
+| Key | Default | Role |
+|---|---|---|
+| `OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED` | seeded `false` by Flyway `V2.2.05` | Gates `OutboxDispatchService.sampleStuckAggregates()` — the held-aggregate gauge (see `[[wms2-unstick-held-outbox-aggregate]]`). Read-only query, but it runs on every dispatcher tick, so enable per tenant. |
+| `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED` | seeded `false` by Flyway `V2.2.05` | **SBDEV-2736 Phase-2 gate. Inert — nothing reads it yet.** No Java constant exists: it was deliberately deferred to Phase 2, since an unread constant cannot be type-checked against the migration literal. |
+
+> ⚠️ **Do not set `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED` to `true`.** Phase 2 enforcement is not built, and
+> enforcing against today's rejection rate would wedge aggregates behind `FAILED_TERMINAL` siblings that are
+> never auto-deleted. As of 2026-07-30 the row exists only on DEV (`V2.2.05` has not reached `release`).
+
 ---
 
 ## 5. OMS Integration Webservice URLs
@@ -152,6 +193,7 @@ Every key here has a `*_URL` suffix; defaults point at `oms-XXXXX.siteboss.net` 
 | Key | Default (placeholder) |
 |---|---|
 | `WEBSERVICE_CLOSE_ADVICE` | `https://oms-XXXXX.siteboss.net/services/call/closeAdvice` |
+| `WEBSERVICE_ORDER_BATCH_REVERSAL_COMPLETED` | `https://oms-XXXXX.siteboss.net/services/call/batchReversalCompleted` |
 | `WEBSERVICE_ACCEPT_TRANSFER` | `https://oms-XXXXX.siteboss.net/services/call/closeTransfer` |
 | `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `https://oms-XXXXX.siteboss.net/services/call/receiveHubAndSpoke` |
 | `WEBSERVICE_STOCK_COUNT` | `.../call/inventory/stockCountExport` |
@@ -316,6 +358,8 @@ No `*_DEFAULT_VALUE` constants — **these rows must be populated per-tenant** o
 | Key | Default | Purpose |
 |---|---|---|
 | `System Time Zone` | — | Warehouse-local time zone (key literal contains a space) |
+| `API_TIMESTAMP_FORMAT` | — *(no default const)* | Timestamp serialisation format for API responses. `ISO8601_UTC` on all 5 DEV+UAT tenants |
+| `AREA_DEFAULT` | — *(no default const)* | Default location area. **Only key declared outside the `SYSTEM_PROPERTY_*_KEY` convention** — it lives at `WmsConstants.LocationAreaService.PROPERTY_KEY_AREA_DEFAULT` and is read by `LocationAreaService:66`, so a `SYSTEM_PROPERTY_` grep will miss it |
 | `WAREHOUSE_NAME` | — | Human-readable warehouse name |
 | `WMS_INSTANCE_NAME` | — | This WMS instance ID |
 | `MOBILE_UI_URL` | `http://localhost:3001/mobile` | Mobile UI base URL |
@@ -387,4 +431,6 @@ The `UtilRestController` case is expected — it's a generic read-any-sysprop ad
 | 2026-07-19 | Documented `db/configure-client-sysprops.sh` (SBDEV-2607) as the greenfield per-client sysprop seeding tool; noted the `V2.2.00` base-dump placeholder is `CHANGE-ME-FOR-NEW-CLIENT`. No new keys. | Onboarding tooling documented | SBDEV-2607 |
 | 2026-07-24 | Added `TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED` (SBDEV-1762) as new §10 Transfer-orders subsection; added Flyway **V2.2.04** seed provenance (PR #93, default OFF) to it and the existing `REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED` (SBDEV-1666) §6 entry. Feature constants land via open PRs #91/#92. Total ~76→~77. | New key + seed provenance documented | V2.2.04 seed work |
 
-**Re-verify every 90 days.** Next due: **2026-10-08** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.
+| 2026-07-30 | **Full extraction + live census.** Counted every constant programmatically (123 `SYSTEM_PROPERTY_*_KEY` + nested `AREA_DEFAULT` = 124) and read `los_sysprop` on all 5 active DEV+UAT tenants. Corrected the bogus "~77" total in §1. Added 9 previously-undocumented keys: `API_TIMESTAMP_FORMAT`, `AREA_DEFAULT`, `WEBSERVICE_ORDER_BATCH_REVERSAL_COMPLETED`, the 3 `STALE_CLUB_BATCH_CLEANUP_*` (new §4.6b), `OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED` + `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED` (§4.7), `STOCK_SUMMARY_EXPORT_MAX_ROWS` + `STOCK_SUMMARY_EXPORT_STREAMING_ENABLED` (§4.4). | Catalog coverage 115/124 → **124/124**. Census found 146 live keys, 32 without constants (20 UI-managed, 4 orphans, 7 DEV junk, 1 seeded-ahead-of-code) | Nam Park — [`260730-wms2-sysprop-current-value-census`](../reports/260730-wms2-sysprop-current-value-census.md) |
+
+**Re-verify every 90 days.** Next due: **2026-10-28** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.

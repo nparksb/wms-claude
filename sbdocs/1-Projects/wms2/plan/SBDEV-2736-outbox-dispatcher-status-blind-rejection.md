@@ -11,7 +11,7 @@ version: "v2"
 requester: "nam.park@siteboss.net"
 assignee: "Nam Park"
 created: "2026-07-27"
-updated: "2026-07-29"
+updated: "2026-07-30"
 revision: 6
 db_verified: true
 db_verified_note: >
@@ -660,7 +660,7 @@ The job already has a `MeterRegistry`? **Verify during implementation** — if n
 
 ### Fix D — Flyway `V2.2.05` sysprop seed
 
-**File:** `src/main/resources/db/migration/V2.2.05__seed_outbox_reject_on_error_sysprop.sql` — NEW.
+**File:** `src/main/resources/db/migration/V2.2.05__seed_outbox_sysprop_toggles.sql` — NEW.
 
 Seeds `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED = 'false'`, idempotent via `WHERE NOT EXISTS`. Ships in Phase 1
 so every tenant has the row after the Phase-1 `flyway migrate` and Phase 2 is a config flip with no second
@@ -716,7 +716,7 @@ counters, and the Phase-2 plan. Bump `last_verified` from `2026-06-01` to the me
 | `service/job/OutboxDispatchService.java` | Fix B1 — inject classifier, wire 2xx branch | +22 / -4 |
 | `service/OmsNotificationService.java` | **Fix B2 (r3)** — classify in `doSend`, counter + WARN | +14 |
 | `schedulejob/StockSummaryExportJob.java` | **Fix B3 (r3)** — classify response, counter + WARN | +14 |
-| `db/migration/V2.2.05__seed_outbox_reject_on_error_sysprop.sql` | NEW — Fix D | +14 |
+| `db/migration/V2.2.05__seed_outbox_sysprop_toggles.sql` | NEW — Fix D | +14 |
 | `unit/service/OmsResponseClassifierUnitTest.java` | **NEW** — table-driven over all six captured shapes | +130 |
 | `unit/service/job/OutboxDispatchServiceUnitTest.java` | 8 tests incl. the corpus inertness gate | +260 |
 | `wms2-oms-integration-map.md` | Fix F — both shapes, all three egress paths | +36 / -2 |
@@ -941,6 +941,24 @@ anyway.** Phase 1's content is unaffected — Fixes A/B/D/E/F stand as written.
 
 ## 14. Implementation status
 
+> **MERGED 2026-07-30.** wms2-api PR **[#107](https://github.com/SiteBossInc/wms2-api/pull/107)** merged
+> into `develop` (merge commit **`c1de721`**; branch `feature/SBDEV-2736-oms-response-classifier`).
+> ClickUp SBDEV-2736 → **on dev**.
+>
+> **Amended after merge, 2026-07-30.** `V2.2.05` was renamed to `…seed_outbox_sysprop_toggles.sql` and a
+> second seed added — `OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED` (SBDEV-2381), which was read at
+> `OutboxDispatchService:317` but had no Flyway seed and no `*_DEFAULT_VALUE`. Default unchanged (`false`);
+> the row exists so the toggle is visible on the Admin screen. Re-applied on `dev_wh01_om1` by deleting the
+> `2.2.05` history row and re-migrating — **not** `flyway repair`, which stamps without re-running. Anyone
+> holding the pre-amendment `2.2.05` will hit a validation failure and needs the same fix.
+>
+> **Phase 1 only — the ticket is not resolved.** Delivery semantics are unchanged; every 2xx is still
+> marked `SENT`. Phase 2 (enforcement) has not started and does not start until Step 12 below is done.
+>
+> DB state: DEV `dev_wh01_om1` migrated to `2.2.05` on 2026-07-29, sysprop row confirmed present and
+> `false`. UAT's four tenants are still at `2.2.04` and need `V2.2.05` when this reaches `release` —
+> see [`wms2-apply-pending-tenant-flyway.md`](../../../2-Areas/runbooks/wms2-apply-pending-tenant-flyway.md).
+
 **Phase 1 implemented 2026-07-29.** Branch `feature/SBDEV-2736-oms-response-classifier` off `origin/develop`.
 Three commits — **read all three**, because the first carries a defect the other two remove:
 
@@ -956,7 +974,7 @@ Three commits — **read all three**, because the first carries a defect the oth
 | B1 | `service/job/OutboxDispatchService.recordOmsVerdict` | ✅ |
 | B2 | `service/OmsNotificationService.recordOmsVerdict` | ✅ |
 | B3 | `schedulejob/StockSummaryExportJob.recordOmsVerdict` | ✅ |
-| D | `db/migration/V2.2.05__seed_outbox_reject_on_error_sysprop.sql` (NEW) | ✅ head was V2.2.04, no renumber needed |
+| D | `db/migration/V2.2.05__seed_outbox_sysprop_toggles.sql` (NEW) | ✅ head was V2.2.04, no renumber needed |
 | E | `unit/service/OmsResponseClassifierUnitTest` (NEW, **48** exec) + `OutboxDispatchServiceUnitTest` (37) + `OmsNotificationServiceUnitTest$FailureCounter` (5) + `StockSummaryExportJobUnitTest$OmsVerdictOnExport` (NEW, 4) | ✅ E1–E8 + **E9**, plus B2/B3 coverage added in review |
 | F | `wms2-oms-integration-map.md` §2.5.2 (NEW), `last_verified` → 2026-07-29 | ✅ |
 

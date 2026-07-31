@@ -18,9 +18,15 @@ Produces an implementation plan for a new feature, enhancement, refactor, or arc
 
 ### `wms-tdd-gate`
 Bridges plan review and implementation. Reads a critic-approved plan, writes the minimum failing tests that encode its acceptance criteria, validates they fail for the right reason, and pauses for human approval before any production code is written.
-- **Trigger:** `/wms-tdd-gate <path-to-plan-file>` — invoke after critic sign-off, before implementation
+- **Trigger:** runs automatically as the final phase of `wms-bugfix-plan` / `wms-feature-plan`; also `/wms-tdd-gate <path-to-plan-file>` standalone against an approved plan
 - **Output:** new/updated test class(es) in `v{1|2}/wms-api/src/test/`, plus a baseline failure report
 - **NOT for:** writing tests after implementation (that's just coverage); plans that have no §8 Acceptance section (complete the plan first)
+
+### `wms-plan-executor`
+Executes a reviewed plan to an open PR: ralph-loops the implementation until the TDD-gate tests and verify script are green, confirms every §0 site and §8 criterion in an independent `verifier` lane, runs code review and fixes every High/Medium finding, audits doc drift, commits, opens the PR into `develop`, updates the plan doc, and moves the ClickUp ticket to `pr submitted`.
+- **Trigger:** `/wms-plan-executor <plan-file | SBDEV-#### | "the plan we just wrote">` — or "implement plan X", "ship SBDEV-####"
+- **Output:** production code + tests on a feature branch, a PR into `develop`, updated plan §Implementation Status, ClickUp status + comment
+- **NOT for:** merging, deploying, applying Flyway to a tenant DB, or archiving the plan (→ `archive-plan` after merge); implementing a `draft` plan (get ralplan sign-off first)
 
 ### `wms-v2-migrate`
 Ports an existing v1 plan into a v2-specific plan; flags already-done, still-needed, and new-in-v2 issues.
