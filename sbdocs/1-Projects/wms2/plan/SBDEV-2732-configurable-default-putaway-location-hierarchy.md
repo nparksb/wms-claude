@@ -11,7 +11,8 @@ db_verified: true
 depends_on:
   # Pinned 2026-08-06. Re-verify every claim about these tickets if a sha moves — this plan
   # previously asserted four things about SBDEV-2731 that were true of its PLAN and false of its CODE.
-  - {ticket: SBDEV-2731, sha: UNMERGED}   # prerequisite 0 (D12); PR #133 api @ 89de3f0, #39 ui @ 04175fa
+  - {ticket: SBDEV-2731, sha: 6bc709a}    # MERGED 2026-08-07 — PR #133 api @ 6bc709a, #39 ui @ 4ce39a1.
+                                          # Prerequisite 0 SATISFIED. Claims about it re-verified same day.
   - {ticket: SBDEV-2854, sha: 68274b0}    # MERGED 2026-08-07 (PR #132). Its V2.2.10 is on develop, but
                                           # must still be APPLIED per tenant BEFORE this plan's V2.2.11.
 db_verified_tenants:
@@ -2383,7 +2384,7 @@ precedence contract, and **Q7 no longer blocks the TDD gate.**
 
 | # | Merge | Operator gate | Verify on DEV after |
 |---|---|---|---|
-| **0** | **SBDEV-2731 PR1** → `develop` *(not this plan's merge — external prerequisite, D12)* | none | 2731's own verify script; **then close SBDEV-2731 on PR1 — and say explicitly in the ticket that the reported 1,000-unit ICE PACK receipt is NOT yet fixed** (it is a tier-1 override into a pick face). *(2026-08-04: F3 itself is answered — SBDEV-2796 chose (c), so that receipt is now **permitted** to succeed and over-fill the bin. What still gates it is no longer the product question but **C2b, Q1, Q4** and the new **Q11**, and the Fix B work those gate now lands in this plan — §5.2, §10.4.)* |
+| **0** | ~~**SBDEV-2731 PR1** → `develop`~~ **MERGED 2026-08-07** — api `6bc709a`, ui `4ce39a1`. Prerequisite 0 satisfied. *(external prerequisite, D12)* | none | 2731's own verify script; **then close SBDEV-2731 on PR1 — and say explicitly in the ticket that the reported 1,000-unit ICE PACK receipt is NOT yet fixed** (it is a tier-1 override into a pick face). *(2026-08-04: F3 itself is answered — SBDEV-2796 chose (c), so that receipt is now **permitted** to succeed and over-fill the bin. What still gates it is no longer the product question but **C2b, Q1, Q4** and the new **Q11**, and the Fix B work those gate now lands in this plan — §5.2, §10.4.)* |
 | **0b** | ~~**SBDEV-2854 (PR #132) → `develop`**~~ **MERGED 2026-08-07** (`68274b0`). **STILL OPEN: `V2.2.10` applied to every tenant this plan's `V2.2.11` will reach** *(external prerequisite, added 2026-08-06)* | `V2.2.10` | **Ordering is load-bearing and runs the other way from what you would guess.** 2854 renumbered *down* from `V2.2.11` to `V2.2.10` to keep the sequence contiguous, so this plan moved to `V2.2.11`. If `V2.2.11` is applied **first**, `V2.2.10` arrives out-of-order: `outOfOrder=false` skips it and `validateOnMigrate=true` then throws *"Detected resolved migration not applied to database: 2.2.10"* on every subsequent boot — caught by `StartupFlywayMigrator.java:150`, logged, and **swallowed**, so the tenant silently stops receiving that and every later migration. This is the exact failure the renumber was performed to avoid, with the roles reversed. Verify with `SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 3;` before applying `V2.2.11` anywhere. |
 | **1** | **1-API** → `develop` (DEV auto-deploys) | **`V2.2.11` applied to every DEV tenant FIRST** (operator, Flyway runbook `--env dev`). Absolute: the merge adds `Client.defaultputawaylocationId`. `ddl-auto` is **`none`**, so the context starts anyway and instead throws **`42703`** on every `client` read — DEV looks healthy while receiving and the client screens error per request (pre-mortem P1). **Repair the history-less Hydra DEV copy with `db/backfill-flyway-history.sh` first**, or the boot-time migrator skips it and `V2.2.11` never applies there. The Hydra dev copy has **no `flyway_schema_history`**, so verify via `information_schema.columns` + a `los_sysprop` query, never Flyway history. Per-tenant precheck first: `SELECT count(*) FROM location WHERE name='PutAwayLane';` must be exactly 1 (verified on `wh01_hydra_v2` and `wh01_hydra_v2t`; **the other three v2 tenants are unverified**). | `PHASE=1` verify 0-fail; M1, M2 (backfill counts **and** `captured == nulled`); M9 (all three HAL PATCHes ⇒ **422**); M10; M12 |
 | **2** | **2-UI** → `develop` | none | M3, M5–M7, M11, M13, M13a, M13b, M14, M16, M17, M18 — **then close SBDEV-2732** |
@@ -2622,15 +2623,36 @@ script takes `PHASE=1|2` (**not** `1a|1b` — those were never valid, and an unk
 rather than filtering every check and reporting a silent all-green); a whole-plan run can never reach
 0 fail while later phases are unbuilt, so **each phase gates on its own subset**:
 
-**Baseline re-measured 2026-08-06 — label this PRE-2731-MERGE; it expires when PR #133 / #39 land.**
+**Baseline re-measured 2026-08-07, POST-2731-MERGE** — api `6bc709a`, ui `4ce39a1`. This supersedes the
+pre-merge record; it expires again when this plan's own Phase 1-API work starts landing.
 
 | Run | Result | Evaluated / filtered |
 |---|---|---|
-| `PHASE=all` (default) | `7 pass, 162 fail, 3 skip` | 172 / 0 |
-| `PHASE=1` | `7 pass, 155 fail, 3 skip` | 165 / 7 |
-| `PHASE=2` | `7 pass, 8 fail, 3 skip` | 18 / 154 |
+| `PHASE=all` (default) | `15 pass, 156 fail, 1 skip` | 172 / 0 |
+| `PHASE=1` | `12 pass, 150 fail, 1 skip` | 163 / 9 |
+| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 154 |
 
-**Arithmetic self-check:** 165 + 18 = 183 = 172 + 11. **The overlap constant is 11, not 8** — the 8
+**Arithmetic self-check:** 163 + 18 = 181 = 172 + 9. **The overlap constant is now 9, not 11** — the 8
+`phase all` preservation checks plus the **1** remaining SKIP. It was 11 when three checks were skipped;
+`U-neg1` and `U-bind` were un-skipped on the merge (SBDEV-2731 owned them and now ships them), leaving
+only the pre-existing `mvn` skip.
+
+**What the merge flipped, and why each is right:**
+
+| Check | Before | After | Why |
+|---|---|---|---|
+| `UBS-key`, `UBS-neg1`, `UBS-neg2`, `T-msg2` | FAIL | **PASS** | 2731 shipped the neutral key and removed the raw concatenations |
+| `T-msg1` | FAIL | **PASS** | needed a second fix — see below |
+| `U-neg1`, `U-bind` | SKIP | **PASS** | un-skipped; 2731 owned them and has now merged |
+| `U-tristate` | FAIL | **PASS** | 2731's tri-state is present and this plan has not yet touched that block |
+| `UBS-neg4`, `W-neg4` | FAIL | **FAIL** | correct — conjoined, and the resolver does not exist yet |
+
+**`T-msg1` needed fixing twice, and the second reason is worth recording.** Scoping it to assertion
+syntax (`hasMessageContaining(`) was not enough: 2731's merged test explains the removal in a comment
+that **quotes the assertion verbatim** at `UnitloadBusinessServiceUnitTest.java:207` —
+`// which pinned \`.hasMessageContaining("not allowed on location")\` — the raw,`. The check now strips
+comment lines before matching. **A negative check must exclude the prose that describes what it forbids**,
+or documentation of a fix reads as the defect. **The overlap constant is 11, not 8** — the 8
 `phase all` preservation checks *plus the 3 SKIPs*, because `skip()` never calls `phase_selected()` and
 so is never filtered. The previous derivation attributed the whole overlap to preservation checks and
 silently dropped the skips. There are **3** SKIPs, and only **2** belong to SBDEV-2731 PR1 (`U-neg1`,

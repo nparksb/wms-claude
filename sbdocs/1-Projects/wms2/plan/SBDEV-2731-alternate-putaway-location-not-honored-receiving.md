@@ -5,7 +5,7 @@ ticket_url: "https://app.clickup.com/t/868kgfuyf"
 type: "bugfix"
 severity: "high"
 priority: "urgent"
-status: "pr submitted — wms2-api #133 + wms2-web-ui #39 open against develop (2026-08-06); plan reconciled to as-shipped code same day; PR2 SCOPE RELOCATED to SBDEV-2732 (D14, 2026-08-02) then ONWARD to SBDEV-2821 (2732 D15, 2026-08-04); F3/Q5 capacity owned by SBDEV-2796; this ticket closes on PR1"
+status: "MERGED 2026-08-07 — wms2-api #133 @ 6bc709a + wms2-web-ui #39 @ 4ce39a1 on develop (opened 2026-08-06); plan reconciled to as-shipped code same day; PR2 SCOPE RELOCATED to SBDEV-2732 (D14, 2026-08-02) then ONWARD to SBDEV-2821 (2732 D15, 2026-08-04); F3/Q5 capacity owned by SBDEV-2796; this ticket closes on PR1"
 project: ["wms2-api", "wms2-web-ui"]
 version: "v2"
 requester: "Brent Campbell"
@@ -69,7 +69,9 @@ tags:
 **Ticket:** [SBDEV-2731](https://app.clickup.com/t/868kgfuyf)
 **Project:** wms2-api + wms2-web-ui | **Version:** v2 | **Type:** bugfix
 **Priority:** urgent
-**Status:** PR submitted — [wms2-api #133](https://github.com/SiteBossInc/wms2-api/pull/133) + [wms2-web-ui #39](https://github.com/SiteBossInc/wms2-web-ui/pull/39). §5/§7/§8/§9 reconciled to as-shipped code 2026-08-06 — see §12
+**Status:** **MERGED 2026-08-07** — [wms2-api #133](https://github.com/SiteBossInc/wms2-api/pull/133) @ `6bc709a` + [wms2-web-ui #39](https://github.com/SiteBossInc/wms2-web-ui/pull/39) @ `4ce39a1`, both on `develop`.
+
+> **This ticket closes on PR1 scope.** 6 of its 12 acceptance criteria are NOT delivered here and are owned elsewhere — including the headline *"Ice Pack SKU can be received successfully into the Ice Pack location"*, which belongs to [SBDEV-2821](https://app.clickup.com/t/868km8j9z). The full disposition is recorded on the ticket. **The reported 1,000-unit ICE PACK receipt still fails.** §5/§7/§8/§9 reconciled to as-shipped code 2026-08-06 — see §12
 **Date:** 2026-07-31 (last updated 2026-08-06)
 
 **Parent:** SBDEV-1938 (Receive to Different Location Other then Putaway)

@@ -678,7 +678,16 @@ check_T_fail_open_asserted()           { file_contains_i 'empty' "$TST/unit/serv
 # FAIL against a correct tree — sending the implementer hunting for an assertion that no
 # longer exists, or "fixing" it by deleting a useful comment from a merged commit.
 # Match assertion syntax, not the bare phrase.
-check_T_old_message_assertion_gone()   { file_not_contains 'hasMessageContaining\("not allowed on location' "$TST/unit/service/UnitloadBusinessServiceUnitTest.java"; }
+check_T_old_message_assertion_gone() {
+    local f="$TST/unit/service/UnitloadBusinessServiceUnitTest.java"
+    [ -f "$f" ] || return 1
+    # Strip comment lines BEFORE matching. Scoping to assertion syntax was not enough: SBDEV-2731's
+    # merged test explains the removal in a comment that QUOTES the assertion verbatim at :207 —
+    #   // which pinned `.hasMessageContaining("not allowed on location")` — the raw,
+    # so the check stayed red against correct code for a second, subtler reason. Verified 2026-08-07
+    # against the merged tree: comment-stripped, the assertion is genuinely gone.
+    ! grep -vE '^[[:space:]]*(//|\*|/\*)' "$f" | grep -qE 'hasMessageContaining\("not allowed on location'
+}
 # CORRECTED 2026-08-02: the old alternation was 'putawayDestinationNotPermitted|not
 # permitted on a'. Neither branch can match. The putaway key is deliberately ABSENT from
 # this site (§3.6.1), and the neutral message reads "...not permitted on location %2$s",
@@ -943,8 +952,10 @@ echo
 
 phase 2
 echo "-- Phase 2-UI — web UI ------------------------------------------------------"
-skip U-neg1       "NEG: hardcoded 'Put Away Lane' literal gone" "SBDEV-2731 PR1 owns this (D12)"
-skip U-bind       "receivingForm binds putawayStaging" "SBDEV-2731 PR1 owns this (D12)"
+# UN-SKIPPED 2026-08-07: SBDEV-2731 PR1 merged (api 6bc709a / ui 4ce39a1), so the checks it owned
+# now run against real merged code instead of being deferred to it.
+run U-neg1        "NEG: no inline 'Put Away Lane' literal in template"  check_U_hardcoded_gone
+run U-bind        "receivingForm binds putawayStaging"                  check_U_binds_staging
 # CORRECTED 2026-08-02: previously skipped as "SBDEV-2731 PR1 owns this (D12)".
 # It does not — 2731 PR1 ships a BINARY "(SKU override)" marker off a string compare,
 # not a four-tier source. The sourceLabel chip is this plan's own 1a-UI work (§3.11.1).
