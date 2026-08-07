@@ -4,7 +4,7 @@ ticket: "SBDEV-2854"
 ticket_url: "https://app.clickup.com/t/868kn5nnn"
 type: "bugfix"
 priority: "urgent"
-status: "implemented-pending-pr"
+status: "MERGED to develop 2026-08-07 — PR #132, merge commit 68274b0, implementation 9750a04. V2.2.10 is on develop; it still has to be APPLIED per tenant."
 project: [wms2]
 version: "v2"
 requester: "Scott Dalton (client V2 testing, 2026-08-06)"
@@ -454,6 +454,15 @@ public static final String SYSTEM_PROPERTY_REPLENISH_ALLOW_NON_FLOWBIN_DESTINATI
 
 New private helper on `MobileReplenishService`:
 
+> **⚠ SUPERSEDED — as-shipped code differs. Added 2026-08-07 after PR #132 merged.**
+> The CSV type allow-list below (`isAllowedReplenishDestinationType`, sysprop
+> `REPLENISH_ALLOWED_DESTINATION_LOCATION_TYPES`, default `"flowbin"`) was **replaced by decision O4**
+> with a plain boolean, and that is what merged: `isNonFlowbinDestinationAllowed()`
+> (`MobileReplenishService.java:853-860`) reading `REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS`, default
+> `"false"` (`WmsConstants.java:1128-1129`), with eligibility gated on `location_area.useforpicking`
+> rather than on location type at all. **Read §O4 (:1123-1156) as the design; the block below is the
+> superseded first answer, retained for the evidence trail.**
+
 ```java
 /**
  * SBDEV-2854: a replenishment destination no longer has to be a flowbin. Types listed in
@@ -801,7 +810,7 @@ TDD-gate run — tests land in two repos.
 | # | Prerequisite | Required value / action | Owner | Notes |
 |---|---|---|---|---|
 | 1 | **Database state** | Migration head on disk is `V2.2.09__seed_return_advice_auto_receive_sysprop.sql`. **This plan claims `V2.2.10`, keeping the sequence contiguous** — see the version note below for why the earlier `V2.2.11`-with-a-gap answer was unsafe. Re-check for new claims before committing | Dev | `ls src/main/resources/db/migration/`; `grep -rn "V2\.2\.1[0-9]" sbdocs/1-Projects/ sbdocs/4-Archieves/` |
-| 2 | **Feature flags / system properties** | `los_sysprop.syskey = 'REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS'` seeded by `V2.2.10` with `sysvalue = 'flowbin'`. **For the wineco UAT/prod opt-in set `sysvalue = 'flowbin,cases and pallets'`** | Dev + Ops | Absent row also yields flowbin-only (helper defaults) — the row exists to be visible in the config UI |
+| 2 | **Feature flags / system properties** | `los_sysprop.syskey = 'REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS'` seeded by `V2.2.10` with **`sysvalue = 'false'`** (a plain boolean — **not** the CSV type list this row previously described; O4 superseded that and the as-shipped code agrees). **For the wineco UAT/prod opt-in set `sysvalue = 'true'`.** | Dev + Ops | Absent row also yields flowbin-only (`SYSTEM_PROPERTY_..._DEFAULT_VALUE = "false"`, `WmsConstants.java:1129`) — the row exists to be visible in the config UI |
 | 3 | **Config / env changes** | N/A — no `application.properties`, Jasypt, or Keycloak change | — | Pure service-layer + sysprop change |
 | 4 | **Deploy-order dependencies** | None. API-only; no mobile-UI or OMS coordination required | — | Error-message text changes are display-only; UI renders `errors[0].message` verbatim (`store/replenish.js:315`) |
 | 5 | **Data migration** | N/A — `Club01`'s existing config is already valid for the new path; no backfill | — | Confirmed §1.3 |
@@ -908,7 +917,7 @@ Each step is independently committable.
 | `MobileReplenishServiceUnitTest` | `finish_stillCreatesFlaForEmptyFlowbinDestination` | Flowbin finish unchanged |
 | `MobileReplenishServiceUnitTest` | `checkDestination_acceptsDestinationThatIsItemsOwnFixedLocation` | Fix E |
 | `MobileReplenishServiceIntegrationTest` (new, Testcontainers) | `replenishToNonFlowbinDestination_endToEnd_noFlaCreated` | Full finish path against real PostgreSQL; asserts `fix_location_assignment` row count unchanged and stock landed on a UL whose `storagelocation_id` is the club location |
-| `FlywayMigrationIntegrationTest` | `v2_2_10_seedsReplenishAllowedDestinationTypesSysprop` | Migration applies; row present with `sysvalue = 'flowbin'`; re-running is idempotent |
+| `FlywayMigrationIntegrationTest` | `v2_2_10_seedsReplenishAllowedDestinationTypesSysprop` | Migration applies; row present with **`sysvalue = 'false'`**; re-running is idempotent |
 
 v2 notes: `mvn verify` runs Testcontainers PostgreSQL; unit tests run on H2, so keep
 native SQL out of the unit-test lane. The new integration test must use Testcontainers,
@@ -1190,7 +1199,9 @@ Closed during drafting:
 
 **Implemented 2026-08-06** — v2 only. Branch `bugfix/SBDEV-2854-replenish-non-flowbin-destination`
 in worktree `.claude/worktrees/wms2-api/SBDEV-2854`, off `origin/develop` @ `169065c`.
-**Not yet pushed / no PR.**
+**MERGED 2026-08-07** — PR [#132](https://github.com/SiteBossInc/wms2-api/pull/132), merge commit `68274b0`, implementation commit `9750a04`. `V2.2.10__seed_replenish_allow_non_flowbin_destinations_sysprop.sql` is now on `origin/develop`.
+
+> **Still outstanding: the migration must be APPLIED per tenant.** Being on `develop` is not being applied. **SBDEV-2732 cannot apply its `V2.2.11` to any tenant that has not yet received this `V2.2.10`** — `outOfOrder=false` would skip the lower version and `validateOnMigrate=true` then fails every boot, swallowed by `StartupFlywayMigrator`. See SBDEV-2732 §8.1 merge 0b.
 
 | Commit | Contents |
 |---|---|
