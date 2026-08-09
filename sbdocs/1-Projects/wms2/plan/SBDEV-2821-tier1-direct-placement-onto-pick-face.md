@@ -451,26 +451,32 @@ Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mec
 
 **Steps** — identical to M1b except the location.
 
-1. **Do NOT create a Purchase Order.** The advice already exists and is OPEN. Go to **Receiving**, select
-   client **`Adelsheim`**, open advice **`IBOL015140`** (position `IBOL015140-000000`, 1 case) and receive it.
-   Take a container when asked.
-   > ⚠ **Corrected 2026-08-09 after a failed run.** The step previously read *"Receive one case of `SBB18S`
-   > against advice `IBOL015140`"*, which was taken as an instruction to create a PO. `SBB18S` does not appear
-   > in the Create-Purchase-Order item list unless client **Adelsheim** is selected — the list is client-scoped.
-   > **Creating a PO is not part of this test.**
+1. **Do NOT create a Purchase Order.** Go to **Inbound → Open Notices**. Use the newest advice:
+
+   | | |
+   |---|---|
+   | Advice | **`IBOL015211`** — created 2026-08-07, so it sits at the **TOP** of the list |
+   | Client | Elk Cove Vineyards |
+   | Position | `IBOL015211-000000` — the **only** position, state OPEN, **1 case** |
+   | SKU | **`23PNWV375`** — *2023 Willamette Valley Pinot Noir 375 ml*, Case type, **no FLA** |
+
+   **Receive its 1 case onto an EMPTY pallet.** One position means one SKU, and an empty pallet means the
+   putaway list will read **`Product - 1 of 1`** — which removes the wrong-product failure below entirely.
+
+   > **⚠ Corrected twice. Read this before substituting anything.**
+   > - **First failure:** the step said *"receive against advice X"* and was taken as *create a PO*. `SBB18S`
+   >   is not in the Create-PO item list unless its client is selected. **PO creation is not part of this test.**
+   > - **Second failure:** the advices offered were all from **17–20 July**. The Open Notices screen sorts by
+   >   **`created` descending** (`AdviceController:313`), so they were buried far down the list. The query
+   >   itself filters only on `state IN (created, started, open)` — no date or warehouse filter
+   >   (`AdviceRepository.getOpenNoticesByKeyword:88-108`) — so they *were* listed, just not visible.
+   >   **`IBOL015211` is the newest open notice and appears first.**
+   > - **To find any advice directly:** type its number into the screen's search box. The keyword matches
+   >   `a.number` among other fields, so `IBOL015211` will filter straight to it.
    >
-   > **If Adelsheim is not available in your session, any of these OPEN positions works** — all are Case-type
-   > SKUs with no existing FLA, which is the only precondition that matters:
-   >
-   > | Client | Advice | SKU | Cases |
-   > |---|---|---|---|
-   > | Adelsheim | `IBOL015140` | `SBB18S` | 1 |
-   > | Adelsheim | `IBOL015177` | `SBB18S` | 3 |
-   > | Brooks Winery | `IBOL015195` | `BW15RSW` | 1 |
-   > | Brooks Winery | `IBOL015199` | `BW23GN` | 1 |
-   > | Cristom Vineyards | `IBOL015178` | `22PNLV750` | 1 |
-   >
-   > **Swapping the SKU is safe. Do not swap the location** — `04-A01` must stay, and it must still have no FLA.
+   > **If you must substitute**, the SKU needs only two properties: **Case type** and **no existing FLA**.
+   > Prefer a **single-position** advice, and always receive onto an **empty** pallet.
+
 2. Move the pallet to `PutAwayLane`.
 3. Mobile → **Putaway** → **Scan Pallet**.
 4. Tap **"Replenish Location(s)"**.
