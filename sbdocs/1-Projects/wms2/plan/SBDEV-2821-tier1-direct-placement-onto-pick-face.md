@@ -53,7 +53,7 @@ tags:
 | **Q11** | *advisory for replenishment too* | Recorded 2026-08-06. Settled. |
 | **Q1** | **Case label prints unconditionally** — see below | Brent, 2026-08-07 ("yes… especially if it puts it in a location that is not a standard pick location where the UL label is stripped"). Settled. |
 | **Q4** | **Option (iii)** | **David Oppenheim, 2026-08-08: "not only acceptable but preferable"** — then asked *"Brent?"*. **Brent has not replied to that hand-off.** Adopted on David's endorsement plus the ticket owner's direction (Nam Park, 2026-08-08). **Not a recorded Brent sign-off.** |
-| **Q15** | **(A) — tier 1 ships here, first and independently** | Ticket owner (Nam Park), 2026-08-08. Recommended by both plans before it was decided. Schedule-only; reversible. |
+| ~~Q15~~ | ~~The tier seam — (A) or (B)?~~ | — | ✅ **CLOSED 2026-08-09 — (A), with one mandatory addition.** See the box below §0. |
 
 > [!done] **✅ Q15 RESOLVED 2026-08-08 — option (A). THE ORDER IS `2731 PR1 → SBDEV-2821 → SBDEV-2732`.**
 >
@@ -78,6 +78,34 @@ tags:
 > **Degraded, not broken, if the order is violated:** the operator can still *manually scan* the destination
 > (`verifyScannedLocation:403-447` accepts it — §3.2), so shipping 2732 first strands the destination as
 > undiscoverable rather than unreachable. That is a UX regression against the ticket's intent, not data loss.
+
+> [!done] **Q15 CLOSED 2026-08-09 — option (A), with one mandatory addition.**
+>
+> **(A):** this ticket ships **tier-1 only**, reading `itemdata.putawaylocation_id` directly, in the order
+> `SBDEV-2731 → SBDEV-2821 → SBDEV-2732`. SBDEV-2732 step 17a later replaces that raw read with the
+> four-tier `Resolution`. **(B)** would have had this ticket wait for 2732's resolver and do all four tiers
+> at once.
+>
+> **Why (A).** M1a passed, so this ticket is implementable **now**, and it is the one that fixes the reported
+> production bug. SBDEV-2732 is not ready — it is gated on items still under review **and on this ticket**
+> (step 17a). (B) would put a live production defect behind an entire large plan for no functional gain.
+> The divergence (B) warned about is real but **planned and bounded**: step 17a explicitly *replaces* the raw
+> read rather than adding a second one.
+>
+> **⚠ THE MANDATORY ADDITION — the (B) argument was right about this much.** SBDEV-2732's `V2.2.11`
+> **nulls the column this ticket reads**: it drops the `NOT NULL`, stops seeding, and runs
+> `UPDATE itemdata SET putawaylocation_id = NULL WHERE putawaylocation_id IN (SELECT id FROM location WHERE
+> name = 'PutAwayLane')`. So the column's meaning changes from *"always populated, lane by default"* to
+> *"NULL means no override"*.
+>
+> **This ticket must handle `putawaylocation_id == NULL` from day one — before `V2.2.11` exists.** Today the
+> column is `NOT NULL`, so a naive implementation will not crash and will look correct; it will break
+> **later**, when 2732 lands, on a tenant nobody is watching. That is a delayed, silent failure and it is the
+> worst shape available. A `NULL` must simply mean *"no configured destination — surface nothing"*.
+>
+> *Decided by the ticket owner's analysis, 2026-08-09. **Not a reviewer's finding** — `arch-four` was asked
+> twice and did not deliver. An earlier architect pass argued for (B) on the column-semantics ground above,
+> which is why that ground is now carried as a hard requirement rather than dismissed.*
 
 **If Brent later objects to (iii), Q4 reopens.** The alternatives and their costs are preserved in §9 so
 that reversal is cheap.
