@@ -394,6 +394,7 @@ ever revived, C1 must be re-decided against Brent's answer, not assumed.
 |---|---|---|---|
 | ~~Q4~~ | ~~Routing precedence~~ | — | ✅ **CLOSED 2026-08-08 — option (iii)** (§0) |
 | ~~Q1~~ | ~~Case label: print or suppress~~ | — | ✅ **CLOSED — prints unconditionally; no code needed** (§0, §9) |
+| **Q15** | **The tier seam.** SBDEV-2732 answered Q12 as **(iv-b)**: configure at any tier; place everywhere **except** pick faces, which are diverted to the lane at receipt and routed by putaway — so putaway must consume **pick-face destinations for all four tiers**, while this plan is written for **tier 1 only** (it reads `itemdata.putawaylocation_id`). **(A)** ship tier 1 here independently and let 2732 extend it, or **(B)** wait for 2732's resolver and do all four at once? **Recommend (A)** — it delivers the reported ICE PACK fix without waiting on 2732, and this plan is otherwise gated only on M1. | owner + 2732 | scope of §3.2, and whether `depends_on: SBDEV-2732` becomes hard |
 | **M1** | Not a question but the remaining **gate**: does a manual putaway scan of an FLA-free flowbin succeed today? | implementer, on UAT | **Everything.** If it fails, the design is void and Q4 reopens. |
 | Q13 | If (iii): should the configured location be **pre-selected** at putaway, or merely offered? | Brent | §5.2 step 5 — UX only |
 | Q14 | If (iii): should receiving *display* the eventual destination, even though it routes to a container first? | David | Interacts with SBDEV-2732 §3.11.1 |

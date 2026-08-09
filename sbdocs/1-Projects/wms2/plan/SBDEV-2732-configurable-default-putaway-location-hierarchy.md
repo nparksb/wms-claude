@@ -711,7 +711,21 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 | P2.5 | no `FixLocationAssignment` on the destination | **Absolute reject at all three scopes** — `fixLocationAssignmentRepository.findByAssignedlocationId(destId).isPresent()` ⇒ reject. Structurally safe to treat as a single-row test: `fix_location_assignment` carries `UNIQUE (assignedlocation_id)` **and** `UNIQUE (itemdata_id)` (`V2.2.00__base_v2_schema.sql:3760-3763`, `:3712-3715`), so a location has at most one assignment and a SKU at most one pick face — the `Optional`-returning finder can never raise `IncorrectResultSizeDataAccessException`. **⚠ This is DELIBERATELY STRICTER THAN THE RUNTIME CHECK, and that is the whole mechanism enforcing D15.** At runtime `UnitloadBusinessService.java:170-175` rejects only on *SKU mismatch* (`WRONG_ITEMDATA_FIXASSIGNMENT`), so pointing a SKU at *its own* pick face is legal there — and SBDEV-2796's answer (c) says it is a legitimate operation. This plan nonetheless refuses to **write** that configuration, because tier-1 pick-face placement is deferred (D15) and `ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally: there is no runtime gate to stop it, so **refusing the config is the only thing that keeps the deferred path unreachable.** **⚠ REVISED 2026-08-08.** This previously read *"SBDEV-2821 must relax this to the mismatch-only form as part of shipping tier-1 placement, not before"* — which assumed 2821 would ship direct placement. **Under 2821's adopted option (iii) it will not.** Neither live override carries an FLA, so **P2.5's relaxation is not required by (iii) at all**; the predicate that actually blocks those configs is P2.7(c) clause 1. Relaxing P2.5 to the mismatch-only form remains *optional and harmless* (it mirrors the runtime rule at `UnitloadBusinessService.java:170-175`), but it is **not** what unblocks anything. See the conflict box under P2.7(c). *(A 2026-08-04 revision briefly made P2.5 mismatch-only; reverted the same day — it permitted the config while the placement path stayed ungated, which put a second unit load on a location whose `assignedunitload_id` is `UNIQUE`. See §12.)* Do **not** add a carrier clause here: `:162-167`'s `CARRIER_NOT_ON_FIXLOC` fires when the *moved unit load has child unit loads*, not on the receipt's `carrier` parameter — it has no write-time inputs and is unreachable from `receiveGoods`, whose UL is freshly created at `ReceivingService.java:474`. |
 | P2.6 | **P1** holds for every unit-load type the scope can produce | see below |
 
-#### P2.7 — tiers 2 and 3 may target only staging / goods-in areas (D13)
+#### P2.7 — tiers 2 and 3 destination rules (D13) — ⚠ RE-FRAMED 2026-08-08 (Q12 → iv-b)
+
+> **D13 was a CONFIGURATION rule because direct placement was ungated. Under (iv-b) it becomes a PLACEMENT
+> rule, and the enforcement point moves from write-time to run-time.**
+>
+> - **What may be CONFIGURED** — widened. Any tier may name any location putaway can legitimately receive
+>   into, **pick faces included**. Rule **(c)'s absolute pick-face / fix-assignment reject is DROPPED at all
+>   three scopes**; it was the mechanism gating a placement path that is now gated directly.
+> - **What may be PLACED AT RECEIPT** — unchanged in spirit, and now explicit: staging, goods-in and
+>   cross-dock destinations are placed directly (rules (a), (b), (d) below). **Pick faces are not** — step 15's
+>   `useforpicking` gate diverts them to the lane for putaway to route.
+> - **P2.1–P2.4 and P2.6 are untouched** and still reject locked, shipping, transfer and gate locations. Those
+>   are wrong destinations for putaway as much as for receiving.
+>
+> The rules below are otherwise retained, including the measured justification in the CORRECTION note.
 
 **Merchant- and warehouse-scope destinations must satisfy ALL of:**
 
@@ -721,45 +735,40 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 | b | `transferlane`, `automationlane`, `gate` must be FALSE | Not receipt destinations; `gate` is truck loading. |
 | c | **not** a pick face (`locationAreaRepository.findById(dest.getAreaId())` → `Boolean.TRUE.equals(area.getUseforpicking())` ⇒ **reject**) and **not** fix-assigned (`fixLocationAssignmentRepository.findByAssignedlocationId(dest).isEmpty()`) | **Absolute at all three scopes** — tier 1 included, and this is load-bearing for D15: together with P2.5 it is what makes "direct placement for tiers 2/3 only" true *by construction* rather than by a runtime gate that does not exist. Note the two clauses are not redundant — a pick face need not carry an assignment. **⚠ SUPERSEDED 2026-08-08 by SBDEV-2821's option (iii) — see the box below.** The old hand-off read *"SBDEV-2821 relaxes this for tier 1 only, alongside P2.5"*, which assumed 2821 would ship tier-1 direct placement. It will not. |
 
-> [!warning] **⛔ CONFLICT WITH SBDEV-2821's ADOPTED DESIGN — must be resolved before Phase 1-API. Added 2026-08-08.**
+> [!done] **✅ Q12 ANSWERED 2026-08-08 — option (iv-b), SPLIT: configure anywhere; place everywhere EXCEPT pick faces.**
 >
-> **SBDEV-2821 adopted option (iii): route at putaway, not at receipt.** Nobody builds tier-1 direct
-> placement — not this plan, not 2821, not ever. That breaks two assumptions here.
+> **Configuration (write-time) — relaxed.** Any tier may name any location putaway can legitimately receive
+> into, **pick faces included**. P2.1–P2.4 and P2.6 still reject locked, shipping, transfer and gate
+> locations — wrong destinations for putaway too. **P2.7(c)'s absolute pick-face / fix-assignment reject is
+> dropped at all three scopes.**
 >
-> **1. This predicate makes 2821's configuration unwritable.** Option (iii) works by reading
-> `itemdata.putawaylocation_id` during *putaway*. Both live overrides point at `useforpicking = true`
-> locations, so P2.7(c) clause 1 **rejects both**:
+> **Placement (run-time), when `carrier == null` — split on one predicate:**
 >
-> | Config | P2.5 (no FLA) | P2.7(c) clause 1 | Result |
-> |---|---|---|---|
-> | `ICE PACK` → `ICE PACK` (HMG PRD) | passes | **rejects** | ❌ unwritable |
-> | `1135` → `Club08` (wineco UAT) | passes | **rejects** | ❌ unwritable |
+> | Resolved destination | Receiving does | Then |
+> |---|---|---|
+> | **pick face** (`area.useforpicking == TRUE`) | **does NOT place** — receipt goes to the standard putaway lane | destination consumed at **putaway** (SBDEV-2821) |
+> | anything else — staging, goods-in, cross-dock | **places directly**, as today | no putaway step |
 >
-> Existing rows survive — the event handler validates the *delta* — but **any edit fails**, and
-> **SBDEV-2643 exists precisely to let users set this field in the UI**. As written, 2643 would ship a form
-> that cannot save either configuration that actually exists.
+> **Why split rather than uniform.** Cross-dock and staging lanes genuinely want the stock placed immediately —
+> that is the ticket's "fast-turn" intent — and they carry none of the pick-face risk. Uniform (iv-a) would
+> have silently dropped that. The split costs one predicate at one call site.
 >
-> **2. Relaxing the predicate alone reproduces the original bug.** P2.5's own rationale states it:
-> *"`ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally: there is no
-> runtime gate to stop it, so refusing the config is the only thing that keeps the deferred path
-> unreachable."* Permit the config without changing anything else and the resolver returns `ICE PACK` at
-> receipt, `:491` places a Case unit load on the flowbin, and **SBDEV-2731's reported failure returns**.
+> **The club use case ships, safely.** Club lanes are pick faces (`useforpicking = true`, verified on
+> `wsl-wineco-uat`), so a merchant default of `CLUB-A` is configurable and takes effect — routed at putaway,
+> where `MobilePutAwayService.storeBoxOnLocation:471-489` already handles pick faces correctly. **No stock
+> lands on a live 27-SKU pick face at receipt, and C2b stays unreachable.**
 >
-> **What option (iii) therefore requires of THIS plan — the runtime gate D15 deliberately avoided:**
+> *Provenance: (iv-b) chosen by the ticket owner (Nam Park) 2026-08-08, following SBDEV-2821's option (iii).
+> Put to @David Oppenheim and @Brent Campbell on the ticket the same day; **no reply recorded yet.** If either
+> objects, Q12 reopens — options (i)–(iii) and (iv-a) are preserved in §10.4.*
 >
-> - **Relax P2.7(c) clause 1 at SKU scope** so a pick-face destination can be *configured*. (P2.5's
->   mismatch-only relaxation is **not** needed by (iii) — neither live config has an FLA — but it is
->   harmless and mirrors the runtime rule at `UnitloadBusinessService.java:170-175`.)
-> - **Add a runtime rule in receiving:** when the resolved destination is a pick face
->   (`area.useforpicking`), **do not place there**. The receipt goes to the container or the standard lane
->   exactly as today, and the resolved destination is surfaced for putaway to consume. This replaces
->   "refusing the config" as the mechanism keeping direct-placement-onto-a-pick-face unreachable —
->   **the guarantee is preserved, the enforcement point moves** from write-time to run-time.
-> - Merchant and warehouse scope: **unchanged pending Q12** (§10.4). Do not widen them here.
->
-> **Do not implement the relaxation without the runtime rule, in the same change.** A 2026-08-04 revision
-> made exactly that mistake — relaxed the predicates while the placement path stayed ungated — and was
-> reverted the same day (§12). The failure mode is identical; only the reason for relaxing has changed.
+> **⚠ THE RELAXATION AND THE GATE ARE ONE CHANGE.** P2.5/P2.7(c) were absolute for exactly one stated reason —
+> *"`ReceivingService.java:454-457 → :491` places tier-1 destinations unconditionally… refusing the config is
+> the only thing that keeps the deferred path unreachable."* Under (iv-b) the runtime gate replaces that
+> mechanism, so **the gate must land in the same change as the relaxation.** A 2026-08-04 revision relaxed the
+> predicates while the placement path stayed ungated and was reverted the same day (§12) — the failure mode is
+> identical, and it is SBDEV-2731's reported bug. `pickFaceDestinationIsNotPlacedAtReceipt` (step 15) is the
+> test that keeps them coupled.
 
 > **"Not a pick face" is `location_area.useforpicking`. Added 2026-08-06 — until then this clause had NO
 > implementable predicate anywhere in this plan, while §7.1 mandated a test (`skuWriteRejectsPickFaceDestination`)
@@ -2064,9 +2073,9 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | 12 | `PutawayConfigRepositoryEventHandler` — `Itemdata`, `Client` **and** `Sysprop` (O2); separate create/save methods (§3.9.2); validate the **delta**, not the state; unchecked `PutawayConfigValidationException`. | HAL PATCH ⇒ **422** |
 | 13 | `PutawayConfigAudit` entity + repository + `PutawayConfigAuditService` (`MANDATORY`). | `mvn clean compile` |
 | 14 | `Client.defaultputawaylocationId` + accessors. **Same commit as `V2.2.11`** — otherwise every `client` read fails `42703` on any tenant the migration has not reached (`ddl-auto=none`, so it is a runtime failure, not a startup one). | context loads + a `client` read against a migrated tenant |
-| 15 | Wire the resolver into `ReceivingService.java:451-459`; `requireCompatible` inside `if (carrier == null)` **above the loop** (§3.7.1); constants at `ReceivingController:314`. **This plan owns this surface (D14).** | `ReceivingServiceUnitTest` |
+| 15 | Wire the resolver into `ReceivingService.java:451-459`. `requireCompatible` inside `if (carrier == null)` **above the loop** (§3.7.1); constants at `ReceivingController:314`. **Add the (iv-b) placement gate here:** if the resolved destination's area has `useforpicking = true`, **do not place there** — fall back to the standard putaway lane (tier 4) and leave the destination for putaway. Otherwise place as step 17 specifies. **This plan owns this surface (D14).** | `ReceivingServiceUnitTest` — **must include `pickFaceDestinationIsNotPlacedAtReceipt` and `stagingLaneDestinationIsPlacedAtReceipt`** |
 | 16 | `PutawayDestinationQueryService` (`readOnly = true`) + `GET /receiving/getPutawayDestination/{advicePositionId}` + `GET /client/{id}/effectivePutawayDestination` — **the controller must not call the resolver** (C1). | controller tests |
-| 17 | Direct placement + traceability (`UnitloadRecord` names the final destination). **Tiers 2/3 destinations only (D15)** — tier-1 pick-face placement belongs to [SBDEV-2821](https://app.clickup.com/t/868km8j9z). No runtime gate is added for this: `ReceivingService:454-457 → :491` places whatever the resolver returns, and the deferral is enforced upstream by P2.5 / P2.7(c) refusing to *write* a pick-face tier-1 config. **If you find yourself needing a runtime gate here, P2.5 has been wrongly relaxed — stop and re-read §3.4c.** | `ReceivingServiceUnitTest` |
+| 17 | Direct placement + traceability (`UnitloadRecord` names the final destination) — **for NON-pick-face destinations only (Q12 → iv-b).** Pick-face destinations never reach this step; step 15's gate diverts them to the lane. **The gate in step 15 is what makes that true — it is no longer enforced by refusing the configuration, because (iv-b) permits pick-face configs at every scope.** **If you relax P2.5/P2.7(c) without step 15's gate in the same change, SBDEV-2731's reported failure returns.** | `ReceivingServiceUnitTest` |
 | 18 | `PutawayResolverContextLoadTest` (`@Disabled TODO(SBDEV-2217)`); `mvn clean compile`; full `mvn test`; **revert the mutated `archunit_store`**. | **`PHASE=1` verify run: 0 fail** |
 
 #### Phase 2-UI — `v2/wms2-web-ui`. Closes SBDEV-2732
@@ -2486,10 +2495,23 @@ Code: revert the PRs for the phases being rolled back. Data: `V2.2.11` is **forw
   > resident-UL merging. **C2b becomes unreachable** rather than deferred, because `Goodsreceiptposition` is
   > never repointed. 2731's **Q1** is closed (label prints; no code) and **Q4** is closed (option (iii)).
   >
-  > **What 2821 still needs from THIS plan is different from what this bullet says:** not a relaxation handed
-  > over, but the pair of changes in the §3.4c P2.7(c) conflict box — permit a pick-face destination at SKU
-  > scope, **and** add the runtime rule that a pick-face destination is not directly placed at receipt.
-  > See `SBDEV-2821-tier1-direct-placement-onto-pick-face.md` §0.
+  > **UPDATED AGAIN 2026-08-08 (Q12 → iv-b).** This plan permits pick-face destinations at every scope and
+  > **diverts them at receipt** (step 15's `useforpicking` gate) rather than placing them. What 2821 needs from
+  > here is that the configuration be writable — delivered by relaxing P2.5/P2.7(c) **in the same change as the
+  > gate**. Non-pick-face destinations are still placed at receipt by step 17 and never reach putaway.
+  >
+  > **⛔ NEW OPEN QUESTION — Q15, the tier seam.** Under (iv-b) putaway must consume **pick-face destinations
+  > for all four tiers**, but SBDEV-2821's plan is written for **tier 1 only** (it reads
+  > `itemdata.putawaylocation_id` directly). Two ways to split it, and they have very different schedules:
+  >
+  > - **(A) 2821 ships tier 1 only, independently.** It reads `itemdata.putawaylocation_id`, needs nothing from
+  >   this plan, and **delivers the reported ICE PACK fix immediately** — it is gated only on M1. This plan then
+  >   extends putaway to consume the full four-tier `Resolution` when it ships.
+  > - **(B) 2821 waits for this plan's resolver** and consumes all four tiers in one change. Cleaner seam, one
+  >   implementation — but it puts the reported production bug behind this entire plan.
+  >
+  > **Recommend (A):** it fixes the reported bug soonest and keeps the two tickets independent. **Not yet
+  > decided.** See `SBDEV-2821-tier1-direct-placement-onto-pick-face.md` §0.
 
   > **⚠ ORPHANED ARTIFACT found 2026-08-06 — three message keys with no owner.** SBDEV-2731's plan
   > (revision 4, §5) records these as *"RELOCATED to SBDEV-2732 (D14) — do NOT add in PR1"*:
@@ -2608,7 +2630,7 @@ D8's presumed mechanism; would let the open-receiving *list* show the destinatio
 | Q5 | `ItemDataController.java:81` is a `@GetMapping` that mutates state. | **No** | Left as-is — the web UI calls it and changing the verb is a breaking API change. §8.4. |
 | ~~Q7~~ | ~~**SBDEV-2731 is `in development` with no plan doc on disk.**~~ **CLOSED 2026-08-02 by D12/D14.** The 2731 plan exists and was inspected; ownership of `ReceivingService` destination resolution is now formally this plan's, and 2731 closes on its PR1 (display + neutral message). | **No longer blocking.** | See §10.2 D12/D14 and `SBDEV-2731-…md` §6. Superseded — do not re-investigate. |
 | **Q10** | **Pick-face capacity (F3 / SBDEV-2731 Q5).** Should receiving deposit a full receipt into a pick face whose `upperbound` is 84? Nothing checks `FixLocationAssignment` bounds before `transferStockToUnitLoad`. D13 exempts tier 1, which is exactly the reported ICE PACK case (1,000 units). | **ANSWERED 2026-08-04 — no longer blocking, and the path it gated is DEFERRED (D15).** | **[SBDEV-2796](https://app.clickup.com/t/868kk4rmv): the B/A chose (c) — "valid, and bounds are advisory for receiving."** Not the recommendation (d). No capacity gate is built; the over-bound bin is an accepted, documented state; the tier-1 direct-placement block is lifted. **But (c) did not close two of that ticket's own ACs:** replenishment behaviour against a permanently over-bound bin is still undefined and awaiting a B/A answer (**new Q11**, owned by [SBDEV-2821](https://app.clickup.com/t/868km8j9z)), and **C2b** is neither resolved nor ruled out — it is now the binding gate on the surviving Fix B work (§5.2, §6). See the revision banner at the top and the §3.4c D13 note. |
-| **Q12** | **May a tier-2/3 default target a *club* assembly lane?** D13 rule (a) permits `staginglane` wholesale and the ticket names "Club assembly lane" as a tier-2 scenario — but `getAvailableStagingLanes` (`LocationRepository:37-47`) allocates lanes to club batches **with no stock predicate**, so a receipt sitting on that lane can be shipped or cleared with the next batch (§6 **N-23**, verified 2026-08-04). Separately, lane stock is unconditionally invisible to replenishment sourcing (`StockunitRepository:198/:216`). | **YES — blocks the P2.7(a) wording and the Phase 2 location picker.** Does not block the resolver, tiers 1/4, or a cross-dock-only reading of rule (a). | **OPEN — needs the B/A, and RE-FRAMED 2026-08-06 by measurement: this question was asked about the wrong predicate.** Q12 assumes club lanes are reached through rule (a) (`staginglane` permitted wholesale). **On the real data they are not.** Verified SELECT-only on `wsl-wineco-uat`: `Club01`–`Club08` (ids 225748+) have **`staginglane = FALSE`** and every other lane flag FALSE; they sit in area 51553 *Storage and Picking* with **`useforpicking = TRUE`**, and `Club01` holds **114 unit loads / 27 distinct SKUs / 973 bottles**. They are **live multi-SKU pick faces**, not staging lanes. **Consequence: the ticket's named tier-2 use case — "Club assembly lane", "sending fast-turn club inventory directly to a designated club lane" — is, on this data, a request to point a merchant default at a PICK FACE. That is exactly what P2.7(c) forbids at all three scopes, and exactly what D15 defers to SBDEV-2821 for tier 1.** So the previously-proposed "safe answer" (narrow rule (a) to `crossdockinglane` + non-club staging) does not address wineco's clubs at all — they never passed through rule (a) — and with P2.7(c) now implementable they are blocked by rule (c) instead. **The real question is therefore: does this plan ship the club use case at all?** Three coherent answers: **(i)** no — P2.7(c) stands, the ticket's club scenario is out of scope for tiers 2/3 and belongs with SBDEV-2821's pick-face work; **(ii)** yes for clubs specifically — which needs the same resident-UL/Fix B machinery D15 deferred, i.e. it pulls SBDEV-2821 back into this plan; **(iii)** yes, but only onto *empty* club lanes (`Club08` is empty today), which needs a stock predicate that `getAvailableStagingLanes` does not have. **This is a tiers-2/3 question, so it stays with this plan — it did NOT travel to SBDEV-2821.** Q12 must be answered before §7.1's tests are written: `merchantWritePermitsStagingLane` and `skuWriteRejectsPickFaceDestination` encode opposite answers to it. |
+| **Q12** | **May a tier-2/3 default target a *club* assembly lane?** D13 rule (a) permits `staginglane` wholesale and the ticket names "Club assembly lane" as a tier-2 scenario — but `getAvailableStagingLanes` (`LocationRepository:37-47`) allocates lanes to club batches **with no stock predicate**, so a receipt sitting on that lane can be shipped or cleared with the next batch (§6 **N-23**, verified 2026-08-04). Separately, lane stock is unconditionally invisible to replenishment sourcing (`StockunitRepository:198/:216`). | **YES — blocks the P2.7(a) wording and the Phase 2 location picker.** Does not block the resolver, tiers 1/4, or a cross-dock-only reading of rule (a). | **OPEN — needs the B/A, and RE-FRAMED 2026-08-06 by measurement: this question was asked about the wrong predicate.** Q12 assumes club lanes are reached through rule (a) (`staginglane` permitted wholesale). **On the real data they are not.** Verified SELECT-only on `wsl-wineco-uat`: `Club01`–`Club08` (ids 225748+) have **`staginglane = FALSE`** and every other lane flag FALSE; they sit in area 51553 *Storage and Picking* with **`useforpicking = TRUE`**, and `Club01` holds **114 unit loads / 27 distinct SKUs / 973 bottles**. They are **live multi-SKU pick faces**, not staging lanes. **Consequence: the ticket's named tier-2 use case — "Club assembly lane", "sending fast-turn club inventory directly to a designated club lane" — is, on this data, a request to point a merchant default at a PICK FACE. That is exactly what P2.7(c) forbids at all three scopes, and exactly what D15 defers to SBDEV-2821 for tier 1.** So the previously-proposed "safe answer" (narrow rule (a) to `crossdockinglane` + non-club staging) does not address wineco's clubs at all — they never passed through rule (a) — and with P2.7(c) now implementable they are blocked by rule (c) instead. **The real question is therefore: does this plan ship the club use case at all?** Three coherent answers: **(i)** no — P2.7(c) stands, the ticket's club scenario is out of scope for tiers 2/3 and belongs with SBDEV-2821's pick-face work; **(ii)** yes for clubs specifically — which needs the same resident-UL/Fix B machinery D15 deferred, i.e. it pulls SBDEV-2821 back into this plan; **(iii)** yes, but only onto *empty* club lanes (`Club08` is empty today), which needs a stock predicate that `getAvailableStagingLanes` does not have. **✅ ANSWERED 2026-08-08 — option (iv-b), split.** A fourth option emerged from SBDEV-2821's decision. **Configuration is widened at every tier — a pick face, club lane included, is a legal destination. Placement is split:** a **pick-face** destination is *not* placed at receipt (the receipt goes to the standard lane and putaway routes it, where `MobilePutAwayService.storeBoxOnLocation:471-489` already handles pick faces correctly); **every other** destination — staging, goods-in, cross-dock — is still placed directly at receipt, preserving the ticket's fast-turn intent that uniform (iv-a) would have dropped. **The club use case ships, no stock lands on a live pick face at receipt, and C2b stays unreachable.** Consequences: §5.2 **step 15 gains the `useforpicking` gate**; **step 17 survives, restricted to non-pick-face destinations**; P2.5 / P2.7(c) relaxed at all scopes; D13 re-framed from a configuration rule to a placement rule. §7.1's two conflicting tests resolve as: `merchantWritePermitsStagingLane` **passes**, `skuWriteRejectsPickFaceDestination` is **replaced** by `pickFaceDestinationIsNotPlacedAtReceipt` — the config is legal, the *placement* is what is refused. *Provenance: chosen by the ticket owner; put to the B/A on the ticket 2026-08-08, no reply recorded yet. If either objects, Q12 reopens — (i)–(iii) and (iv-a) remain on the table.* |
 | **Q11** | **Replenishment against a permanently over-bound bin.** SBDEV-2796's answer (c) makes bounds advisory *for receiving* and makes over-bound bins reachable **and permanent** — but replenishment keys off those same bounds (`recalculateForItem` maintains orders from them). What should replenishment do when on-hand is ~12× `upperbound`? | **NO for this plan — DEFERRED with the tier-1 path (D15).** It is SBDEV-2796 AC *"Replenishment behaviour against an over-bound bin is defined, or over-bound bins are made unreachable"*, and (c) removed the second branch. **Why it cannot arise here — and note the reason is P2.5/P2.7(c), NOT the absence of placement code:** `ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally, so nothing at receive time would stop an over-bound bin. What stops it is that **the configuration cannot be written** — P2.5 and P2.7(c) reject a pick-face or fix-assigned tier-1 destination at write time. If either predicate is ever relaxed without also answering this question, over-bound bins become reachable immediately. **Blocks the tier-1 follow-up, not this plan.** | **ANSWERED 2026-08-06: "advisory for replenishment" too. Owned by [SBDEV-2821](https://app.clickup.com/t/868km8j9z).** Verified against the code, this costs **nothing to implement** — the bounds are never asserted as invariants, only used as comparison predicates: `FixLocationAssignmentRepository.getRefillFixedLocations:45` / `getRefillFixedLocationIds:72` gate on `stockunit.amount < fla.lowerbound`, so at 1,000 vs 36 **no replenishment order is ever created**; `ReplenishorderRepository.getIdsToCancelReplenishOrders:149` / `...Page:156-162` select `stockUnit.amount >= fixAssignment.upperbound`, so any open order is **cancelled** on the next sweep; `recalculateForItem` (`ReplenishmentOrderMaintenanceService.java:112`) iterates only `PROCESSABLE` orders and is a no-op for the SKU. **Caveat that travels to SBDEV-2821:** both cancel queries join `fixAssignment.assignedunitload_id = stockUnit.unitload_id` and so read the **resident** unit load only — if direct placement creates a *second* UL on the location, refill keeps firing and cancel never does, and the system replenishes a bin already holding 1,000 units. "Advisory" is correct **only if Fix B's resident-UL resolution is correct**. |
 | Q8 | Has the history-less Hydra DEV copy been repaired, and `V2.2.11` applied to **every** DEV tenant, before the Phase 1-API merge? | **YES — blocks the Phase 1-API merge**, not the work, and not the Phase 2-UI merge. | §5.1 row 1, §8.1. DEV auto-deploys on push; the runtime migrator self-heals tenants that have Flyway history but **skips** those that do not, and `ddl-auto=none` means the failure is a per-request `42703`, not a failed boot. Pre-mortem P1. |
 | Q9 | Should P2.4 admit a **pick-only** area (`useforpicking` with neither `useforgoodsin` nor `useforstorage`)? As written it does not, so a pick location can never be configured as a putaway destination and the picker does not offer one. | **No** — the narrow reading ships safely and can be widened later. | Keep P2.4 as written for Phase 1. Confirm with David Oppenheim whether receiving-direct-to-pick is a wanted workflow; if it is, widening P2.4 is a one-clause change **but §7.6 row 8's deadlock-retry prerequisite becomes hard**, because picking locks the same rows in the opposite order far more often than replenishment does. |
