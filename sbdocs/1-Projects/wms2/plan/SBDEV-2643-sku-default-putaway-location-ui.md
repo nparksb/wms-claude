@@ -115,8 +115,26 @@ tags:
 > **The advisory text matters.** A pick-face destination does not receive stock directly — it is routed via
 > putaway, so the operator performs one putaway scan. Say that, rather than implying immediate placement.
 >
-> **Re-measure before implementing.** r2's eligibility arithmetic (92 of 666, 511 excluded) was computed
-> against P2.7(c) as an absolute reject and is now stale. The `db_verified` note goes stale with it.
+> **✅ RE-MEASURED 2026-08-09 (SELECT-only).** r2's arithmetic (603 goods-in-or-storage → **92 eligible**,
+> **511 excluded by P2.7(c)**) was computed with P2.7(c) as an absolute reject. Those two numbers sum
+> exactly to the population — **P2.7(c) was doing ALL of the exclusion.** Under (iv-b) it is dropped, so at
+> SKU scope the picker's exclusion set collapses to the remaining predicates (locked, lane flags, area):
+>
+> | Tenant | goods-in-or-storage | of which in a picking area | **eligible at SKU scope under (iv-b)** |
+> |---|---|---|---|
+> | `wms2-wineco-dev` (tester's env) | — | — | **2,555** of 2,739 total locations |
+> | `wsl-wineco-uat` | 2,704 | **2,219** | **2,694** |
+> | `wms2-hydra` (HMG PRD) | 229 | **191** | **229** |
+>
+> **On HMG production the exclusion set is now empty** — all 229 qualify. On wineco UAT r2's rule would
+> have hidden **2,219 of 2,704** locations, about 82% of the picker.
+>
+> **r2's own population (603) matches none of these three tenants**, so its figures were measured somewhere
+> else again — treat them as unusable rather than merely stale, and re-derive on whichever tenant this ships
+> against. The `db_verified` note needs the same treatment.
+>
+> **Tier 1 is exempt from rule (e)**, so flowbins are offerable here; rule (e) bars them at merchant and
+> warehouse scope only.
 >
 > **Read §15 (revision log) before §10.1, and §14 for the principles this is graded against.**
 
