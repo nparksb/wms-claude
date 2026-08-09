@@ -4,7 +4,7 @@ ticket: "SBDEV-2821"
 ticket_url: "https://app.clickup.com/t/868km8j9z"
 type: "bugfix"
 priority: "high"
-status: "APPROVED 2026-08-08 for OPTION (iii) — route at putaway. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). Remaining gate: M1 must be proven on UAT before code (§5.1 row 2). Decision provenance in §0."
+status: "APPROVED 2026-08-08 for OPTION (iii) — route at putaway. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). Remaining gate: **M1a** must be proven on UAT before code (§5.1 row 2). **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0."
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell (via SBDEV-2731)"
@@ -392,6 +392,34 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 | M3 | `1135` → `Club08` (cases and pallets) | **Placement succeeds after the §3.2a fix**; no FLA created; `Club08` stays multi-SKU. **Before that fix this throws** — see §3.2a. M3 is the test that proves the fix, not a formality. |
 | M4 | SKU with no override | Suggestion list unchanged from today |
 | M5 | The originating receipt: 1,000 units of `ICE PACK` on HMG | Lands in `ICE PACK`; receipt and inventory history record it |
+
+> [!done] **✅ M1b WAS RUN — 2026-08-09, `wsl-wineco-uat`. Prediction confirmed exactly.**
+>
+> | Stage | Predicted | **Observed** |
+> |---|---|---|
+> | Scan of `Club08` | ACCEPTED | ✅ **Accepted** |
+> | Store the box | throws `Unsupported location type cases and pallets` | ✅ **`Unsupported location type cases and pallets`** |
+>
+> **The accept-then-throw sequence is now OBSERVED, not inferred.** The operator scans a location, gets a
+> successful scan, and only then gets an error. That is a worse operator experience than a clean rejection
+> and it is why this cannot be dismissed as a configuration mistake.
+>
+> **What this settles:**
+> - **§3.2a is confirmed necessary**, on evidence rather than a code read. `storeBoxOnLocation` genuinely
+>   cannot consume a `cases and pallets` destination.
+> - **SBDEV-2732's club use case is confirmed blocked** until §3.2a ships — the earlier claim that it
+>   *"ships, safely"* on 2732 alone was false, and this is the proof.
+> - The static analysis behind option (iii)/(iv-b) is **validated on the branch it was tested against**.
+>
+> **What this does NOT settle — read this before treating the gate as green:**
+> **M1a has not been run.** M1b exercised the `cases and pallets` branch. **M1a exercises the `flowbin`
+> branch — FLA auto-creation plus resident-unit-load merge — and that is the path the reported `ICE PACK`
+> bug takes.** The two take different `switch` arms, so **M1b passing its expectation tells us nothing about
+> M1a**, exactly as M1a would have told us nothing about M1b. **M1a remains the gate that voids the design
+> if it fails.**
+>
+> **After §3.2a ships, re-run M1b** with the expectation flipped: placement succeeds, **no FLA created**,
+> `Club08` stays multi-SKU.
 
 #### M1b — runnable procedure, fixture verified on `wsl-wineco-uat` 2026-08-08
 

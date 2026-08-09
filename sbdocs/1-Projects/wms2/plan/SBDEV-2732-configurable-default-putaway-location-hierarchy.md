@@ -795,7 +795,9 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > the lane. **No stock lands on a live 27-SKU pick face at receipt, and C2b stays unreachable.**
 > 
 > ⚠ **But two other things must ship before it works end to end, and neither is in this plan's original scope:**
-> 1. **`MobilePutAwayService` must handle `cases and pallets`.** Its switch covers only `flowbin`, `overstock
+> 1. **`MobilePutAwayService` must handle `cases and pallets`.** ✅ **CONFIRMED BY TEST 2026-08-09** — SBDEV-2821's
+>    M1b was run on `wsl-wineco-uat`: the scan of `Club08` was **accepted** and the store then threw
+>    **`Unsupported location type cases and pallets`**. This is measured, not inferred. Its switch covers only `flowbin`, `overstock
 >    box` and `overstock pallet` (`WmsConstants:736-738`); `cases and pallets` is a fourth constant (`:741`)
 >    and falls to `default:`, which **throws** for club locations. **Owned by SBDEV-2821 §3.2a** as of
 >    2026-08-08. Until it ships, a club destination saves, diverts, and then **throws at putaway**.
