@@ -474,8 +474,24 @@ Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mec
 2. Move the pallet to `PutAwayLane`.
 3. Mobile → **Putaway** → **Scan Pallet**.
 4. Tap **"Replenish Location(s)"**.
-5. At **"Scan Location"**, type **`04-A01`**.
-6. At **"Scan Box"**, scan the box label.
+5. **⚠ BEFORE typing anything, check the header.** The screen reads **`Product - N of M`** and shows
+   **`SKU:`** below it. **It must show the SKU you just received.** If it does not, use the **`<` / `>`
+   arrows** to move to it.
+   > **This step was added 2026-08-09 after a failed run** that returned `itemDataNotMatchFixedAssignment`.
+   > **That was not a defect** — `verifyScannedLocation:430-437` validates the scanned location against the
+   > **currently-selected SKU in the putaway list**, not against the box you are about to scan. The list is
+   > built from everything on the scanned pallet, and `PutAwayLane` on `wsl-wineco-uat` carries **1,373 unit
+   > loads across 238 SKUs, 108 of which already have a `FixLocationAssignment` bound elsewhere**. Landing on
+   > one of those 108 and scanning `04-A01` produces exactly that error.
+   >
+   > **Two ways to avoid it, in order of preference:**
+   > 1. **Receive onto an empty pallet** so the putaway list contains only your SKU — `Product - 1 of 1`.
+   > 2. Or arrow across to your SKU before scanning the location.
+   >
+   > **If you see `itemDataNotMatchFixedAssignment`, the test has not run yet** — you were on the wrong
+   > product. It is not an M1a result and must not be recorded as one.
+6. At **"Scan Location"**, type **`04-A01`**.
+7. At **"Scan Box"**, scan the box label.
 
 **Predicted outcome**
 
