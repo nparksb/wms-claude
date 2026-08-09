@@ -1313,7 +1313,7 @@ detector. That is a real but small deliverable, and it is the *whole* of what 26
 | `receivingForm.vue` display | constants declared inline at `:221-222` | imported from `putawayWording.js` | **🟢 no behaviour change.** Same values, same comparisons, same tri-state. `receivingForm.spec.js` is the guard |
 | `skuData.vue` details label | `"Putaway Location"` | `"Default Putaway Location"` | **🟢 cosmetic**, and it is the ticket's own wording |
 | `skuData.vue` actions column | one eye button | eye + pencil | **🟢 additive.** The column already exists |
-| SKU CSV export | `downloadSkuData` (`skuData.vue:342-343`) destructures an explicit field list | **unchanged** | **🟢** the new id never reaches a CSV |
+| SKU CSV export | `downloadSkuData` (`skuData.vue:320`) destructures an explicit field list | **unchanged** | **🟢** the new id never reaches a CSV |
 | `itemdata` Caffeine cache | 2-key eviction on the dead writer; `allEntries=true` on the live one | **unchanged by 2643** | 2643 adds no cache and no write path of its own — §7.3 row 4 |
 | Flyway | head `V2.2.10` | **head `V2.2.10`** | **🟢 2643 ships zero migrations** |
 
