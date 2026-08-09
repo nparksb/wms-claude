@@ -65,8 +65,8 @@ tags:
 >
 > **D15 — tier-1 direct placement is DEFERRED to a follow-up ticket.** ⚠ **RESTATED 2026-08-08: it is not merely deferred, it is CANCELLED.** SBDEV-2821 adopted **option (iii) — route at putaway**, so tier-1 pick-face destinations are *never* directly placed by anyone. The guarantee D15 wanted still holds; what changes is the enforcement point, which moves from refusing the configuration to a runtime rule in receiving (see the conflict box under §3.4c P2.7(c)). Original text follows. This plan ships the resolver (all
 > four tiers' *resolution*), the merchant/warehouse config surface, the display endpoint, write-time
-> validation, the audit table and the backfill — plus direct placement **for tiers 2/3 only**. Placing a
-> receipt onto a **pick face** via a tier-1 SKU override is out of scope here.
+> validation, the audit table and the backfill — plus direct placement **for non-pick-face destinations at any tier** *(⚠ 2026-08-08: was "for tiers 2/3 only" — Q12 → iv-b splits on the destination, not the tier)*. Placing a
+> receipt onto a **pick face** is out of scope here **at every tier** — step 15 diverts it to the lane and putaway routes it.
 >
 > *What the deferral removes from this plan, all of it previously blocking:* 2731's **Fix B** (flowbin
 > classification + resident-UL resolution), **C2b**, **Q1**, **Q4**, **F1**, **F4**, **F5**, and **Q11**
@@ -767,7 +767,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 |---|---|---|
 | a | `staginglane` **or** `crossdockinglane` **may be TRUE** — these are *permitted*, not banned | They **are** the use case. The ticket's named tier-2 scenarios are "Club assembly lane" and "Cross-dock or fast-turn staging area". |
 | b | `transferlane`, `automationlane`, `gate` must be FALSE | Not receipt destinations; `gate` is truck loading. |
-| c | **not** a pick face (`locationAreaRepository.findById(dest.getAreaId())` → `Boolean.TRUE.equals(area.getUseforpicking())` ⇒ **reject**) and **not** fix-assigned (`fixLocationAssignmentRepository.findByAssignedlocationId(dest).isEmpty()`) | **⚠ DROPPED 2026-08-08 (Q12 → iv-b) — NOT to be implemented as a write-time reject; see the box below. Historical text follows.** ~~Absolute at all three scopes~~ — tier 1 included, and this was load-bearing for D15: together with P2.5 it is what makes "direct placement for tiers 2/3 only" true *by construction* rather than by a runtime gate that does not exist. Note the two clauses are not redundant — a pick face need not carry an assignment. **⚠ SUPERSEDED 2026-08-08 by SBDEV-2821's option (iii) — see the box below.** The old hand-off read *"SBDEV-2821 relaxes this for tier 1 only, alongside P2.5"*, which assumed 2821 would ship tier-1 direct placement. It will not. |
+| c | ⛔ **DROPPED 2026-08-08 (Q12 → iv-b) — DO NOT IMPLEMENT THIS REJECT.** This row read *"**not** a pick face (`area.getUseforpicking()` ⇒ reject) and **not** fix-assigned … Absolute at all three scopes"*. **A pick-face or fix-assigned destination is now a LEGAL configuration at every scope.** What is refused is the *placement*, by the runtime gate in receiving (§5.2 step 15). **Implementing this row as written re-breaks SBDEV-2731's reported bug** — it is what stopped `ICE PACK` being configurable. | **Canonical status: this row.** Do not restate it elsewhere; §3.4c is the single authoritative statement. The only surviving scope restriction is **rule (e)** below, which bars `flowbin`-*type* destinations at merchant/warehouse scope for a different reason (FLA auto-binding). |
 
 > [!done] **✅ Q12 ANSWERED 2026-08-08 — option (iv-b), SPLIT: configure anywhere; place everywhere EXCEPT pick faces.**
 >
@@ -980,7 +980,7 @@ once, here, and have §3.11.2's picker simply reflect it for merchant/warehouse 
 >
 > **DEFERRED under D15 (2026-08-04).** Rather than absorb (1) and (2), the author deferred the whole
 > tier-1 pick-face path to a follow-up ticket — **[SBDEV-2821](https://app.clickup.com/t/868km8j9z)**. **This
-> plan therefore ships direct placement for tiers 2/3 only**, and neither (1) nor (2) gates it — no pick-face placement means no over-bound bin and no
+> plan therefore ships direct placement for non-pick-face destinations only**, at any tier *(⚠ 2026-08-08: was "tiers 2/3 only" — the split is on the destination)*, and neither (1) nor (2) gates it — no pick-face placement means no over-bound bin and no
 > repointing. Both travel to the follow-up, along with C2b, Q1, Q4, F1, F4 and F5. The P2.5 / P2.7(c)
 > corrections below still land here, so the follow-up inherits a validator that admits the configuration
 > (c) authorises.
@@ -1027,7 +1027,7 @@ validated at write time for merchant and warehouse as well as SKU.
 > three different ways by two editors working the same file on 2026-08-08. **Lanes are NOT in that list — P2.3 is not absolute.** P2.7 rules (a) and (d) deliberately
 *permit* `staginglane` and `crossdockinglane` for tiers 2/3 (they are the ticket's named club-assembly and
 cross-dock use cases) while (b) still bans `transferlane`, `automationlane` and `gate`. So the correct
-statement is: **locked and fix-assigned are absolute at all three scopes; lane handling is per-tier.**
+statement is: **locked is absolute at all three scopes; lane handling is per-tier.** *(⚠ 2026-08-08: this sentence also listed **fix-assigned** as absolute. Dropped by Q12 → iv-b — see the canonical rule (c) row above. Locked remains absolute.)*
 *(Corrected 2026-08-04 — the old "a lane can never work" wording predated P2.7(a)/(d) and contradicted them.)* Without that, a merchant or warehouse default on
 a locked or fix-assigned location passes validation and then hard-fails *every* receipt in scope with
 `STORAGELOCATION_LOCKED` / `WRONG_ITEMDATA_FIXASSIGNMENT` — messages that never mention putaway
@@ -2126,7 +2126,7 @@ footnote gets read after it bites.
 > resolution stay out of scope, and C2b, Q1, Q4, F1, F4 and F5 travel with them. The import limit this
 > block argued for therefore **holds**, on a different basis than originally stated: not "Q5 is unanswered"
 > but "the answer was taken and the resulting scope was deliberately deferred." The phase table below
-> describes the correct scope again, with one change: **direct placement is tiers 2/3 only.**
+> describes the correct scope again, with one change: ~~**direct placement is tiers 2/3 only**~~ → **⚠ RESTATED 2026-08-08 (Q12 → iv-b): direct placement is split on the DESTINATION, not the tier.** Any tier may resolve any destination; a **pick face** is never placed at receipt (step 15 diverts it to the lane), and everything else is. 
 >
 > **What neither plan fixed while F3 was open — now superseded.** The reported ICE PACK failure is 1,000
 > units into a flowbin pick face via a **tier-1 (SKU-level)** override, and **D13 exempts tier 1**. PR1
