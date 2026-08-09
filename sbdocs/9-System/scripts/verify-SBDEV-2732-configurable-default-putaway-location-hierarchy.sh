@@ -476,6 +476,23 @@ check_T_sku_pickface_test() { file_contains_i 'skuWritePermitsPickFaceDestinatio
 # INVERTED 2026-08-08 (iv-b): configuration is widened at ALL scopes, merchant included.
 check_T_merch_pickface_test() { file_contains_i 'merchantWritePermitsPickFaceDestination' "$CFGTEST"; }
 check_T_staging_ok_test()   { file_contains_i 'merchantWritePermitsStagingLane' "$CFGTEST"; }
+# P2.7 rule (e), added 2026-08-08. (iv-b) widened configuration at every scope, which re-opened a hazard
+# P2.5's absolute reject had been closing as a SIDE EFFECT: putaway auto-creates a FixLocationAssignment
+# (storeBoxOnLocation:479-482) binding a flowbin to the FIRST SKU put away, and the table is
+# UNIQUE(assignedlocation_id) AND UNIQUE(itemdata_id) — so every later SKU under a merchant/warehouse
+# default breaks. 46 FLA-free flowbins on HMG PRD, 656 on wineco UAT.
+# The predicate is the LOCATION TYPE, not the area flag: keying on useforpicking would re-ban the club
+# lanes (cases and pallets) and undo Q12. All three checks are needed — the reject alone would pass an
+# implementation that bans flowbins everywhere, including tier 1 where the binding is the intent.
+check_V_no_flowbin_tier23()  { file_contains 'sltname' "$VALIDATOR"; }
+check_T_merch_flowbin_reject() { file_contains_i 'merchantWriteRejectsFlowbinDestination' "$CFGTEST"; }
+check_T_sku_flowbin_ok()       { file_contains_i 'skuWritePermitsFlowbinDestination' "$CFGTEST"; }
+check_T_merch_casespallets_ok() { file_contains_i 'merchantWritePermitsCasesAndPalletsDestination' "$CFGTEST"; }
+# NEG: rule (e) must NOT be implemented with the area flag — that re-bans the clubs.
+check_V_rule_e_not_area_flag() {
+    file_contains 'sltname' "$VALIDATOR" \
+      && file_not_contains_multiline 'getUseforpicking[\s\S]{0,200}(reject|throw|BusinessException)' "$VALIDATOR"
+}
 # (iv-b) placement split — BOTH halves must be pinned. Asserting only the divert would let an
 # implementation that never places anything (option iv-a, not chosen) pass.
 RECTEST=$TST/unit/service/ReceivingServiceUnitTest.java
@@ -899,6 +916,11 @@ run V-nopickrej   "NEG: validator does NOT reject on useforpicking (iv-b)"  chec
 run T-skupick     "test: SKU-scope write PERMITS a pick-face destination"   check_T_sku_pickface_test
 run T-merchpick   "test: merchant-scope write PERMITS a pick-face destination" check_T_merch_pickface_test
 run T-stagingok   "test: merchant-scope write PERMITS a staging lane (P2.7a)" check_T_staging_ok_test
+run V-noflowbin23 "P2.7(e): validator keys on sltname (not the area flag)" check_V_no_flowbin_tier23
+run V-ruleE-neg   "NEG: rule (e) not implemented with useforpicking"    check_V_rule_e_not_area_flag
+run T-mflowbin    "test: merchant write REJECTS a flowbin destination"  check_T_merch_flowbin_reject
+run V-flowbin1ok  "test: SKU write PERMITS a flowbin destination"       check_T_sku_flowbin_ok
+run T-mclubok     "test: merchant write PERMITS cases-and-pallets"      check_T_merch_casespallets_ok
 run V-lock        "P2.2 checks NOT_LOCKED"                             check_V_entity_lock
 run V-negq        "NEG: not built on getStorageLocationsForPutAwayItemData" check_V_not_storage_query
 runp 1 A-exists      "PutawayConfigAuditService exists"                   check_A_exists

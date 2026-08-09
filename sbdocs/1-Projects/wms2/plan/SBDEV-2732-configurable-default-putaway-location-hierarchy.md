@@ -743,8 +743,11 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 
 > [!done] **✅ Q12 ANSWERED 2026-08-08 — option (iv-b), SPLIT: configure anywhere; place everywhere EXCEPT pick faces.**
 >
-> **Configuration (write-time) — relaxed.** Any tier may name any location putaway can legitimately receive
-> into, **pick faces included**. P2.1–P2.4 and P2.6 still reject locked, shipping, transfer and gate
+> **Configuration (write-time) — relaxed, with ONE narrow exception.** Any tier may name any location putaway
+> can legitimately receive into, **pick faces included** — except that **tiers 2/3 may not target a
+> `flowbin`-type location** (P2.7 rule **e**), because putaway auto-creates a `FixLocationAssignment` binding
+> it to the first SKU and multi-SKU scopes then break. **Tier 1 is exempt, and club lanes are unaffected**
+> (they are `cases and pallets`, not `flowbin`). P2.1–P2.4 and P2.6 still reject locked, shipping, transfer and gate
 > locations — wrong destinations for putaway too. **P2.7(c)'s absolute pick-face / fix-assignment reject is
 > dropped at all three scopes.**
 >
@@ -837,6 +840,40 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > WHERE a.useforpicking = true GROUP BY 1,2,3,4 ORDER BY 1;
 > ```
 | d | P2.4's area test is **relaxed for tiers 2/3**: a staging or cross-dock lane qualifies **regardless** of its area's `useforgoodsin`/`useforstorage` flags | Measured necessity, not preference — see the correction immediately below. |
+| **e** | **tiers 2/3 may NOT target a `flowbin`-type location** (`location_type.sltname == 'flowbin'` ⇒ reject). **Tier 1 is exempt.** | **ADDED 2026-08-08.** Not a placement rule — a *multi-SKU* rule, and the only restriction (iv-b) reinstates. See the box below. |
+
+> [!warning] **Why rule (e) exists — FLA auto-creation binds a location to ONE SKU, permanently.**
+>
+> (iv-b) widened configuration at every scope, which re-opened a hazard that P2.5's absolute reject had been
+> closing **as a side effect**. It is not a placement problem — the runtime gate handles that — so removing
+> the gate's justification did not remove this.
+>
+> **The mechanism.** A tier-2/3 default resolves to an FLA-free flowbin. Receiving diverts it to the lane
+> (step 15). At putaway, `MobilePutAwayService.storeBoxOnLocation:479-482` **auto-creates** a
+> `FixLocationAssignment` binding that location to **whichever SKU is put away first**. The table carries
+> `UNIQUE (assignedlocation_id)` **and** `UNIQUE (itemdata_id)`
+> (`V2.2.00__base_v2_schema.sql:3760-3763`, `:3712-3715`). **Every subsequent SKU under that default then
+> fails** — at `verifyScannedLocation:430-444` or `UnitloadBusinessService:180-183`.
+>
+> **Blast radius is the whole scope, not one SKU.** A merchant default applies to every SKU that merchant
+> receives; the first one silently claims the bin and the rest break. A warehouse default is worse.
+>
+> **Measured exposure** (SELECT-only, 2026-08-08), FLA-free flowbins reachable as a tier-2/3 destination:
+>
+> | Tenant | flowbin (FLA-free) | `cases and pallets` (FLA-free) |
+> |---|---|---|
+> | `wms2-hydra` (HMG PRD) | **46** | 0 — none exist |
+> | `wsl-wineco-uat` | **656** | 70 (the club lanes) |
+>
+> **Why tier 1 is exempt, and why this costs the club use case nothing.** A *SKU-scope* default binding its
+> own location to itself is precisely the intent — that is what a dedicated `ICE PACK` bin **is**, and it is
+> the runtime rule already (`UnitloadBusinessService.java:170-175` rejects only on SKU *mismatch*). And the
+> club lanes are **`cases and pallets`, not `flowbin`** — `storeBoxOnLocation` never reaches the FLA branch
+> for them, so they are unaffected by rule (e). **The 656 hazardous locations are excluded; the 70 clubs are
+> not.** Rule (e) closes the hazard without touching the use case Q12 was asked about.
+>
+> **Do not implement this as "reject pick faces at tiers 2/3."** That would re-ban the clubs and undo Q12.
+> The predicate is the **location type**, not the area flag: `sltname == 'flowbin'`.
 
 **CORRECTION — the first version of P2.7 was self-defeating, and the data proves it.** It said "restricted
 to staging / goods-in area types" while P2.3 rejected any location with `staginglane = TRUE` and P2.4
@@ -2106,7 +2143,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | 4 | `WmsConstants` key; `PutawayDestinationResolver` + `Resolution` + the `Source` enum; the `getSystemClient()` null guard (§3.4a). **`Propagation.MANDATORY`; never `REQUIRES_NEW`.** Freeze the `Source`/`Resolution` contract here — the UI consumes it. | unit tests + `mvn clean compile` |
 | 5 | `LocationConstraintService.isUnitloadTypePermitted` (P1). **Must replicate the empty-constraint-list fail-open at `UnitloadBusinessService.java:182`** or it rejects configurations that work today. | `emptyConstraintListPermitsEverything` |
 | 6 | **Consume** the neutral key 2731 PR1 added at `:191`; throw `putawayDestinationNotPermitted` from the **resolver** only (§3.6.1). **Do not re-specify `:191` — that is 2731 PR1's line.** | resolver message test |
-| 7 | `PutawayDestinationValidator` — P1 + P2 for **all three scopes**, including P2.7 (D13), the **locked** absolute (P2.1), P2.7's per-tier lane rules and D11's count-and-confirm. **⚠ REVISED 2026-08-08 (Q12 → iv-b): do NOT implement a fix-assigned or pick-face reject.** P2.5 and P2.7(c) are relaxed at all three scopes — the configuration is legal, and the placement is gated at run time by step 15. **The relaxation and that gate must land in the same change** (§3.4c). | unit tests — **must include `skuWritePermitsPickFaceDestination` and `merchantWritePermitsStagingLane`. The old `skuWriteRejectsFixAssignedLocation` / `skuWriteRejectsPickFaceDestination` / `merchantWriteRejectsFixAssignedLocation` are DELETED — they assert the superseded design and would fail a correct implementation** |
+| 7 | `PutawayDestinationValidator` — P1 + P2 for **all three scopes**, including P2.7 (D13), the **locked** absolute (P2.1), P2.7's per-tier lane rules and D11's count-and-confirm. **⚠ REVISED 2026-08-08 (Q12 → iv-b): do NOT implement a fix-assigned or pick-face reject.** P2.5 and P2.7(c) are relaxed at all three scopes — the configuration is legal, and the placement is gated at run time by step 15. **But implement P2.7 rule (e):** reject a `flowbin`-type destination at **merchant and warehouse scope only** — putaway's FLA auto-creation would bind it to one SKU. Predicate is `location_type.sltname`, **not** the area flag; using `useforpicking` here re-bans the club lanes and undoes Q12. **The relaxation and that gate must land in the same change** (§3.4c). | unit tests — **must include `skuWritePermitsPickFaceDestination` and `merchantWritePermitsStagingLane`. The old `skuWriteRejectsFixAssignedLocation` / `skuWriteRejectsPickFaceDestination` / `merchantWriteRejectsFixAssignedLocation` are DELETED — they assert the superseded design and would fail a correct implementation** |
 | 8 | `PutawayResolutionMetrics` (4 counters; the `compatible` tag). | unit tests |
 | 9 | `PutawayConfigService`: `setSkuDestination`, `setMerchantDestination`, `setWarehouseDestination`, `readCommittedDestination` (**one query per scope**), `validateOnly`, `auditAndEvict`; authorization enforced **here**, not on the handler (N5). Rewire `ItemdataService.setPutAwayLocation` and `ItemDataController:80-95`. | unit tests |
 | 10 | `PutawayConfigController` — `preview` + all three writes and the 409/422 confirmation contract (§3.5a). | `BaseControllerTest` |
@@ -2299,6 +2336,9 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | | `merchantWriteRequiresConfirmationWhenSomeSkusIncompatible` | count > 0 with no `confirmIncompatibleSkus` ⇒ reject; message names the count + one example SKU |
 | | `merchantWriteRejectsOnlyAtTotalIncompatibility` | count == total ⇒ reject unconditionally, no confirmation accepted |
 | | ~~`merchantWriteRejectsFixAssignedLocation`~~ | ⚠ **DELETED 2026-08-08 (Q12 → iv-b).** P2.5's write-time reject is dropped at all three scopes. Its verify check `T-merchfix` was removed from the script the same day. |
+| | **`merchantWriteRejectsFlowbinDestination`** | **ADDED 2026-08-08 — P2.7 rule (e).** Merchant scope rejects a `flowbin`-type destination; putaway's FLA auto-creation would bind it to the first SKU and break every other SKU under that merchant. Verify: `V-noflowbin23` |
+| | **`skuWritePermitsFlowbinDestination`** | **ADDED 2026-08-08** — tier 1 is exempt from rule (e); a SKU binding its own pick face is the intent. **Both tests are needed**: the reject alone would pass an implementation that bans flowbins everywhere. Verify: `V-flowbin1ok` |
+| | **`merchantWritePermitsCasesAndPalletsDestination`** | **ADDED 2026-08-08** — guards the club use case. Rule (e) keys on `sltname == 'flowbin'`, so `cases and pallets` must still pass at merchant scope. This test fails if someone implements rule (e) with `useforpicking`. |
 | | ~~`skuWriteRejectsFixAssignedLocation`~~ | ⚠ **DELETED 2026-08-08 (Q12 → iv-b).** It asserted the D15 enforcement point (P2.5, absolute at SKU scope), which no longer exists — under (iv-b) the config is legal and the *placement* is refused. Its verify checks `T-skufix` / `V-fixloc` were removed. **This test would fail a correct implementation.** |
 | | ~~`skuWriteRejectsPickFaceDestination`~~ → **`pickFaceDestinationIsNotPlacedAtReceipt`** | ⚠ **REPLACED 2026-08-08 (Q12 → iv-b), and it moves out of `PutawayConfigServiceUnitTest` into `ReceivingServiceUnitTest`** (step 15). A pick face is now a **legal configuration at every scope**; what is refused is placing a receipt there. Pair it with `stagingLaneDestinationIsPlacedAtReceipt` — together they pin both halves of the split. Verify check `V-fixabs` removed. |
 | | `skuWritePermitsPickFaceDestination` (**new**) | The positive half of the relaxation: an FLA-free pick face is **accepted** at SKU scope. **Fixture must be an FLA-free pick face** (the real shape: wineco's club locations — `useforpicking` true, zero FLA rows). Without this, nothing pins that the reject was actually dropped. |
@@ -2767,9 +2807,9 @@ pre-merge record; it expires again when this plan's own Phase 1-API work starts 
 
 | Run | Result | Evaluated / filtered |
 |---|---|---|
-| `PHASE=all` (default) | `15 pass, 162 fail, 1 skip` | 178 / 0 |
-| `PHASE=1` | `12 pass, 156 fail, 1 skip` | 169 / 9 |
-| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 160 |
+| `PHASE=all` (default) | `15 pass, 167 fail, 1 skip` | 183 / 0 |
+| `PHASE=1` | `12 pass, 161 fail, 1 skip` | 174 / 9 |
+| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 165 |
 
 **Re-recorded again 2026-08-08 after the Q12 → (iv-b) script fixes.** Four checks were **removed** and eight
 **added** (net +4 fail). The removed four asserted the *superseded* design and would have failed a correct
@@ -2778,7 +2818,7 @@ demanded SKU- and merchant-scope writes *reject* a fix-assigned location. **Unde
 opposite of the intent.** A gate encoding the old design is worse than no gate — it blocks the change it is
 meant to guard. The pass count is unchanged at **15**, which is the signal that nothing went vacuous.
 
-**Arithmetic self-check:** 169 + 18 = 187 = 178 + 9. **The overlap constant is now 9, not 11** — the 8
+**Arithmetic self-check:** 174 + 18 = 192 = 183 + 9. **The overlap constant is now 9, not 11** — the 8
 `phase all` preservation checks plus the **1** remaining SKIP. It was 11 when three checks were skipped;
 `U-neg1` and `U-bind` were un-skipped on the merge (SBDEV-2731 owned them and now ships them), leaving
 only the pre-existing `mvn` skip.
