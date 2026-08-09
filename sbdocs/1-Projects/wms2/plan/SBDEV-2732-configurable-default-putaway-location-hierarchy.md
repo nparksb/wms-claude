@@ -2836,9 +2836,9 @@ pre-merge record; it expires again when this plan's own Phase 1-API work starts 
 
 | Run | Result | Evaluated / filtered |
 |---|---|---|
-| `PHASE=all` (default) | `15 pass, 168 fail, 1 skip` | 184 / 0 |
-| `PHASE=1` | `12 pass, 162 fail, 1 skip` | 175 / 9 |
-| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 166 |
+| `PHASE=all` (default) | `15 pass, 167 fail, 1 skip` | 183 / 0 |
+| `PHASE=1` | `12 pass, 161 fail, 1 skip` | 174 / 9 |
+| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 165 |
 
 **Re-recorded again 2026-08-08 after the Q12 → (iv-b) script fixes.** Four checks were **removed** and eight
 **added** (net +4 fail). The removed four asserted the *superseded* design and would have failed a correct
@@ -2847,7 +2847,7 @@ demanded SKU- and merchant-scope writes *reject* a fix-assigned location. **Unde
 opposite of the intent.** A gate encoding the old design is worse than no gate — it blocks the change it is
 meant to guard. The pass count is unchanged at **15**, which is the signal that nothing went vacuous.
 
-**Arithmetic self-check:** 175 + 18 = 193 = 184 + 9. **The overlap constant is now 9, not 11** — the 8
+**Arithmetic self-check:** 174 + 18 = 192 = 183 + 9. **The overlap constant is now 9, not 11** — the 8
 `phase all` preservation checks plus the **1** remaining SKIP. It was 11 when three checks were skipped;
 `U-neg1` and `U-bind` were un-skipped on the merge (SBDEV-2731 owned them and now ships them), leaving
 only the pre-existing `mvn` skip.

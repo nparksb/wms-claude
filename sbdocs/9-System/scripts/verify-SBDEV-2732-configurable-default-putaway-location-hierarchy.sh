@@ -107,6 +107,12 @@
 #    guard roughly a third of this script would pass on an empty tree.
 
 set -u
+# ABORT GUARD, added 2026-08-09. `set -u` kills the script on an unbound variable mid-run — and it then
+# prints NO "Result:" line, having silently skipped every remaining check. That happened during this
+# session's audit: deleting a block took `CFGTEST=` with it and the run died at check 6 of ~180, which
+# from a distance looked like a short clean pass. Anything consuming this script (ralph, CI, a human
+# skimming) must treat a MISSING Result line as FAILURE. This trap makes that unmissable.
+trap 'rc=$?; [ "${VERIFY_COMPLETED:-0}" = "1" ] || { echo; echo "*** ABORTED before completion (exit $rc) — checks after this point DID NOT RUN. Do NOT read this as a pass. ***"; }' EXIT
 
 PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
 UI_ROOT="${UI_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-web-ui}"
@@ -462,15 +468,24 @@ check_V_no_fixloc_absolute() {
     file_exists "$VALIDATOR" \
       && file_not_contains_multiline 'findByAssignedlocationId[\s\S]{0,400}(reject|throw|BusinessException|FIX_ASSIGNED)' "$VALIDATOR"
 }
-# NEG: the validator must not reject on useforpicking either — that predicate now lives in receiving.
-check_V_no_pickface_reject() {
+# REPLACED 2026-08-09 after an empirical audit against a synthetic CONFORMANT implementation.
+# check_V_no_pickface_reject and check_V_rule_e_not_area_flag were proximity NEGATIVES:
+#   file_not_contains_multiline 'getUseforpicking[\s\S]{0,400}(reject|throw|BusinessException|FIX_ASSIGNED)'
+# A correct validator reads getUseforpicking to build its isPickFace flag and then throws nearby for an
+# UNRELATED reason (entityLock, lane flags). The regex cannot tell WHY something throws, so both checks
+# FAILED the conformant tree — they would have blocked the implementation, the same defect already shipped
+# once in check_W_uses_resolution. "Does not reject BECAUSE OF useforpicking" is not expressible as a grep.
+#
+# Replaced with the POSITIVE property that actually distinguishes (iv-b) from the superseded design:
+# rule (e)'s flowbin reject must be SCOPE-GUARDED. P2.7(c) rejected at all three scopes; rule (e) rejects
+# at merchant/warehouse only. A scope test next to the flowbin throw is the observable difference.
+check_V_rule_e_scope_guarded() {
     file_exists "$VALIDATOR" \
-      && file_not_contains_multiline 'getUseforpicking[\s\S]{0,400}(reject|throw|BusinessException|FIX_ASSIGNED)' "$VALIDATOR"
+      && file_contains_multiline '[Ss]cope[\s\S]{0,200}flowbin' "$VALIDATOR"
 }
-# INVERTED 2026-08-08 (iv-b): SKU scope now PERMITS a pick-face / fix-assigned destination.
-# REPOINTED 2026-08-08. VTEST is PutawayDestinationValidatorUnitTest, which appears ZERO times in the
-# plan — §7.1 puts every write-scope test in PutawayConfigServiceUnitTest. Three checks were pointing at
-# a class nobody will create, so they could never go green. Defect pre-dated the (iv-b) edits.
+# CFGTEST — restored 2026-08-09. My previous edit deleted this assignment along with the two negatives
+# above it, and under `set -u` the first reference to $CFGTEST aborted the whole run silently at check 6
+# of ~180. The script reported nothing after V-ruleEscope and still exited 0 for the checks it had run.
 CFGTEST=$TST/unit/service/PutawayConfigServiceUnitTest.java
 check_T_sku_pickface_test() { file_contains_i 'skuWritePermitsPickFaceDestination' "$CFGTEST"; }
 # INVERTED 2026-08-08 (iv-b): configuration is widened at ALL scopes, merchant included.
@@ -612,8 +627,10 @@ check_W_uses_resolution() {
 # STRUCTURAL, updated 2026-08-08: the gate is `useforpicking == TRUE || sltname == 'flowbin'`. The area
 # flag alone is data-contingent — it holds only because every flowbin on both measured tenants happens to
 # sit in a picking area. The reported failure is a location-TYPE property, so the type must be tested too.
+# CASE FIX 2026-08-09: the audit's conformant tree calls getSltname() with no lowercase `sltname`
+# variable, and file_contains is case-sensitive — so the gate check failed a correct implementation.
 check_W_pickface_gate() {
-    file_contains 'getUseforpicking' "$RECSVC" && file_contains 'sltname' "$RECSVC"
+    file_contains 'getUseforpicking' "$RECSVC" && file_contains_i 'sltname' "$RECSVC"
 }
 # P1 must be SKIPPED for a pick-face destination at config-write time, or ICE PACK cannot be configured:
 # flowbin permits only unitloadtype 1 (PickLocation) and ICE PACK's defultype_id is 4 (Case), so P1 is
@@ -925,12 +942,11 @@ run V-goodsin     "P2.4 checks useforgoodsin"                          check_V_g
 run V-storage     "P2.4 checks useforstorage too (OR, not AND)"        check_V_storage_too
 run V-lanes       "P2.3 checks the lane flags"                         check_V_lane_flags
 run V-nofixabs    "NEG: validator does NOT reject on fix-assignment (iv-b)" check_V_no_fixloc_absolute
-run V-nopickrej   "NEG: validator does NOT reject on useforpicking (iv-b)"  check_V_no_pickface_reject
+run V-ruleEscope  "P2.7(e) reject is SCOPE-GUARDED, not absolute"        check_V_rule_e_scope_guarded
 run T-skupick     "test: SKU-scope write PERMITS a pick-face destination"   check_T_sku_pickface_test
 run T-merchpick   "test: merchant-scope write PERMITS a pick-face destination" check_T_merch_pickface_test
 run T-stagingok   "test: merchant-scope write PERMITS a staging lane (P2.7a)" check_T_staging_ok_test
 run V-noflowbin23 "P2.7(e): validator keys on sltname (not the area flag)" check_V_no_flowbin_tier23
-run V-ruleE-neg   "NEG: rule (e) not implemented with useforpicking"    check_V_rule_e_not_area_flag
 run T-mflowbin    "test: merchant write REJECTS a flowbin destination"  check_T_merch_flowbin_reject
 run V-flowbin1ok  "test: SKU write PERMITS a flowbin destination"       check_T_sku_flowbin_ok
 run T-mclubok     "test: merchant write PERMITS cases-and-pallets"      check_T_merch_casespallets_ok
@@ -1101,6 +1117,7 @@ fi
 echo
 
 if [ "$PHASE" = "all" ]; then
+    VERIFY_COMPLETED=1
     echo "Result: $PASS pass, $FAIL fail, $SKIP skip   (PHASE=all)"
 else
     echo "Result: $PASS pass, $FAIL fail, $SKIP skip, $FILTERED filtered out   (PHASE=$PHASE)"
