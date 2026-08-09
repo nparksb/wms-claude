@@ -442,18 +442,45 @@ check_V_entity_lock()       { file_contains 'NOT_LOCKED' "$VALIDATOR"; }
 # which can never return PutAwayLane (§0.1 row 34).
 check_V_not_storage_query() { file_not_contains 'getStorageLocationsForPutAwayItemData' "$VALIDATOR"; }
 
-# --- P2.5 / P2.7(c): the D15 enforcement point (added 2026-08-04 after the critic pass) -------------
-# SBDEV-2732 defers tier-1 pick-face placement, and the ONLY thing keeping that path unreachable is
-# that the CONFIG cannot be written: ReceivingService:454-457 -> :491 places tier-1 destinations with
-# no pick-face gate. So these must reject at ALL THREE scopes, SKU included -- deliberately stricter
-# than the runtime check at UnitloadBusinessService:170-175. SBDEV-2821 relaxes them to mismatch-only.
-check_V_fixloc_checked()    { file_contains 'findByAssignedlocationId' "$VALIDATOR"; }
-# Must NOT be scoped to merchant/warehouse only: an itemdataId comparison here means someone
-# implemented the mismatch-only form that SBDEV-2821 owns, re-enabling the deferred path.
-check_V_fixloc_absolute()   { file_not_contains_multiline 'findByAssignedlocationId[\s\S]{0,600}getItemdataId' "$VALIDATOR"; }
-check_T_sku_fixloc_test()   { file_contains_i 'skuWriteRejectsFixAssignedLocation' "$VTEST"; }
-check_T_merch_fixloc_test() { file_contains_i 'merchantWriteRejectsFixAssignedLocation' "$VTEST"; }
-check_T_staging_ok_test()   { file_contains_i 'merchantWritePermitsStagingLane' "$VTEST"; }
+# --- P2.5 / P2.7(c) --- SUPERSEDED 2026-08-08 by Q12 -> option (iv-b) -------------------------------
+# The 2026-08-04 text here instructed the OPPOSITE of the current design and has been REMOVED rather
+# than annotated, because a reader who greps this file lands on the instruction, not on the correction:
+#   it said these must "reject at ALL THREE scopes, SKU included", and that "SBDEV-2821 relaxes them to
+#   mismatch-only". Both are now false. SBDEV-2821 adopted option (iii) and relaxes nothing.
+# Under (iv-b) the CONFIGURATION is legal at every scope, including a pick face or a fix-assigned
+# location; the PLACEMENT is what is refused, by the runtime gate in receiving (W-gate/W-gatenear/
+# W-gateord). Safety moved from write-time to run-time; the guarantee is unchanged.
+# ── REWRITTEN 2026-08-08 for Q12 -> option (iv-b) ────────────────────────────────────────────────
+# These two checks enforced the OPPOSITE of the current design and would have blocked it.
+#   V-fixloc  asserted the validator calls findByAssignedlocationId (i.e. P2.5 exists at all).
+#   V-fixabs  asserted it does so ABSOLUTELY, with no itemdataId comparison — the D15 mechanism.
+# Under (iv-b) CONFIGURATION is widened at every scope: a pick face or fix-assigned destination is a
+# LEGAL config. The absolute reject is dropped; safety moves to a RUNTIME gate in receiving (W-gate).
+# A gate asserting the superseded design is worse than no gate — it fails the correct implementation.
+# NEG, conjoined so it cannot pass vacuously on a tree where the validator does not exist yet.
+check_V_no_fixloc_absolute() {
+    file_exists "$VALIDATOR" \
+      && file_not_contains_multiline 'findByAssignedlocationId[\s\S]{0,400}(reject|throw|BusinessException|FIX_ASSIGNED)' "$VALIDATOR"
+}
+# NEG: the validator must not reject on useforpicking either — that predicate now lives in receiving.
+check_V_no_pickface_reject() {
+    file_exists "$VALIDATOR" \
+      && file_not_contains_multiline 'getUseforpicking[\s\S]{0,400}(reject|throw|BusinessException|FIX_ASSIGNED)' "$VALIDATOR"
+}
+# INVERTED 2026-08-08 (iv-b): SKU scope now PERMITS a pick-face / fix-assigned destination.
+# REPOINTED 2026-08-08. VTEST is PutawayDestinationValidatorUnitTest, which appears ZERO times in the
+# plan — §7.1 puts every write-scope test in PutawayConfigServiceUnitTest. Three checks were pointing at
+# a class nobody will create, so they could never go green. Defect pre-dated the (iv-b) edits.
+CFGTEST=$TST/unit/service/PutawayConfigServiceUnitTest.java
+check_T_sku_pickface_test() { file_contains_i 'skuWritePermitsPickFaceDestination' "$CFGTEST"; }
+# INVERTED 2026-08-08 (iv-b): configuration is widened at ALL scopes, merchant included.
+check_T_merch_pickface_test() { file_contains_i 'merchantWritePermitsPickFaceDestination' "$CFGTEST"; }
+check_T_staging_ok_test()   { file_contains_i 'merchantWritePermitsStagingLane' "$CFGTEST"; }
+# (iv-b) placement split — BOTH halves must be pinned. Asserting only the divert would let an
+# implementation that never places anything (option iv-a, not chosen) pass.
+RECTEST=$TST/unit/service/ReceivingServiceUnitTest.java
+check_T_pickface_not_placed() { file_contains_i 'pickFaceDestinationIsNotPlacedAtReceipt' "$RECTEST"; }
+check_T_staging_is_placed()   { file_contains_i 'stagingLaneDestinationIsPlacedAtReceipt' "$RECTEST"; }
 
 check_A_exists()            { file_exists "$AUDITSVC"; }
 # MANDATORY: an audit row that can survive a rolled-back config change is worse
@@ -548,7 +575,44 @@ check_W_metrics_called()    { file_contains 'putawayResolutionMetrics\.' "$RECSV
 check_W_ternary_gone()      { file_not_contains_multiline 'Location putAwayLocation = \(carrier == null\)' "$RECSVC"; }
 check_W_old_var_gone()      { file_not_contains 'Location +putAwayLocation *=' "$RECSVC"; }
 # The resolved destination must be what is handed to transferUnitLoadToLocation.
-check_W_uses_resolution()   { file_contains 'transferUnitLoadToLocation\(unitload, *putaway\.location\(\)' "$RECSVC"; }
+# CONJOINED 2026-08-08 (iv-b). On its own this passes against UNCONDITIONAL placement — which is
+# precisely the defect: a pick-face destination placed at receipt is SBDEV-2731's reported bug.
+# Placement must exist AND be gated on useforpicking.
+# CORRECTED 2026-08-08 — the previous form BLOCKED THE CHANGE IT GUARDS.
+# It demanded the literal `transferUnitLoadToLocation(unitload, putaway.location()`. Under (iv-b) a
+# pick-face destination must be RETARGETED to the lane before placement, so a conformant impl writes
+#   Location placement = isPickFace ? standardLane : putaway.location();
+#   transferUnitLoadToLocation(unitload, placement, ...);
+# — which FAILED the old check, while an impl that places the pick face unconditionally (SBDEV-2731's
+# reported bug) PASSED it. Exactly inverted. Assert instead that the resolution REACHES placement and
+# that the retarget exists, without dictating the variable name at the call site.
+check_W_uses_resolution() {
+    file_contains 'putaway\.location\(\)' "$RECSVC" \
+      && file_contains 'transferUnitLoadToLocation\(' "$RECSVC" \
+      && file_contains 'getUseforpicking' "$RECSVC"
+}
+# The (iv-b) gate itself: receiving diverts a pick-face destination to the lane instead of placing.
+check_W_pickface_gate()     { file_contains 'getUseforpicking' "$RECSVC"; }
+# PROXIMITY: the gate must be near the placement, not merely somewhere in the file — a log line
+# satisfies the bare positive above.
+check_W_gate_near_placement() {
+    file_contains_multiline 'getUseforpicking[\s\S]{0,400}transferUnitLoadToLocation\(' "$RECSVC"
+}
+# ORDERING: the gate must run BEFORE requireCompatible and retarget to the lane, or P1 is evaluated
+# against the pick face and every pick-face-configured SKU's receipt hard-fails. Measured on HMG PRD:
+# flowbin (type 2) has ONE location_constraint row permitting only unitloadtype 1 (PickLocation), and
+# ICE PACK's defultype_id is 4 (Case) — so P1 is FALSE and requireCompatible would throw.
+check_W_gate_before_requirecompatible() {
+    file_contains_multiline 'getUseforpicking[\s\S]{0,600}requireCompatible\(' "$RECSVC"
+}
+# NEG — THE ONE THAT MATTERS. The gate must live in ReceivingService, NOT in ReceivingController.
+# receiveGoods has TWO callers: ReceivingController:284 and ReturnAdviceAutoReceiveService:556, and
+# the second passes carrier=null. A gate placed in the controller would leave return auto-receive
+# placing stock straight onto a pick face — the reported bug, on the path nobody watches.
+check_W_gate_not_in_controller() {
+    file_contains 'getUseforpicking' "$RECSVC" \
+      && file_not_contains 'getUseforpicking' "$RECCTL"
+}
 # Resolution must stay HOISTED above the per-case loop (O(1) per receipt, §7.6 #4).
 check_W_hoisted_above_loop() { file_contains_multiline 'putawayDestinationResolver\.resolve\([\s\S]{0,3000}while \(amountBottles > 0\)' "$RECSVC"; }
 # receiveGoods stays ONE tenant transaction.
@@ -830,10 +894,10 @@ run V-p1          "validator reuses predicate P1"                      check_V_u
 run V-goodsin     "P2.4 checks useforgoodsin"                          check_V_goodsin_or_storage
 run V-storage     "P2.4 checks useforstorage too (OR, not AND)"        check_V_storage_too
 run V-lanes       "P2.3 checks the lane flags"                         check_V_lane_flags
-run V-fixloc      "P2.5 checks FixLocationAssignment on the destination" check_V_fixloc_checked
-run V-fixabs      "P2.5 is ABSOLUTE at all 3 scopes (no itemdataId compare — D15)" check_V_fixloc_absolute
-run T-skufix      "test: SKU-scope write rejects a fix-assigned location"  check_T_sku_fixloc_test
-run T-merchfix    "test: merchant-scope write rejects a fix-assigned location" check_T_merch_fixloc_test
+run V-nofixabs    "NEG: validator does NOT reject on fix-assignment (iv-b)" check_V_no_fixloc_absolute
+run V-nopickrej   "NEG: validator does NOT reject on useforpicking (iv-b)"  check_V_no_pickface_reject
+run T-skupick     "test: SKU-scope write PERMITS a pick-face destination"   check_T_sku_pickface_test
+run T-merchpick   "test: merchant-scope write PERMITS a pick-face destination" check_T_merch_pickface_test
 run T-stagingok   "test: merchant-scope write PERMITS a staging lane (P2.7a)" check_T_staging_ok_test
 run V-lock        "P2.2 checks NOT_LOCKED"                             check_V_entity_lock
 run V-negq        "NEG: not built on getStorageLocationsForPutAwayItemData" check_V_not_storage_query
@@ -891,7 +955,13 @@ run W-rqcgrd      "hard-fail IS inside if(carrier==null) [C4/D10]"     check_W_r
 run W-metrics     "ReceivingService records the resolution metric"     check_W_metrics_called
 run W-neg1        "NEG: carrier-only ternary gone (SBDEV-2731 cause)"  check_W_ternary_gone
 run W-neg2        "NEG: old putAwayLocation variable gone"             check_W_old_var_gone
-run W-uses        "transferUnitLoadToLocation gets putaway.location()" check_W_uses_resolution
+run W-uses        "placement uses putaway.location() AND is gated"    check_W_uses_resolution
+run W-gate        "(iv-b) receiving gates placement on useforpicking"   check_W_pickface_gate
+run W-gatenear    "gate sits NEAR the placement, not just in the file"  check_W_gate_near_placement
+run W-gateord     "gate runs BEFORE requireCompatible (P1 vs the lane)" check_W_gate_before_requirecompatible
+run W-gateloc     "NEG: gate in ReceivingService, NOT the controller"   check_W_gate_not_in_controller
+run T-pickface    "test: pick-face destination NOT placed at receipt"   check_T_pickface_not_placed
+run T-stgplaced   "test: staging-lane destination IS placed at receipt" check_T_staging_is_placed
 run W-hoist       "resolution stays hoisted above the per-case loop"   check_W_hoisted_above_loop
 runp all W-onetx       "receiveGoods still one tenant transaction"          check_W_one_tx
 run W-endpoint    "getPutawayDestination endpoint added"               check_W_endpoint

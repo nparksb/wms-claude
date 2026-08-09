@@ -2742,9 +2742,9 @@ pre-merge record; it expires again when this plan's own Phase 1-API work starts 
 
 | Run | Result | Evaluated / filtered |
 |---|---|---|
-| `PHASE=all` (default) | `15 pass, 160 fail, 1 skip` | 176 / 0 |
-| `PHASE=1` | `12 pass, 154 fail, 1 skip` | 167 / 9 |
-| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 158 |
+| `PHASE=all` (default) | `15 pass, 162 fail, 1 skip` | 178 / 0 |
+| `PHASE=1` | `12 pass, 156 fail, 1 skip` | 169 / 9 |
+| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 160 |
 
 **Re-recorded again 2026-08-08 after the Q12 → (iv-b) script fixes.** Four checks were **removed** and eight
 **added** (net +4 fail). The removed four asserted the *superseded* design and would have failed a correct
@@ -2753,7 +2753,7 @@ demanded SKU- and merchant-scope writes *reject* a fix-assigned location. **Unde
 opposite of the intent.** A gate encoding the old design is worse than no gate — it blocks the change it is
 meant to guard. The pass count is unchanged at **15**, which is the signal that nothing went vacuous.
 
-**Arithmetic self-check:** 167 + 18 = 185 = 176 + 9. **The overlap constant is now 9, not 11** — the 8
+**Arithmetic self-check:** 169 + 18 = 187 = 178 + 9. **The overlap constant is now 9, not 11** — the 8
 `phase all` preservation checks plus the **1** remaining SKIP. It was 11 when three checks were skipped;
 `U-neg1` and `U-bind` were un-skipped on the merge (SBDEV-2731 owned them and now ships them), leaving
 only the pre-existing `mvn` skip.
@@ -2773,8 +2773,8 @@ syntax (`hasMessageContaining(`) was not enough: 2731's merged test explains the
 that **quotes the assertion verbatim** at `UnitloadBusinessServiceUnitTest.java:207` —
 `// which pinned \`.hasMessageContaining("not allowed on location")\` — the raw,`. The check now strips
 comment lines before matching. **A negative check must exclude the prose that describes what it forbids**,
-or documentation of a fix reads as the defect. **The overlap constant is 11, not 8** — the 8
-`phase all` preservation checks *plus the 3 SKIPs*, because `skip()` never calls `phase_selected()` and
+or documentation of a fix reads as the defect. **The overlap constant is 9** — the 8
+`phase all` preservation checks *plus the single remaining SKIP*, because `skip()` never calls `phase_selected()` and
 so is never filtered. The previous derivation attributed the whole overlap to preservation checks and
 silently dropped the skips. There are **3** SKIPs, and only **2** belong to SBDEV-2731 PR1 (`U-neg1`,
 `U-bind`) — `U-source` was converted from skip to run on 2026-08-02 — plus the pre-existing `mvn` skip.
@@ -2792,8 +2792,8 @@ move in opposite directions, so the net is not obvious:
   survives this plan's edits to the same template block, and the symbol does not exist on `develop` until
   #39 merges. It is a *post-prerequisite* preservation check: expect it to flip to PASS on the merge, and
   to stay PASS through Phase 2. If it is red *after* #39 lands, Phase 2 broke it.
-pinned to every phase** (counted 3× instead of 1× ⇒ +16). That is why every phase shows exactly 8
-passes — those checks must stay green *throughout* implementation, not merely at the end. If this
+pinned to every phase** (counted 3× instead of 1× ⇒ +16). That is why the preservation checks stay green in every phase
+(the per-phase pass counts differ — 15 / 12 / 10 — because non-preservation checks bucket differently) — those checks must stay green *throughout* implementation, not merely at the end. If this
 arithmetic stops holding, a phase marker was lost or a check crossed a section boundary.
 **The ralph exit condition is `PHASE=<phase>` 0-fail, never whole-plan 0-fail.**
 
@@ -2821,8 +2821,10 @@ it was vacuous. Conjoined 2026-08-06, it now fails pre-implementation and passes
 `UnitloadBusinessService` — which is the property actually worth asserting.
 
 **The pass-count tripwire.** Every check about code that does not exist yet must **fail closed** on the
-unmodified tree, so the pre-implementation pass count must stay at exactly **7**. **If a pre-implementation
-run reports materially more than 7 passes, a check has gone vacuous — find it before trusting the script.**
+unmodified tree, so the pre-implementation pass count must stay at exactly **15** (post-2731-merge; it was 7
+before that merge). **If a pre-implementation run reports materially more than 15 passes, a check has gone
+vacuous — find it before trusting the script.** Re-derive this from a measured run after every prerequisite
+merge rather than trusting this paragraph; it has moved four times (8 → 9 → 7 → 15) and every move was real.
 This number has moved three times (8 → 9 → 7) and each move was a real defect, not drift: re-derive it
 from a measured run after every prerequisite merge rather than trusting this paragraph.
 Three vacuity traps are already known and fixed; a new check must be checked against all three:
