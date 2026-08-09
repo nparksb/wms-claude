@@ -421,7 +421,17 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 > **After §3.2a ships, re-run M1b** with the expectation flipped: placement succeeds, **no FLA created**,
 > `Club08` stays multi-SKU.
 
-#### M1a — runnable procedure, fixture verified on `wsl-wineco-uat` 2026-08-09
+#### M1a — runnable procedure, fixture verified on **`wms2-wineco-dev` (`dev_wh01_om1`)** 2026-08-09
+
+> [!warning] **⚠ ENVIRONMENT CORRECTION — the tester is on wineco DEV, not UAT.**
+> Every fixture in earlier revisions of this section was verified against **`wsl-wineco-uat`**
+> (`wh01_om1_v2`) and **none of it exists on dev**, which is why two runs failed to find the advice. The
+> two databases share location ids but not advice data. **All M1a/M1b fixtures below are dev.**
+>
+> **M1b's result is unaffected and still stands.** `Club08` on dev is id 225755, `cases and pallets`,
+> *Storage and Picking*, `staginglane = false`, 0 FLA — identical to the UAT fixture — and SKU `1135` is
+> configured to it. The `Unsupported location type cases and pallets` finding was produced against exactly
+> the intended shape.
 
 > [!warning] **⚠ M1a LEAVES PERMANENT STATE ON UAT — M1b did not.**
 > `createFixedLocationAssignment` (`FixLocationAssignmentService:82-100`) creates a **virtual
@@ -432,16 +442,26 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 > - The binding survives the test. On UAT that is harmless, but it is a real row: decide deliberately
 >   whether to leave it or have a DBA remove the FLA and its virtual UL.
 
-**Fixture — an OPEN advice already exists, so no setup is required.**
+**Fixture — on `wms2-wineco-dev`. An OPEN advice already exists; no setup required.**
 
 | | |
 |---|---|
-| Advice | **`IBOL015140`** (state `OPEN`), adviceposition **33874177** |
-| SKU | **`SBB18S`** — *2018 Sparkling Blanc de Blancs 750 ml*, itemdata **26571284**, `defultype_id = 4` (**Case**), **no FLA** |
-| Location | **`04-A01`** — id **63881**, **flowbin**, `entity_lock = 0`, **0 unit loads, 0 FLA** |
-| Location permits | `unitloadtype_id = 1` (**`PickLocation`**) **only** — see below, this is the point |
-| FLA bounds it will create | `lowerbound 36` / `middlebound 60` / `upperbound 84` (from sysprops) |
-| Spare pairs | locations `01-B05` (63821), `04-A05` (63885) · SKUs `DTW-01` (607940912), `22PNLV750` (826712472) |
+| Advice | **`IBOL012604`** — created 2026-07-30, client **Bergstrom Wines** |
+| Position | `IBOL012604-000000` — the **only** position, OPEN, **1 case** |
+| SKU | **`13GSYC`** — *2013 Gargantua Syrah California 750 ml*, Case type, **no FLA**, configured destination `PutAwayLane` |
+| Location | **`01-A01`** — id **63809**, **flowbin**, `entity_lock = 0`, **0 unit loads, 0 FLA** |
+| Location permits | `unitloadtype_id = 1` (**`PickLocation`**) only |
+| FLA bounds it will create | upper bound **84** (from sysprops) |
+
+> **Client filter:** this advice is **Bergstrom Wines**, not Elk Cove — clear or change the client filter to
+> see it. It is second-newest in the list.
+>
+> **Why not `IBOL012607` / SKU `1135`, which is newer and at the very top?** Because `1135` is the SKU
+> configured to `Club08`, and `fix_location_assignment` is `UNIQUE(itemdata_id)`. Binding it to a flowbin
+> here would **consume its one allowed FLA and make a future M1b re-run impossible** — after §3.2a ships,
+> M1b needs `1135 → Club08` to still be FLA-free. Leave `1135` alone.
+>
+> **Other single-position fallbacks:** `IBOL012466` / `615` (Elk Cove, 2 cases).
 
 **Why this test is the design gate.** `04-A01` permits **only** `PickLocation` unit loads. A Case unit load
 placed there by `transferUnitLoadToLocation` is exactly SBDEV-2731's reported error. **M1a proves that
@@ -451,28 +471,23 @@ Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mec
 
 **Steps** — identical to M1b except the location.
 
-1. **Do NOT create a Purchase Order.** Go to **Inbound → Open Notices**. Use the newest advice:
+1. **Do NOT create a Purchase Order.** Go to **Inbound → Open Notices** on **wineco DEV**. Clear the client
+   filter (the advice is Bergstrom Wines) and open:
 
    | | |
    |---|---|
-   | Advice | **`IBOL015211`** — created 2026-08-07, so it sits at the **TOP** of the list |
-   | Client | Elk Cove Vineyards |
-   | Position | `IBOL015211-000000` — the **only** position, state OPEN, **1 case** |
-   | SKU | **`23PNWV375`** — *2023 Willamette Valley Pinot Noir 375 ml*, Case type, **no FLA** |
+   | Advice | **`IBOL012604`** — 2026-07-30, **Bergstrom Wines** |
+   | Position | `IBOL012604-000000` — the only position, OPEN, **1 case** |
+   | SKU | **`13GSYC`** — *2013 Gargantua Syrah California 750 ml* |
 
-   **Receive its 1 case onto an EMPTY pallet.** One position means one SKU, and an empty pallet means the
-   putaway list will read **`Product - 1 of 1`** — which removes the wrong-product failure below entirely.
+   **Receive its 1 case onto an EMPTY pallet** → the putaway list will read `Product - 1 of 1`.
 
-   > **⚠ Corrected twice. Read this before substituting anything.**
-   > - **First failure:** the step said *"receive against advice X"* and was taken as *create a PO*. `SBB18S`
-   >   is not in the Create-PO item list unless its client is selected. **PO creation is not part of this test.**
-   > - **Second failure:** the advices offered were all from **17–20 July**. The Open Notices screen sorts by
-   >   **`created` descending** (`AdviceController:313`), so they were buried far down the list. The query
-   >   itself filters only on `state IN (created, started, open)` — no date or warehouse filter
-   >   (`AdviceRepository.getOpenNoticesByKeyword:88-108`) — so they *were* listed, just not visible.
-   >   **`IBOL015211` is the newest open notice and appears first.**
-   > - **To find any advice directly:** type its number into the screen's search box. The keyword matches
-   >   `a.number` among other fields, so `IBOL015211` will filter straight to it.
+   > **⚠ Corrected three times. The first two failures were mine:**
+   > - *"receive against advice X"* was read as *create a PO*. **PO creation is not part of this test.**
+   > - The advices offered were from another **environment entirely** — `wsl-wineco-uat`, while the tester is
+   >   on **wineco DEV**. The two share location ids but not advice data.
+   > - Separately, the Open Notices screen sorts by **`created` descending**, so old advices sit far down.
+   >   **Type the advice number into the search box** to jump straight to one.
    >
    > **If you must substitute**, the SKU needs only two properties: **Case type** and **no existing FLA**.
    > Prefer a **single-position** advice, and always receive onto an **empty** pallet.
