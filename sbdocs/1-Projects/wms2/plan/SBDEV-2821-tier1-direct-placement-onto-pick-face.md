@@ -4,12 +4,12 @@ ticket: "SBDEV-2821"
 ticket_url: "https://app.clickup.com/t/868km8j9z"
 type: "bugfix"
 priority: "high"
-status: "APPROVED 2026-08-08 for OPTION (iii) — route at putaway. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Remaining gate: M1 must be proven on UAT before code (§5.1 row 2). Decision provenance in §0."
+status: "APPROVED 2026-08-08 for OPTION (iii) — route at putaway. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). Remaining gate: M1 must be proven on UAT before code (§5.1 row 2). Decision provenance in §0."
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell (via SBDEV-2731)"
 created: "2026-08-07"
-updated: "2026-08-07"
+updated: "2026-08-08"
 db_verified: true
 db_verified_note: >
   Verified SELECT-only 2026-08-07 against wms2-hydra (HMG/NYWH PRD — the reporting
@@ -20,8 +20,11 @@ db_verified_note: >
 depends_on:
   - {ticket: SBDEV-2731, sha: 6bc709a}    # MERGED 2026-08-07 (api 6bc709a / ui 4ce39a1). Message key
                                           # and receiving display shipped. Prerequisite satisfied.
-  - {ticket: SBDEV-2732, sha: UNMERGED}   # owns PutawayDestinationValidator P2.5 / P2.7(c), which
-                                          # option (ii) would relax. Option (iii) does NOT need it.
+  # SBDEV-2732 was listed here until 2026-08-08. REMOVED — it is NOT a prerequisite, and Q15 -> (A)
+  # reversed the arrow: 2732's step-15 gate diverts pick-face receipts to the putaway lane and needs
+  # THIS ticket's candidate surfacing to make them offerable, so 2732 now declares the dependency
+  # instead. Leaving it here made the TDD gate look blocked on a ticket that must ship second.
+  # Order: 2731 -> 2821 -> 2732. Kept under `related:` below. See §5.1 row 4 and §0 Q15.
 db_verified_tenants:
   fresh_seed: [wh01_hydra_v2t]
   migrated:   [wms2-hydra, wsl-wineco-uat]
@@ -50,6 +53,31 @@ tags:
 | **Q11** | *advisory for replenishment too* | Recorded 2026-08-06. Settled. |
 | **Q1** | **Case label prints unconditionally** — see below | Brent, 2026-08-07 ("yes… especially if it puts it in a location that is not a standard pick location where the UL label is stripped"). Settled. |
 | **Q4** | **Option (iii)** | **David Oppenheim, 2026-08-08: "not only acceptable but preferable"** — then asked *"Brent?"*. **Brent has not replied to that hand-off.** Adopted on David's endorsement plus the ticket owner's direction (Nam Park, 2026-08-08). **Not a recorded Brent sign-off.** |
+| **Q15** | **(A) — tier 1 ships here, first and independently** | Ticket owner (Nam Park), 2026-08-08. Recommended by both plans before it was decided. Schedule-only; reversible. |
+
+> [!done] **✅ Q15 RESOLVED 2026-08-08 — option (A). THE ORDER IS `2731 PR1 → SBDEV-2821 → SBDEV-2732`.**
+>
+> SBDEV-2732's Q12 answer (iv-b) makes receiving *divert* pick-face destinations to the standard putaway
+> lane at **every tier**, leaving putaway to consume them. This plan consumes **tier 1 only** — it reads
+> `itemdata.putawaylocation_id` directly (§3.2). (A) accepts that seam rather than closing it here:
+>
+> - **This ticket ships first, unchanged in scope.** It needs nothing from 2732 — `itemdata.putawaylocation_id`
+>   already exists and both live overrides are tier 1 — and it is gated only on M1. **It delivers the reported
+>   ICE PACK receipt without waiting on the whole hierarchy feature.**
+> - **SBDEV-2732 then extends** the candidate surfacing of §3.2 from `itemdata.putawaylocation_id` to the full
+>   four-tier `Resolution`, as a step in its own plan.
+>
+> **⚠ This REVERSES the order 2732 §8.4 previously stated** (*"2731 PR1 → 2732 → 2821"*), which was written
+> when 2821 was the follow-up that consumed 2732's output. Under (iv-b) the dependency runs the other way:
+> **2732's step-15 gate is only safe once this plan's candidate surfacing exists**, otherwise a diverted
+> receipt reaches a putaway list that cannot offer its own configured destination —
+> `getStorageLocationsForPutAwayItemData` (`LocationRepository:104-111`) returns only locations where the SKU
+> **already has stock**, which is precisely the chicken-and-egg §3.2 fixes. 2732 §8.4 and its `depends_on`
+> were corrected the same day.
+>
+> **Degraded, not broken, if the order is violated:** the operator can still *manually scan* the destination
+> (`verifyScannedLocation:403-447` accepts it — §3.2), so shipping 2732 first strands the destination as
+> undiscoverable rather than unreachable. That is a UX regression against the ticket's intent, not data loss.
 
 **If Brent later objects to (iii), Q4 reopens.** The alternatives and their costs are preserved in §9 so
 that reversal is cheap.
@@ -119,9 +147,15 @@ The `36 / 60 / 84` bounds belong to the other **133** FLAs on that tenant. **`IC
 Consequences:
 
 - **Q11's over-bound-bin concern cannot arise for the reported receipt.** The answer stands; it is moot here.
-- **Relaxing P2.5 does not unblock `ICE PACK`** — P2.5 is the FLA check and there is no FLA to match. What
-  blocks the *configuration* is SBDEV-2732's **P2.7(c) clause 1**, the pick-face predicate
-  (`location_area.useforpicking`).
+- **Relaxing P2.5 does not unblock `ICE PACK`** — P2.5 is the FLA check and there is no FLA to match. In
+  SBDEV-2732's *pre-(iv-b)* design what would have blocked the **configuration** is its **P2.7(c) clause 1**,
+  the pick-face predicate (`location_area.useforpicking`). **⚠ UPDATED 2026-08-08 — that is no longer the
+  case, in either direction:** the `ICE PACK` override **already exists in production**
+  (`itemdata.putawaylocation_id = 52075`), so nothing blocks it *today* — 2732 has not shipped and P2.7(c)
+  is a proposed write-time rule, not live code. And under 2732's Q12 → **(iv-b)** that rule is **dropped at
+  all three scopes**: a pick face is a legal configuration at every tier, and it is the *placement* that is
+  refused, by a runtime gate in receiving. **So SBDEV-2732 blocks this ticket's configuration neither now nor
+  after it ships**, which is why §5.1 row 4 lists it as not required.
 - **An FLA-free, empty pick face is a third case** the design must name, alongside "has FLA" and
   "has resident unit load".
 
@@ -196,6 +230,14 @@ overstock → `overstockLocationList`). Prefer a repository-level change so the 
 **Do NOT** reuse `getStorageLocationsForPutAwayItemData` by relaxing its `WHERE`. That query is also
 `@RestResource`-exported and used elsewhere; widening it changes unrelated callers.
 
+> **Tier scope, and the extension point (Q15 → (A), 2026-08-08).** `itemdata.putawaylocation_id` is
+> **tier 1** — the SKU override. SBDEV-2732's (iv-b) diverts pick-face destinations to the putaway lane at
+> **all four tiers**, so its merchant- and warehouse-scope defaults will need the same surfacing. **Build
+> this for tier 1 and stop.** Design the new repository method so the destination arrives as a *parameter*
+> rather than being read from `itemdata` inside the query — then 2732 extends it by passing
+> `Resolution.locationId()` from `PutawayDestinationResolver` instead of rewriting it. That is the whole
+> cost of taking (A), and it is why (A) was affordable.
+
 ### 3.3 The two live SKUs take different branches — both safe, and the difference is load-bearing
 
 | SKU → destination | Location type | Putaway branch | Effect |
@@ -210,7 +252,11 @@ must remain reachable only from the `flowbin` branch.
 
 ### 3.4 What this design deliberately does NOT do
 
-- **No new receiving branch.** `ReceivingService` is untouched.
+- **No new receiving branch.** `ReceivingService` is untouched. **⚠ Scoped to THIS ticket's diff — read it
+  that way when both tickets are in flight.** SBDEV-2732 *does* modify `ReceivingService:451-459` (resolver
+  wiring, plus the (iv-b) `useforpicking` gate at its step 15). The two changes do not overlap: 2732 owns the
+  receiving surface (its D14), this plan owns the putaway surface. Nothing here needs to change when 2732
+  lands — but do not read "receiving is untouched" as a program-level guarantee.
 - **No `Goodsreceiptposition` repointing** ⇒ **C2b cannot arise** (see §3.5).
 - **No FLA auto-create code** — exists.
 - **No resident-UL resolution code** — exists.
@@ -239,8 +285,10 @@ Under (iii) the sysprop and the SKU override **stop interacting entirely**:
 5. Pallet moves to `PutAwayLane` by the existing flow.
 6. Putaway offers the configured location (§3.2) → operator confirms → §3.1 places it.
 
-**No tenant's receiving behaviour changes.** This is why (iii) needs no decision about container precedence,
-whereas (ii) does.
+**No tenant's receiving behaviour changes** — *as a result of this ticket*. This is why (iii) needs no
+decision about container precedence, whereas (ii) does. **SBDEV-2732 does change receiving behaviour** for
+non-pick-face destinations (its step 17 places staging / goods-in / cross-dock destinations directly at
+receipt); that is its change to justify, and it is orthogonal to the flowbin path this plan fixes.
 
 **Note the pre-existing asymmetry it also sidesteps:** the sysprop is enforced **UI-only** — read once at
 `ReceivingController:318-322` and never consulted by `ReceivingService`. `ReturnAdviceAutoReceiveService:556`
@@ -279,7 +327,8 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 | 1 | **Q1 — case label** | ✅ Resolved, **and requires no code**: prints unconditionally, which is existing behaviour. C1 is moot under (iii) — §0, §9. |
 | 2 | **M1 proven on UAT** (§6.1) — manual scan of an FLA-free flowbin succeeds today | ⛔ Not yet run. **If M1 fails, this design is void.** |
 | 3 | SBDEV-2731 PR1 merged | ✅ 2026-08-07 — api `6bc709a`, ui `4ce39a1` |
-| 4 | SBDEV-2732 | **Not required by (iii).** Needed only for the *configuration UI*; the routing works off `itemdata.putawaylocation_id`, which already exists |
+| 4 | SBDEV-2732 | **Not required by (iii)** — and **the dependency runs the other way** (Q15 → (A), §0). Routing works off `itemdata.putawaylocation_id`, which already exists; 2732 is needed only for the *configuration UI* and the tiers 2–4 defaults. **2732's step-15 gate, conversely, needs this ticket** — it diverts pick-face receipts to the lane and putaway can only offer the destination once §3.2 ships. **Ship this first.** |
+| 6 | **Q15 answered — (A), tier 1 only, ships first** | ✅ 2026-08-08 (§0). Order is `2731 PR1 → this ticket → SBDEV-2732`. |
 | 5 | Flyway migration | **None.** No schema change. |
 
 ### 5.2 Steps
@@ -394,7 +443,7 @@ ever revived, C1 must be re-decided against Brent's answer, not assumed.
 |---|---|---|---|
 | ~~Q4~~ | ~~Routing precedence~~ | — | ✅ **CLOSED 2026-08-08 — option (iii)** (§0) |
 | ~~Q1~~ | ~~Case label: print or suppress~~ | — | ✅ **CLOSED — prints unconditionally; no code needed** (§0, §9) |
-| **Q15** | **The tier seam.** SBDEV-2732 answered Q12 as **(iv-b)**: configure at any tier; place everywhere **except** pick faces, which are diverted to the lane at receipt and routed by putaway — so putaway must consume **pick-face destinations for all four tiers**, while this plan is written for **tier 1 only** (it reads `itemdata.putawaylocation_id`). **(A)** ship tier 1 here independently and let 2732 extend it, or **(B)** wait for 2732's resolver and do all four at once? **Recommend (A)** — it delivers the reported ICE PACK fix without waiting on 2732, and this plan is otherwise gated only on M1. | owner + 2732 | scope of §3.2, and whether `depends_on: SBDEV-2732` becomes hard |
+| ~~Q15~~ | ~~The tier seam — ship tier 1 independently (A), or wait for 2732's resolver (B)?~~ | — | ✅ **CLOSED 2026-08-08 — (A).** Tier 1 ships here, first. `depends_on: SBDEV-2732` does **not** become hard; **2732 gains a dependency on this ticket** instead. Order: `2731 PR1 → 2821 → 2732`. Rationale, the reversed arrow and the degraded-not-broken analysis in **§0**; the extension point in **§3.2** |
 | **M1** | Not a question but the remaining **gate**: does a manual putaway scan of an FLA-free flowbin succeed today? | implementer, on UAT | **Everything.** If it fails, the design is void and Q4 reopens. |
 | Q13 | If (iii): should the configured location be **pre-selected** at putaway, or merely offered? | Brent | §5.2 step 5 — UX only |
 | Q14 | If (iii): should receiving *display* the eventual destination, even though it routes to a container first? | David | Interacts with SBDEV-2732 §3.11.1 |
