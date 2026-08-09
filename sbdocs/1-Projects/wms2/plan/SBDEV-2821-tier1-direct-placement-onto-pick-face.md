@@ -421,6 +421,59 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 > **After §3.2a ships, re-run M1b** with the expectation flipped: placement succeeds, **no FLA created**,
 > `Club08` stays multi-SKU.
 
+#### M1a — runnable procedure, fixture verified on `wsl-wineco-uat` 2026-08-09
+
+> [!warning] **⚠ M1a LEAVES PERMANENT STATE ON UAT — M1b did not.**
+> `createFixedLocationAssignment` (`FixLocationAssignmentService:82-100`) creates a **virtual
+> `PickLocation` unit load** on the location and a `FixLocationAssignment` row binding
+> **location ↔ SKU**. `fix_location_assignment` is `UNIQUE(assignedlocation_id)` **and**
+> `UNIQUE(itemdata_id)`, so **each SKU can only ever hold one**. Consequences:
+> - **M1a is single-use per SKU/location pair.** A re-run needs a fresh pair — spares listed below.
+> - The binding survives the test. On UAT that is harmless, but it is a real row: decide deliberately
+>   whether to leave it or have a DBA remove the FLA and its virtual UL.
+
+**Fixture — an OPEN advice already exists, so no setup is required.**
+
+| | |
+|---|---|
+| Advice | **`IBOL015140`** (state `OPEN`), adviceposition **33874177** |
+| SKU | **`SBB18S`** — *2018 Sparkling Blanc de Blancs 750 ml*, itemdata **26571284**, `defultype_id = 4` (**Case**), **no FLA** |
+| Location | **`04-A01`** — id **63881**, **flowbin**, `entity_lock = 0`, **0 unit loads, 0 FLA** |
+| Location permits | `unitloadtype_id = 1` (**`PickLocation`**) **only** — see below, this is the point |
+| FLA bounds it will create | `lowerbound 36` / `middlebound 60` / `upperbound 84` (from sysprops) |
+| Spare pairs | locations `01-B05` (63821), `04-A05` (63885) · SKUs `DTW-01` (607940912), `22PNLV750` (826712472) |
+
+**Why this test is the design gate.** `04-A01` permits **only** `PickLocation` unit loads. A Case unit load
+placed there by `transferUnitLoadToLocation` is exactly SBDEV-2731's reported error. **M1a proves that
+putaway's flowbin branch sidesteps that constraint** — by auto-creating the FLA, resolving its virtual
+`PickLocation` unit load, and merging stock into it with `transferStockToUnitLoad` rather than moving the
+Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mechanism.
+
+**Steps** — identical to M1b except the location.
+
+1. Receive **one case** of `SBB18S` against advice `IBOL015140`. Take a container when asked.
+2. Move the pallet to `PutAwayLane`.
+3. Mobile → **Putaway** → **Scan Pallet**.
+4. Tap **"Replenish Location(s)"**.
+5. At **"Scan Location"**, type **`04-A01`**.
+6. At **"Scan Box"**, scan the box label.
+
+**Predicted outcome**
+
+| Stage | Prediction | Why |
+|---|---|---|
+| Scan of `04-A01` | **ACCEPTED** | `verifyScannedLocation:430-444` — SKU has no FLA **and** the location has no FLA, so the mismatch branch passes |
+| Store | ✅ **SUCCEEDS** | flowbin branch: FLA auto-created, virtual `PickLocation` UL created, stock merged via `transferStockToUnitLoad` |
+| After | FLA exists on `04-A01` bound to `SBB18S`, bounds 36/60/84; stock on the virtual UL | |
+
+**How to read the result**
+
+- **Succeeds** ⇒ **the design gate is GREEN.** Putaway can consume a pick-face destination, which is the
+  mechanism all of option (iii)/(iv-b) rests on. Implementation can start.
+- **Throws** ⇒ **STOP.** The mechanism does not exist and option (iii)/(iv-b) has no basis. Q4 and Q12 both
+  reopen, and SBDEV-2732 step 15's divert becomes a dead end at every tier.
+- **Scan rejected at step 5** ⇒ a different failure; capture the message and stop.
+
 #### M1b — runnable procedure, fixture verified on `wsl-wineco-uat` 2026-08-08
 
 **Everything needed is already configured. No setup writes required.**
