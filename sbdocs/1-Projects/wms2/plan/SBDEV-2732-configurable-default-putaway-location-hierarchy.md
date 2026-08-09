@@ -704,6 +704,34 @@ public boolean isUnitloadTypePermitted(Long storagelocationtypeId, Long unitload
 
 `UnitloadBusinessService.java:180-193` is then rewritten to call it (§3.6), so the rule exists once. **No new repository method** — §0.1 row 16 stays as-is.
 
+> [!warning] **⚠ P1 MUST NOT BE APPLIED TO A PICK-FACE DESTINATION — at write time OR at receive time. Added 2026-08-08.**
+>
+> §5.2 step 7 has the validator apply **P1 + P2**. P1 is `isUnitloadTypePermitted(destinationType, unitloadType)`
+> and it asks *"can a unit load of the SKU's default type sit here?"* **For a pick face that is the wrong
+> question, and it answers "no".**
+>
+> Measured on HMG PRD: flowbin (`type_id = 2`) has **exactly one** `location_constraint` row, permitting
+> `unitloadtype_id = 1` (`PickLocation`); `ICE PACK`'s `defultype_id` is **4** (`Case`). **So P1 is FALSE and
+> rejects the `ICE PACK` configuration — even after P2.5 and P2.7(c) are dropped.** Relaxing those two does
+> not make the config writable; P1 still refuses it.
+>
+> **Why the question is wrong.** Under (iv-b) no Case unit load ever sits on the pick face. Receiving diverts
+> to the lane; putaway merges the stock into the flowbin's **resident `PickLocation` unit load**
+> (`storeBoxOnLocation:479-487`) and retires the Case UL en route. P1 is testing a unit load that will never
+> be there.
+>
+> **Rule: skip P1 when the destination is a pick face** (same predicate as the gate —
+> `area.useforpicking == TRUE || sltname == 'flowbin'`), at **both** enforcement points:
+> - **config-write time** (the validator, §5.2 step 7) — or `ICE PACK` cannot be configured, and
+>   **SBDEV-2643's picker cannot offer any of the 511 `useforpicking` locations**;
+> - **receive time** (`requireCompatible`, §3.7.1) — the gate must run **first** and retarget to the lane, so
+>   P1 is evaluated against `PutAwayLane` (`type_id = 7`, `cases and pallets`, which permits Case and Pallet
+>   and therefore passes). Otherwise every pick-face-configured SKU's receipt hard-fails on a destination it
+>   was never going to be placed at.
+>
+> **`Club08` passes P1 only by accident** — `cases and pallets` has **zero** `location_constraint` rows, so
+> P1 fails *open*. Do not mistake that for the rule working.
+
 #### 3.4c Predicate P2 (suitability) — config-write time only
 
 The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement, evaluated **only** when a configuration is written:
@@ -755,7 +783,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 >
 > | Resolved destination | Receiving does | Then |
 > |---|---|---|
-> | **pick face** (`area.useforpicking == TRUE`) | **does NOT place** — receipt goes to the standard putaway lane | destination consumed at **putaway** (SBDEV-2821) |
+> | **pick face** — `area.useforpicking == TRUE` **OR** `location_type.sltname == 'flowbin'` | **does NOT place** — receipt goes to the standard putaway lane | destination consumed at **putaway** (SBDEV-2821) |
 > | anything else — staging, goods-in, cross-dock | **places directly**, as today | no putaway step |
 >
 > **Why split rather than uniform.** Cross-dock and staging lanes genuinely want the stock placed immediately —
@@ -2151,7 +2179,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | 12 | `PutawayConfigRepositoryEventHandler` — `Itemdata`, `Client` **and** `Sysprop` (O2); separate create/save methods (§3.9.2); validate the **delta**, not the state; unchecked `PutawayConfigValidationException`. | HAL PATCH ⇒ **422** |
 | 13 | `PutawayConfigAudit` entity + repository + `PutawayConfigAuditService` (`MANDATORY`). | `mvn clean compile` |
 | 14 | `Client.defaultputawaylocationId` + accessors. **Same commit as `V2.2.11`** — otherwise every `client` read fails `42703` on any tenant the migration has not reached (`ddl-auto=none`, so it is a runtime failure, not a startup one). | context loads + a `client` read against a migrated tenant |
-| 15 | Wire the resolver into `ReceivingService.java:451-459`. `requireCompatible` inside `if (carrier == null)` **above the loop** (§3.7.1); constants at `ReceivingController:314`. **Add the (iv-b) placement gate here:** if the resolved destination's area has `useforpicking = true`, **do not place there** — fall back to the standard putaway lane (tier 4) and leave the destination for putaway. Otherwise place as step 17 specifies. **This plan owns this surface (D14).** | `ReceivingServiceUnitTest` — **must include `pickFaceDestinationIsNotPlacedAtReceipt` and `stagingLaneDestinationIsPlacedAtReceipt`** |
+| 15 | Wire the resolver into `ReceivingService.java:451-459`. `requireCompatible` inside `if (carrier == null)` **above the loop** (§3.7.1); constants at `ReceivingController:314`. **Add the (iv-b) placement gate here:** if the resolved destination's area has `useforpicking = true` **OR its `location_type.sltname` is `flowbin`**, **do not place there** — fall back to the standard putaway lane (tier 4) and leave the destination for putaway. **The OR is deliberate, not belt-and-braces:** the reported failure is a location-*type* property (a flowbin's `location_constraint` permits only `PickLocation`), while `useforpicking` is an *area* property, and nothing in the schema ties them. Today every flowbin on both measured tenants happens to sit in a picking area — **that is data, not structure.** `sltname` is already read by P2.7 rule (e), so the second disjunct is free. Otherwise place as step 17 specifies. **This plan owns this surface (D14).** | `ReceivingServiceUnitTest` — **must include `pickFaceDestinationIsNotPlacedAtReceipt` and `stagingLaneDestinationIsPlacedAtReceipt`** |
 | 16 | `PutawayDestinationQueryService` (`readOnly = true`) + `GET /receiving/getPutawayDestination/{advicePositionId}` + `GET /client/{id}/effectivePutawayDestination` — **the controller must not call the resolver** (C1). | controller tests |
 | 17 | Direct placement + traceability (`UnitloadRecord` names the final destination) — **for NON-pick-face destinations only (Q12 → iv-b).** Pick-face destinations never reach this step; step 15's gate diverts them to the lane. **The gate in step 15 is what makes that true — it is no longer enforced by refusing the configuration, because (iv-b) permits pick-face configs at every scope.** **If you relax P2.5/P2.7(c) without step 15's gate in the same change, SBDEV-2731's reported failure returns.** | `ReceivingServiceUnitTest` |
 | 17a | **Putaway consumes the resolved destination for tiers 2/3 — SCOPE ADDED 2026-08-08.** Step 15 diverts a pick-face destination to the lane; something must then offer it at putaway or the divert is a dead end. SBDEV-2821 builds that surfacing for **tier 1 only** (Q15 → (A)), reading `itemdata.putawaylocation_id` directly. **This plan extends it to the merchant and warehouse tiers** by having the putaway candidate query consume the four-tier `Resolution` instead of the raw column. **Prerequisite: SBDEV-2821 merged** — it owns `MobilePutAwayService`, including the `cases and pallets` fix (2821 §3.2a) without which club destinations throw. **Do not build this before 2821**, or two code paths will read destinations differently — the exact seam Q15 was about. | `MobilePutAwayServiceUnitTest` — a merchant-tier pick-face destination is offered as a putaway candidate |
@@ -2807,9 +2835,9 @@ pre-merge record; it expires again when this plan's own Phase 1-API work starts 
 
 | Run | Result | Evaluated / filtered |
 |---|---|---|
-| `PHASE=all` (default) | `15 pass, 167 fail, 1 skip` | 183 / 0 |
-| `PHASE=1` | `12 pass, 161 fail, 1 skip` | 174 / 9 |
-| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 165 |
+| `PHASE=all` (default) | `15 pass, 168 fail, 1 skip` | 184 / 0 |
+| `PHASE=1` | `12 pass, 162 fail, 1 skip` | 175 / 9 |
+| `PHASE=2` | `10 pass, 7 fail, 1 skip` | 18 / 166 |
 
 **Re-recorded again 2026-08-08 after the Q12 → (iv-b) script fixes.** Four checks were **removed** and eight
 **added** (net +4 fail). The removed four asserted the *superseded* design and would have failed a correct
@@ -2818,7 +2846,7 @@ demanded SKU- and merchant-scope writes *reject* a fix-assigned location. **Unde
 opposite of the intent.** A gate encoding the old design is worse than no gate — it blocks the change it is
 meant to guard. The pass count is unchanged at **15**, which is the signal that nothing went vacuous.
 
-**Arithmetic self-check:** 174 + 18 = 192 = 183 + 9. **The overlap constant is now 9, not 11** — the 8
+**Arithmetic self-check:** 175 + 18 = 193 = 184 + 9. **The overlap constant is now 9, not 11** — the 8
 `phase all` preservation checks plus the **1** remaining SKIP. It was 11 when three checks were skipped;
 `U-neg1` and `U-bind` were un-skipped on the merge (SBDEV-2731 owned them and now ships them), leaving
 only the pre-existing `mvn` skip.

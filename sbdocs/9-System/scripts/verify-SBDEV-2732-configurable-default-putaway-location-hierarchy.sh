@@ -609,7 +609,20 @@ check_W_uses_resolution() {
       && file_contains 'getUseforpicking' "$RECSVC"
 }
 # The (iv-b) gate itself: receiving diverts a pick-face destination to the lane instead of placing.
-check_W_pickface_gate()     { file_contains 'getUseforpicking' "$RECSVC"; }
+# STRUCTURAL, updated 2026-08-08: the gate is `useforpicking == TRUE || sltname == 'flowbin'`. The area
+# flag alone is data-contingent — it holds only because every flowbin on both measured tenants happens to
+# sit in a picking area. The reported failure is a location-TYPE property, so the type must be tested too.
+check_W_pickface_gate() {
+    file_contains 'getUseforpicking' "$RECSVC" && file_contains 'sltname' "$RECSVC"
+}
+# P1 must be SKIPPED for a pick-face destination at config-write time, or ICE PACK cannot be configured:
+# flowbin permits only unitloadtype 1 (PickLocation) and ICE PACK's defultype_id is 4 (Case), so P1 is
+# FALSE and rejects the config even after P2.5/P2.7(c) are dropped. The validator must therefore read
+# sltname (rule (e) already requires that) AND guard its P1 call.
+check_V_p1_skipped_for_pickface() {
+    file_contains 'isUnitloadTypePermitted' "$VALIDATOR" \
+      && file_contains_multiline '(getUseforpicking|sltname)[\s\S]{0,300}isUnitloadTypePermitted' "$VALIDATOR"
+}
 # PROXIMITY: the gate must be near the placement, not merely somewhere in the file — a log line
 # satisfies the bare positive above.
 check_W_gate_near_placement() {
@@ -978,7 +991,8 @@ run W-metrics     "ReceivingService records the resolution metric"     check_W_m
 run W-neg1        "NEG: carrier-only ternary gone (SBDEV-2731 cause)"  check_W_ternary_gone
 run W-neg2        "NEG: old putAwayLocation variable gone"             check_W_old_var_gone
 run W-uses        "placement uses putaway.location() AND is gated"    check_W_uses_resolution
-run W-gate        "(iv-b) receiving gates placement on useforpicking"   check_W_pickface_gate
+run W-gate        "(iv-b) gate reads useforpicking AND sltname"        check_W_pickface_gate
+run V-p1skip      "P1 skipped for pick-face destinations at write time" check_V_p1_skipped_for_pickface
 run W-gatenear    "gate sits NEAR the placement, not just in the file"  check_W_gate_near_placement
 run W-gateord     "gate runs BEFORE requireCompatible (P1 vs the lane)" check_W_gate_before_requirecompatible
 run W-gateloc     "NEG: gate in ReceivingService, NOT the controller"   check_W_gate_not_in_controller
