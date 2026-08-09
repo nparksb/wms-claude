@@ -192,17 +192,25 @@ Both v1 and v2 share the same i18n mechanism and the same bundle name.
 
 ```
 v1/wms-api/src/main/resources/
-  messages.properties          ← default (base)
-  messages_en.properties
-  messages_en_US.properties    ← primary English locale (committed to git)
-  messages_de.properties
-  messages_fr.properties
-  messages_hu.properties
-  messages_ru.properties
+  messages_en_US.properties    ← the ONLY bundle; there is no base
 
 v2/wms2-api/src/main/resources/
-  messages_en_US.properties    ← primary English locale
+  messages.properties          ← base / parent bundle
+  messages_en_US.properties    ← en_US locale
 ```
+
+> **Corrected 2026-08-06.** This block previously listed seven v1 bundles
+> (base, `en`, `en_US`, `de`, `fr`, `hu`, `ru`) and a single v2 bundle
+> (`en_US` only). **Both were wrong, in opposite directions.** Verified against
+> the filesystem and against each repo's git history: the `de`/`fr`/`hu`/`ru`
+> bundles have never existed in v1 — there is no deletion commit, they were
+> never tracked — and v2 grew a base `messages.properties` with SBDEV-2729,
+> which SBDEV-2632 and SBDEV-2731 have since added keys to.
+>
+> **This mattered.** v1 having no base bundle is the reason a missing key there
+> degrades to the concatenated-fallback text rather than inheriting anything,
+> and v2 *having* one is what makes the duplication rule below load-bearing
+> rather than ceremony.
 
 ### Constructor signatures
 
@@ -241,7 +249,13 @@ Fallback behaviour: if the bundle or key is missing, the key and parameters are 
    ```
    MyModule.MyError=Widget %1$s cannot be moved to location %2$s
    ```
-2. Add matching entries to the other locale files (`messages_de.properties`, `messages_fr.properties`, etc.) if translations are available; otherwise the bundle falls back to the base `messages.properties`.
+2. **On v2, add the SAME entry to `messages.properties` as well — this is required, not optional.**
+
+   `BusinessException` resolves against `ResourceBundle.getBundle("messages", Locale.getDefault())` **at construction time**, and nothing pins the locale in the Dockerfile, in CI, or in `application.properties`. On a JVM whose default locale is not `en_US` — which depends on the base image — a key present only in `messages_en_US.properties` fails to resolve and the operator gets the concatenated fallback (`"MyModule.MyError, 'W-1', 'LOC-2'"`) instead of the message. Declared in the base bundle it holds for every locale.
+
+   ⚠️ **A test that only asserts the rendered message cannot catch a missing base copy.** `messages.properties` is the *parent* of every locale bundle, so deleting the key from `messages_en_US.properties` changes nothing under an en_US JVM — resolution silently falls through to the base. Pin the base bundle explicitly with `getLocalizedMessage(Locale.ROOT)`, and pin each file's own copy by reading it directly (`Properties.load`, **with an explicit UTF-8 reader** — `Properties.load(InputStream)` is specified as ISO-8859-1 while `PropertyResourceBundle` reads UTF-8). See `UnitloadBusinessServiceUnitTest` T14b (SBDEV-2731) for the worked pattern.
+
+   There are no `de`/`fr`/`hu`/`ru` bundles in either repo — do not add entries to files that do not exist.
 3. Throw the exception with the key:
    ```java
    throw new BusinessException("MyModule.MyError", widgetId, locationCode);
@@ -365,10 +379,18 @@ try {
 | **Response body format** | Plain `Map<String,Object>` / `ApiErrorMessage` POJO | Same for `ApiException` family; RFC 9457 `ProblemDetail` for infrastructure exceptions |
 | **`@Transactional` TM** | Single TM — bare `@Transactional` is fine | **Dual TM** — bare `@Transactional` silently uses landlord TM; always specify `value = "tenantTransactionManager"` |
 | **Safety net handlers** | `BusinessException` → 422, `NoSuchElementException` → 404, `NullPointerException` → 500 | No safety-net handlers for `BusinessException` or `NoSuchElementException`; use `EntityNotFoundException` instead |
-| **messages bundle** | 7 locale files (de, en, en_US, fr, hu, ru + base) | 1 locale file (en_US only) |
+| **messages bundle** | **1 file — `messages_en_US.properties`, no base bundle** | **2 files — `messages.properties` (base) + `messages_en_US.properties`; new keys go in BOTH** (see §5) |
 | **`WebserviceBusinessExceptionClientSide`** | Present (OMS integration) | Present (same interface, same catch pattern) |
 | **`WebserviceBusinessExceptionServerSide`** | Present | Present |
 | **`FacadeException` handler** | Not registered in `RestExceptionHandler` | Not registered in `RestExceptionHandler` |
+
+## Verification Log
+
+| Date | What was checked | Result | Checked by |
+|---|---|---|---|
+| 2026-08-06 | §5 i18n bundle inventory for both stacks, and the `messages bundle` row of the v1↔v2 delta table | **Both were wrong, in opposite directions, and are corrected.** v1 was documented as 7 locale files (base, `en`, `en_US`, `de`, `fr`, `hu`, `ru`); it has exactly **one**, `messages_en_US.properties`, and the other six have no history in the repo — no deletion commit, never tracked. v2 was documented as `en_US` only; it has had a base `messages.properties` since SBDEV-2729, with keys added by SBDEV-2632 and SBDEV-2731. The "add a new message" recipe pointed at `messages_de`/`messages_fr`, files that exist in neither repo, and omitted the v2 both-bundles rule entirely. **Scoped check — §1–§4 were NOT re-verified, so `last_verified` stays at 2026-07-22.** | Filesystem + `git ls-tree`/`git log --diff-filter=D` on both repos (SBDEV-2731) |
+
+> **Why this was worth fixing rather than just re-dating.** The stale recipe actively produced the bug: it told implementers to add keys to `messages_en_US.properties` alone, which resolves correctly under an en_US default locale and degrades to concatenated fallback text under any other. Nothing in CI or the Dockerfile pins the locale.
 
 ### Key migration notes (v1 → v2)
 

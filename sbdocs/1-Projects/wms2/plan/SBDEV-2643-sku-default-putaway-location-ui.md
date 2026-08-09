@@ -11,8 +11,8 @@ db_verified: true
 requester: "Scott Dalton"
 assignee: "Nam Park / David Oppenheim"
 created: "2026-08-07"
-updated: "2026-08-07"
-revision: 3
+updated: "2026-08-09"
+revision: 4
 depends_on:
   - {ticket: SBDEV-2732, status: "draft — NOT STARTED, nothing of it is in merged code",
      note: "Owns the resolver, PutawayConfigService.setSkuDestination, PUT /putawayConfig/sku/{id},
@@ -60,12 +60,25 @@ db_verified_note: >
   reported ICE PACK location as id 52075 with `type_id = 2` (`flowbin`) — i.e. the one location this
   ticket exists to configure is rejected by 2732's SKU-scope predicates.
 
-  ⚠ **r2 (2026-08-07) REVERSES the conclusion that was drawn from this number.** The measurement is
-  unchanged and still correct; what changed is what 2643 does about it. A SKU-scope pick-face WRITE is
-  an unconditional 422 that 2732 ships a unit test to enforce (`skuWriteRejectsPickFaceDestination`,
-  2732 `:2211`), so offering those 511 rows would offer rows that cannot be saved. 2732 `:722` already
-  assigns tier-1 pick-face relaxation to **SBDEV-2821**. **2643 therefore offers only the 92 eligible
-  locations and explains the absence in the picker.** See §10.1 D1 and §15.
+  ⚠ **r3 (2026-08-08) IS THE CURRENT CONCLUSION — the r2 text below is SUPERSEDED.** The measurement is
+  unchanged and still correct; what keeps changing is what 2643 does about it.
+
+  **r3: 2643 OFFERS the 511 pick-face locations, `ICE PACK` among them.** 2732 answered Q12 as option
+  (iv-b) on 2026-08-08: configuration is widened at every scope, `skuWriteRejectsPickFaceDestination`
+  is DELETED, and a SKU-scope pick-face write is LEGAL. What is refused is the *placement*, at run time.
+  Tier 1 is exempt from 2732's P2.7 rule (e), so flowbins are offerable at this plan's scope.
+  **One exclusion survives:** a flowbin fix-assigned to a *different* SKU (2732's rule (f), added
+  2026-08-09) — 1,344 of 2,555 candidate rows on `wms2-wineco-dev`, 154 of 603 on `wms2-hydra-dev2`.
+  See §10.1 D1 and §15.
+
+  ~~r2 (2026-08-07): a SKU-scope pick-face WRITE is an unconditional 422 that 2732 ships a unit test to
+  enforce (`skuWriteRejectsPickFaceDestination`, 2732 `:2211`), so offering those 511 rows would offer
+  rows that cannot be saved; 2643 therefore offers only the 92 eligible locations.~~ **That test no
+  longer exists and the cited line no longer resolves.**
+
+  ⚠ **DEPENDENCY NOW SATISFIED:** SBDEV-2821 **merged to `develop` 2026-08-09** (`wms2-api` PR #135,
+  merge `fd90487`), so putaway can surface a configured destination. The r2 text's hand-off of tier-1
+  pick-face relaxation to 2821 is complete.
 tags:
   - plan
 ---
@@ -107,10 +120,24 @@ tags:
 >    **merchant and warehouse** scope only (putaway auto-creates a `FixLocationAssignment` binding the
 >    location to the first SKU, which breaks multi-SKU scopes). **This plan is SKU scope, so flowbins are
 >    offerable here.**
-> 3. **P1 must be skipped for pick-face destinations at write time** (2732 §3.4c). Without that, `ICE PACK`
+> 3. **P1 must be skipped for `flowbin` destinations at write time** (2732 §3.4c). Without that, `ICE PACK`
 >    is still unsavable — flowbin permits only `PickLocation` and the SKU's default type is `Case`. **This
 >    plan depends on that exemption shipping; if 2732 implements P1 unguarded, the picker will offer rows
 >    the backend still rejects and r2's objection becomes correct again.**
+>    ⚠ **NARROWED 2026-08-09 by review of 2732:** the skip predicate is **`sltname == 'flowbin'` ONLY**, not
+>    the `useforpicking OR flowbin` form r3 was drafted against. That does not change this plan's dependency
+>    — `ICE PACK` is a flowbin either way — but 2643 must not restate the wider predicate anywhere.
+>
+> **⚠ 4. ADDED 2026-08-09, POSTDATES r3 — 2732 gained P2.7 rule (f), and it changes what the picker must
+> exclude.** Tier 1 is exempt from rule (e), but **not** from rule (f): a flowbin whose
+> `FixLocationAssignment` belongs to a **different** SKU must **not** be offered, because such a row saves
+> cleanly and then fails at *every* putaway (`scannedLocationHasDifferentFixedAssignment`) with nothing
+> naming the configuration that caused it. **This is the majority of flowbins, not an edge case** — 1,344 of
+> 2,555 candidate rows on `wms2-wineco-dev` (53%), 154 of 603 on `wms2-hydra-dev2` (26%).
+> **Consequences for this plan:** the exclusion set is **never empty**, so r3's claim that *"on HMG
+> production the exclusion set is empty — every candidate qualifies"* no longer holds; and `blockingReason`
+> needs a value distinguishing own-from-foreign, which is **2732's enum to extend, not this plan's**
+> (MUST-4).
 >
 > **The advisory text matters.** A pick-face destination does not receive stock directly — it is routed via
 > putaway, so the operator performs one putaway scan. Say that, rather than implying immediate placement.
@@ -1457,8 +1484,8 @@ touch it.
 | `ItemDataControllerUnitTest` ″ | `neverCarriesBrokenAuthorityConstant` | the new handler and `SkuPutawayQueryService` carry no `Authority.IS_SB_ADMIN` (§5.1 row 0e; the read is deliberately not admin-gated at all) | A2 |
 | `PutawayConfigControllerUnitTest` **(A3 fallback only)** | `eligibleLocationsSkuScopeTwoClasses` | eligible (passes **all** predicates incl. P2.7(c)) vs. not-offered are correctly partitioned. ⚠ **r2: no third "advisory" class and no `PICK_FACE` reason** | A3 |
 | ″ | `eligibleLocationsExcludesTierFourLane` | no row whose `locationName` equals `WmsConstants.STORAGE_LOCATION_PUTAWAY_LANE` (Q3) | A3 |
-| ″ | `eligibleLocationsNeverRelaxesFixAssigned` | a fix-assigned location is **not offered**, ever — P2.5 is absolute | A3 |
-| ″ | `eligibleLocationsNeverOffersPickFace` | a `useforpicking`-area location is **not offered**, ever — P2.7(c) is absolute (2732 `:722`), and this is the consumer-side mirror of 2732's own `skuWriteRejectsPickFaceDestination` (`:2211`). **Fixture must be an FLA-free pick face**, or the test silently re-tests P2.5 (2732's own warning at `:2211`) | A3 |
+| ″ | ~~`eligibleLocationsNeverRelaxesFixAssigned`~~ → **`eligibleLocationsExcludesFlowbinAssignedToAnotherSku`** | ⚠ **REWRITTEN 2026-08-09 — the old form asserts the superseded r2 design and would fail a correct implementation.** P2.5's absolute reject is **dropped** (2732 Q12 → iv-b), so "a fix-assigned location is never offered" is false: a SKU pointed at **its own** pick face is the intent. What must be excluded is a flowbin fix-assigned to a **different** SKU — 2732's new **P2.7 rule (f)**. **Two tests needed**, or an implementation that excludes all fix-assigned locations passes: pair this with `eligibleLocationsOffersTheSkusOwnFixAssignedPickFace` | A3 |
+| ″ | ~~`eligibleLocationsNeverOffersPickFace`~~ → **`eligibleLocationsOffersPickFaces`** | ⚠ **INVERTED 2026-08-09 — this is the single most dangerous stale row in the plan.** As written it asserts *"a `useforpicking`-area location is **not offered**, ever"*, which is **exactly what r3 reversed**. It cites P2.7(c) as *"absolute"* — P2.7(c) is **DROPPED at all three scopes** — and mirrors 2732's `skuWriteRejectsPickFaceDestination`, a test 2732 **deleted** on 2026-08-08 (the cited line `:2211` no longer resolves). **A TDD gate run against the old row would permanently enforce the design r3 abandoned.** The correct assertion: a `useforpicking` location **IS** offered at SKU scope, including flowbins (tier 1 is exempt from rule (e)) | A3 |
 
 **Mutate-then-check every new assertion.** Per the recorded landmine, a new assertion is worthless until
 you have seen it fail: flip the production line, watch red, restore. SBDEV-2736 scored 57 pass / 0 fail
@@ -1555,7 +1582,7 @@ Ice Pack SKU on HMG dev" will not work.** Until **Q10** is answered, designate *
 | **M7** | Permission gate — read-only user | DEV (post-B1) | log in as a user **not** in `APP_ADMIN_GROUP`; open the SKU screen and the overlay | the configured value **is visible**; the pencil and Submit are **present and disabled with a tooltip** — not hidden (AC1 for read-only users + AC12's UI half) | |
 | **M8** | Permission enforcement — the backend boundary (**AC12, not automatable**) | DEV (post-2732 Phase 1-API) | as a non-`sb_admin`, `curl -X PUT '/v3/putawayConfig/sku/18118466?locationId=…'` | **403**, not 500 and not 200. ⚠ **A 500 means F1 is still live** — i.e. 2732 merged with `Authority.IS_SB_ADMIN` and **§5.1 row 0e was not honoured.** That is 2732's / SBDEV-2863's fix, **not 2643's** (§3.1 r2 box). `standaloneSetup` (`BaseControllerUnitTest:52-58`) cannot assert this and the IT lane is down (SBDEV-2217), so **this row IS the AC12 evidence** | |
 | **M9** | The resolver is not called from the controller | DEV (post-A2) | `curl '/v3/itemData/18118466/effectivePutawayDestination'` | **200** with the 7-field envelope. **A 500 with `IllegalTransactionStateException` means the controller calls the resolver directly** (§3.2/§3.6). No mocked test can prove this | |
-| **M10** | **D1 (r2) — pick faces are NOT offered, and the write is refused if forced** | DEV (post-B2) | **(a)** open the dialog, search for a known flowbin by name (e.g. any of the 496) and for `ICE`; **(b)** read the always-visible scope banner; **(c)** then bypass the UI: `curl -X PUT '/v3/putawayConfig/sku/18118466?locationId=<a flowbin id>'` | **(a)** the picker returns **no** flowbin rows — 92 eligible locations, none of them a pick face; **(b)** the banner names **SBDEV-2821** and **SBDEV-2732 Q9** and states the eligible count, so the absence is explained rather than mysterious; **(c)** the API returns **422**, per 2732 P2.7(c) `:722` and its `skuWriteRejectsPickFaceDestination` test (`:2211`). ⚠ **r2 REWROTE THIS ROW. r1 asserted *"the picker offers it… the write **succeeds**"* — that was FALSE and the row could never pass:** a SKU-scope pick-face write is an unconditional 422. Record the 422's exact body — it is also M6's CORS evidence | |
+| **M10** | ⚠ **REWRITTEN 2026-08-09 — r3.** **D1 — pick faces ARE offered, the write SUCCEEDS, and a foreign-bound flowbin is excluded** | DEV (post-B2) | **(a)** open the dialog and search for a known flowbin by name and for `ICE`; **(b)** read the always-visible scope banner and the advisory; **(c)** save `ICE PACK` to its own pick face through the UI; **(d)** then try a flowbin whose `FixLocationAssignment` belongs to a *different* SKU (1,344 of 2,068 on wineco dev qualify) | **(a)** the picker **DOES** return flowbin rows, `ICE PACK` among them; **(b)** the banner shows the computed `{eligibleCount}`/`{totalCount}` (never hard-coded — r3 F-1) and the advisory says the destination is **routed via putaway, not placed directly**, and that the stock arrives when someone puts it away rather than when the receipt closes; **(c)** the write **SUCCEEDS** — a SKU-scope pick-face write is legal under Q12 → (iv-b); **(d)** the foreign-bound flowbin is **not offered** (2732 rule (f)). ⚠ **r2's version of this row asserted the exact opposite on every point — picker returns no flowbins, API returns 422 — and cited `skuWriteRejectsPickFaceDestination`, a test 2732 DELETED on 2026-08-08. It could never pass against a correct implementation.** Record (c)'s response body — it is also M6's CORS evidence |
 | **M11** | Persistence after refresh (**AC5**) | DEV (post-B2) | set a value → hard-refresh (F5) → reopen the overlay | the new value shows. `masterData.skuData` rehydrates from `localStorage['vuex-web']` but `skuData.vue:304` always refetches (§3.8.5) | |
 | **M12** | Receiving display is unregressed | DEV (post-B1) | open Receiving → an open notice → the receive form | "Inbound Putaway Staging" renders exactly as before B1. **B1 moves `receivingForm.vue`'s constants — this row proves 2731 was not regressed** | |
 | **M13** | SQL-level sanity | DEV DB | `SELECT id, putawaylocation_id FROM itemdata WHERE id=18118466;` then `SELECT * FROM putaway_config_audit WHERE itemdata_id=18118466 ORDER BY id DESC LIMIT 5;` | value matches the UI; audit rows carry all six required fields (SKU, facility, previous, new, user, timestamp) | |
@@ -1818,7 +1845,7 @@ answer to R1 and a new nested test class as the answer to R2.
 
 | # | Decision | Rationale |
 |---|---|---|
-| **D1** ⭐ **REVERSED IN r2** | **ENFORCE 2732's P2.7(c). The SKU picker offers ONLY the 92 genuinely-eligible locations; pick faces are NOT selectable.** P2.5 (fix-assigned) also stays absolutely blocked. **2643 adds no `advisory` field, does not extend `blockingReason` with `PICK_FACE`, and builds no SKU-scope validator of its own.** What 2643 *does* build is the **always-visible scope banner** (§3.8.2a) naming **SBDEV-2821** and **SBDEV-2732 Q9**, plus a matching picker empty state | **This is correct SEQUENCING, not a divergence, and not a compromise.** ① **A SKU-scope pick-face write is an unconditional 422** — 2732 `:722` (*"absolute at all three scopes — tier 1 included… load-bearing for 2732's D15"*), `:792-795` (*"tier 1 is exempt from (a), (b) and (d) — **but NOT from (c)**, deliberately"*, with the 2026-08-04 exemption *"reverted the same day"*), and 2732 ships **`skuWriteRejectsPickFaceDestination`** (`:2211`) to enforce it. **Offering rows that cannot be saved is strictly worse than not offering them.** ② **2732 already owns the relaxation and has assigned it:** `:722` — *"**SBDEV-2821** relaxes this for tier 1 only, alongside P2.5."* 2643's job is to ship the surface that becomes correct-and-complete the moment 2821 lands — and because D3 keeps predicate evaluation server-side in 2732's validator, **that widening needs zero 2643 code** (§9.2). ③ **2732 Q9 (`:2561`) answers "No" to exactly this widening**, and `:2308`(i) makes the deferred deadlock-retry ticket *"an absolute prerequisite before Q9 widens P2.4 to admit pick locations."* r1 answered a hard infrastructure prerequisite with a UI banner; r2 does not incur the prerequisite at all (§5.1 row 9). ④ **The cost is real and is stated, not hidden:** the ICE PACK location the ticket names is **not** configurable through 2643, and 496/496 flowbins are excluded. **That cost was unavoidable under every coherent option** — including r1's, whose only coherent form was a change request against 2732 that would have inherited the same deadlock gate. ⑤ **The residual risk is now a UI legibility risk, not a data risk:** an operator must not conclude the search is broken. §3.8.2a is the mitigation and it is a verified deliverable (`B2-banner`, `B2-banner2`, `scopeBannerNamesBlockingTicket`). See §9.1 for the rejected option, §11 PM3, §15 |
+| **D1** ⭐ **REVERSED IN r2, RE-REVERSED IN r3 — this row is r3's** | ⚠ **REWRITTEN 2026-08-09. The r2 text below the strikethrough is SUPERSEDED; do not implement it.** **The picker OFFERS pick faces, including flowbins**, at SKU scope — tier 1 is exempt from 2732's P2.7 rule (e), and a SKU-scope pick-face write is legal under Q12 → (iv-b). The r2 exclusion would hide **511 savable locations on hydra DEV, `ICE PACK` among them** — the very configuration the parent bug is about. **What the picker must still exclude is a flowbin fix-assigned to a *different* SKU** (2732's new **rule (f)**, added 2026-08-09): those rows save cleanly and then fail at *every* putaway, which is worse than r1's "unsavable rows" because the failure is deferred and detached from its cause. On `wms2-wineco-dev` that is **1,344 of the 2,555** rows the picker would otherwise offer (53%); on `wms2-hydra-dev2`, **154 of 603**. `blockingReason` is **2732's enum** — 2643 still may not extend it from its own PR (MUST-4); 2732 owns that change. The **advisory** returns in r1's shape and must say the destination is *routed via putaway*, not placed directly — and state the operational consequence: **the stock is not on the pick face when the receipt closes; it arrives when someone puts it away.** The always-visible scope banner (§3.8.2a) stays, with r3's computed `{eligibleCount}`/`{totalCount}`. ~~**r2: ENFORCE 2732's P2.7(c). The SKU picker offers ONLY the 92 genuinely-eligible locations; pick faces are NOT selectable.** P2.5 (fix-assigned) also stays absolutely blocked. **2643 adds no `advisory` field, does not extend `blockingReason` with `PICK_FACE`, and builds no SKU-scope validator of its own.** What 2643 *does* build is the **always-visible scope banner** (§3.8.2a) naming **SBDEV-2821** and **SBDEV-2732 Q9**, plus a matching picker empty state~~ | **This is correct SEQUENCING, not a divergence, and not a compromise.** ① **A SKU-scope pick-face write is an unconditional 422** — 2732 `:722` (*"absolute at all three scopes — tier 1 included… load-bearing for 2732's D15"*), `:792-795` (*"tier 1 is exempt from (a), (b) and (d) — **but NOT from (c)**, deliberately"*, with the 2026-08-04 exemption *"reverted the same day"*), and 2732 ships **`skuWriteRejectsPickFaceDestination`** (`:2211`) to enforce it. **Offering rows that cannot be saved is strictly worse than not offering them.** ② **2732 already owns the relaxation and has assigned it:** `:722` — *"**SBDEV-2821** relaxes this for tier 1 only, alongside P2.5."* 2643's job is to ship the surface that becomes correct-and-complete the moment 2821 lands — and because D3 keeps predicate evaluation server-side in 2732's validator, **that widening needs zero 2643 code** (§9.2). ③ **2732 Q9 (`:2561`) answers "No" to exactly this widening**, and `:2308`(i) makes the deferred deadlock-retry ticket *"an absolute prerequisite before Q9 widens P2.4 to admit pick locations."* r1 answered a hard infrastructure prerequisite with a UI banner; r2 does not incur the prerequisite at all (§5.1 row 9). ④ **The cost is real and is stated, not hidden:** the ICE PACK location the ticket names is **not** configurable through 2643, and 496/496 flowbins are excluded. **That cost was unavoidable under every coherent option** — including r1's, whose only coherent form was a change request against 2732 that would have inherited the same deadlock gate. ⑤ **The residual risk is now a UI legibility risk, not a data risk:** an operator must not conclude the search is broken. §3.8.2a is the mitigation and it is a verified deliverable (`B2-banner`, `B2-banner2`, `scopeBannerNamesBlockingTicket`). See §9.1 for the rejected option, §11 PM3, §15 |
 | **D2** (r2: **narrowed**) | **2643 ships the DETECTOR ONLY** — a test that **EVALUATES the SpEL string** against a real expression root. The correct expression is `Authority.getExpForRole(Authority.SB_ADMIN_ROLE)` → `hasAuthority('sb_admin')`, but **applying it in `PutawayConfigService` / `PutawayConfigController` is 2732's review or [SBDEV-2863](https://app.clickup.com/t/868knmx18)'s, not 2643's** (§3.1 r2 box, §5.1 row 0e). The 9 pre-existing broken endpoints are SBDEV-2863's | `Authority.java:14` `IS_SB_ADMIN = "isSbAdmin()"` names a method that exists nowhere; the only admin predicate is `isAimAdmin()` (`CustomMethodSecurityExpressionRoot.java:77`), so 9 sites 500 for everyone. Safe with no `ROLE_` prefix because `CustomMethodSecurityExpressionHandler.java:19` calls `setDefaultRolePrefix(null)`. **A direct `isAimAdmin()` call cannot catch this class of defect** — `CustomMethodSecurityExpressionRootUnitTest:170-206` is proof: it has been green for the whole life of the bug |
 | **D3** | **Server-side predicate evaluation:** `GET /v3/putawayConfig/eligibleLocations?scope=SKU`. Do **not** widen `getLocationView()`; do **not** re-implement predicates in Vue | §9.3 |
 | **D4** | **AC7 is asserted as an invariant, not built for.** One DB per facility (2732 §2.4); `/v3/location/detailView` and every repository read are inherently facility-scoped by the tenant datasource | Building anything for AC7 would be dead code |
@@ -2151,7 +2178,36 @@ temporal, not architectural** — see §11.0's closing note.
 
 ## 15. Revision log
 
-### r3 — 2026-08-07 (this revision)
+### r4 — 2026-08-09 (this revision) — BODY RECONCILED TO r3
+
+r3 reversed D1 in its banner but **left the body asserting r2 in five places**. Anything downstream of this
+plan — a TDD gate above all — would have read the body, not the banner, and encoded the abandoned design.
+
+| # | What was still asserting r2 | Now |
+|---|---|---|
+| **1** | §7 test **`eligibleLocationsNeverOffersPickFace`** — *"a `useforpicking`-area location is **not offered**, ever — P2.7(c) is absolute"*, mirroring 2732's `skuWriteRejectsPickFaceDestination` at `:2211` | **INVERTED** to `eligibleLocationsOffersPickFaces`. **This was the single most dangerous row in the plan:** a gate run would have made "never offer a pick face" a contract the executor may not weaken — the exact opposite of r3. The mirrored 2732 test was **deleted** 2026-08-08 and `:2211` no longer resolves |
+| **2** | §7 test **`eligibleLocationsNeverRelaxesFixAssigned`** — *"a fix-assigned location is not offered, ever — P2.5 is absolute"* | **REWRITTEN** to `eligibleLocationsExcludesFlowbinAssignedToAnotherSku`. P2.5's absolute reject is dropped; a SKU pointed at **its own** pick face is the intent. Paired with a positive test so "exclude everything fix-assigned" cannot pass |
+| **3** | **M10** — manual test instructing the tester to confirm the picker returns **no** flowbins and the API returns **422** | **REWRITTEN** — the picker DOES return flowbins, the write SUCCEEDS, and a foreign-bound flowbin is excluded. The r2 row could never pass against a correct implementation |
+| **4** | **§10.1 D1** — still headed *"REVERSED IN r2 … pick faces are NOT selectable"* | **REWRITTEN as r3's**, r2 text struck through and retained |
+| **5** | **frontmatter `db_verified_note`** — closed with *"2643 therefore offers only the 92 eligible locations"*, the first conclusion any reader hits | **REWRITTEN**, r2 struck through, r3's conclusion stated first |
+
+**Also folded in — two things that postdate r3:**
+
+- **2732 gained P2.7 rule (f)** (2026-08-09 review). Tier 1 is exempt from rule (e) but **not** from (f): a
+  flowbin fix-assigned to a **different** SKU must not be offered. **1,344 of 2,555 candidate rows on
+  `wms2-wineco-dev` (53%)**, 154 of 603 on `wms2-hydra-dev2`. Consequences: the exclusion set is **never
+  empty**, so r3's *"on HMG production the exclusion set is empty"* no longer holds; and `blockingReason`
+  needs an own-vs-foreign distinction, which is **2732's enum to extend** (MUST-4).
+- **2732's P1 skip narrowed** to `sltname == 'flowbin'` only. Does not change this plan's dependency —
+  `ICE PACK` is a flowbin — but the wider `useforpicking OR flowbin` form must not be restated here.
+
+**Dependency cleared:** SBDEV-2821 **merged to `develop` 2026-08-09** (PR #135, merge `fd90487`). Putaway can
+now surface a configured destination, which is what r2's deferral was waiting on.
+
+**Not addressed by r4:** this plan is still `draft` and still blocked on 2732's Phase-1 API, which is itself
+blocked on Q12 sign-off. r4 is a consistency pass, not an approval.
+
+### r3 — 2026-08-07
 
 Driven by the **Critic pass (verdict ITERATE — 2 BLOCKING, 7 non-blocking)**, plus three integrity
 defects found by direct inspection of r2's artefacts. Every r2 defect was the **same class**: the
@@ -2175,6 +2231,8 @@ is that a claim must be machine-checkable.
 duplicate `run` wirings; baseline **13 pass / 24 fail / 51 skip**, exit 1. `B2-banner3` and the tightened
 `B2-jest4` were negative-tested in both directions (fail on the defect, pass on a correct
 implementation, fail on a missing file).
+
+> ⚠ **The r2 rows below are HISTORY, not the current design.** r3 re-reversed D1 and r4 reconciled the body to it. A row here saying *"pick faces are not selectable"* records what r2 decided on 2026-08-07 — it is **not** an instruction.
 
 ### r2 — 2026-08-07
 

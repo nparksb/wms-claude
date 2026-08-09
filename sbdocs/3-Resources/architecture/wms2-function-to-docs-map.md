@@ -6,9 +6,9 @@ version: v2
 scope: function-map
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-07-15
-verified_by: enumeration of wms2-web-ui + wms2-mobile-ui menus + wms2-api endpoints
+updated: 2026-08-03
+last_verified: 2026-08-03
+verified_by: enumeration of wms2-web-ui + wms2-mobile-ui menus + wms2-api endpoints; §9 symbol axis derived from find(*Controller*.java) + symbol grep over workflows/architecture/design docs (SBDEV-2803)
 related:
   - ./wms2-keycloak-role-matrix.md
   - ./wms2-end-to-end-request-journey.md
@@ -31,7 +31,16 @@ tags:
 
 This is the support-triage entry page and coverage-audit table. When a user reports a problem, start here: find the row that matches the reported function, open the linked doc. When auditing documentation coverage, rows with "—" or "gap" in the last column are the open surface.
 
-- 📘 Architecture doc · 📕 Workflow doc · 📗 Data-dictionary doc
+- 📘 Architecture doc · 📕 Workflow doc · 📗 Data-dictionary doc · 📙 Design doc
+
+**Two lookup axes — pick the one matching what you have:**
+
+| You have | Use | Coverage |
+|---|---|---|
+| A user-facing function, page path, or endpoint | §2–§8 | Complete as of the §12 log — every menu-reachable page in both UIs is enumerated |
+| A Java class or method name (code change, stack trace, plan) | **§9** | Controllers complete (all 61); services primary-only, not exhaustive |
+
+**How complete is this file?** The function axis (§2–§8) is an enumeration, so a missing page means the map is stale — re-verify. The symbol axis (§9) is an *index*, deliberately not exhaustive at method level: **a symbol not listed means "not indexed yet", never "no docs exist."** Never conclude from a failed grep here that a subsystem is undocumented — confirm against `workflows/` and `design/` directly before deciding no doc applies.
 
 Source of truth on what exists:
 
@@ -166,7 +175,39 @@ Recommendation: remove or quarantine in a dedicated folder after confirming no d
 
 ---
 
-## 9. Coverage Matrix
+## 9. API Symbol → Doc Index
+
+**Why this section exists.** §2–§8 index the platform by *user-facing function and endpoint*. The workflow the root `CLAUDE.md` mandates — "grep this map for the affected service/method" — starts from a **Java symbol** instead, and before 2026-08-03 this file contained no class or method names at all, so every such grep returned nothing and read as "no docs apply". This section is that missing axis. Added per SBDEV-2803 (surfaced by SBDEV-2632, where a cycle-count change grepped `CycleCountController` / `CyclecountService` and found nothing, though `wms2-cycle-count-workflow.md` covered the subsystem in detail).
+
+**v1 counterpart:** [wms1-function-to-docs-map §9 *Service Method → Doc Index*](./wms1-function-to-docs-map.md) — v1 had this axis from the start and v2 did not, which is the actual gap SBDEV-2803 closes. The two are shaped differently on purpose: v1 lists 18 hot services one-per-row with file paths and section pointers (no controllers); v2 groups by subsystem so all 61 controllers fit without a 61-row table.
+
+**Granularity: controllers plus primary services, not every method.** A grep for a method name (`exportCycleCount`) will still miss; a grep for its controller or service will land. When you only have a method, grep the enclosing class instead. Rows are derived from the symbols the target docs actually name (`grep -ohE "[A-Z][A-Za-z]*(Controller|Service)\b"` over `workflows/wms2-*.md` + `architecture/wms2-*.md` + `design/wms2-*.md`), so a row here means the doc genuinely discusses the symbol — not that it merely sounds related.
+
+| Subsystem | Controllers | Primary services | Docs |
+|---|---|---|---|
+| Receiving / putaway | `AdviceController`, `AdviceRestController`, `ReceivingController`, `GoodsReceiptPositionController`, `PutawayController`, `FileImportController` | `AdviceService`, `ReceivingService`, `GoodsreceiptService`, `MobilePutAwayService` | 📕 [wms2-receiving-putaway-workflow](../workflows/wms2-receiving-putaway-workflow.md) |
+| Picking | `PickingController`, `PickingOrderPositionController` | `MobilePickingService`, `PickingorderBusinessService`, `PickingOrderMergeService`, `PickingorderPositionService`, `ReleaseOrderJobService` | 📕 [wms2-picking-workflow](../workflows/wms2-picking-workflow.md) |
+| Replenishment | `ReplenishController`, `ReplenishOrderController`, `ReplenishmentReconciliationController` | `MobileReplenishService`, `ReplenishGeneratorService`, `ReplenishorderService`, `ReplenishOrderJobService`, `ReplenishmentOrderMaintenanceService`, `ReplenishmentOrderSourceSyncService` | 📕 [wms2-replenish-workflow](../workflows/wms2-replenish-workflow.md) · 📕 [order-creation](../workflows/wms2-replenish-order-creation.md) · 📕 [multi-unitload](../workflows/wms2-multi-unitload-replenish.md) · 📙 [replenishment-design](../design/wms2-replenishment-design.md) |
+| Cycle count | `CycleCountController`, `CycleCountLosController` | `CyclecountService`, `MobileCycleCountService` | 📕 [wms2-cycle-count-workflow](../workflows/wms2-cycle-count-workflow.md) |
+| Move stock / unit load | `MoveStockController`, `MoveUnitloadController`, `UnitLoadController`, `UnitloadRecordController`, `UnitloadRestController` | `MobileMoveStockService`, `MobileMoveUnitloadService`, `UnitloadBusinessService`, `UnitloadRecordService`, `StockunitBusinessService`, `UnitloadService` | 📕 [wms2-move-stock-unitload-workflow](../workflows/wms2-move-stock-unitload-workflow.md) · 📙 [stockunit-design](../design/wms2-stockunit-design.md) |
+| BOL / palletizing / truck loading | `BillOfLadingController`, `PalletizingController`, `TruckLoadingController` | `BillofladingService`, `BillofladingPositionService`, `MobilePalletizingService`, `MobileTruckLoadingService` | 📕 [wms2-bol-truck-loading-workflow](../workflows/wms2-bol-truck-loading-workflow.md) |
+| Transfer orders | `TransferOrderController`, `TransfersController` | `TransferOrderService`, `MobileTransferOrderService`, `TransferService` | 📕 [wms2-transfer-order-workflow](../workflows/wms2-transfer-order-workflow.md) |
+| Club runs | `ClubLineController`, `CustomerOrderBatchController` | `CustomerorderBatchService`, `ManageOrderService`, `StaleClubBatchCleanupJobService` | 📕 [wms2-club-run-workflow](../workflows/wms2-club-run-workflow.md) |
+| Order cancellation | `OrderCancellationController`, `CustomerOrderController`, `CustomerOrderPositionController` | `CustomerorderService`, `CustomerorderPositionService` | 📕 [wms2-cancel-cascade-workflow](../workflows/wms2-cancel-cascade-workflow.md) |
+| OMS integration / legacy REST | `OrderRestController`, `SkuRestController`, `StockCountRestController`, `TransactionReportRestController`, `UtilRestController`, `AdminActionController`, `AbstractRestController`, `MessageController`, `MessageDummyController` | `OmsNotificationService`, `OutboxService`, `OutboxDispatchService`, `NotificationService`, `StockChangeNotificationService`, `MessageService`, `HttpRestService` | 📘 [wms2-oms-integration-map](./wms2-oms-integration-map.md) · 📙 [rest-api-reference](../design/wms2-rest-api-reference.md) · 📙 [rest-idempotency-design](../design/wms2-rest-idempotency-design.md) |
+| Auth / users / roles | `UserController`, `UserGroupController`, `UserRoleController`, `TokenController`, `AdminController` | `KeycloakService`, `RoleService`, `GroupService`, `AccessService` | 📘 [wms2-keycloak-role-matrix](./wms2-keycloak-role-matrix.md) |
+| Tenant routing / health / system | `TenantDiscoveryController`, `TenantHealthController`, `SystemController`, `PublicVersionController` | `TenantHealthService`, `LandlordService`, `AdvisoryLockService`, `LockService` | 📘 [wms2-tenant-routing-datasource-topology](./wms2-tenant-routing-datasource-topology.md) · 📘 [end-to-end-request-journey](./wms2-end-to-end-request-journey.md) |
+| Master data (CRUD) | `BoxTypeController`, `ClientController`, `LocationController`, `SectionController`, `ShipperIdController`, `ItemDataController`, `LookupController`, `FixLocationAssignmentController`, `SystemPropertyController` | `LocationService`, `ItemdataService`, `ClientService`, `SyspropService`, `FixLocationAssignmentService`, `SkuBatchCreateUpdateService` | Mostly generic CRUD — entity shapes in 📗 [landlord-vs-tenant-entity-map](../data-dictionary/wms2-landlord-vs-tenant-entity-map.md); sysprop behavior in 📗 [sysprop-catalog](../data-dictionary/wms2-sysprop-catalog.md) · 📘 [caching-strategy](./wms2-caching-strategy.md); fixed locations in 📙 [replenishment-design](../design/wms2-replenishment-design.md) |
+| Reports / dashboards / stock views | `ReportController`, `DashboardController`, `StockRecordController`, `StockUnitController` | `StockrecordService`, `StockunitService`, `WarehouseStockReportService`, `StockReportService`, `ViewDtoService`, `ParcelMonitorViewService` | 📘 [wms2-entity-enumeration-report](./wms2-entity-enumeration-report.md) — no workflow doc by design (rationale in §5) |
+| Printing | `PrinterController`, `PrinterRestController` | `PrintService` | **Gap — no doc** (tracked: SBDEV-2808). Nearest coverage is the label-reprint discussion inside 📙 [stockunit-design](../design/wms2-stockunit-design.md), which covers *when* a reprint is eligible, not how printing works |
+| Scheduled jobs (no controller) | — | `OrderReleaseJobService`, `ReplenishOrderJobService`, `ReleaseOrderJobService`, `CleanupBatchService`, `MessageCleanupBatchService`, `CleanUpOldMessageJobService` | 📘 [wms2-scheduled-jobs-catalog](./wms2-scheduled-jobs-catalog.md) |
+| Cross-cutting (any symbol above) | — | — | 📘 [transaction-osiv-boundary-map](./wms2-transaction-osiv-boundary-map.md) (tx + OSIV boundaries) · 📘 [state-machine-catalog](./wms2-state-machine-catalog.md) (state transitions) · 📘 [exception-taxonomy](./wms-exception-taxonomy.md) |
+
+**Completeness of this section:** all 61 `*Controller` classes under `v2/wms2-api/src/main/java` are accounted for above (verified by enumeration — see §12). Services are the *primary* ones per subsystem, not exhaustive; `wms2-java-package-analysis.md` is the full inventory. A symbol absent here is **not indexed yet** — it does not mean no doc covers it. Re-run the derivation grep in §9's preamble after adding a controller or a workflow doc.
+
+---
+
+## 10. Coverage Matrix
 
 | Category | Total functions | With workflow doc | Partial / indirect | No doc (intentional) |
 |---|---|---|---|---|
@@ -181,22 +222,34 @@ Recommendation: remove or quarantine in a dedicated folder after confirming no d
 
 ---
 
-## 10. How to use this doc
+## 11. How to use this doc
 
 | Starting point | Action |
 |---|---|
 | Support call: "X feature doesn't work" | Find X in §2 / §3 → open linked doc → use its "How to debug" section |
+| **Code change: you have a class / method name** | Look it up in **§9** (API Symbol → Doc Index) → read the linked doc's relevant section before writing code or a plan. This is the lookup the root `CLAUDE.md` mandates. A miss means "not indexed", not "no docs exist" |
 | New engineer onboarding | Read §2 + §3 to understand what the platform offers; pick one workflow to deep-dive |
-| Coverage audit | Scan §9 + §4–§7 — any row without a direct doc link is a coverage candidate |
+| Coverage audit | Scan §10 + §4–§7 — any row without a direct doc link is a coverage candidate |
 | Security audit | Cross-reference role column with 📘 [keycloak-role-matrix](./wms2-keycloak-role-matrix.md) |
 | Deprecating a page | Confirm it's in §8 before deleting |
 
 ---
 
-## 11. Verification Log
+## 12. Verification Log
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-04-19 | Mobile menu (`store/home.js:19-94`), web menu (`util/appMenuList.js`, `layouts/default.vue:248-268`), all page files under `pages/` (both UIs), endpoint patterns from Vuex actions | 45 distinct functions enumerated; 12 mobile + 33 web (ops / master / reports / admin / error / legacy) | Code read (grep + file listing across both UI repos) |
+| 2026-08-03 | **§9 symbol axis added (SBDEV-2803).** Enumerated every `*Controller*.java` under `v2/wms2-api/src/main/java`; derived symbol→doc rows from `grep -ohE "[A-Z][A-Za-z]*(Controller\|Service)\b"` over `workflows/wms2-*.md`, `architecture/wms2-*.md`, `design/wms2-*.md` | 61 controllers found, all 61 mapped to a subsystem row. Pre-existing state confirmed: **0** Java symbols anywhere in this file, so the `CLAUDE.md`-mandated symbol grep returned nothing for *every* subsystem, not only cycle count. One real coverage gap surfaced: printing (`PrinterController`, `PrinterRestController`, `PrintService`) has no doc → filed as SBDEV-2808 | Code read + doc-symbol derivation grep |
 
-**Re-verify every 90 days.** Next due: **2026-07-18** — any new page added to either UI invalidates a row. Pair this with the verify-docs skill audit on the menu files.
+**Re-verify every 90 days.** Next due: **2026-11-01** — any new page added to either UI invalidates a §2–§8 row; any new controller or new workflow doc invalidates §9. Pair this with the verify-docs skill audit on the menu files.
+
+**§9 re-derivation one-liner** (run from the repo root; compare output against §9):
+
+```bash
+find v2/wms2-api/src/main/java -name "*Controller*.java" | sed 's|.*/||;s|\.java||' | sort
+cd sbdocs/3-Resources && for f in workflows/wms2-*.md architecture/wms2-*.md design/wms2-*.md; do
+  s=$(grep -ohE "[A-Z][A-Za-z]*(Controller|Service)\b" "$f" | sort -u | tr '\n' ' ')
+  [ -n "$s" ] && printf '%-46s %s\n' "$(basename "$f" .md)" "$s"
+done
+```

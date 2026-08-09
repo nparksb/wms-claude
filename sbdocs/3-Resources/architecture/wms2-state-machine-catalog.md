@@ -272,11 +272,20 @@ Cancel cascade from `Customerorder` goes through this entity — see §5.1.
 | **States reachable** | `CREATED`, `OPEN`, `PROCESSING`, `CLOSED`, `FINISHED`, `CANCELLED` |
 | **Write sites** | 10+ in `ReceivingService`, `AdviceService`, `FileImportController`, `AdviceRestController` |
 
-**Unstick endpoint:** `controller/rest/AdviceRestController.java:648` (`reopen`) — moves an Advice back from `FINISHED`/`CLOSED` to `OPEN`. **Only explicit reopener in the catalog**.
+**Unstick endpoint:** `controller/rest/AdviceRestController.java:732` (`reopen`, re-checked 2026-08-06; was documented as :648) — moves an Advice back from `FINISHED`/`CLOSED` to `OPEN`. **Only explicit reopener in the catalog**.
 
 ### 4.8 `Adviceposition` — String state
 
-Same `AdviceState` values as Advice. Write sites: `ReceivingService:240,292`, `AdviceService:220`, `AdviceRestController:276,448,606`, `FileImportController:465`.
+Same `AdviceState` values as Advice. Write sites: `ReceivingService:240,292`, `AdviceService:220`, `AdviceRestController:276,448,606`, `FileImportController:465`, and **`ReturnAdviceAutoReceiveService.markFinished` (SBDEV-2778)**.
+
+> **SBDEV-2778 — a RETURN advice can reach FINISHED without a dock scan.** `markFinished` flips both
+> `Adviceposition` and `Advice` to `FINISHED` in ONE `tenantTransactionManager` transaction, from the
+> `/rest/advice/create` request thread, gated on the default-ON `RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED`
+> sysprop. Both flips are bulk `WHERE advice_id = ?` (`AdvicepositionRepository:31`,
+> `AdviceRepository:30`), so they cannot distinguish received from unreceived positions — which is why
+> the caller refuses to build a plan whose line count differs from the persisted position count.
+> They run only after every position's `receiveGoods` succeeded. This supersedes SBDEV-2236, which had
+> removed the behavior; see 📕 [wms2-receiving-putaway-workflow §3.5](../workflows/wms2-receiving-putaway-workflow.md).
 
 ### 4.9 `Billoflading` + `BillofladingPosition` — String state
 
@@ -304,22 +313,60 @@ Explicitly verified absent — **do not add a state field without a design revie
 
 State changes on a parent routinely mutate children in the same transaction. These cascades are manual and easy to miss when adding new cases.
 
-### 5.1 `CustomerorderService.cancelOrder()` (line 300)
+> ⚠️ **Anchors in §5 were re-checked 2026-08-06 and MOST WERE WRONG.** Every method
+> name and line number below has been re-derived against `origin/develop` (`169065c`)
+> except where explicitly marked unresolved. **Do not trust any §5 line number that
+> predates this note.** The catalog's `last_verified` is 2026-05-08 and this was a
+> scoped anchor sweep, not a full content re-verification — the *behavioural* claims
+> below (which states cascade to what) were **not** re-derived and may also have drifted.
+
+### 5.1 `CustomerorderService.cancelOrder()` — **:655** (was documented as line 300)
 Cascades `CANCELED` to:
-- `Customerorder.state`
-- `Pickingorder.state` (via position linkage)
-- `PickingorderUnitload.state` (line 305)
-Plus: `handleRapidPickingForCancelledOrder` (`CustomerorderService:645`) may bounce a `Pickingorder` back to `PROCESSABLE` if a rapid-pick tote must be released. See `Cancel_Order_Null_SectionId_And_Early_Return_Fix` for why the null-check there matters.
+- `Customerorder.state` (**:754**)
+- `Pickingorder.state` (via position linkage) — note **:724** sets `PROCESSABLE`, not `CANCELED`
+- `PickingorderUnitload.state` (**:729**, was documented as line 305)
 
-### 5.2 `CustomerorderService.pack()` (line 485)
-Sets `Customerorder → PACKED` AND (via line 517) `PickingorderUnitload → FINISHED`.
-Guard at line 382 prevents the `PACKED`/`PALLETIZED` double-apply that was the root cause of `Cancel_Club_Parcels_Packed_State_Fix`.
+⚠️ `handleRapidPickingForCancelledOrder` — **no longer exists under that name**; the
+rapid-picking release is now inline in the `cancelOrder` body around :724. The old
+reference (`CustomerorderService:645`) resolves to `clubRunCancellationBlockingState`
+(:636) / its call site (:671), which is a different concern entirely.
+See `Cancel_Order_Null_SectionId_And_Early_Return_Fix` for why the null-check matters.
 
-### 5.3 `ParcelMonitorViewService.palletizeOrders()` (lines 156, 283)
-Sets `Customerorder → PALLETIZED`. Followed by the post-commit hook in the same file to notify OMS (§6 in the [transaction boundary map](./wms2-transaction-osiv-boundary-map.md)).
+### 5.2 `CustomerorderService.packageOrder()` — **:506** (was documented as `pack()` at line 485)
+The method was **renamed**; `pack(` does not exist anywhere in v2.
+Sets `Customerorder → PACKED`. The `PACKED`/`PALLETIZED` double-apply guard that was the
+root cause of `Cancel_Club_Parcels_Packed_State_Fix` is at **:415** (was documented as :382).
+⚠️ The "via line 517 → `PickingorderUnitload → FINISHED`" claim was **not** re-verified.
 
-### 5.4 `BillofladingService.finishClubRun()` (lines 744, 749)
-Sets `Customerorder → PACKED` **and** `CustomerorderBatch → ORDER_BATCH_CLUB_RUN_FINISHED` in the same transaction. Notable because it sets `PACKED` on the order even though the order itself wasn't packed in this method — the batch-level finish is a claim about all children.
+### 5.3 `ParcelMonitorViewService.palletise()` — **:103**, and `palletiseAndTruckLoad()` — **:235**
+(was documented as `palletizeOrders()` at lines 156, 283)
+⚠️ **The code uses the British spelling `palletise`.** That is why the documented name
+never resolved — and why a `grep palletize` returns nothing and reads as "this was deleted".
+Sets `Customerorder → PALLETIZED`. Followed by the post-commit hook in the same file to
+notify OMS (§6 in the [transaction boundary map](./wms2-transaction-osiv-boundary-map.md)).
+
+### 5.4 ~~`BillofladingService.finishClubRun()` (lines 744, 749)~~ — **METHOD DOES NOT EXIST**
+
+⚠️ **UNRESOLVED — needs re-derivation before this section is trusted.** As of 2026-08-06,
+`finishClubRun` appears **nowhere in v2, and nowhere in v1 either** (`grep -rn finishClub`
+over both `src/` trees returns zero hits, in main *and* test). The nearest surviving method
+on `BillofladingService` is `finishTransfer` (:1272), which is a different flow.
+
+Club-run finishing was refactored out of `BillofladingService`: the live path is
+`CustomerorderBatchService.runClubLine` → `ClubLineOrderProcessor` (extracted per that
+class's header comment; see also SBDEV-2381 in the
+[transaction boundary map](./wms2-transaction-osiv-boundary-map.md) §7, which documents up to
+three per-CO `outboxService.enqueue` calls in `finalizeClubLine`).
+
+The behavioural claim below may still hold at the new location, but **it was written against
+a method that no longer exists and has not been re-confirmed**:
+
+> Sets `Customerorder → PACKED` **and** `CustomerorderBatch → ORDER_BATCH_CLUB_RUN_FINISHED`
+> in the same transaction. Notable because it sets `PACKED` on the order even though the order
+> itself wasn't packed in this method — the batch-level finish is a claim about all children.
+
+Whoever next touches club-run state should re-derive this section against
+`ClubLineOrderProcessor` + `CustomerorderBatchService` and replace this block.
 
 ### 5.5 `PickingorderBusinessService.finalizePicking()` (lines 238–569)
 The single largest state-mutating method in the codebase — across one call it writes:
@@ -383,5 +430,8 @@ Outside these paths, there is no safe way to "fix" a stuck state — direct SQL 
 |---|---|---|---|
 | 2026-04-19 | All state field declarations, `WmsConstants.State` + `AdviceState` + `BillOfLadingState` + `CycleCountState` values, write-site inventories (~160 total), primary guards, cascade methods, recovery endpoints | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-08 | Group T (transfer-order) churn — `TransferOrderService.unlinkTransferLaneFromTransferOrder` resets state to `CUSTOMER_ORDER_ACTIVATED` on lane unlink (commit 24280b0); Group P picking lines shifted +1 (`finalizePicking` now 238–569; cascade table updated); rapid-pick recovery cite confirmed at line 645 (guard at 639); SBDEV-2164 stale club batch cleanup adds JobLockId.STALE_CLUB_BATCH_CLEANUP but does not introduce new state values for `CustomerorderBatch` (cancel transitions remain through `cancelBatch`); §4.6 Replenishorder unaffected; receiving repository `findByStateAndItemdataId` confirmed live in `ReplenishorderRepository.java:46` (only used by job paths, no new state added). | All write-site lines re-confirmed; minor +1 drift in `PickingorderBusinessService` updated. | Code read (grep-based) |
+| 2026-08-03 | §4.8 `Adviceposition` write sites: added `ReturnAdviceAutoReceiveService.markFinished` (SBDEV-2778) + the RETURN-reaches-FINISHED-without-a-dock-scan note | Only §4.7/§4.8 re-verified; the ~160-site inventory elsewhere was **not** re-counted, so `last_verified` stays at 2026-05-08 | Code read (SBDEV-2778 diff) |
 
-**Re-verify every 60 days** — state surface drifts quickly. Next due: 2026-07-07.
+| 2026-08-06 | **§5 cross-entity cascade anchors + §4.7 reopen endpoint.** Cadence sweep prompted by SBDEV-2731 (which touches none of this surface — its diff contains zero `setState`/`AdviceState`). **Most §5 anchors were wrong**, including three where the documented *method name* no longer resolves at all. | Corrected against `origin/develop` (`169065c`): §5.1 `cancelOrder` 300→**655** (child writes :724/:729/:754; `handleRapidPickingForCancelledOrder` no longer exists — now inline, and the old :645 cite now lands on unrelated club-run code); §5.2 `pack()`→**`packageOrder()` :506**, guard :382→**:415**; §5.3 `palletizeOrders()`→**`palletise()` :103 / `palletiseAndTruckLoad()` :235** — the code uses the **British spelling**, which is why the old name read as deleted; §4.7 `reopen` :648→**:732**. §5.4 `finishClubRun` **exists in neither v1 nor v2** and is flagged UNRESOLVED in place. **Anchors only — the ~160-site write inventory and every behavioural claim were NOT re-derived, so `last_verified` stays at 2026-05-08.** | Code read (grep-based, SBDEV-2731 doc sweep) |
+
+**Re-verify every 60 days** — state surface drifts quickly. Next due: 2026-07-07. 🔴 **30 days overdue as of 2026-08-06, and the 2026-08-06 anchor sweep found §5 substantially rotted** — three of five cascade methods had names that no longer resolve. Treat a full re-derivation of §5 and the ~160-site inventory as owed work, not optional; the two scoped touches since 2026-05-08 do not substitute for it.

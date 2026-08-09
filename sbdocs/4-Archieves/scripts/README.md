@@ -95,5 +95,7 @@ Acceptance / verification harnesses (`verify-<plan-id>.sh`) whose paired plan ha
 | `verify-SBDEV-2575-multi-unitload-replen-requires-new-self-deadlock.sh` | [SBDEV-2575-multi-unitload-replen-requires-new-self-deadlock](../wms2/plan/SBDEV-2575-multi-unitload-replen-requires-new-self-deadlock.md) |
 | `verify-SBDEV-2608-tenant-db-switch-stale-connection-pool-refresh.sh` | [SBDEV-2608-tenant-db-switch-stale-connection-pool-refresh](../wms2/plan/SBDEV-2608-tenant-db-switch-stale-connection-pool-refresh.md) |
 | `verify-SBDEV-2610-move-unitload-false-reserved-block-v2.sh` | [SBDEV-2610-move-unitload-false-reserved-block](../wms2/plan/SBDEV-2610-move-unitload-false-reserved-block.md) |
+| `verify-SBDEV-2632-cycle-count-bulk-export-nonnumeric-id-500.sh` | [SBDEV-2632-cycle-count-bulk-export-nonnumeric-id-500](../wms2/plan/SBDEV-2632-cycle-count-bulk-export-nonnumeric-id-500.md) |
+| `verify-SBDEV-2778-return-to-inventory-not-received-bol-not-closed.sh` | [SBDEV-2778-return-to-inventory-not-received-bol-not-closed](../wms2/plan/SBDEV-2778-return-to-inventory-not-received-bol-not-closed.md) |
 
-_Generated 73 rows. Regenerate after a backfill sweep; single archivals append one row via the archive-plan skill._
+_76 rows, matching 76 `verify-*.sh` files (re-counted 2026-08-09 after SBDEV-2632 was retired here). Regenerate after a backfill sweep; single archivals append one row via the archive-plan skill._

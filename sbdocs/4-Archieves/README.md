@@ -22,11 +22,11 @@ See also: [vault index](../INDEX.md) · [plan template](../9-System/templates/wm
 |---|---|---|
 | [wms1/plan/](wms1/plan/) | Completed v1 plans (fixes, feature ports, migrations, audits) | 54 |
 | [wms1/analysis/](wms1/analysis/) | Closed v1 investigations & root-cause reports | 3 |
-| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 150 |
-| [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | 0 *(empty)* |
-| [scripts/](scripts/) | Retired plan verification harnesses (`verify-<plan-id>.sh`) whose plan is archived | 73 |
+| [wms2/plan/](wms2/plan/) | Completed v2 plans (fixes, ports, refactors, performance) | 152 |
+| [wms2/analysis/](wms2/analysis/) | Closed v2 investigations | 1 |
+| [scripts/](scripts/) | Retired plan verification harnesses (`verify-<plan-id>.sh`) whose plan is archived | 75 |
 
-> Counts refreshed against the filesystem 2026-07-25 (`ls wms*/plan/*.md | wc -l`; `ls scripts/verify-*.sh | wc -l`); they drift as plans are archived — re-run to refresh. Treat Dataview output below as authoritative in Obsidian.
+> Counts refreshed against the filesystem 2026-08-04 (`ls wms*/plan/*.md | wc -l`; `ls wms*/analysis/*.md | wc -l`; `ls scripts/verify-*.sh | wc -l`); they drift as plans are archived — re-run to refresh. Treat Dataview output below as authoritative in Obsidian.
 
 ---
 

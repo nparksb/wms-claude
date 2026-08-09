@@ -6,9 +6,9 @@ version: v2
 scope: authorization
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-06-24
-last_verified: 2026-06-24
-verified_by: 2026-06-24 re-read of v2/wms2-api WmsConstants.FunctionEnum (344-423) + Authority.java + AdminController.java (@PreAuthorize audit) + UtilRestController.java (255-420 persona seed) + SecurityConfiguration.java (116-136) + wms2-mobile-ui store/home.js (setStaticMenus)
+updated: 2026-08-07
+last_verified: 2026-08-07
+verified_by: 2026-08-07 SBDEV-2863 fix + code review (Authority.java, CustomMethodSecurityExpressionRoot/Handler, AdminController @PreAuthorize audit incl. the 5 ungated sites, SecurityConfiguration rule-precedence recheck); prior 2026-06-24 re-read of v2/wms2-api WmsConstants.FunctionEnum (344-423) + Authority.java + AdminController.java (@PreAuthorize audit) + UtilRestController.java (255-420 persona seed) + SecurityConfiguration.java (116-136) + wms2-mobile-ui store/home.js (setStaticMenus)
 related:
   - ./wms2-end-to-end-request-journey.md
   - ./wms2-tenant-routing-datasource-topology.md
@@ -24,7 +24,7 @@ tags:
 # WMS v2 — Keycloak Role Matrix
 
 **Scope:** Every realm role referenced across `wms2-api`, `wms2-web-ui`, and `wms2-mobile-ui`, mapped to the feature it gates · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-06-24
+**Owner:** Nam Park · **Last verified:** 2026-08-07
 
 ---
 
@@ -42,7 +42,7 @@ v2 uses Keycloak realm roles for coarse page/feature gating and Keycloak group p
 **Three load-bearing facts:**
 
 1. **Realm roles are declared in `WmsConstants.FunctionEnum` (lines 344–423).** All **80** constants live there (66 `WEB_UI_*` at 344–409, 13 `MOBILE_UI_*` at 410–422, 1 `SPECIAL_*` at 423); grep for a role name in just this file to find where it's authoritative.
-2. **Backend enforcement is mostly at the service layer, not annotation layer.** `AdminController` uses `@PreAuthorize(Authority.IS_SB_ADMIN)` for user/group management on **8 active endpoints**, but most `WEB_UI_ACTION_*` and `WEB_UI_VIEW_*` roles are checked via `syspropService` / `functionService` calls inside service methods, not declarative annotations. ⚠️ **Four `AdminController` endpoints now have their `@PreAuthorize` commented out and one new endpoint is entirely unguarded** — see §2.1 / §3.1 for the security gap.
+2. **Backend enforcement is mostly at the service layer, not annotation layer.** `@PreAuthorize(Authority.IS_SB_ADMIN)` guards **9 active endpoints** (8 on `AdminController` + `ReplenishmentReconciliationController:37`), but most `WEB_UI_ACTION_*` and `WEB_UI_VIEW_*` roles are checked via `syspropService` / `functionService` calls inside service methods, not declarative annotations. ⚠️ **Two separate problems, both in §2.1:** (a) that annotation was **completely broken 2025-10-29 → 2026-08-07** and enforced nothing — it returned HTTP 500 to everyone (SBDEV-2863, now fixed); (b) **five** `AdminController` endpoints remain ungated (SBDEV-2870, urgent).
 3. **Mobile menu gating is UI-side only.** The mobile UI calls `GET /user/getAllRoles/{username}` (`store/home.js:106`) on login and filters the static menu (filter at `store/home.js:108-113`). **The backend does not re-enforce mobile view roles** — an operator who bypasses the menu (deep link, API replay) will hit service logic without the role check. Check §6 for the implications.
 
 ---
@@ -51,19 +51,53 @@ v2 uses Keycloak realm roles for coarse page/feature gating and Keycloak group p
 
 ### 2.1 `sb_admin` — SiteBoss super-admin
 
-- Defined: `Authority.java:19` (`SB_ADMIN_ROLE = "sb_admin"`)
-- Expression: `Authority.IS_SB_ADMIN` = `"isSbAdmin()"` — a **custom SpEL method** tagged `// legacy` in `Authority.java:14`.
-- Enforced by: `@PreAuthorize(Authority.IS_SB_ADMIN)` on **8 active** `AdminController` endpoints — `findUsers` (:93), `findUserByUsername` (:121), `deleteUserByUsername` (:134), `findUserGroupsByUsername` (:147), `createUser` (:156), `updateUser` (:168), `resetPassword` (:189), `findGroup` (:207) — covering `/v3/user/*` and `/v3/groups/*` administration.
+- Defined: `Authority.java:14` (`SB_ADMIN_ROLE = "sb_admin"`)
+- Expression: `Authority.IS_SB_ADMIN` = `"hasAuthority('sb_admin')"` (`Authority.java`, declared immediately below `SB_ADMIN_ROLE`) — a **Spring built-in**, not a custom SpEL method.
+- Enforced by: `@PreAuthorize(Authority.IS_SB_ADMIN)` on **9 active** endpoints — 8 on `AdminController`: `findUsers` (:80), `findUserByUsername` (:108), `deleteUserByUsername` (:121), `findUserGroupsByUsername` (:134), `createUser` (:143), `updateUser` (:155), `resetPassword` (:176), `findGroup` (:200) — plus **`ReplenishmentReconciliationController:37`** (per-tenant stranded-reservation reconciliation, SBDEV-2610 C1), which this doc previously omitted.
 - Typical grantee: SiteBoss engineering / ops staff. Not tenant-scoped.
 
-> ⚠️ **SECURITY GAP — review required (verified 2026-06-24).** Four `AdminController` endpoints had their `@PreAuthorize(Authority.IS_SB_ADMIN)` guard **commented out**, and one new endpoint was added **with no guard at all**. They now fall through to the `SecurityConfiguration` path rule for `/user/**` → `hasAnyAuthority("wms_user")` (`SecurityConfiguration.java:127-130`, see §6.1), i.e. any authenticated standard warehouse user can reach them rather than only `sb_admin`:
-> - `importUsersFromCsvText` — `AdminController.java:197` (comment `// @PreAuthorize(...)`), maps `GET /v3/admin/importUsersFromCsvText` (bulk Keycloak user creation from CSV)
-> - `addUserToWarehouseGroup` — `AdminController.java:261` (commented), `POST /v3/user/addUserToWarehouseGroup`
-> - `removeUserFromWarehouseGroup` — `AdminController.java:282` (commented), `POST /v3/user/removeUserFromWarehouseGroup`
-> - `isWarehouseUser` — `AdminController.java:310` (commented), `GET /v3/user/isWarehouseUser`
-> - `userExistsInKeycloak` — `AdminController.java:350` (**new, never had a `@PreAuthorize`**), `GET /v3/user/existsInKeycloak` (Keycloak user-enumeration vector)
+> ## 🔴 THIS EXPRESSION WAS BROKEN FOR ~9 MONTHS — 2025-10-29 → 2026-08-07 (SBDEV-2863)
 >
-> Net effect: user-provisioning / warehouse-group-membership mutation and Keycloak existence checks are no longer `sb_admin`-gated. Confirm this is intentional; if not, restore the annotations.
+> **Everything this section previously described as enforcement was not enforcement.** `IS_SB_ADMIN` read
+> `"isSbAdmin()"`, and **no such method has ever existed** on `CustomMethodSecurityExpressionRoot` — its only
+> admin predicate is `isAimAdmin()` (`:77`). Spring resolves a `@PreAuthorize` string reflectively against
+> that root, so every one of the 9 annotated endpoints threw
+> `SpelEvaluationException EL1004E` *inside the authorization check* and returned **HTTP 500 to every
+> caller, `sb_admin` included.** Not a denial — a crash. Those endpoints were non-functional, not protected.
+>
+> **Provenance:** `ded4d644` (2025-10-29, "cleaned up the code") renamed `IS_AIM_ADMIN`/`"isAimAdmin()"` to
+> `IS_SB_ADMIN`/`"isSbAdmin()"` and `AIM_ADMIN_ROLE` → `SB_ADMIN_ROLE`, but left the method on the
+> expression root named `isAimAdmin()`. A half-finished `aim_admin` → `sb_admin` rebrand. **The expression
+> worked before that commit.**
+>
+> **Operational consequence worth knowing:** `ReplenishmentReconciliationController:37` was added *after*
+> 2025-10-29, so **it has never once worked** — every attempt to run the SBDEV-2610 stranded-reservation
+> remediation returned 500. Reservations that remediation was meant to clear may still be stranded on every
+> tenant.
+>
+> **Why no test caught it:** `CustomMethodSecurityExpressionRootUnitTest` called `isAimAdmin()` *directly*
+> and never evaluated the SpEL string; and `BaseControllerUnitTest:50` uses `MockMvcBuilders.standaloneSetup`,
+> which installs no security filter chain and no method-security advisor — so **no controller unit test in
+> this repo evaluates `@PreAuthorize` at all.** The `@SpringBootTest` lane that would is down (SBDEV-2217).
+>
+> **Fixed by SBDEV-2863** → `hasAuthority('sb_admin')`, semantically identical to what `isAimAdmin()`
+> delegates to. ⚠️ The constant is a **compile-time constant**, so javac inlines its value into every
+> consumer class file — and `pom.xml:440` disables incremental compilation. **Verify this fix only against a
+> `mvn clean` build**; a warm `target/` reproduces the old 500. The release path (`Dockerfile:10`,
+> `mvn clean package`) is already safe. A durable guard for the whole defect class is tracked by **SBDEV-2872**.
+
+> ⚠️ **SECURITY GAP — STILL OPEN, now tracked by [SBDEV-2870](https://app.clickup.com/t/868knqrwr) (urgent).** **Five** `AdminController` endpoints are ungated. `/v3/**` → `hasAnyAuthority("wms_user")` (**rule D**, `SecurityConfiguration.java:136`) is what applies — *not* rule C's `/user/**` matcher at `:132`, which is root-relative and does **not** match `/v3/user/**`. Either way the effective gate is `wms_user`, so **any authenticated warehouse user** can reach all five:
+> - `importUsersFromCsvText` — `AdminController.java:190` (commented), `GET /v3/admin/importUsersFromCsvText` — **bulk Keycloak user creation from CSV; a privilege-escalation path**
+> - `addUserToWarehouseGroup` — `AdminController.java:261` (commented), `POST /v3/user/addUserToWarehouseGroup`
+> - `removeUserFromWarehouseGroup` — `AdminController.java:285` (commented), `POST /v3/user/removeUserFromWarehouseGroup`
+> - `isWarehouseUser` — `AdminController.java:315` (commented), `GET /v3/user/isWarehouseUser`
+> - `userExistsInKeycloak` — `AdminController.java:359` (**never had a `@PreAuthorize`**), `GET /v3/user/existsInKeycloak` (Keycloak user-enumeration vector)
+>
+> **New finding (SBDEV-2863 review): four of the five were most likely commented out *because of* the defect above, not as a decision.** `c8ce58d9` (2026-02-01) *replaced* three previously-**guarded** group endpoints with these warehouse-group endpoints, committing their annotations **already commented out** — three months into the broken window, when the guard returned 500 to everyone. `:190` is the exception (commented by `5ac0262c`, 2024-10-16, before the rename) and is a genuine deliberate choice.
+>
+> **Do not simply restore the annotations:** `wms2-web-ui` calls three of them from the User Management screen (`store/admin/user.js:175, 193, 207, 218` via `components/admin/userManagement/users/userWarehouseEdit.vue:127-162`), so a guard would 403 that screen for every non-`sb_admin` admin. Coordinated API+UI change — see SBDEV-2870.
+>
+> Related: `findUsers` (`:80-103`) reads a `jwt.getClaimAsStringList("authorities")` claim that `JwtAccessTokenCustomizer:86-107` never populates, so its SiteBoss-staff filter has never worked and its `else` branch is now unreachable — **SBDEV-2871**.
 
 ### 2.2 `WEB_UI_*` — Web UI page + action gates
 
@@ -87,7 +121,7 @@ Rows marked — (em dash) in a column mean "not referenced there."
 
 | Role | Backend | Web UI gate | Mobile UI gate | Purpose |
 |---|---|---|---|---|
-| `sb_admin` | `Authority.IS_SB_ADMIN` → `AdminController` (**8 active** `@PreAuthorize` endpoints at :93,121,134,147,156,168,189,207; `/v3/user/*` + `/v3/groups/*`) | — | — | SiteBoss global admin — user/group management. ⚠️ **4 endpoints now commented-out (:197,261,282,310) + new unguarded `/user/existsInKeycloak` (:350) — see §2.1 security gap** |
+| `sb_admin` | `Authority.IS_SB_ADMIN` → **9 active** `@PreAuthorize` endpoints: `AdminController` :80,108,121,134,143,155,176,200 (`/v3/user/*` + `/v3/groups/*`) + `ReplenishmentReconciliationController:37` | — | — | SiteBoss global admin. ⚠️ **Enforced nothing 2025-10-29 → 2026-08-07 — the expression threw and returned 500 to everyone (SBDEV-2863, fixed).** ⚠️ **5 ungated endpoints remain: :190, 261, 285, 315 (commented) + :359 (never annotated) — SBDEV-2870** |
 
 ### 3.2 Web UI — `WEB_UI_LOG_IN` + admin pages
 
@@ -270,7 +304,7 @@ The only HTTP-path-level authority enforcement lives in `SecurityConfiguration.j
 | `/actuator/health/**`, `/actuator/info` | permitAll | :116 |
 | `/actuator/**` | `ADMIN` or `wms_admin` | :117 |
 | `/`, `/v3`, `/v3/token`, `/error`, `/rest/**`, `/api/**`, `/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`, `/api/public/**` | permitAll | :120-124 |
-| `/v3/adminAction/**`, `/v3/sysprop/**`, `/v3/systemProperty/**`, `/v3/printer/**`, `/userDetailsById/**`, `/userGroup/**`, `/user/**` | `wms_user` | :127-130 |
+| `/v3/adminAction/**`, `/v3/sysprop/**`, `/v3/systemProperty/**`, `/v3/printer/**`, `/userDetailsById/**`, `/userGroup/**`, `/user/**` | `wms_user` | :130-133 — ⚠️ the last three matchers are **root-relative** and do **not** match `/v3/user/**`; those requests fall through to the `/v3/**` rule below |
 | `/v3/**` | `wms_user` | :133 |
 | everything else | authenticated | :136 |
 
@@ -297,7 +331,7 @@ Not a realm role in the sense above — it's a service-account principal. Its au
 4. **Personas are DB-backed seed rows hard-coded in `UtilRestController`, not Keycloak composite roles.** They are `UserRole`/`UserGroup`/`UserFunction` rows seeded on first run (`:239-416`). A new persona — or a new function added to an existing persona — requires a code change + deploy, not a Keycloak-only operation.
 5. **Group paths vs realm roles are distinct.** A user with all the right roles but no matching group membership will still fail tenant routing — and vice versa.
 6. **Orphan roles are defined but unused.** Granting them to a persona is a no-op until a consumer exists. Use the table in §5 before expecting a new permission to take effect.
-7. **`@PreAuthorize(Authority.IS_SB_ADMIN)` annotation enforcement is shrinking.** It now guards only **8 active** `AdminController` endpoints — **4 were commented out and 1 new endpoint is unguarded** (§2.1 security gap). Everywhere else, enforcement is service-layer — easier to miss when refactoring, and easy to silently disable by commenting an annotation.
+7. **`@PreAuthorize(Authority.IS_SB_ADMIN)` enforcement is thin, and was recently zero.** It guards **9 active** endpoints — and from 2025-10-29 to 2026-08-07 it guarded **none of them**, because the expression named a method that did not exist and threw HTTP 500 for every caller (SBDEV-2863). **Nothing in the test suite could catch that**: `BaseControllerUnitTest:50` uses `standaloneSetup`, so no controller test evaluates `@PreAuthorize` at all, and the `@SpringBootTest` lane is down (SBDEV-2217). A durable guard is tracked by **SBDEV-2872**. Separately, **5** endpoints are ungated (**SBDEV-2870**). Everywhere else enforcement is service-layer — easy to miss when refactoring, and easy to silently disable by commenting an annotation.
 8. **`MOBILE_UI_NEVER_TIME_OUT` is not a view role.** Granting it changes session timeout behavior on the mobile UI only. Don't assign casually.
 
 ---

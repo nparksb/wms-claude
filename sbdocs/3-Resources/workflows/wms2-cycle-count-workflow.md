@@ -6,9 +6,9 @@ version: v2
 scope: cycle-count
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-05-10
-verified_by: code read of v2/wms2-api CyclecountService + MobileCycleCountService + CycleCountLosController
+updated: 2026-08-03
+last_verified: 2026-08-03
+verified_by: code read of v2/wms2-api CyclecountService + MobileCycleCountService + CycleCountLosController; export endpoint re-verified against SBDEV-2632 implementation (line anchors refreshed)
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -61,7 +61,7 @@ CREATED → STARTED → FINISHED       (happy path, terminal)
 ```
 Admin creates a cycle count
   │  POST /v3/cycleCount/create {skuIdSet, areaIdSet, name, comment}
-  │        [CycleCountController:56]
+  │        [CycleCountController:60]
   ▼
 CyclecountService.createCycleCount()
   ├── Create Cyclecount (state = CREATED)
@@ -103,7 +103,7 @@ Operator confirms recount
 Cyclecount.state = FINISHED (auto-rolled when all positions are terminal)
 
 Admin cancels (before completion)
-  │  POST /v3/cycleCount/cancel {ids}    [CycleCountController:74]
+  │  POST /v3/cycleCount/cancel {ids}    [CycleCountController:78]
   ▼
 CyclecountService.cancelCycleCount()
   ├── Guard: current state ∈ {CREATED, STARTED}
@@ -112,9 +112,19 @@ CyclecountService.cancelCycleCount()
   └── Commit
 
 Admin exports
-  │  POST /v3/cycleCount/export {id}     [CycleCountController:106]
+  │  POST /v3/cycleCount/export {ids:[1,2]} | {id:"1, 2"}   [CycleCountController:116]
   ▼
 Excel file returned — "aggregated" sheet (by SKU) + "detailed" sheet (per position)
+  │  Single selection  → legacy columns, filename CC<number>_<ts>.xlsx
+  │  Multi selection   → both sheets gain a leading "Cycle Count" column (CC_Multiple_<ts>.xlsx);
+  │                      positionless cycle counts are SKIPPED and named in the
+  │                      X-Export-Skipped-Cycle-Counts response header (CORS-exposed)
+  ▼
+Errors are real status codes + JSON {errors:[{field,message}]} — 422 (bad/empty selection,
+nothing exportable), 404 (unknown id), 500 (unexpected; message not echoed to the client).
+Before SBDEV-2632 the id was parsed with Long.parseLong OUTSIDE the try, so a multi-select
+payload produced an opaque HTTP 500, and a positionless cycle count returned 200 with the
+error text as the body — a silently corrupt .xlsx download.
 ```
 
 ---
@@ -143,14 +153,14 @@ Under `/v3/cycleCount/...`. Owner: `CycleCountController`.
 
 | Endpoint | Method | Line | Purpose |
 |---|---|---|---|
-| `create` | POST | 56 | Create new cycle count from SKU + area filters |
-| `cancel` | POST | 74 | Cancel one or more cycle counts (`ids` comma-separated) |
-| `export` | POST | 106 | Export Excel (aggregated + detailed sheets) |
-| `itemDataView` | POST | 141 | List aggregated by item |
-| `locationView` | POST | 153 | List by location within an item |
-| `positionView` | POST | 166 | List per-position (drill-down) |
-| `detailView` | GET | 179 | Paginated list, filter by state / keyword / clientId |
-| `cycleCountDetailsById/{id}` | GET | 200 | Header detail for one cycle count |
+| `create` | POST | 60 | Create new cycle count from SKU + area filters |
+| `cancel` | POST | 78 | Cancel one or more cycle counts (`ids` comma-separated) |
+| `export` | POST | 116 | Export Excel (aggregated + detailed sheets). Accepts `ids` array **or** legacy comma-separated `id`; multi-selection merges into one workbook. 422 / 404 / 500 + JSON on failure |
+| `itemDataView` | POST | 215 | List aggregated by item |
+| `locationView` | POST | 227 | List by location within an item |
+| `positionView` | POST | 240 | List per-position (drill-down) |
+| `detailView` | GET | 253 | Paginated list, filter by state / keyword / clientId |
+| `cycleCountDetailsById/{id}` | GET | 274 | Header detail for one cycle count |
 
 **No reopen endpoint.** Terminal states are absolute.
 

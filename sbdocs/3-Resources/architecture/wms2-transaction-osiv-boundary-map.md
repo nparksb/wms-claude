@@ -121,7 +121,7 @@ Lazy associations cannot be resolved in the controller or view layer. Any fetch 
 - **File:** `net/aim_ai/wms/landlord/config/TenantDatabaseConfig.java:75-77`
 - **Wraps:** `tenantEntityManagerFactory` → `TenantDynamicRoutingDataSource`
 - **Invoked via:** `@Transactional("tenantTransactionManager")` OR `@TenantTransactional` / `@TenantTransactionalReadOnly` meta-annotations (`net/aim_ai/wms/config/TenantTransactionalReadOnly.java:16`).
-- **Used by:** all business services (~116 sites).
+- **Used by:** all business services — **163 sites** counted 2026-08-06 (`@Transactional` lines naming `tenantTransactionManager`; 221 `@Transactional` annotations exist in `src/main/java` in total, the remainder being landlord/repository). The former figure was `~116`.
 
 ### 4.3 No `ChainedTransactionManager`
 
@@ -142,13 +142,13 @@ There is no chained / multi-DS transaction manager. Operations that need both DB
 Bare `@Transactional` on tenant code is a bug.
 
 ### Rule 2 — `REQUIRES_NEW` for job-step isolation
-Use `REQUIRES_NEW` only when each step of a batch must commit independently so the next step sees it (the replenish/release job pattern). All 20 current `REQUIRES_NEW` sites follow this pattern; see §7.
+Use `REQUIRES_NEW` only when each step of a batch must commit independently so the next step sees it (the replenish/release job pattern). All **28** current `REQUIRES_NEW` sites follow this pattern; see §7. (Re-counted 2026-08-06 — this line and §9 item 5 had drifted to `20` while §7's own header already said 28.)
 
 ### Rule 3 — Never open `@Transactional` on a controller
 Controllers in `wms2-api` do not open transactions. Exception-handling at the controller layer (see `PickingController`) is the one acceptable reason the annotation appears there — no method-level `@Transactional` on any current controller.
 
 ### Rule 4 — `readOnly = true` for pure-query service methods
-16 sites currently. This matters more under PgBouncer (transaction pooling mode cannot piggyback prepared statements across autocommit connections), so spreading `readOnly = true` to more query paths is a pending optimization lever.
+**29 sites** as of 2026-08-06 (was documented as 16). This matters more under PgBouncer (transaction pooling mode cannot piggyback prepared statements across autocommit connections), so spreading `readOnly = true` to more query paths is a pending optimization lever.
 
 ### Rule 5 — Post-commit side effects go through `TransactionSynchronizationManager`
 Never fire an external call (OMS, Keycloak, printer, broker) inside the tenant transaction. Register a post-commit synchronization; see §6 and the `ParcelMonitorViewService` / `OmsNotificationService` patterns.
@@ -286,7 +286,7 @@ No business-logic scheduler runs in-process. Replenish / release / cron-autoflus
 2. **Scheduled methods see no tenant.** `TenantContext` is ThreadLocal; the scheduler thread never had it set. New cron jobs that need tenant data must enumerate tenants and `set` the context per iteration. Root-cause pattern of `260331-cron-job-autoflush-optimistic-lock-debug-plan.md`.
 3. **`LosSequencenumber` has both `@Version` AND `PESSIMISTIC_WRITE`.** The `@Version` is defensive — the pessimistic lock is the primary mechanism. Don't remove the version field without verifying all call sites route through `findByIdForUpdate()`.
 4. **Most pessimistic locks have no timeout.** `CustomerorderBatch` and `Billoflading` use a 5s `jakarta.persistence.lock.timeout`; `PickingorderRepository.findByIdForUpdate` uses 1s (SBDEV-2237, interactive pick-claim). The rest will wait for the full Hikari connection-acquire window under row contention, contributing to pool-exhaustion incidents (see `260424-connection-pool-exhaustion-fix-plan.md`).
-5. **`REQUIRES_NEW` ×20 = 20 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
+5. **`REQUIRES_NEW` ×28 = 28 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
 6. **`TenantDynamicRoutingDataSource` falls back to landlord when no context is set** (line 40). A bug that clears the ThreadLocal mid-request would route subsequent writes to landlord without an error until a schema mismatch surfaces downstream.
 7. **Post-commit hooks can silently no-op.** If `TransactionSynchronizationManager.isSynchronizationActive()` is `false` at the call site, the sync is never registered. When a service method that uses `registerSynchronization` is invoked outside a transaction (e.g. from a test or an unusual caller), the side-effect simply drops.
 
@@ -319,7 +319,9 @@ None recorded yet. Candidates that should be written up:
 | 2026-06-10 | 260610 hardening Phase A: §8.3 consumer inventory updated — inert `OptimisticLockRetry` call sites removed from `PickingorderBusinessService.confirmPick` and `UnitloadBusinessService.transferUnitLoadToLocation` (both wrapped in-transaction mutations where the catch can never fire); dead injection removed from `MobileReplenishService`. Sole remaining consumer: `MobilePalletizingService.scanPallet` (non-tx). Scope pinned by new `OptimisticLockRetryScopeTest`. No `@Transactional` site added/removed; §7 REQUIRES_NEW count unchanged (28). NOTE: §9 "only 2 @Scheduled methods" is stale (8 business + 2 infra exist) — full-map refresh tracked by 260610 audit backlog item 7. | Verify script Phase A 9/9 + suites green | 260610 Phase A implementation |
 | 2026-06-29 | Fix `260629-transfer-lane-leak-on-cancel`: new REQUIRED tenant-TM site — `TransferOrderService.unlinkTransferLaneFromTransferOrder` now `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` (previously **none** → ran on the `@Primary` landlord TM in auto-commit; same latent-bug class as the 2026-05-15 `ReplenishmentOrderMaintenanceService.recalculateForItem` entry). Sole caller `TransfersController.unlinkTransferLane` is non-transactional, so this opens a fresh tenant TX (REQUIRED, no propagation join) — no nested-tx hazard. `CustomerorderService.cancelOrder`/`forceCancelOrder` gained a guarded `setTransferlaneId(null)` but **no** new annotation (already tenant-TM). REQUIRES_NEW count unchanged (28; this is a REQUIRED site). | Annotation confirmed by grep + verify script (12 pass, 0 fail) + 143-test green run + code review (SHIP) | Fix `260629` implementation + code review |
 
-**Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-07-31.
+| 2026-08-06 | Cadence sweep of the doc's **countable** claims (prompted by SBDEV-2731, which itself touches none of this surface — its diff contains zero `@Transactional` and zero state transitions). Three counts were stale and one was internally contradictory: §4.2 tenant-TM sites `~116` → **163**; Rule 2 `REQUIRES_NEW` `20` → **28**, which §7's own header already stated correctly, and §9 item 5 carried the same stale 20; Rule 4 `readOnly = true` `16` → **29**. | Corrected. Counts are `grep -rn` over `src/main/java` at `origin/develop` (`169065c`): `Propagation.REQUIRES_NEW` = 28, `readOnly = true` = 29, `@Transactional` lines naming `tenantTransactionManager` = 163 (221 `@Transactional` annotations total). **Counts only — the narrative sections, §7's per-site table and §8's lock analysis were NOT re-verified, so `last_verified` stays at 2026-06-01.** | Code read (grep-based, SBDEV-2731 doc sweep) |
+
+**Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-07-31. ⚠️ **Overdue as of 2026-08-06.** The 2026-08-06 sweep corrected countable claims only; a full pass over §7's site table and §8's lock analysis is still owed.
 
 ---
 

@@ -4,12 +4,12 @@ ticket: "SBDEV-2821"
 ticket_url: "https://app.clickup.com/t/868km8j9z"
 type: "bugfix"
 priority: "high"
-status: "APPROVED for OPTION (iii) — route at putaway. **M1a PASSED 2026-08-09 on wineco DEV: the design gate is GREEN** (FLA 30586183 auto-created, stock merged into virtual PickLocation UL 30586181, one UL on the location). M1b confirmed the cases-and-pallets gap. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). Remaining gate: **M1a** must be proven on UAT before code (§5.1 row 2). **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0."
+status: "merged — **PR #135 MERGED into `develop` 2026-08-09** (merge `fd90487`, feature commit `cfb6d49`); ClickUp moved to `on dev`. See §11 Implementation Status. Original approval record follows. APPROVED for OPTION (iii) — route at putaway. **M1a PASSED 2026-08-09 on wineco DEV: the design gate is GREEN** (FLA 30586183 auto-created, stock merged into virtual PickLocation UL 30586181, one UL on the location). M1b confirmed the cases-and-pallets gap. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). **No gates remain: the M1-on-UAT prerequisite was SATISFIED 2026-08-09 by the DEV run, accepted by the ticket owner (§5.1 row 2) — M1a exercises a switch branch, not tenant data, and re-running on UAT would burn a second fixture pair for no extra coverage.** **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0. **Next action: TDD gate (§5.2 step 2).**"
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell (via SBDEV-2731)"
 created: "2026-08-07"
-updated: "2026-08-08"
+updated: "2026-08-09"
 db_verified: true
 db_verified_note: >
   Verified SELECT-only 2026-08-07 against wms2-hydra (HMG/NYWH PRD — the reporting
@@ -42,8 +42,10 @@ tags:
 ## 0. Decision record
 
 > [!done] **OPTION (iii) — route at putaway — ADOPTED 2026-08-08.**
-> One gate remains before code: **M1 must be proven on UAT** (§5.1 row 2, §6.1). If M1 fails, this design is
-> void and the option choice must be reopened.
+> ✅ **The design gate is CLOSED.** M1a passed 2026-08-09 on `wms2-wineco-dev` (§6.1), and the ticket owner
+> accepted the DEV run as satisfying the "on UAT" wording the same day (§5.1 row 2). This design can no
+> longer be voided by M1. ~~One gate remains before code: **M1 must be proven on UAT** (§5.1 row 2, §6.1).
+> If M1 fails, this design is void and the option choice must be reopened.~~
 
 **Provenance — recorded precisely, because "everyone agreed" is how undecided things get built:**
 
@@ -255,6 +257,13 @@ FLA, so it passes.
 not already present. The existing switch then buckets it correctly by type (flowbin → `flowBinLocationList`,
 overstock → `overstockLocationList`). Prefer a repository-level change so the type switch stays untouched.
 
+> ⚠ **The last two sentences are WRONG for `cases and pallets`, corrected 2026-08-09 during implementation —
+> see the box in §3.2a.** The switch does *not* bucket that type; it drops it in `default:`. The type switch
+> could **not** stay untouched, and the repository change alone would have surfaced a club destination that
+> was then discarded before display. Implemented as: a new `getPutAwayCandidateLocations(itemDataId,
+> configuredLocationId)` (destination as a **parameter** — the SBDEV-2732 seam) **plus** a fourth case in
+> *both* switches.
+
 **Do NOT** reuse `getStorageLocationsForPutAwayItemData` by relaxing its `WHERE`. That query is also
 `@RestResource`-exported and used elsewhere; widening it changes unrelated callers.
 
@@ -271,6 +280,29 @@ overstock → `overstockLocationList`). Prefer a repository-level change so the 
 > **This ticket now owns this fix.** It was unowned until 2026-08-08: SBDEV-2732 has no
 > `MobilePutAwayService` step, and this plan was scoped tier-1-only. **Without it the club use case cannot be
 > consumed at putaway by anyone**, which made SBDEV-2732's claim *"the club use case ships, safely"* false.
+
+> [!warning] **⚠ CORRECTED 2026-08-09 DURING IMPLEMENTATION — THERE ARE **TWO** SWITCHES, NOT ONE.**
+>
+> This section, as originally written, named only `storeBoxOnLocation:472-503`. **`calculatePutAwayList`
+> has its own switch** (`MobilePutAwayService:277-295`) over the same three constants, and its `default:`
+> branch **only logs** — it adds the location to neither `flowBinLocationList` nor `overstockLocationList`.
+>
+> So §3.2's statement *"The existing switch then buckets it correctly by type"* is true for `flowbin` and
+> `overstock`, and **false for `cases and pallets`**: the destination would have been unioned into the
+> candidate list by §3.2's change and then **silently dropped before the operator ever saw it.** Fixing
+> only `storeBoxOnLocation` would have produced a club destination that could be scanned by hand but was
+> never offered.
+>
+> **Both switches are fixed.** This matters beyond this ticket: **SBDEV-2732 step 17a depends on this
+> surfacing for tiers 2/3**, and the club lane is 2732's named use case.
+>
+> **A third, subtler dependency surfaced with it.** `PutAwayLane` is itself a `cases and pallets`
+> location, and on `wms2-wineco-dev` **8,803 of 8,804 SKUs** carry `putawaylocation_id = PutAwayLane`
+> (`itemdata.putawaylocation_id` is `@NotNull`, so production's "no override" is *PutAwayLane*, not
+> `null`). Admitting the type to the switch without also filtering the candidate query would have offered
+> every operator *"put it back on the PutAwayLane."* The query's second leg carries
+> `(a.useforstorage = 'true' OR l.staginglane = true)` — mirroring `verifyScannedLocation:418`'s own gate —
+> which excludes it. **That predicate is load-bearing, not defensive.**
 
 `storeBoxOnLocation:472-503` switches on `locationType.getSltname()` against exactly **three** constants —
 `WmsConstants.java:736-738`: `"flowbin"`, `"overstock box"`, `"overstock pallet"`. **`"cases and pallets"` is
@@ -294,8 +326,8 @@ location with only a debug log, so a surfaced candidate never reaches the operat
 
 **The fix:** add `STORAGE_LOCATION_TYPE_STOCK_RESTRICTION` to both switches, taking the same branch as the
 overstock constants — `transferUnitLoadToLocation`, **no FLA auto-creation**. That last part is load-bearing:
-`Club08` is shared across 27 SKUs, and auto-binding it to one SKU via a `FixLocationAssignment` is exactly the
-defect SBDEV-2854's plan warned about. **The FLA branch must stay reachable only from `flowbin`.**
+club lanes are shared across many SKUs, and auto-binding one to a single SKU via a `FixLocationAssignment` is
+exactly the defect SBDEV-2854's plan warned about. **The FLA branch must stay reachable only from `flowbin`.**
 
 **M1a does not cover this** — it exercises the FLA-free *flowbin* path, which works, so it goes green while
 leaving this failure undetected. **§6.1 now carries `M1b`** for the `cases and pallets` branch. Neither M1a
@@ -308,7 +340,15 @@ nor M3 alone is sufficient evidence that the club use case works; M1b is the one
 | `ICE PACK` → `ICE PACK` | **flowbin** | FLA auto-create + resident-UL merge | Binds the location to the SKU — **correct** for a dedicated location |
 | `1135` → `Club08` | **cases and pallets** | ⛔ **`default:` → THROWS** | **This branch does not exist** — see the box below |
 
-The second row matters. `Club08` is shared across **27 SKUs**. Auto-binding it to one SKU would be a real
+The second row matters. **⚠ CORRECTED 2026-08-09 — this previously read "`Club08` is shared across 27 SKUs",
+which is wrong on two counts and was caught during implementation.** Re-measured SELECT-only on
+`wms2-wineco-dev`: **`Club08` is EMPTY** — 0 unit loads, 0 SKUs of stock, 0 FLA — which is precisely why it
+was chosen as the M1b fixture (§6.1) and is consistent with `:657` and `:668` of this plan, which the old
+claim contradicted. The **27** belongs to **`Club01` on `wsl-wineco-uat`** (114 ULs / 27 SKUs, per SBDEV-2732
+Q12) and was transposed onto the wrong lane.
+
+**The argument is unaffected — club lanes really are multi-SKU.** On `wms2-wineco-dev`: `Club01` = **15**
+distinct SKUs / 111 ULs, `Club04` = **22** / 199. Auto-binding any of them to one SKU would be a real
 defect — SBDEV-2854's plan flagged exactly this (*"would silently re-bind shared Club01 to one SKU at commit
 time"*). **The location-type difference prevents it.** Any change here must preserve that: FLA auto-creation
 must remain reachable only from the `flowbin` branch.
@@ -388,7 +428,7 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 |---|---|---|
 | 0 | **Q4 answered — option (iii) chosen** | ✅ 2026-08-08 (§0). David endorsed; adopted by the ticket owner. Brent's concurrence not separately recorded. |
 | 1 | **Q1 — case label** | ✅ Resolved, **and requires no code**: prints unconditionally, which is existing behaviour. C1 is moot under (iii) — §0, §9. |
-| 2 | **M1 proven on UAT** (§6.1) — manual scan of an FLA-free flowbin succeeds today | ⛔ Not yet run. **If M1 fails, this design is void.** |
+| 2 | **M1 proven** (§6.1) — manual scan of an FLA-free flowbin succeeds today | ✅ **SATISFIED 2026-08-09 by M1a on `wms2-wineco-dev`.** ⚠ **Proven on DEV, not UAT.** The prerequisite was worded "on UAT"; the ticket owner accepted the DEV run as satisfying it on 2026-08-09, on the grounds that M1a exercises a code-path branch (`storeBoxOnLocation`'s `flowbin` arm) rather than tenant data, and that M1a burns a SKU/location pair permanently under `UNIQUE(itemdata_id)` / `UNIQUE(assignedlocation_id)` — so a second run on UAT costs a fixture for no additional branch coverage. **The design is no longer void-able by this gate.** Evidence box in §6.1. |
 | 3 | SBDEV-2731 PR1 merged | ✅ 2026-08-07 — api `6bc709a`, ui `4ce39a1` |
 | 4 | SBDEV-2732 | **Not required by (iii)** — and **the dependency runs the other way** (Q15 → (A), §0). Routing works off `itemdata.putawaylocation_id`, which already exists; 2732 is needed only for the *configuration UI* and the tiers 2–4 defaults. **2732's step-15 gate, conversely, needs this ticket** — it diverts pick-face receipts to the lane and putaway can only offer the destination once §3.2 ships. **Ship this first.** |
 | 6 | **Q15 answered — (A), tier 1 only, ships first** | ✅ 2026-08-08 (§0). Order is `2731 PR1 → this ticket → SBDEV-2732`. |
@@ -398,7 +438,7 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 
 | # | Work | Gate |
 |---|---|---|
-| 1 | **Prove M1 on UAT** — manually scan an FLA-free flowbin at putaway and confirm placement succeeds. Record the result. | evidence recorded before any code |
+| 1 | ~~**Prove M1 on UAT**~~ — ✅ **DONE 2026-08-09** via M1a on `wms2-wineco-dev`; DEV accepted in place of UAT (§5.1 row 2). Result recorded in §6.1. | ✅ evidence recorded before any code |
 | 2 | **TDD gate.** Write §6.2 tests failing for the right reason. **Pause for approval.** | red for the right reason |
 | 3 | Repository method returning putaway candidates **including** the SKU's configured `putawaylocation_id`. Do not widen the exported `getStorageLocationsForPutAwayItemData`. | unit test |
 | 4 | Wire into `calculatePutAwayList:268`; de-duplicate; leave the type switch untouched. | `PutawayControllerUnitTest` |
@@ -481,6 +521,87 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 > mean neither can be reused for another M1a. Fallbacks: locations `00-C07` (63807), `04-B01` (63889);
 > single-position advice `IBOL012466` / SKU `615`. **`1135` remains deliberately unbound** for the post-fix
 > M1b re-run.
+
+#### M3 — POST-MERGE SMOKE TEST ON DEV (2026-08-09) — ✅ **BOTH PASSED**
+
+> [!done] **✅ The design is now proven end-to-end on the deployed build, not just on a code read.**
+> Run against `wms2-wineco-dev` after PR #135 merged (`fd90487`) and auto-deployed. **This discharges the
+> M2 residual risk** — the UNION query has now executed through Hibernate.
+>
+> **M1a re-run — `615` → `00-C07`** (advice `IBOL012466`, adviceposition 22626888; `itemdata.putawaylocation_id`
+> repointed to 63807 for the test):
+>
+> | Artifact | Value |
+> |---|---|
+> | **⭐ Candidate list** | **`00-C07` APPEARED as an offered destination BEFORE it was scanned** |
+> | `FixLocationAssignment` **30586247** | `615` (itemdata 740642) ↔ `00-C07` (63807), bounds **36 / 60 / 84** |
+> | Resident unit load **30586245** | labelid `00-C07`, **`PickLocation`** |
+> | Stock | **12** units merged onto that UL |
+> | Unit loads on `00-C07` | **exactly one** |
+>
+> **⭐ The candidate-list line is the ONLY one that proves the fix.** Everything below it is a *regression
+> guard* — that merge behaviour already worked pre-2821 and was recorded by the original M1a the same
+> morning, before any code existed. What was broken was **discoverability**: `615` had **zero** stock at
+> `00-C07` (0 unit loads, confirmed pre-flight), so `getStorageLocationsForPutAwayItemData` could not have
+> returned it. Its appearance is reachable only through the new UNION leg. **Note the DB evidence alone
+> cannot distinguish the two** — a manual scan produces identical rows, because `verifyScannedLocation` has
+> always accepted an FLA-free flowbin. Any future re-run must record the operator's observation of the list.
+>
+> **M1b re-run — `1135` → `Club08`, PREDICTION FLIPPED AND CONFIRMED:**
+>
+> | Assertion | Result |
+> |---|---|
+> | `FixLocationAssignment` rows on `Club08` | **0** ✅ — the club lane was NOT bound to `1135` |
+> | Unit loads on `Club08` | **1** |
+> | Distinct SKUs / qty | 1 / **1.0000** |
+>
+> **`uls_on_club08 = 1` is the disambiguator, not `fla_rows = 0`.** A throw would also have left zero FLA
+> rows — the two outcomes are indistinguishable on that column alone. The unit load actually landing is what
+> proves the store succeeded. Pre-2821 this threw `Unsupported location type cases and pallets` and nothing
+> would have landed.
+>
+> **⚠ Fixtures consumed.** `615` and `00-C07` are now FLA-bound and cannot serve another M1a
+> (`UNIQUE(itemdata_id)` / `UNIQUE(assignedlocation_id)`). Remaining spare flowbin: **`04-B01` (63889)**.
+> `Club08` now holds 1 unit load, so an M1b re-run is against a non-empty lane.
+>
+> **⛔ STILL OUTSTANDING — the negative test (Step 4).** `POST /putaway/storeBoxOnLocation` naming
+> `PutAwayLane` must return **`locationNotUsableForStorage` in the body of a 200** (this controller never
+> returns 4xx). **It cannot be run from the mobile UI** — `store/putaway.js:113` only reaches the store step
+> after `scanFlowBinLocation` succeeds, so the UI would exercise `verifyScannedLocation`'s pre-existing gate
+> and false-pass identically on the old build. Direct API call only, with a **real** unit load label
+> (`UL304204`), or the unit-load lookup throws `entityNotFoundForName` before reaching the gate.
+
+#### M2 — SQL evidence for `getPutAwayCandidateLocations` (ADDED 2026-08-09, implementation)
+
+> [!done] **The new UNION query is NOT covered by any automated test and never will be on this branch** —
+> the v2 Testcontainers lane cannot boot (SBDEV-2217), and the unit tests mock the repository, so they
+> prove service behaviour only. This section is the substitute evidence. **All SELECT-only, executed
+> against `wms2-wineco-dev` (`dev_wh01_om1`) on 2026-08-09**, independently by two lanes.
+>
+> | # | Claim | How it was proven | Result |
+> |---|---|---|---|
+> | S1 | Row shape maps to `Location` | built the query as a temp view, introspected output columns | exactly the **19 physical `location` columns**, same names/types as the already-working single-leg query |
+> | S2 | Purely additive | SKU `1135`, configured `Club08` | new query returns `06-XB13` **+ `Club08`**; old query returns `06-XB13` only |
+> | S3 | NULL override is safe | `CAST(NULL AS bigint)` | leg 2 returns **0 rows**; result identical to leg 1. The explicit cast fully determines the bind type |
+> | S4 | `UNION` (not `UNION ALL`) is required | SKU `1135` (itemdata 740645), configured id set to `06-XB13` — the one location it already has stock at | `union_rows = 1`, `leg1_only = 1` — no duplicate. `UNION ALL` returns **2**. *(An earlier draft of this row recorded 2/2/3 against an unnamed SKU and did not reproduce; the +1 duplicate delta is the claim, and it holds.)* |
+> | S5 | Leg-2 area predicate excludes `PutAwayLane` | `PutAwayLane` is `cases and pallets`, `useforstorage=false`, `staginglane=false`, and is the `putawaylocation_id` of **8,803 of 8,804** SKUs | excluded. **Without this predicate every operator would be offered "put it back on the PutAwayLane" on every putaway** |
+> | S6 | FLA clause admits own / excludes foreign | FLA `location 51630 ↔ itemdata 52350` | `itemDataId=52350` ⇒ location **returned**; `itemDataId=83901` ⇒ **0 rows** |
+> | S7 | FLA clause is cheap | `EXPLAIN (ANALYZE, BUFFERS)` | `Nested Loop Anti Join`, `Index Cond: assignedlocation_id`, unique btree `uk_qakwvmdhdymic54v3dgie46wa`, **7 buffers / 0.379 ms** |
+> | S8 | NOT NULL premises the SQL relies on | `information_schema` | `fix_location_assignment.itemdata_id`, `location.area_id`, `location.staginglane`, `location_area.useforstorage` — **all NOT NULL**, so `<>` has no three-valued-logic hole and the Java `!getUseforstorage() && !getStaginglane()` mirror is exact |
+>
+> ~~**Residual risk:** a psql round-trip is not a Hibernate round-trip. S1 makes the mapping risk near-zero
+> (byte-identical output shape to a query that already maps in production), but **the first DEV smoke test
+> after deploy is the first real execution of this path through Hibernate.**~~
+>
+> ✅ **RESIDUAL RISK DISCHARGED 2026-08-09 — see M3 above.** The query executed through Hibernate on the
+> deployed DEV build and returned the configured destination: `00-C07` appeared in the putaway candidate
+> list for a SKU with **zero** stock there, which is reachable only via the new UNION leg. Mapping,
+> parameter binding and the second leg's predicates all work in the real runtime.
+>
+> **Still not run against `wsl-wineco-uat` or HMG prd** — and those matter for a reason DEV cannot cover:
+> `overstock pallet` permits **Pallet only** on wineco but **Case + Pallet** on hydra, so `location_constraint`
+> configuration is per-tenant. The `DefaultStrategy` collision check (two `cases and pallets` locations
+> sharing `(rack, rackrow, xpos, ypos)`) is likewise verified on wineco-dev only.
 
 #### M1a — runnable procedure, fixture verified on **`wms2-wineco-dev` (`dev_wh01_om1`)** 2026-08-09
 
@@ -724,3 +845,75 @@ ever revived, C1 must be re-decided against Brent's answer, not assumed.
 | **M1a/M1b** | Not a question but the remaining **gate**: does a manual putaway scan succeed for **both** an FLA-free flowbin (M1a) **and** a `cases and pallets` club location (M1b)? **M1a alone is a false green** — it exercises the branch that already works. | implementer, on UAT | **Everything.** If M1a fails, the design is void and Q4 reopens. |
 | Q13 | If (iii): should the configured location be **pre-selected** at putaway, or merely offered? | Brent | §5.2 step 5 — UX only |
 | Q14 | If (iii): should receiving *display* the eventual destination, even though it routes to a container first? | David | Interacts with SBDEV-2732 §3.11.1 |
+
+---
+
+## 11. Implementation Status
+
+**MERGED 2026-08-09 into `develop`.**
+
+| | |
+|---|---|
+| Repo / branch | `wms2-api` @ `bugfix/SBDEV-2821-tier1-direct-placement-onto-pick-face` |
+| Commit | **`cfb6d49`** — *fix(putaway): offer the SKU's configured destination and accept club lanes [SBDEV-2821]* |
+| Base | `origin/develop` @ `7d9d38e` |
+| PR | **https://github.com/SiteBossInc/wms2-api/pull/135** → `develop` — **MERGED 2026-08-09, merge commit `fd90487`** |
+| ClickUp | moved `pr submitted` → **`on dev`** 2026-08-09 |
+| Post-merge | DEV auto-deploys on push. **The first DEV smoke test is the first execution of the new UNION query through Hibernate** — the v2 Testcontainers lane cannot boot (SBDEV-2217), so this path has no automated coverage. Run M1a/M1b (§6.1) against DEV before promoting to QA. |
+| Diff | 4 files, +632 / −6 (2 production, 2 test) |
+| Flyway | **none** — no schema change, no deploy prerequisite |
+| Worktree | `.claude/worktrees/wms2-api/SBDEV-2821` (kept for review feedback; `archive-plan` removes it) |
+
+### What shipped
+
+| Step (§5.2) | Status |
+|---|---|
+| 1 — prove M1 | ✅ M1a on `wms2-wineco-dev`, DEV accepted in place of UAT (§5.1 row 2) |
+| 2 — TDD gate | ✅ 9 tests, 3 red-first, paused and approved |
+| 3 — repository method | ✅ `getPutAwayCandidateLocations(itemDataId, configuredLocationId)`, destination as a **parameter** |
+| 4 — wire into `calculatePutAwayList` | ✅ **plus the second switch** — see the §3.2a correction box |
+| 5 — mobile UI | ⛔ **DEFERRED, pending Q13** (owner Brent). Pure UX; `scanFlowBin.vue` already renders both lists, so the destination reaches the operator without it |
+| 6 — case label assert-only | ✅ asserted on **both** the location and container paths |
+| 7 — full `mvn test` | ✅ 4733 run, 2 fail = pre-existing baseline; `archunit_store` reverted |
+
+### Results
+
+- **98 pass** in `MobilePutAwayServiceUnitTest` + `ReceivingServiceUnitTest`
+- **Full suite 4733 run, 2 fail** — `OptionalSafetyArchTest.noNewOptionalGetCallsInServiceClasses`, `MobilePalletizingServiceTest.testScanParcelBulkPalletAlreadyAssignedToGate`. Both pre-existing on untouched `develop`.
+- `verify-SBDEV-2821-…sh` — **`Result: 24 pass, 0 fail`**. **Negative-tested: 6 pass / 18 fail** on untouched `origin/develop` (all 18 FIX rows red; only the 6 GUARD rows green).
+- Conformance lane: **PASS**, 7/7 §6.2 criteria VERIFIED. Security lane: **0 findings**.
+- Code review: **0 critical, 0 high; 10 medium fixed** over three passes.
+
+### Q15's mandatory addition — satisfied
+
+`putawaylocation_id == NULL` is handled **from day one, before `V2.2.11` exists**: `calculatePutAwayList` passes the raw value through, and `CAST(:configuredLocationId AS bigint)` makes leg 2 return zero rows for NULL. Proven two ways — §6.1 M2 row **S3** (executed SQL) and the unit test `shouldLeaveCandidateListUnchangedWhenNoOverrideConfigured`, which asserts the null is passed through rather than defaulted.
+
+### Landmines found during implementation that the plan did not predict
+
+1. **There were TWO switches, not one.** §3.2a named only `storeBoxOnLocation`'s. `calculatePutAwayList:277-295` has its own with the same three-constant gap and a `default:` that only logs — so a club destination would have been surfaced and then silently dropped. **SBDEV-2732 step 17a depends on this.** See the §3.2a correction box.
+2. **`PutAwayLane` is itself a `cases and pallets` location** with `useforstorage = false`, and is the `putawaylocation_id` of **8,803 of 8,804** SKUs on `wms2-wineco-dev`. Admitting the type to the switch without the query's area predicate would have offered every operator *"put it back on the PutAwayLane"* on every putaway. The predicate is load-bearing, not defensive.
+3. **`storeBoxOnLocation` had no area gate of its own** — it and `verifyScannedLocation` are separate endpoints and the client is merely trusted to call verify first. The `default: throw` was the incidental backstop for these types; adding the case removed it. The gate is now hoisted (code review MEDIUM-2).
+4. **A flowbin bound to a *different* SKU was offerable.** Nil exposure at tier 1, but **1,344 of 2,068 flowbins on `wms2-wineco-dev` already carry an FLA** — under SBDEV-2732's merchant/warehouse defaults a conflicted row would become the auto-selected top suggestion (flowbins sort above overstock). Closed with a `NOT EXISTS` clause (code review MEDIUM-1).
+
+### Deliberately not done
+
+- **§5.2 step 5 (mobile UI)** — deferred pending **Q13**. **Q14** also remains open.
+- **Club lanes render under the UI's "Overstock" heading**, and a tier-1 override gets **no precedence** over a stock-derived candidate. Both are design questions **SBDEV-2732 must answer for tiers 2–4**.
+- **`DefaultStrategy` collision risk** — it throws `UnsupportedOperationException` for two locations sharing `(rack, rackrow, xpos, ypos)`, and `cases and pallets` locations now reach it for the first time. **Zero collisions on `wms2-wineco-dev`; NOT verified on `wsl-wineco-uat` or prd** — run that query before this reaches production.
+- **`storePalletOnLocation` has the same area-gate hole** just closed in `storeBoxOnLocation`, and deliberately proceeds with `CODE_UNASSIGN_PUT_AWAY` instead of rejecting. Pre-existing and apparently intentional; out of scope.
+
+### Not done by this work
+
+~~Merging the PR · setting ClickUp to `on dev`~~ — both done 2026-08-09 by whoever merged.
+
+✅ **DEV smoke test DONE 2026-08-09 — M1a and M1b BOTH PASSED** (§6.1 **M3**). The UNION query has executed
+through Hibernate on the deployed build; **M2's residual risk is discharged.** The behaviour that was
+actually broken — the configured destination being *offered* at putaway — is confirmed by the operator
+observing `00-C07` in the candidate list before scanning it.
+
+**Still outstanding:** the **Step-4 negative test** (`PutAwayLane` → `storeBoxOnLocation`; direct API only —
+it **cannot** be run from the mobile UI, which would false-pass on the pre-existing `verifyScannedLocation`
+gate, see §6.1 M3) · archiving this plan (`archive-plan`, which also removes the worktree at
+`.claude/worktrees/wms2-api/SBDEV-2821`) · promotion to QA/prod · the deferred items listed above ·
+**UAT/prd verification of the two per-tenant assumptions** (`location_constraint` config and the
+`DefaultStrategy` collision check, both checked on wineco-dev only).

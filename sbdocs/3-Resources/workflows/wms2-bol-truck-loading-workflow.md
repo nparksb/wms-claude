@@ -7,8 +7,8 @@ scope: bol-truck-loading
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-07-10
-last_verified: 2026-07-10
-verified_by: SBDEV-2507 v2 port (palletize guards added; §4 updated; code read of ParcelMonitorViewService + BillofladingPositionService + MobilePalletizingService)
+last_verified: 2026-08-03
+verified_by: SBDEV-2797 API half (bulk BOL export; §"REST endpoints" export row rewritten — endpoint moved 265→276 and its request/response contract changed; empty-export behaviour re-confirmed as deliberate per a8af84f)
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -282,7 +282,7 @@ Why two steps? TRANSFER marks "in flight between warehouses" — neither side ha
 | `POST /v3/billOfLading/setDestinationFacility` | POST | 179 | Set destination |
 | `GET /v3/billOfLading/closeOutboundBol/{id}` | GET | 207 | Single close → `closeBOL` |
 | `POST /v3/billOfLading/closeOutboundBols` | POST | 233 | Batch close |
-| `POST /v3/billOfLading/exportOutboundBol` | POST | 265 | Export BOL as file / HTTP response |
+| `POST /v3/billOfLading/exportOutboundBol` | POST | 276 | Export **one or many** BOLs as an xlsx / HTTP response. Accepts `{ids:[…]}` **or** the legacy scalar `{id:N}`; N ≥ 2 yields a leading `Summary` index tab plus one sheet per BOL, N == 1 delegates to the single-BOL path with no Summary tab. Sheets are named by BOL number on **both** paths (SBDEV-2797 retired the `"Inbound BOL"` literal, which was a mislabel on an outbound export). Errors are now real **422 / 404 / 500 with a JSON body** — previously HTTP 200 carrying `errors.toString()`. Caps: 100 BOLs, 250,000 total SKU rows. Position-less BOLs still export an **empty** sheet by design (see `a8af84f`, and the 2026-08-03 row below) |
 | `GET /v3/billOfLading/closeIntraCompanyTransfer/{transferId}` | GET | 291 | Finish transfer → `finishTransfer` |
 | `POST /v3/billOfLading/palletize` | POST | 316 | Palletize orders → `palletise` / `palletiseAndTruckLoad` |
 | `GET /v3/billOfLading/openBol` | GET | 355 | List open BOLs |

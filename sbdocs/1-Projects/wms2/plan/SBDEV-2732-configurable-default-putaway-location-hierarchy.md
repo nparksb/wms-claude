@@ -26,7 +26,7 @@ db_verified_tenants:
                                                             # migrated-tenant hazards — see §3.4c P2.7(c)
 requester: "David Oppenheim"
 created: 2026-07-31
-updated: 2026-08-08
+updated: 2026-08-09
 related:
   - SBDEV-1938
   - SBDEV-2642
@@ -110,6 +110,25 @@ tags:
 > revisions changed validator predicate semantics (P2.5, P2.7(c)) and have had no independent pass; the
 > previous Critic pass returned 12 findings including a CRITICAL one. Review → address → approve →
 > `wms-tdd-gate` → implement.
+>
+> **⚠ PARTIALLY DISCHARGED 2026-08-09 — status STAYS `draft`.** The three (iv-b) decisions (P2.7 rule (e),
+> the P1 skip, and SBDEV-2643's D1 revert) went through an independent pass and came back
+> **sound-with-changes**; all three corrections are folded in above and recorded in §12. **That covers the
+> 2026-08-08 rewrite only.** The rest of the plan — the resolver, the audit table, V2.2.11, the Phase-2
+> picker, D11's count-and-confirm — is still unreviewed, and the previous Critic pass's 12 findings were
+> never re-checked against the current text. **Do not read "reviewed" into this.**
+>
+> **Remaining gates before `wms-tdd-gate` can run — TWO, down from three:**
+> 1. **This plan reviewed end-to-end and flipped off `draft`.** Still outstanding.
+> 2. **Q12 → (iv-b) signed off** — put to @David Oppenheim and @Brent Campbell 2026-08-08, **no reply
+>    recorded**. Every test in §7.1 derives from it. Still outstanding.
+> 3. ~~SBDEV-2821 merged~~ — ✅ **CLEARED 2026-08-09.** `wms2-api` **PR #135 merged to `develop`** (merge
+>    `fd90487`, feature commit `cfb6d49`); ClickUp `on dev`. Step 17a's foundation — putaway candidate
+>    surfacing — is now on `develop`, together with §3.2a's `cases and pallets` handling in **both** type
+>    switches.
+>
+> Running the gate before (1) and (2) writes tests that encode a design that can still change — and gate
+> tests are a contract the executor may not weaken, so a wrong one is worse than none.
 >
 > ---
 >
@@ -720,17 +739,81 @@ public boolean isUnitloadTypePermitted(Long storagelocationtypeId, Long unitload
 > (`storeBoxOnLocation:479-487`) and retires the Case UL en route. P1 is testing a unit load that will never
 > be there.
 >
-> **Rule: skip P1 when the destination is a pick face** (same predicate as the gate —
-> `area.useforpicking == TRUE || sltname == 'flowbin'`), at **both** enforcement points:
-> - **config-write time** (the validator, §5.2 step 7) — or `ICE PACK` cannot be configured, and
->   **SBDEV-2643's picker cannot offer any of the 511 `useforpicking` locations**;
-> - **receive time** (`requireCompatible`, §3.7.1) — the gate must run **first** and retarget to the lane, so
->   P1 is evaluated against `PutAwayLane` (`type_id = 7`, `cases and pallets`, which permits Case and Pallet
->   and therefore passes). Otherwise every pick-face-configured SKU's receipt hard-fails on a destination it
->   was never going to be placed at.
+> **Rule: skip P1 when the destination is a `flowbin`** — predicate **`sltname == 'flowbin'` ONLY**, at
+> **config-write time** (the validator, §5.2 step 7). Without it `ICE PACK` cannot be configured.
 >
+> **⚠ CORRECTED 2026-08-09 BY REVIEW — the predicate was `area.useforpicking == TRUE || sltname ==
+> 'flowbin'`, and the wider disjunct is a defect.** Read the whole box before implementing.
+
+> [!warning] **⚠ THE `useforpicking` DISJUNCT RELOCATES SBDEV-2731'S BUG TO PUTAWAY. Corrected 2026-08-09.**
+>
+> **The justification above is true of exactly one branch out of four.** *"Putaway merges the stock into the
+> resident `PickLocation` unit load and retires the Case UL"* describes `storeBoxOnLocation`'s **flowbin**
+> branch only. The others do the opposite:
+>
+> | Destination type | What putaway actually does | Is P1 the right question? |
+> |---|---|---|
+> | `flowbin` | merges into the resident `PickLocation` UL — **no whole-UL transfer** | **No.** Skip P1. |
+> | `overstock box` / `overstock pallet` | `transferUnitLoadToLocation` — **re-runs P1 verbatim** at `UnitloadBusinessService:187-200` | **Yes.** Keep P1. |
+> | `cases and pallets` (club lanes) | `transferUnitLoadToLocation` (once SBDEV-2821 ships §3.2a) | **Yes.** Keep P1. |
+> | anything else | throws | — |
+>
+> So for three of the four, skipping P1 at write time does **not** remove the check — it moves the failure
+> from a 422 the operator can act on to a throw during putaway. **That is SBDEV-2731's reported error, one
+> step downstream.**
+>
+> **The population is real.** A `useforpicking` area contains non-flowbin types: on `wms2-hydra-dev2`, 12
+> `overstock box` + 3 `overstock pallet` sit in picking areas; on `wms2-wineco-dev`, 69 `cases and pallets`
+> (the clubs) do. Not currently *exploitable* on either — every SKU's `defultype_id` is `Case` on both, and
+> `overstock box` permits Case — so this is a **structural** defect, not a live one. But note `overstock
+> pallet` permits **Pallet only** on wineco and **Case + Pallet** on hydra-dev2: constraint config is
+> per-tenant, so "no SKU can fail" is a data fact that can change with no code change.
+>
+> **Narrowing costs the club use case nothing.** `cases and pallets` has **zero** `location_constraint` rows
+> on wineco (P1 fails open) and permits Case + Pallet on hydra-dev2 (P1 passes). `ICE PACK` is a flowbin, so
+> it stays configurable.
+>
+> **Use the SAME predicate as rule (e).** Both track the same thing — the branch where putaway merges into a
+> resident UL. See the "three predicates" box below.
+
+> [!warning] **⚠ THERE IS NO P1 SKIP AT RECEIVE TIME — it is an ORDERING requirement. Corrected 2026-08-09.**
+>
+> This box previously said to skip P1 at *"both enforcement points"*. At receive time nothing is skipped:
+> **step 15's gate runs first and retargets to the lane**, so `requireCompatible` evaluates P1 against
+> `PutAwayLane` and passes. Stating it as a "skip" invites an implementation that adds a real skip branch
+> inside `requireCompatible` — which would then also fire for **staging and cross-dock** destinations, which
+> are *not* diverted and where P1 is the only compatibility check standing.
+>
+> **Implement as:** config-write skips P1 for flowbins; receive-time runs the gate **before**
+> `requireCompatible` and never skips.
+
+> [!warning] **⚠ P1's INPUT COLUMN — state which one P2.6 means. Added 2026-08-09.**
+>
+> This box describes P1 as asking *"can a unit load of **the SKU's default type** sit here?"* and cites
+> *"`ICE PACK`'s `defultype_id` is 4"*. Two problems:
+>
+> 1. **`defultype_id` exists only on `itemdata`** (checked against `information_schema`) — `ICE PACK` is a
+>    *location*, so that attribution is wrong. The substance (a Case UL against a PickLocation-only flowbin)
+>    is right; the column reference is not. Fix it before it becomes a test fixture.
+> 2. **Receiving does not use `itemdata.defultype_id`.** `ReceivingService:399` takes the receipt's unit-load
+>    type from **`adviceposition.getUnitloadtypeId()`** — per-advice, operator/EDI-supplied. So a write-time
+>    P1 keyed on `defultype_id` is not a sound predictor of the receive-time check.
+>
+> Unpopulated today (all 42,377 advice positions and all 8,804 SKUs on `wms2-wineco-dev` are `Case`), but
+> **P2.6 must say which column it enumerates.** Note the honest consequence: if P1 must hold for *every* type
+> an advice could carry, it rejects nearly everything — a flowbin permits only `PickLocation`. That is
+> further reason to treat write-time P1 as a **heuristic pre-check** and the runtime check as authoritative,
+> which is exactly why the skip is safe **only** where the runtime path won't re-impose it.
+
 > **`Club08` passes P1 only by accident** — `cases and pallets` has **zero** `location_constraint` rows, so
 > P1 fails *open*. Do not mistake that for the rule working.
+>
+> **Fail-open is not a hazard to fix here, and this is the one property to preserve.** Write-time P1 and
+> runtime P1 are the same code over the same table, so they fail open together — write-time is never
+> *stricter* than runtime, which is the invariant that matters. It is wide (`NoRestriction` 122 + `System` 20
+> + `cases and pallets` 510 = **652 of 2,739** locations on `wms2-wineco-dev`), but the real gate for those
+> is `storeBoxOnLocation`'s switch coverage, not `location_constraint`. **Making write-time stricter than
+> runtime is how SBDEV-2731 comes back.**
 
 #### 3.4c Predicate P2 (suitability) — config-write time only
 
@@ -904,6 +987,124 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 >
 > **Do not implement this as "reject pick faces at tiers 2/3."** That would re-ban the clubs and undo Q12.
 > The predicate is the **location type**, not the area flag: `sltname == 'flowbin'`.
+
+| **f** | **TIER 1 must reject a flowbin whose `FixLocationAssignment` belongs to a DIFFERENT SKU**, and reject a SKU whose own FLA is on a different location. Tier 1 stays exempt from rule (e) itself. | **ADDED 2026-08-09 by review.** Rule (e)'s tier-1 exemption is *strictly weaker than the runtime rule it claims to mirror*. See the box below. |
+
+> [!warning] **Why rule (f) exists — the tier-1 exemption does NOT mirror the runtime rule, it is weaker.**
+>
+> Rule (e)'s rationale says tier 1 is exempt because it *"is the runtime rule already
+> (`UnitloadBusinessService.java:170-175` rejects only on SKU **mismatch**)"*. **An unconditional exemption
+> does not reject on mismatch at all.** As written, nothing at write time stops SKU `A`'s tier-1 default
+> naming a flowbin whose FLA belongs to SKU `B`, or two SKUs naming the same FLA-free flowbin. The
+> exemption's own justification argues *for* implementing the mismatch check, not for omitting it.
+>
+> **The population is large and already exists:**
+>
+> | Tenant | flowbins | already FLA-bound |
+> |---|---|---|
+> | `wms2-wineco-dev` | 2,068 | **1,344 (65%)** |
+> | `wms2-hydra-dev2` | 496 | **154 (31%)** |
+>
+> Every one is a legal tier-1 target for the ~8,800 / ~2,720 SKUs that do not own it.
+>
+> **The failure is late, silent at write time, and permanent.** The config saves; receipts divert to the lane
+> (step 15); then **every putaway of that SKU fails at the scan** — `verifyScannedLocation:437`
+> (`itemDataNotMatchFixedAssignment`) or `:441` (`scannedLocationHasDifferentFixedAssignment`) — with nothing
+> naming the configuration that caused it.
+>
+> **Note the enforcement asymmetry.** `storeBoxOnLocation`'s flowbin branch calls `transferStockToUnitLoad`,
+> **not** `transferUnitLoadToLocation`, so it never reaches `UnitloadBusinessService:169-185`.
+> `verifyScannedLocation` is the *only* guard, and it is a **separate REST call**
+> (`PutawayController:100` vs `:114`). `transferStockToUnitLoad`'s mixed-stock guards (`:236`, `:266`) both
+> short-circuit when the destination UL is empty, so a *depleted* fix-assigned bin would accept a foreign
+> SKU's stock silently while the FLA still names the original SKU. Pre-existing, and zero such bins on
+> `wms2-wineco-dev` today — but tier-1 configuration at scale is what makes it reachable.
+>
+> **Implement as the mismatch-only form of P2.5, at SKU scope:**
+> ```java
+> // reject if the destination bears an FLA for a different SKU
+> fixLocationAssignmentRepository.findByAssignedlocationId(destId)
+>     .filter(fla -> !fla.getItemdataId().equals(itemdataId))
+>     .ifPresent(fla -> reject(FIX_ASSIGNED_TO_OTHER_SKU));
+> // reject if this SKU already owns a different pick face (mirrors verifyScannedLocation:428-437
+> // and StockunitService:186-190's "SKU already assigned to flow bin")
+> fixLocationAssignmentRepository.findByItemdataId(itemdataId)
+>     .filter(fla -> !fla.getAssignedlocationId().equals(destId))
+>     .ifPresent(fla -> reject(SKU_ALREADY_ASSIGNED_ELSEWHERE));
+> ```
+> Costs one repository call you already make. **§3.4c's P2.5 row calls this relaxation "optional and
+> harmless" — it is neither. It is the tier-1 half of rule (e),** and the `UNIQUE` constraints
+> (`assignedlocation_id`, `itemdata_id`) make both checks single-row and exact.
+>
+> ✅ **Already proven in code.** SBDEV-2821 shipped precisely this predicate as SQL on the method 2732
+> inherits — `LocationRepository.getPutAwayCandidateLocations`'s second leg carries
+> `AND NOT EXISTS (SELECT 1 FROM fix_location_assignment fla WHERE fla.assignedlocation_id = l.id AND
+> fla.itemdata_id <> :itemDataId)`, verified against live data (own pick face admitted, foreign one
+> excluded). **2732 must not weaken that clause when it extends the method to tiers 2–4.**
+
+> [!note] **Gap 2 — rule (e) does not cover a pre-existing FLA on a NON-flowbin type at tiers 2/3.**
+>
+> Rule (e) closes FLA *auto-creation*, which is flowbin-only — verified: all the
+> `createFixedLocationAssignment` call sites checked (`MobilePutAwayService:481`,
+> `MobileMoveStockService:274`, `MobileMoveUnitloadService:345`, `StockunitService:193`) are gated on
+> `sltname == 'flowbin'`. But `UnitloadBusinessService:169-185` enforces FLA SKU-match on **any** location
+> type. Currently unpopulated — every FLA row on both measured tenants sits on a flowbin — so this is low
+> severity. **The complete tier-2/3 statement is "reject any FLA-bearing destination (old P2.5) AND any
+> flowbin (rule e)".** Rule (e) alone is half of it.
+
+> [!note] **Gap 3 — P2.4 and putaway's own area gate disagree.**
+>
+> `verifyScannedLocation:418` requires `area.useforstorage == TRUE || location.staginglane`. **P2.4 admits
+> `useforgoodsin` OR `useforstorage`.** A goods-in-only pick face therefore saves, diverts, and then throws
+> `locationNotUsableForStorage` at putaway. Empty on both reachable tenants — every `useforpicking` area also
+> carries `useforstorage = TRUE` — so this is *data, not structure*, which is the same shape as the miss that
+> produced the 656-flowbin surprise. **SBDEV-2821 already aligned its candidate query to
+> `verifyScannedLocation`'s gate; P2.4 should say why it deliberately differs, or match it.
+
+> [!important] **THREE PREDICATES, NOT ONE — and one of the three call sites had the wrong one.**
+> **Added 2026-08-09 by review.** This plan uses two genuinely different "is this a pick face" tests. They
+> look interchangeable and are not. Name them separately in code so nobody "harmonises" them later.
+>
+> | Call site | What it actually tracks | Correct predicate | Was |
+> |---|---|---|---|
+> | **P2.7 rule (e)** — tiers 2/3 flowbin reject | FLA **auto-binding** (flowbin-only branch) | `sltname == 'flowbin'` | ✅ correct |
+> | **P1 skip** (§3.4b) — config-write | putaway **merges into a resident UL** instead of transferring a whole UL | `sltname == 'flowbin'` | ❌ **was `useforpicking OR flowbin`** |
+> | **Step 15 placement gate** (§5.2) — receive | *don't drop a whole UL onto a live pick face* — an **area** property | `useforpicking OR sltname == 'flowbin'` | ✅ correct |
+>
+> Suggested names: **`isFlaAutoBindingLocation(loc)`** (rows 1–2) and **`isPickFaceForPlacement(loc)`**
+> (row 3). The step-15 gate's `OR` is deliberate and stays — the reported failure is a location-*type*
+> property while `useforpicking` is an *area* property, and nothing in the schema ties them.
+
+> [!warning] **SBDEV-2643's picker must exclude flowbins bound to another SKU — and the enum is THIS plan's.**
+> **Added 2026-08-09 by review.**
+>
+> 2643 r3 reverts D1 and offers pick faces again, which is correct under (iv-b). But with rule (f) in place
+> the picker must not offer a flowbin already bound to a *different* SKU — those rows save cleanly and then
+> fail at **every** putaway, which is worse than r1's "offers rows that cannot be saved" because the failure
+> is deferred and detached from its cause.
+>
+> | Tenant | rows the picker would offer | of which fix-assigned flowbins |
+> |---|---|---|
+> | `wms2-wineco-dev` | 2,555 | **1,344 (53%)** |
+> | `wms2-hydra-dev2` | 603 | **154 (26%)** |
+>
+> **`blockingReason` is this plan's enum** (§3.5a), currently `LOCKED | FIX_ASSIGNED | LANE | null`. It needs
+> a value meaning *"fix-assigned to a different SKU"* — 2643 cannot add it from its own PR (its MUST-4), so
+> **this plan owns the change.** `FIX_ASSIGNED` already exists and can carry it if the message distinguishes
+> own-vs-foreign.
+>
+> **Also for 2643:** the exclusion set is not empty anywhere once rule (f) applies. The r3 banner's claim
+> that *"on HMG production the exclusion set is empty — every candidate qualifies"* stops being true.
+
+> [!note] **A measurement dispute this plan should settle.** The 2026-08-09 review brief recorded *"r2's
+> population of 603 matches none of these three tenants, so its numbers came from somewhere else again and
+> are treated as unusable."* **That is wrong and should not be propagated.** r2's chain reproduces exactly on
+> `wms2-hydra-dev2` (`wh01_hydra_v2`), the tenant 2643's own `db_verified_note` names: 666 total → **603**
+> pass P2.2+P2.3+P2.4 → **511** in a `useforpicking` area (496 flowbin + 12 overstock box + 3 overstock
+> pallet) → **92** remain; **154** fix-assigned. All five figures re-derived independently. r2's numbers are
+> **stale-by-design-change, not misattributed.** The brief's own "HMG PRD" row (229/191/229) is a *different
+> database* — hydra **production** — and labelling both "HMG" is what made them look reconcilable. Keep the
+> PRD-vs-DEV distinction explicit: they differ ~3× on flowbin count (46 FLA-free on PRD vs 342 on dev2).**
 
 **CORRECTION — the first version of P2.7 was self-defeating, and the data proves it.** It said "restricted
 to staging / goods-in area types" while P2.3 rejected any location with `staginglane = TRUE` and P2.4
@@ -2173,7 +2374,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | 4 | `WmsConstants` key; `PutawayDestinationResolver` + `Resolution` + the `Source` enum; the `getSystemClient()` null guard (§3.4a). **`Propagation.MANDATORY`; never `REQUIRES_NEW`.** Freeze the `Source`/`Resolution` contract here — the UI consumes it. | unit tests + `mvn clean compile` |
 | 5 | `LocationConstraintService.isUnitloadTypePermitted` (P1). **Must replicate the empty-constraint-list fail-open at `UnitloadBusinessService.java:182`** or it rejects configurations that work today. | `emptyConstraintListPermitsEverything` |
 | 6 | **Consume** the neutral key 2731 PR1 added at `:191`; throw `putawayDestinationNotPermitted` from the **resolver** only (§3.6.1). **Do not re-specify `:191` — that is 2731 PR1's line.** | resolver message test |
-| 7 | `PutawayDestinationValidator` — P1 + P2 for **all three scopes**, including P2.7 (D13), the **locked** absolute (P2.1), P2.7's per-tier lane rules and D11's count-and-confirm. **⚠ REVISED 2026-08-08 (Q12 → iv-b): do NOT implement a fix-assigned or pick-face reject.** P2.5 and P2.7(c) are relaxed at all three scopes — the configuration is legal, and the placement is gated at run time by step 15. **But implement P2.7 rule (e):** reject a `flowbin`-type destination at **merchant and warehouse scope only** — putaway's FLA auto-creation would bind it to one SKU. Predicate is `location_type.sltname`, **not** the area flag; using `useforpicking` here re-bans the club lanes and undoes Q12. **The relaxation and that gate must land in the same change** (§3.4c). | unit tests — **must include `skuWritePermitsPickFaceDestination` and `merchantWritePermitsStagingLane`. The old `skuWriteRejectsFixAssignedLocation` / `skuWriteRejectsPickFaceDestination` / `merchantWriteRejectsFixAssignedLocation` are DELETED — they assert the superseded design and would fail a correct implementation** |
+| 7 | `PutawayDestinationValidator` — P1 + P2 for **all three scopes**, including P2.7 (D13), the **locked** absolute (P2.1), P2.7's per-tier lane rules and D11's count-and-confirm. **⚠ REVISED 2026-08-08 (Q12 → iv-b): do NOT implement a fix-assigned or pick-face reject.** P2.5 and P2.7(c) are relaxed at all three scopes — the configuration is legal, and the placement is gated at run time by step 15. **But implement P2.7 rule (e):** reject a `flowbin`-type destination at **merchant and warehouse scope only** — putaway's FLA auto-creation would bind it to one SKU. Predicate is `location_type.sltname`, **not** the area flag; using `useforpicking` here re-bans the club lanes and undoes Q12. **The relaxation and that gate must land in the same change** (§3.4c). **⚠ ALSO implement P2.7 rule (f) (added 2026-08-09):** at **tier 1**, reject a flowbin whose `FixLocationAssignment` belongs to a *different* SKU, and reject a SKU whose own FLA sits on a different location — the tier-1 exemption from rule (e) is otherwise strictly weaker than the runtime rule it claims to mirror. **And apply the P1 skip with `sltname == 'flowbin'` ONLY** — the superseded `useforpicking OR flowbin` form relocates SBDEV-2731's error to putaway for overstock and club destinations (§3.4b). | unit tests — **must include `skuWritePermitsPickFaceDestination` and `merchantWritePermitsStagingLane`. The old `skuWriteRejectsFixAssignedLocation` / `skuWriteRejectsPickFaceDestination` / `merchantWriteRejectsFixAssignedLocation` are DELETED — they assert the superseded design and would fail a correct implementation** |
 | 8 | `PutawayResolutionMetrics` (4 counters; the `compatible` tag). | unit tests |
 | 9 | `PutawayConfigService`: `setSkuDestination`, `setMerchantDestination`, `setWarehouseDestination`, `readCommittedDestination` (**one query per scope**), `validateOnly`, `auditAndEvict`; authorization enforced **here**, not on the handler (N5). Rewire `ItemdataService.setPutAwayLocation` and `ItemDataController:80-95`. | unit tests |
 | 10 | `PutawayConfigController` — `preview` + all three writes and the 409/422 confirmation contract (§3.5a). | `BaseControllerTest` |
@@ -2372,6 +2573,11 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | | ~~`skuWriteRejectsPickFaceDestination`~~ → **`pickFaceDestinationIsNotPlacedAtReceipt`** | ⚠ **REPLACED 2026-08-08 (Q12 → iv-b), and it moves out of `PutawayConfigServiceUnitTest` into `ReceivingServiceUnitTest`** (step 15). A pick face is now a **legal configuration at every scope**; what is refused is placing a receipt there. Pair it with `stagingLaneDestinationIsPlacedAtReceipt` — together they pin both halves of the split. Verify check `V-fixabs` removed. |
 | | `skuWritePermitsPickFaceDestination` (**new**) | The positive half of the relaxation: an FLA-free pick face is **accepted** at SKU scope. **Fixture must be an FLA-free pick face** (the real shape: wineco's club locations — `useforpicking` true, zero FLA rows). Without this, nothing pins that the reject was actually dropped. |
 | | `merchantWritePermitsStagingLane` | P2.7(a): `staginglane` / `crossdockinglane` are **permitted** at merchant/warehouse scope — guards against re-introducing the "a lane can never work" over-reject. Verify: `T-stagingok` |
+| | **`skuWriteRejectsFlowbinAssignedToAnotherSku`** | **ADDED 2026-08-09 — P2.7 rule (f).** Tier 1 naming a flowbin whose FLA belongs to a different SKU ⇒ **422**. Without this the config saves and then fails at *every* putaway (`scannedLocationHasDifferentFixedAssignment`), with nothing naming the cause. **1,344 of 2,068 flowbins on `wms2-wineco-dev` are already FLA-bound**, so this is the common case, not the edge. |
+| | **`skuWriteRejectsWhenSkuAlreadyOwnsADifferentPickFace`** | **ADDED 2026-08-09 — rule (f), other direction.** Mirrors `verifyScannedLocation:428-437` / `StockunitService:186-190`. `UNIQUE(itemdata_id)` makes it a single-row test. |
+| | **`skuWritePermitsItsOwnFixAssignedPickFace`** | **ADDED 2026-08-09.** The positive half — pointing a SKU at the flowbin **it already owns** must still be accepted; that is the intent rule (e)'s tier-1 exemption exists for. **All three are needed**: without this one, an implementation that bans every fix-assigned flowbin at tier 1 would pass. |
+| | **`p1IsSkippedOnlyForFlowbinDestinations`** | **ADDED 2026-08-09 — the corrected §3.4b predicate.** P1 is skipped for `sltname == 'flowbin'` and **still applied** to `overstock box` / `overstock pallet` / `cases and pallets`. **This test is the whole point of the correction** — the superseded `useforpicking OR flowbin` form relocates SBDEV-2731's error to putaway, where `transferUnitLoadToLocation` re-runs P1 at `UnitloadBusinessService:187-200`. Fixture must be a non-flowbin type **inside a `useforpicking` area** (12 `overstock box` + 3 `overstock pallet` exist on `wms2-hydra-dev2`; 69 `cases and pallets` on `wms2-wineco-dev`). |
+| | **`p1IsNotSkippedAtReceiveTime`** | **ADDED 2026-08-09.** `requireCompatible` contains **no skip branch**; the step-15 gate runs *before* it and retargets to the lane. Guards against a skip that would also fire for staging / cross-dock destinations, which are **not** diverted and where P1 is the only compatibility check. |
 | | `warehouseWriteRejectsLockedLocation` | absolute reject at warehouse scope |
 | | `readCommittedDestinationUsesPerScopeQuery` | one case per scope; a MERCHANT read must **not** touch `itemdata` (§3.9.2) |
 | | `clearWritesNullAndAudits` | `null` ⇒ no validation, still audited, `new_location_id IS NULL` |
@@ -2962,6 +3168,40 @@ The baseline table above has been re-recorded from measured runs; the pre-implem
 Substantive design changes since the initial draft, in the order they were settled. Everything above this
 section states the **current** design directly; this is the only place the superseded alternatives are
 recorded.
+
+- **2026-08-09 — FIRST INDEPENDENT REVIEW of the three (iv-b) decisions; three corrections landed.** The
+  decisions were reviewed against the merged code at `6bc709a` and re-measured on `wms2-wineco-dev` and
+  `wms2-hydra-dev2`. Verdict: **sound-with-changes on all three.** This is the pass D18 required for the
+  (iv-b) rewrite — it does **not** discharge D18 for the rest of the plan, which is still unreviewed.
+  - **P1 skip narrowed to `sltname == 'flowbin'`** (§3.4b). The `useforpicking` disjunct was a defect: for
+    `overstock box` / `overstock pallet` / `cases and pallets` destinations, putaway does a **whole-unit-load
+    transfer** that re-runs P1 verbatim at `UnitloadBusinessService:187-200`, so skipping it at write time
+    relocated SBDEV-2731's error to putaway rather than removing it. Structural, not yet live — every SKU's
+    `defultype_id` is `Case` on both measured tenants.
+  - **"Skip at both enforcement points" corrected to an ORDERING requirement.** There is no P1 skip at
+    receive time; step 15's gate simply runs first. Stating it as a skip invited one that would also fire for
+    staging and cross-dock destinations, which are never diverted.
+  - **P2.7 rule (f) ADDED** — tier 1 must reject a flowbin whose FLA belongs to a different SKU. Rule (e)'s
+    tier-1 exemption was *strictly weaker* than the runtime rule it cited as justification. **1,344 of 2,068
+    flowbins on `wms2-wineco-dev` already carry an FLA**, so this is the common case. §3.4c's P2.5 row called
+    this relaxation "optional and harmless"; it is neither.
+  - **SBDEV-2643's picker must exclude foreign-bound flowbins**, and `blockingReason` is this plan's enum to
+    extend. 53% of the rows the picker would offer on wineco-dev are affected.
+  - Recorded but not fixed: **Gap 2** (non-flowbin FLA at tiers 2/3 — unpopulated), **Gap 3** (P2.4 vs
+    `verifyScannedLocation`'s `useforstorage` gate — unpopulated), and **P1's input column** (receiving reads
+    `adviceposition.unitloadtype_id`, not `itemdata.defultype_id`; and `defultype_id` is an `itemdata` column,
+    so the box's *"`ICE PACK`'s `defultype_id`"* attribution is wrong).
+  - Also corrected: the review brief's claim that **r2's 603 figure "matches none of these tenants"** is
+    false — it reproduces exactly on `wh01_hydra_v2`. The brief conflated hydra **PRD** with hydra **DEV**,
+    both labelled "HMG".
+  - **Confirmed sound, no change:** rule (e)'s `sltname == 'flowbin'` predicate (all
+    `createFixedLocationAssignment` sites checked are flowbin-gated, so it tracks the mechanism exactly);
+    keying on `sltname` rather than `location_type.id` (the id is 2 on fresh-seeded PRD, 50052 / 51502 on
+    migrated tenants); and the P1 fail-open behaviour, which must stay — write-time P1 must never be stricter
+    than runtime P1.
+  - **Corroborated by implementation:** SBDEV-2821 (PR #135) shipped rule (f)'s predicate as SQL on
+    `getPutAwayCandidateLocations` — the very method this plan extends to tiers 2–4 — reached independently
+    from the code side and verified against live data. **Do not weaken that clause when extending it.**
 
 - **2026-08-08 (later) — Q15 answered (A); THE SHIP ORDER REVERSED; the (iv-b) residue swept.** Q12 → (iv-b)
   landed earlier the same day but left five passages asserting the design it replaced. All corrected:

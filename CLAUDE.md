@@ -49,7 +49,11 @@ The `sbdocs/` directory is an Obsidian PARA vault — the source of truth for ar
 **Before any non-trivial change**, check `sbdocs/3-Resources/architecture/` and `sbdocs/3-Resources/design/` for existing analysis of the affected subsystem. Check `sbdocs/1-Projects/` and `sbdocs/4-Archieves/` for prior plans that touched the same symbols. Do not re-derive what is already documented.
 
 **For bug fixes and new feature planning** (except very small/trivial tasks), read the relevant doc sections **before writing any code or plan**:
-1. Grep `sbdocs/3-Resources/architecture/wms1-function-to-docs-map.md` (v1) or `wms2-function-to-docs-map.md` (v2) for the affected service/method to find which docs apply.
+1. Grep `sbdocs/3-Resources/architecture/wms1-function-to-docs-map.md` (v1) or `wms2-function-to-docs-map.md` (v2) to find which docs apply. Grep **by the axis you actually have**:
+   - **Class name** (`CycleCountController`, `CyclecountService`) → the v2 map's §9 *API Symbol → Doc Index* covers all 61 controllers plus each subsystem's primary services. Grep the enclosing **class**, not a method name — method names are deliberately not indexed.
+   - **Feature name, page path, or endpoint** (`cycle-count`, `/cycleCountLos/`) → §2–§8, which is a complete enumeration of both UIs' menu-reachable pages. Use this axis when the class grep misses.
+   - **A miss means "not indexed", not "no docs exist."** Before concluding no doc applies, check `ls sbdocs/3-Resources/workflows/` and `design/` for the subsystem by name.
+   - Both maps carry the symbol axis at **§9**, with different coverage: v1's *Service Method → Doc Index* lists 18 hot **services** with file paths and section pointers but **no controllers** (grep a v1 controller and you will miss — jump to the service or the endpoint axis); v2's *API Symbol → Doc Index* covers all 61 controllers plus each subsystem's primary services, grouped by subsystem.
 2. Read the implicated sections (targeted `offset+limit` read) before proceeding.
 3. Skip only for single-line fixes, renames, or trivial config changes.
 
@@ -63,14 +67,16 @@ Custom Claude Code skills used by this repo live at `owl/.claude/skills/<skill-n
 |-------|---------|
 | `wms-bugfix-plan` | Produce a deeply-grounded bug-fix plan into `sbdocs/1-Projects/wms{1\|2}/plan/`, then chain into `wms-tdd-gate` |
 | `wms-feature-plan` | Produce a feature/refactor plan into `sbdocs/1-Projects/wms{1\|2}/plan/`, then chain into `wms-tdd-gate` |
-| `wms-tdd-gate` | Write failing tests from a reviewed plan's acceptance criteria, confirm correct failures, pause for approval before implementation. Runs automatically as the last phase of the two plan skills; also runnable standalone |
-| `wms-plan-executor` | Execute a reviewed plan: ralph-loop to green, code review + fix High/Medium, verify-docs, commit, PR into `develop`, update plan doc + ClickUp to `pr submitted`. Stops at PR — does not merge, deploy, or archive |
+| `wms-tdd-gate` | Create the per-ticket worktree, write failing tests from a reviewed plan's acceptance criteria, confirm correct failures, pause for approval before implementation. Runs automatically as the last phase of the two plan skills; also runnable standalone |
+| `wms-plan-executor` | Execute a reviewed plan in a per-ticket worktree off fresh `origin/develop`: ralph-loop to green, code review + fix High/Medium, verify-docs, commit, PR into `develop`, update plan doc + ClickUp to `pr submitted`. Stops at PR — does not merge, deploy, or archive |
+
+**Implementation worktrees:** `wms-tdd-gate` and `wms-plan-executor` never write code into the main sub-repo checkouts. Both work in `.claude/worktrees/<repo-dir-name>/<TICKET>` (git-ignored), branched off freshly-fetched `origin/develop`, one per repo per ticket — so `v2/wms2-api` and friends stay on whatever branch you left them on. Verify scripts must be run with `PROJECT_ROOT` pointed at a symlink shadow root (recipe in `wms-plan-executor`), otherwise they grade the main checkout instead of the work.
 | `wms-investigation-report` | Produce an evidence-based investigation report into `sbdocs/3-Resources/reports/` |
 | `wms-architecture-doc` | Produce a system-level architecture doc into `sbdocs/3-Resources/architecture/` |
 | `wms-design-doc` | Produce a module-level design doc into `sbdocs/3-Resources/design/` |
 | `wms-v2-migrate` | Port a v1 plan to a v2 plan in `sbdocs/1-Projects/wms2/plan/` |
 | `wms-v1-sync-sweep` | Coordinate the weekly v1→v2 sync sweep across the three v1 repos |
-| `archive-plan` | Move a completed plan from `1-Projects/` to `4-Archieves/`, flip status, update READMEs |
+| `archive-plan` | Move a completed plan from `1-Projects/` to `4-Archieves/`, flip status, update READMEs, retire the verify script, and remove the per-ticket implementation worktree(s) |
 | `refresh-moc` | Audit folder-level READMEs (MOCs) against the filesystem and report drift |
 | `verify-docs` | Audit `sbdocs/` for drift against the code |
 | `broken-links` | Scan `sbdocs/` for broken cross-references |
