@@ -4,7 +4,7 @@ ticket: "SBDEV-2821"
 ticket_url: "https://app.clickup.com/t/868km8j9z"
 type: "bugfix"
 priority: "high"
-status: "APPROVED 2026-08-08 for OPTION (iii) — route at putaway. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). Remaining gate: **M1a** must be proven on UAT before code (§5.1 row 2). **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0."
+status: "APPROVED for OPTION (iii) — route at putaway. **M1a PASSED 2026-08-09 on wineco DEV: the design gate is GREEN** (FLA 30586183 auto-created, stock merged into virtual PickLocation UL 30586181, one UL on the location). M1b confirmed the cases-and-pallets gap. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). Remaining gate: **M1a** must be proven on UAT before code (§5.1 row 2). **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0."
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell (via SBDEV-2731)"
@@ -420,6 +420,39 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 >
 > **After §3.2a ships, re-run M1b** with the expectation flipped: placement succeeds, **no FLA created**,
 > `Club08` stays multi-SKU.
+
+> [!done] **✅✅ M1a PASSED — 2026-08-09, `wms2-wineco-dev`. THE DESIGN GATE IS GREEN.**
+>
+> Received 1 case of `13GSYC` (advice `IBOL012604`) to a container, then manually scanned flowbin `01-A01`
+> at putaway. **Scan accepted, store succeeded.** Verified in the database afterwards:
+>
+> | Artifact | Value |
+> |---|---|
+> | `FixLocationAssignment` **30586183** | auto-created 02:19:20 UTC — `13GSYC` ↔ `01-A01`, bounds **36 / 60 / 84**, `active` |
+> | Resident unit load **30586181** | labelid `01-A01`, **`type_id = 1` (`PickLocation`)** — the virtual UL |
+> | Stockunit **30585960** | amount **1.0000**, `13GSYC`, on that unit load |
+> | Unit loads on `01-A01` | **exactly one** — no second UL, no `assignedunitload_id` unique violation |
+>
+> **What this proves.** `01-A01` permits `unitloadtype_id = 1` **only**. A **Case** unit load placed there
+> by `transferUnitLoadToLocation` is precisely SBDEV-2731's reported error — and it did not happen, because
+> the flowbin branch auto-created the assignment, resolved its virtual `PickLocation` unit load, and merged
+> the stock into it. **The Case UL was retired en route; only the `PickLocation` UL sits on the flowbin.**
+>
+> **Putaway can consume a pick-face destination. That is the mechanism the whole of option (iii)/(iv-b)
+> rests on, and it is now demonstrated on running code rather than inferred from a read.**
+>
+> **It also confirms, empirically, the P1 exemption in SBDEV-2732 §3.4c:** no Case unit load ever sits on
+> the pick face, so testing the destination against the SKU's default Case type — at config-write time or
+> at receive time — asks a question about a unit load that will never be there.
+>
+> **Combined with M1b**, both branches are now characterised on evidence:
+> - `flowbin` → **works** (this test)
+> - `cases and pallets` → **throws** (M1b) ⇒ §3.2a is required for the club use case
+>
+> ⚠ **`13GSYC` and `01-A01` are now consumed** — `UNIQUE(itemdata_id)` and `UNIQUE(assignedlocation_id)`
+> mean neither can be reused for another M1a. Fallbacks: locations `00-C07` (63807), `04-B01` (63889);
+> single-position advice `IBOL012466` / SKU `615`. **`1135` remains deliberately unbound** for the post-fix
+> M1b re-run.
 
 #### M1a — runnable procedure, fixture verified on **`wms2-wineco-dev` (`dev_wh01_om1`)** 2026-08-09
 
