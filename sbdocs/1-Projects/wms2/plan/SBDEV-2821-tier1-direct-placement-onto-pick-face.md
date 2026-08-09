@@ -393,6 +393,49 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 | M4 | SKU with no override | Suggestion list unchanged from today |
 | M5 | The originating receipt: 1,000 units of `ICE PACK` on HMG | Lands in `ICE PACK`; receipt and inventory history record it |
 
+#### M1b — runnable procedure, fixture verified on `wsl-wineco-uat` 2026-08-08
+
+**Everything needed is already configured. No setup writes required.**
+
+| | |
+|---|---|
+| SKU | `1135` — *2015 Roosevelt Pinot Noir 750 ml*, itemdata **740645**, `defultype_id = 4` (**Case**) |
+| Configured destination | **`Club08`** — already set on the SKU |
+| `Club08` | id **225755** · `cases and pallets` · area *Storage and Picking* (`useforstorage = true`, `useforpicking = true`) · `staginglane = false` · `entity_lock = 0` · **0 FLA · 0 unit loads** |
+| Spare fixture | `Club07` id 225754 — identical and also empty, if `Club08` gets dirty |
+
+**Steps**
+
+1. Create or open an inbound advice for SKU `1135`, one case.
+2. Receive it. `REQUIRE_RECEIVING_TO_CONTAINER = TRUE` on this tenant, so the screen will require a
+   container — **that is expected**; take one.
+3. Move the pallet to `PutAwayLane` by the normal flow.
+4. On the mobile putaway screen, scan the pallet, then **manually scan `Club08`**. It will *not* appear in the
+   suggestion list — `getStorageLocationsForPutAwayItemData` returns only locations where the SKU already has
+   stock, and `Club08` is empty. Manual scan is the point of the test.
+5. Confirm the store.
+
+**Predicted outcome — this is what the test is checking, not an assumption**
+
+| Stage | Prediction | Why |
+|---|---|---|
+| Receipt | **succeeds**, stock goes to the container | container mandated ⇒ `carrier != null` ⇒ `ReceivingService:454` never reads the configured destination |
+| Scan of `Club08` | **ACCEPTED** | `verifyScannedLocation:418` passes (`useforstorage = true`); the FLA branch at `:430-444` is flowbin-only, so a `cases and pallets` location skips it entirely |
+| Store | ⛔ **THROWS** `Unsupported location type cases and pallets` | `storeBoxOnLocation:496-503` — the switch covers only `flowbin` / `overstock box` / `overstock pallet`; `staginglane = false` so `default:` reaches the throw |
+
+**The accept-then-throw sequence is the finding.** The operator gets a successful scan and *then* an error,
+which is why this cannot be dismissed as a config problem.
+
+**How to read the result**
+
+- **Throws as predicted** ⇒ §3.2a is confirmed necessary. Proceed with it; re-run M1b after the fix, where
+  the expectation flips to *placement succeeds, no FLA created, `Club08` stays multi-SKU*.
+- **Placement succeeds** ⇒ the static analysis is wrong somewhere. **Stop** — §3.2a, SBDEV-2732's Q12
+  answer and this plan's §3.3 all rest on it, and all three need re-deriving before any code is written.
+
+> **M1a does not substitute for this.** M1a scans a *flowbin*, which takes a different switch branch and
+> works today. Running M1a alone and calling the gate green is the false-green this split exists to prevent.
+
 ### 6.2 Automated
 
 - Configured location appears in candidates when the SKU has **no stock anywhere** (the `ICE PACK` case)
