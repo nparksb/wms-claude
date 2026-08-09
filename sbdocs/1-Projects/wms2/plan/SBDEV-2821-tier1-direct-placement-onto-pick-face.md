@@ -238,12 +238,47 @@ overstock → `overstockLocationList`). Prefer a repository-level change so the 
 > `Resolution.locationId()` from `PutawayDestinationResolver` instead of rewriting it. That is the whole
 > cost of taking (A), and it is why (A) was affordable.
 
+### 3.2a `MobilePutAwayService` must handle `cases and pallets` — SCOPE ADDED 2026-08-08
+
+> **This ticket now owns this fix.** It was unowned until 2026-08-08: SBDEV-2732 has no
+> `MobilePutAwayService` step, and this plan was scoped tier-1-only. **Without it the club use case cannot be
+> consumed at putaway by anyone**, which made SBDEV-2732's claim *"the club use case ships, safely"* false.
+
+`storeBoxOnLocation:472-503` switches on `locationType.getSltname()` against exactly **three** constants —
+`WmsConstants.java:736-738`: `"flowbin"`, `"overstock box"`, `"overstock pallet"`. **`"cases and pallets"` is
+a FOURTH constant** (`WmsConstants.java:741`, `STORAGE_LOCATION_TYPE_STOCK_RESTRICTION`) matching none of
+them, so it falls through to `default:` at `:496`, and since club locations have `staginglane = false` it
+reaches `:502`:
+
+```java
+throw new BusinessException("Unsupported location type " + locationType.getSltname());
+```
+
+**Worse, the failure is late.** `verifyScannedLocation:418` gates only on `!useforstorage && !staginglane`.
+Club locations sit in *Storage and Picking* with `useforstorage = true`, so **the scan is ACCEPTED and the
+store then throws** — the operator scans, gets a tick, then an error.
+
+`calculatePutAwayList:273-286` carries the same switch; its `default:` at `:284-286` **silently drops** the
+location with only a debug log, so a surfaced candidate never reaches the operator either.
+
+**Scope: 70 locations on `wsl-wineco-uat`. HMG PRD is unaffected** — all 191 of its picking-area locations are
+`flowbin` (179) or `overstock box` (12), both already handled.
+
+**The fix:** add `STORAGE_LOCATION_TYPE_STOCK_RESTRICTION` to both switches, taking the same branch as the
+overstock constants — `transferUnitLoadToLocation`, **no FLA auto-creation**. That last part is load-bearing:
+`Club08` is shared across 27 SKUs, and auto-binding it to one SKU via a `FixLocationAssignment` is exactly the
+defect SBDEV-2854's plan warned about. **The FLA branch must stay reachable only from `flowbin`.**
+
+**M1 does not cover this.** M1 exercises the FLA-free *flowbin* path, which works — so it goes green while
+leaving this failure undetected. **M1 must be extended to scan a club location**, or M3 must run before any
+claim that the club use case works.
+
 ### 3.3 The two live SKUs take different branches — both safe, and the difference is load-bearing
 
 | SKU → destination | Location type | Putaway branch | Effect |
 |---|---|---|---|
 | `ICE PACK` → `ICE PACK` | **flowbin** | FLA auto-create + resident-UL merge | Binds the location to the SKU — **correct** for a dedicated location |
-| `1135` → `Club08` | **cases and pallets** | overstock → `transferUnitLoadToLocation` | **No FLA created** |
+| `1135` → `Club08` | **cases and pallets** | ⛔ **`default:` → THROWS** | **This branch does not exist** — see the box below |
 
 The second row matters. `Club08` is shared across **27 SKUs**. Auto-binding it to one SKU would be a real
 defect — SBDEV-2854's plan flagged exactly this (*"would silently re-bind shared Club01 to one SKU at commit
@@ -353,7 +388,7 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 |---|---|---|
 | **M1** | Receive a Case of an FLA-free-flowbin SKU to a container, then at putaway **manually scan** the flowbin | Placement succeeds; FLA auto-created; stock merged into the resident UL. **If this fails, stop — the design is wrong.** |
 | M2 | Repeat with the configured location surfaced in the suggestion list | Appears without a manual scan |
-| M3 | `1135` → `Club08` (cases and pallets) | Overstock branch; **no FLA created**; `Club08` stays multi-SKU |
+| M3 | `1135` → `Club08` (cases and pallets) | **Placement succeeds after the §3.2a fix**; no FLA created; `Club08` stays multi-SKU. **Before that fix this throws** — see §3.2a. M3 is the test that proves the fix, not a formality. |
 | M4 | SKU with no override | Suggestion list unchanged from today |
 | M5 | The originating receipt: 1,000 units of `ICE PACK` on HMG | Lands in `ICE PACK`; receipt and inventory history record it |
 
@@ -363,7 +398,7 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 - Configured location is **not duplicated** when the SKU already has stock there
 - No override ⇒ candidate list byte-identical to today (**regression guard**)
 - Flowbin destination ⇒ FLA auto-created, stock merged into resident UL, **no second UL on the location**
-- **`cases and pallets` destination ⇒ NO FLA created** (guards §3.3 — the `Club08` defect)
+- **`cases and pallets` destination ⇒ placement succeeds and NO FLA is created** (guards §3.3 — the `Club08` defect). **This test fails today**: `storeBoxOnLocation` throws for that type. §3.2a is what makes it pass.
 - Case label emitted on the direct-to-container path (C1 reversal)
 - `Goodsreceiptposition` still points at the receipt's own UL/stockunit after putaway (**C2b regression guard**)
 

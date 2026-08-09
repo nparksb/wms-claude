@@ -759,10 +759,20 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > that is the ticket's "fast-turn" intent — and they carry none of the pick-face risk. Uniform (iv-a) would
 > have silently dropped that. The split costs one predicate at one call site.
 >
-> **The club use case ships, safely.** Club lanes are pick faces (`useforpicking = true`, verified on
-> `wsl-wineco-uat`), so a merchant default of `CLUB-A` is configurable and takes effect — routed at putaway,
-> where `MobilePutAwayService.storeBoxOnLocation:471-489` already handles pick faces correctly. **No stock
-> lands on a live 27-SKU pick face at receipt, and C2b stays unreachable.**
+> **The club use case ships — but NOT on this plan alone.** Club lanes are pick faces (`useforpicking = true`,
+> verified on `wsl-wineco-uat`), so a merchant default of `CLUB-A` is configurable and receiving diverts it to
+> the lane. **No stock lands on a live 27-SKU pick face at receipt, and C2b stays unreachable.**
+> 
+> ⚠ **But two other things must ship before it works end to end, and neither is in this plan's original scope:**
+> 1. **`MobilePutAwayService` must handle `cases and pallets`.** Its switch covers only `flowbin`, `overstock
+>    box` and `overstock pallet` (`WmsConstants:736-738`); `cases and pallets` is a fourth constant (`:741`)
+>    and falls to `default:`, which **throws** for club locations. **Owned by SBDEV-2821 §3.2a** as of
+>    2026-08-08. Until it ships, a club destination saves, diverts, and then **throws at putaway**.
+> 2. **Putaway must offer the destination for tiers 2/3** — SBDEV-2821 surfaces it for tier 1 only.
+>    **Step 17a of this plan**, and it depends on 2821 merging first.
+> 
+> Earlier revisions of this box asserted the club case *"ships, safely"* on this plan alone. **That was
+> false** — it assumed `storeBoxOnLocation` already handled the type, which it does not.
 >
 > *Provenance: (iv-b) chosen by the ticket owner (Nam Park) 2026-08-08, following SBDEV-2821's option (iii).
 > Put to @David Oppenheim and @Brent Campbell on the ticket the same day; **no reply recorded yet.** If either
@@ -844,10 +854,17 @@ still ≈1 on a real tenant, D13 needs rethinking rather than documenting. *(Cav
 35-location fresh-seeded copy and is not PRD-representative; the contradiction was between three
 predicates over two columns, not an artifact of that data.)*
 
-Tier 1 (SKU) is **exempt** from (a), (b) and (d) — **but NOT from (c)**, deliberately. Rule (c) is the
-D15 enforcement point: tier 1 may target any *storage* location, and may not target a pick face or a
-fix-assigned location while tier-1 placement is deferred. *(A 2026-08-04 revision briefly added (c) to
-this exemption list; reverted the same day — see P2.5 and §12.)*
+Tier 1 (SKU) is **exempt** from (a), (b) and (d).
+
+> **⚠ SUPERSEDED 2026-08-08 (Q12 → iv-b).** This paragraph read *"exempt from (a), (b) and (d) — **but NOT
+> from (c)**, deliberately. Rule (c) is the D15 enforcement point: tier 1 … may not target a pick face or a
+> fix-assigned location while tier-1 placement is deferred."* **Rule (c) is now dropped at ALL scopes, tier 1
+> included** — see the canonical P2.5 row in this section's table. Tier-1 placement is not "deferred" any
+> more; under (iv-b) **no** tier is directly placed at a pick face, so the write-time reject that stood in
+> for a runtime gate is gone and the gate itself does the work (§5.2 step 15).
+>
+> *(Historical note retained: a 2026-08-04 revision briefly added (c) to this exemption list and was reverted
+> the same day — because at that time the placement path really was ungated. It is gated now. See §12.)*
 
 **Why.** SBDEV-2731's Architect review found (F3) that `FixLocationAssignment` carries
 `lowerbound`/`middlebound`/`upperbound` (`model/FixLocationAssignment.java:19,22,25`), seeded **36 / 60 /
@@ -933,9 +950,16 @@ incompatible-SKU count, with 100 %-incompatible ones still refused. **Implementa
 per tenant at validation time — do not hard-code 3/8, which is one tenant's arithmetic.
 
 **Scope limit on the relaxation.** D11 relaxes the **unit-load-type compatibility** predicate only. A
-**locked** destination (`entityLock != NOT_LOCKED`) and a **fix-assigned** one can never work for any SKU, so
-both remain **absolute rejects at all three scopes**, validated at write time for merchant and warehouse as
-well as SKU. **Lanes are NOT in that list — P2.3 is not absolute.** P2.7 rules (a) and (d) deliberately
+**locked** destination (`entityLock != NOT_LOCKED`) remains an **absolute reject at all three scopes**,
+validated at write time for merchant and warehouse as well as SKU.
+
+> **⚠ CORRECTED 2026-08-08 (Q12 → iv-b).** This paragraph also listed a **fix-assigned** destination as an
+> absolute reject, on the reasoning that it "can never work for any SKU". **That is no longer true and is no
+> longer the design.** P2.5 is **dropped** — see its canonical row in the §3.4c table, which is the single
+> authoritative statement of its status. A fix-assigned destination is a legal configuration at every scope;
+> what is refused is the *placement*, by the runtime gate (§5.2 step 15). **Do not restate P2.5's status
+> anywhere else in this document — reference the §3.4c row.** Restating it is how it came to be asserted
+> three different ways by two editors working the same file on 2026-08-08. **Lanes are NOT in that list — P2.3 is not absolute.** P2.7 rules (a) and (d) deliberately
 *permit* `staginglane` and `crossdockinglane` for tiers 2/3 (they are the ticket's named club-assembly and
 cross-dock use cases) while (b) still bans `transferlane`, `automationlane` and `gate`. So the correct
 statement is: **locked and fix-assigned are absolute at all three scopes; lane handling is per-tier.**
@@ -2093,6 +2117,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | 15 | Wire the resolver into `ReceivingService.java:451-459`. `requireCompatible` inside `if (carrier == null)` **above the loop** (§3.7.1); constants at `ReceivingController:314`. **Add the (iv-b) placement gate here:** if the resolved destination's area has `useforpicking = true`, **do not place there** — fall back to the standard putaway lane (tier 4) and leave the destination for putaway. Otherwise place as step 17 specifies. **This plan owns this surface (D14).** | `ReceivingServiceUnitTest` — **must include `pickFaceDestinationIsNotPlacedAtReceipt` and `stagingLaneDestinationIsPlacedAtReceipt`** |
 | 16 | `PutawayDestinationQueryService` (`readOnly = true`) + `GET /receiving/getPutawayDestination/{advicePositionId}` + `GET /client/{id}/effectivePutawayDestination` — **the controller must not call the resolver** (C1). | controller tests |
 | 17 | Direct placement + traceability (`UnitloadRecord` names the final destination) — **for NON-pick-face destinations only (Q12 → iv-b).** Pick-face destinations never reach this step; step 15's gate diverts them to the lane. **The gate in step 15 is what makes that true — it is no longer enforced by refusing the configuration, because (iv-b) permits pick-face configs at every scope.** **If you relax P2.5/P2.7(c) without step 15's gate in the same change, SBDEV-2731's reported failure returns.** | `ReceivingServiceUnitTest` |
+| 17a | **Putaway consumes the resolved destination for tiers 2/3 — SCOPE ADDED 2026-08-08.** Step 15 diverts a pick-face destination to the lane; something must then offer it at putaway or the divert is a dead end. SBDEV-2821 builds that surfacing for **tier 1 only** (Q15 → (A)), reading `itemdata.putawaylocation_id` directly. **This plan extends it to the merchant and warehouse tiers** by having the putaway candidate query consume the four-tier `Resolution` instead of the raw column. **Prerequisite: SBDEV-2821 merged** — it owns `MobilePutAwayService`, including the `cases and pallets` fix (2821 §3.2a) without which club destinations throw. **Do not build this before 2821**, or two code paths will read destinations differently — the exact seam Q15 was about. | `MobilePutAwayServiceUnitTest` — a merchant-tier pick-face destination is offered as a putaway candidate |
 | **17a** | **NEW 2026-08-08 (Q15 → (A)) — extend putaway's candidate surfacing to all four tiers.** SBDEV-2821 ships the repository method that adds a SKU's configured destination to the putaway candidate list, but reads **tier 1** (`itemdata.putawaylocation_id`) only. Step 15 diverts pick-face destinations at **every** tier, so merchant- and warehouse-scope defaults must be surfaced too: pass `Resolution.locationId()` from `PutawayDestinationResolver` into that method instead of the raw `itemdata` column. **Do not build a second surfacing path, and do not widen the `@RestResource`-exported `getStorageLocationsForPutAwayItemData`** (SBDEV-2821 §3.2). **This step is why `depends_on` now names SBDEV-2821** — if that ticket has not merged, this step has nothing to extend and step 15's gate strands the destination. | `MobilePutAwayService` unit test: a **merchant**-scope pick-face default appears in the candidate list for a SKU with **no stock anywhere** |
 | 18 | `PutawayResolverContextLoadTest` (`@Disabled TODO(SBDEV-2217)`); `mvn clean compile`; full `mvn test`; **revert the mutated `archunit_store`**. | **`PHASE=1` verify run: 0 fail** |
 
