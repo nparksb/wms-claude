@@ -451,7 +451,26 @@ Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mec
 
 **Steps** — identical to M1b except the location.
 
-1. Receive **one case** of `SBB18S` against advice `IBOL015140`. Take a container when asked.
+1. **Do NOT create a Purchase Order.** The advice already exists and is OPEN. Go to **Receiving**, select
+   client **`Adelsheim`**, open advice **`IBOL015140`** (position `IBOL015140-000000`, 1 case) and receive it.
+   Take a container when asked.
+   > ⚠ **Corrected 2026-08-09 after a failed run.** The step previously read *"Receive one case of `SBB18S`
+   > against advice `IBOL015140`"*, which was taken as an instruction to create a PO. `SBB18S` does not appear
+   > in the Create-Purchase-Order item list unless client **Adelsheim** is selected — the list is client-scoped.
+   > **Creating a PO is not part of this test.**
+   >
+   > **If Adelsheim is not available in your session, any of these OPEN positions works** — all are Case-type
+   > SKUs with no existing FLA, which is the only precondition that matters:
+   >
+   > | Client | Advice | SKU | Cases |
+   > |---|---|---|---|
+   > | Adelsheim | `IBOL015140` | `SBB18S` | 1 |
+   > | Adelsheim | `IBOL015177` | `SBB18S` | 3 |
+   > | Brooks Winery | `IBOL015195` | `BW15RSW` | 1 |
+   > | Brooks Winery | `IBOL015199` | `BW23GN` | 1 |
+   > | Cristom Vineyards | `IBOL015178` | `22PNLV750` | 1 |
+   >
+   > **Swapping the SKU is safe. Do not swap the location** — `04-A01` must stay, and it must still have no FLA.
 2. Move the pallet to `PutAwayLane`.
 3. Mobile → **Putaway** → **Scan Pallet**.
 4. Tap **"Replenish Location(s)"**.
