@@ -269,9 +269,9 @@ overstock constants — `transferUnitLoadToLocation`, **no FLA auto-creation**. 
 `Club08` is shared across 27 SKUs, and auto-binding it to one SKU via a `FixLocationAssignment` is exactly the
 defect SBDEV-2854's plan warned about. **The FLA branch must stay reachable only from `flowbin`.**
 
-**M1 does not cover this.** M1 exercises the FLA-free *flowbin* path, which works — so it goes green while
-leaving this failure undetected. **M1 must be extended to scan a club location**, or M3 must run before any
-claim that the club use case works.
+**M1a does not cover this** — it exercises the FLA-free *flowbin* path, which works, so it goes green while
+leaving this failure undetected. **§6.1 now carries `M1b`** for the `cases and pallets` branch. Neither M1a
+nor M3 alone is sufficient evidence that the club use case works; M1b is the one that proves this fix.
 
 ### 3.3 The two live SKUs take different branches — both safe, and the difference is load-bearing
 
@@ -386,7 +386,8 @@ fixed either** — it has the same flowbin failure; parity here means "we change
 
 | # | Scenario | Expected |
 |---|---|---|
-| **M1** | Receive a Case of an FLA-free-flowbin SKU to a container, then at putaway **manually scan** the flowbin | Placement succeeds; FLA auto-created; stock merged into the resident UL. **If this fails, stop — the design is wrong.** |
+| **M1a** | Receive a Case of an FLA-free-**flowbin** SKU to a container, then at putaway **manually scan** the flowbin | Placement succeeds; FLA auto-created; stock merged into the resident UL. **If this fails, stop — the design is wrong.** |
+| **M1b** | Same, against a **`cases and pallets`** pick face (a wineco club location) | Placement succeeds; **no FLA created**. ⚠ **Throws today** (`Unsupported location type cases and pallets`) — §3.2a is the fix. **M1a passing does NOT imply M1b passes: they take different switch branches.** |
 | M2 | Repeat with the configured location surfaced in the suggestion list | Appears without a manual scan |
 | M3 | `1135` → `Club08` (cases and pallets) | **Placement succeeds after the §3.2a fix**; no FLA created; `Club08` stays multi-SKU. **Before that fix this throws** — see §3.2a. M3 is the test that proves the fix, not a formality. |
 | M4 | SKU with no override | Suggestion list unchanged from today |
@@ -479,6 +480,6 @@ ever revived, C1 must be re-decided against Brent's answer, not assumed.
 | ~~Q4~~ | ~~Routing precedence~~ | — | ✅ **CLOSED 2026-08-08 — option (iii)** (§0) |
 | ~~Q1~~ | ~~Case label: print or suppress~~ | — | ✅ **CLOSED — prints unconditionally; no code needed** (§0, §9) |
 | ~~Q15~~ | ~~The tier seam — ship tier 1 independently (A), or wait for 2732's resolver (B)?~~ | — | ✅ **CLOSED 2026-08-08 — (A).** Tier 1 ships here, first. `depends_on: SBDEV-2732` does **not** become hard; **2732 gains a dependency on this ticket** instead. Order: `2731 PR1 → 2821 → 2732`. Rationale, the reversed arrow and the degraded-not-broken analysis in **§0**; the extension point in **§3.2** |
-| **M1** | Not a question but the remaining **gate**: does a manual putaway scan of an FLA-free flowbin succeed today? | implementer, on UAT | **Everything.** If it fails, the design is void and Q4 reopens. |
+| **M1a/M1b** | Not a question but the remaining **gate**: does a manual putaway scan succeed for **both** an FLA-free flowbin (M1a) **and** a `cases and pallets` club location (M1b)? **M1a alone is a false green** — it exercises the branch that already works. | implementer, on UAT | **Everything.** If M1a fails, the design is void and Q4 reopens. |
 | Q13 | If (iii): should the configured location be **pre-selected** at putaway, or merely offered? | Brent | §5.2 step 5 — UX only |
 | Q14 | If (iii): should receiving *display* the eventual destination, even though it routes to a container first? | David | Interacts with SBDEV-2732 §3.11.1 |
