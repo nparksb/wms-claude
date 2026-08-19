@@ -246,6 +246,16 @@ Three additions, all in `wms2-api`:
    being dropped again. *(Taking 2870's property 5 at face value would have meant either a surprise red build
    or, worse, "fixing" it by relaxing the wrong assertion.)*
 
+   ⚠️ **Use `containsExactlyInAnyOrder`, not `containsExactly` (review ②, 2026-08-19).** AssertJ's
+   `containsExactly` is **order-sensitive**. With one element that is invisible; with two the assertion's
+   outcome starts depending on whether the property supplied `X-Export-Skipped-Cycle-Counts` before the code
+   added `X-Authz-Denied` — i.e. on the ordering of two `addExposedHeader` calls that no requirement
+   constrains. A refactor that changes nothing observable then turns the test red.
+   `containsExactlyInAnyOrder` keeps **exact membership**, which is the property this decision actually wants,
+   and drops an accidental coupling to call order. This is **not** the relaxation forbidden above — `contains`
+   is, because it tolerates extra entries. Verify rows `H24` and `H25` are both anchored on the literal
+   `containsExactly(` and must be widened in the same commit (see §9.2).
+
 **Why this plan is the right owner, not a scheduling accident.** `FunctionGuardInterceptor` writes the denial
 response itself, so it can attach a header with no new machinery. SBDEV-2870 could not: its five gates are
 `@PreAuthorize`, which produces Spring's *default* 403, and **there is no `AccessDeniedHandler` in this
@@ -532,10 +542,15 @@ Jest via `node_modules/.bin/jest` under nvm node — no `yarn` on PATH. **Baseli
 
 ### 6.3 Manual test plan
 
+> ⚠️ **Every `curl` row below must assert the HTTP status line, not only the body or a header** (review ③,
+> §14.4). A grep that finds nothing looks the same whether the assertion failed or the request never reached
+> the filter chain — a malformed URL is rejected by Tomcat at 400 with no CORS headers at all. Assert the
+> status first, then the payload.
+
 | # | Persona / setup | Action | Expected | Result |
 |---|---|---|---|---|
 | M1 | `outbound-forklift` (Truck Loading + Lookup) | deep-link `/mobile/cycle-count` | `/not-authorized`, layout **renders**, names "Cycle Count" + `MOBILE_UI_VIEW_CYCLE_COUNT` | |
-| M2 | same | `curl …/v3/cycleCountLos/…` | **403** + `ProblemDetail{reason:"MISSING_FUNCTION"}`; `Access-Control-Allow-Origin` present | |
+| M2 | same | `curl …/v3/cycleCountLos/…` | **403** + `ProblemDetail{reason:"MISSING_FUNCTION"}`; `Access-Control-Allow-Origin` present; `Access-Control-Expose-Headers` names **both** headers | |
 | M3 | same | home screen | Truck Loading + Lookup tiles only; both work end-to-end | |
 | M4 | `receiving` | Replenish Process → scan a location | succeeds (method-level override) | |
 | M5 | hand-made role: `REPLENISHMENT` without `INFO` | Replenish Process → scan a location | succeeds — the many-to-many case a class-only gate breaks | |
@@ -570,8 +585,9 @@ Jest via `node_modules/.bin/jest` under nvm node — no `yarn` on PATH. **Baseli
 > still show `Access-Control-Expose-Headers` on its 401 (Spring Security's `CorsFilter` runs before
 > authentication), which looked like a way to check the CORS half with no test account. It buys nothing: the
 > programmatic `addExposedHeader` in §3.1-A2b is **additive and override-proof by construction**, so no
-> environment's `REST_SECURITY_CORS_EXPOSED_HEADERS` can drop the header and there is no env-specific drift
-> for such a check to catch. It would have been a row that can only ever pass.
+> environment's `REST_SECURITY_CORS_EXPOSED_HEADERS` can drop the header and there is no ***silent***
+> env-specific drift for such a check to catch. It would have been a row that can only ever pass.
+> *(Wording made precise by review ④, 2026-08-19 — see §14.4a for why the qualifier is load-bearing.)*
 >
 > **Local is a valid test bed, and that is not an accident worth assuming.** `nuxt.config.js` declares
 > `modules: ['@nuxtjs/axios', '@nuxtjs/toast']` — **no `@nuxtjs/proxy`** — and the browser calls
@@ -640,7 +656,7 @@ The full chain (JWT → `TenantFilter` → security chain → interceptor → te
 | **R4** | `AdminController` inheritance mis-gates ~90 alias URLs (~130 pre-#166). | **High** | Declaring-class resolution (§3.1-A2 step 2); `resolvesAnnotationFromDeclaringClassNotBeanType`, `inheritedAdminControllerAliasIsNotGatedByTheSubclassAnnotation`, `adminControllerCarriesNoRequiresFunction`; M8. | Very low — three independent tests. |
 | **R5** | A future mobile-only controller lands **outside** the guarded set and silently fails open — the defect the package predicate would have shipped. | **High** | A8: explicit guarded set + the `SmartInitializingSingleton` startup assertion that fails bean init unless the annotated set equals the golden-map keyset; `FunctionGuardStartupAssertionUnitTest`. | Low — a miss fails startup, not silently at runtime. |
 | **R6b** | 🔴 **An authorization 403 logs the operator out.** Both UIs retry a 403 three times with a token refresh, then `$kc.logout()` on an authenticated session (`plugins/axios.js:35-37, :92`) — so every A7 deny presents as a session failure and the typed messages never render. Found 2026-08-17. | **High** | §5.1-P10 — emit `X-Authz-Denied` from the interceptor and return `false` from `retryCondition` when present; `test/plugins/axios.spec.js#doesNotRetryWhenXAuthzDeniedHeaderPresent`. | None once P10 lands. **The plan must not ship without it** — the deny UX would otherwise be worse than today's generic toast. **Residual raised 2026-08-17:** P10's server half is now this plan's own work (§3.1-A2b), and its CORS half is unprovable by any test in this repo — so the failure mode "header emitted, browser can't read it, operator still logged out" is live until **M23** is run (AC-31) — and M23 must be the browser test, since a `curl` cannot distinguish that failure from success. |
-| **R13** | 🔴 **The `X-Authz-Denied` contract is dropped by both plans.** It was reverted from SBDEV-2870 on the argument that 2967 Fix E would carry it, while this plan — which lands *first* and needs it — recorded it as already-done. Each plan can point at another as the owner. Found 2026-08-17. | **High** | §3.1-A2b assigns the constant, the emitter and the CORS entry **here**, and 2967 §3.5.1-4 / §5.1-P8 are edited to consume rather than create. Test: `deniedResponseCarriesTheAuthzDeniedHeaderNamingTheFunction` + `corsExposedHeadersContainsAuthzDeniedHeader`. | Low now that ownership is written down in both plans — but this is the second time a relocation between these three tickets left an orphan (the first cost 2870 its §10.1 blocker). Re-check ownership after **any** future scope move between 2870/2967/2968. |
+| **R13** | 🔴 **The `X-Authz-Denied` contract is dropped by both plans.** It was reverted from SBDEV-2870 on the argument that 2967 Fix E would carry it, while this plan — which lands *first* and needs it — recorded it as already-done. Each plan can point at another as the owner. Found 2026-08-17. | **High** | §3.1-A2b assigns the constant, the emitter and the CORS entry **here**, and 2967 §3.5.1-4 / §5.1-P8 are edited to consume rather than create. Test: `deniedResponseCarriesTheAuthzDeniedHeaderNamingTheFunction` + `corsExposedHeadersContainsAuthzDeniedHeader`. | Low now that ownership is written down in both plans — but this is the second time a relocation between these three tickets left an orphan (the first cost 2870 its §10.1 blocker). Re-check ownership after **any** future scope move between 2870/2967/2968. **Mitigation superseded 2026-08-19 (§14.7)** — prose replaced by the `[inherited]` verify-row class, after a third instance (§14.6) showed the defect is any inherited claim, not only a relocation. |
 | **R6** | Nuxt cold-start — the middleware runs before roles load and bounces every hard refresh to `/not-authorized`. | Medium | Memoised `ensureRolesLoaded()` awaited in the middleware; three distinct states (loading / denied / fetch-failed); `waitsForEnsureRolesLoadedBeforeDeciding`; M17. | Low. |
 | **R7** | Deploying api before mobile-ui gives the generic toast instead of the actionable message. | Medium | §5.1-P7 pins **mobile-ui first**; mobile-first is strictly safe. | Low. |
 | **R8** | V2.2.17 collides with a version on an unmerged branch; the local checkout is 36 commits stale. | Medium | §5.1-P6 re-sweep across all remotes at PR time; M20. | Low. |
@@ -648,7 +664,7 @@ The full chain (JWT → `TenantFilter` → security chain → interceptor → te
 | **R10** | The audit is implemented with per-username `existsInKeycloak` — N round-trips **and** an ungated SBDEV-2870 endpoint that may gain a guard. | Low | §3.5 states the bulk requirement; `doesNotCallExistsInKeycloakPerUsername` pins it. | Low. |
 | **R11** | `mywms_role_mywms_function` has no unique constraint → a re-run duplicates grants. | Low | `NOT EXISTS` guard, not `ON CONFLICT`; §5.1-P5; M21. `getAllRoles` is `SELECT DISTINCT`, so duplicates are functionally harmless but pollute the audit. | Low. |
 | **R12** | The five §0.B shared endpoints stay reachable by a denied user — the tile is enforced, the shared capability is not. | Low | Documented as an explicit scope boundary in §0.B and in the ticket's closing note. Narrowing it needs a per-caller distinction the shared controllers do not support. | **Accepted and stated.** Follow-up ticket. |
-| **R13** | `IS_SB_ADMIN` on the new audit endpoint is itself unverifiable by unit test (RC-2 applies to it too). | Low | Read-only, diagnostic; the `/v3/**` `wms_user` floor bounds exposure; exposes structure, not credentials. | Accepted. |
+| **R14** | `IS_SB_ADMIN` on the new audit endpoint is itself unverifiable by unit test (RC-2 applies to it too). | Low | Read-only, diagnostic; the `/v3/**` `wms_user` floor bounds exposure; exposes structure, not credentials. | Accepted. |
 
 ---
 
@@ -751,7 +767,8 @@ Run it **before** any code change to capture the FAIL baseline, and again after 
 | 7 | Observability | ✓ §6.1 metrics + §8-R2's 24 h watch signal |
 | 8 | Rollback / migration | ✓ V2.2.17 (P6 re-sweep), P7 deploy order, P8 runbook |
 | 9 | Test coverage | ✓ §6.1–§6.3; §6.5 records the skipped E2E lane honestly |
-| 10 | Cross-version (v1↔v2) | no — v2-only. v1 has the same client-side-only pattern but a separate UI codebase and its own `FunctionEnum`; a v1 port is a separate plan if wanted. |
+| 10 | Commit ordering (A2b) | ✓ `Authority.AUTHZ_DENIED_HEADER` + the `SecurityConfiguration` CORS entry land in **this branch's first commit**, not mid-branch — review ① — so SBDEV-2967 has something to reference by symbol from the moment 2968 exists. Row `A27` (`file_not_contains '"X-Authz-Denied"'`) enforces by-constant use here; 2967 mirrors it |
+| 11 | Cross-version (v1↔v2) | no — v2-only. v1 has the same client-side-only pattern but a separate UI codebase and its own `FunctionEnum`; a v1 port is a separate plan if wanted. |
 
 ### 11.3 Provenance
 
@@ -1010,12 +1027,65 @@ not itself subject to CORS filtering cannot distinguish that state from success:
 
 So M23 asserts the behaviour plus an explicit `headers.get()` probe.
 
+⚠️ **Narrowed by review ③ (2026-08-19) — "curl is inadmissible" is true of one curl check, not of curl.**
+The table's row 2 condemns `curl -i | grep X-Authz-Denied`, which is the check that was actually drafted twice
+and which does pass on the broken configuration. It does **not** condemn
+`curl -i | grep -i 'access-control-expose-headers:.*X-Authz-Denied'`: the expose list is itself on the wire,
+curl reads it fine, and that assertion detects the CORS-layer defect with no browser and no test account.
+Correct statement: **a curl check on the header's *presence* is inadmissible; on the *expose list* it is
+admissible but insufficient.** M23 still needs a browser, because arm (b) — denial renders, no logout, no
+max-unauthorized toast — is behavioural and nothing but the app produces it.
+
+**Every curl-shaped row must also assert the status line.** A bare header grep returns *identical empty
+output* whether the header is missing (the defect) or the request never reached the filter chain. Measured
+2026-08-19: `/v3//system/mobileUiUrl` — one extra slash — is rejected by Tomcat at **400 before `CorsFilter`
+runs** and carries no CORS headers at all. Silent and indistinguishable from a real failure, and the same
+class of defect as the `H24` error in §14.5: a row red on correct code.
+
+**Verified rather than reasoned (2026-08-19).** A two-origin probe — 403 + `X-Authz-Denied`, one route
+listing it in `Access-Control-Expose-Headers` and one omitting it — returned `headers.get('x-authz-denied')`
+= `null` when unexposed and `"true"` when exposed, on otherwise byte-identical responses, while `curl -i`
+showed the header in **both**. Rows 2 and 4 of the table above are now measurements. CORS filtering applies to
+error responses, so the 403 case behaves like a 200.
+
+### 14.4a The credential-free variant, re-examined — why "override-proof" needs the word *silent* (2026-08-19)
+
+Review ④ initially judged the drop **wrong**, on an objection worth recording because the plan's wording
+invites it: `addExposedHeader` is override-proof for the **expose list**, but a browser only receives
+`Access-Control-Expose-Headers` when the **Origin is allowed**, and
+`rest.security.cors.allowed-origin-patterns` (`application.properties:98`) binds through
+`@ConfigurationProperties(prefix = "rest.security")` (`SecurityProperties.java:11`) — so it *is* overridable
+per environment as `REST_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`. That reads exactly like the env-specific
+drift the plan says cannot exist.
+
+**Checking the deployed configuration retired the objection:**
+
+| Probe | Result |
+|---|---|
+| Every `allowed-origin` declaration in the repo | Two — `application.properties:98` and `allowed-origins=*` in test resources. **No override anywhere** |
+| Profile-specific property files | **None exist.** `SPRING_PROFILES_ACTIVE=wineco` (`Dockerfile:45`) is commented out |
+| Config externalization | `ENTRYPOINT` is a bare `-jar app.jar` — no `--spring.config.location`, no config volume, no env injection in `Dockerfile`, `.gitlab-ci.yml` or `.github/workflows/` |
+| `REST_SECURITY_*` anywhere | Only in two source comments |
+| Reach of the baked default | Spring compiles `*` in an origin pattern to `.*`, so `https://*.sbo.li` matches multi-level hosts such as `https://wms.wineco.dev.sbo.li`. Broad enough that no environment needs to touch it |
+
+**And the decisive point: a wrong origin pattern is loud, not silent.** It breaks *every* cross-origin
+request — the UI is comprehensively down within seconds of a deploy. Expose-list omission is the opposite:
+one header silently unreadable while everything else works. Only the silent class needs a dedicated smoke
+row, so the credential-free check has no silent failure mode to catch and dropping it costs nothing even
+under §14.6's account scarcity. **The conclusion stands; only the wording needed the qualifier.**
+
+*Residual:* deployment is Kubernetes and the manifests are outside this repo, so absence of an override is
+inferred from the image having no mechanism to receive one, not observed in a Deployment spec. If one does set
+the variable the finding is unaffected — the failure would still be loud.
+
 **A credential-free variant was considered and dropped, not deferred.** Spring Security's `CorsFilter` runs
 before authentication, so an *unauthenticated* cross-origin request still carries
 `Access-Control-Expose-Headers` on its 401 — which appeared to offer a CORS check needing no test account.
 It buys nothing: §3.1-A2b's `addExposedHeader` is **additive and override-proof by construction**, so no
-environment's `REST_SECURITY_CORS_EXPOSED_HEADERS` can drop the header, and there is no env-specific drift for
-such a check to catch. It would have been a row incapable of failing. Recorded so it is not re-proposed.
+environment's `REST_SECURITY_CORS_EXPOSED_HEADERS` can drop the header, and there is no ***silent***
+env-specific drift for such a check to catch. It would have been a row incapable of failing. Recorded so it is
+not re-proposed — and see **§14.4a**, where a review took the un-qualified wording at face value, reached the
+opposite verdict, and had to check the deployed configuration to retire it.
 
 **Local dev is a valid CORS test bed — verified, not assumed.** `nuxt.config.js` declares
 `modules: ['@nuxtjs/axios', '@nuxtjs/toast']` with **no `@nuxtjs/proxy`**, and `axios.baseURL` is
@@ -1096,3 +1166,85 @@ empty result must be shown to mean *no affected users* rather than *the roles th
 exclusive holders here*. **P1/P2 must be re-run per tenant on prd/UAT and must distinguish those two cases.**
 Hydra UAT returning zero rows is genuinely reassuring (nobody would be locked out); WineCo dev returning zero
 is an artifact. Same number, opposite meaning.
+
+---
+
+### 14.7 R13's mitigation replaced — the `[inherited]` verify-row class (2026-08-19)
+
+**Source:** review of §3.1-A2b, `reviews/SBDEV-2968-review-a2b-header-contract.md`, decision ⑤. That review
+judged R13's mitigation — prose in three documents — inadequate, on the grounds that prose is the same class of
+control that had already failed twice. This section replaces it.
+
+**The defect is broader than R13 states.** R13 is scoped to *scope moves between 2870/2967/2968*. There are now
+three instances, and the third involves no scope move at all:
+
+| # | Inherited claim | Carried as | Reality | Found by |
+|---|---|---|---|---|
+| 1 | "2967 Fix E will carry the header" | 2870 §11.4 | 2967 lands *after* 2968 | reviewing 2870 |
+| 2 | "the header is already emitted by SBDEV-2870's damaged-lock gate" | this plan, pre-§3.1-A2b | **No `X-Authz-Denied` anywhere in `src/main/`** on `27e2f21` | a `grep`, 2026-08-17 |
+| 3 | "a `CS-REP`-shaped account exists" | §3.5, from plan prose | True of a **role**, false of any live **user** (§14.6) | a SELECT, 2026-08-18 |
+
+The general defect is **any inherited claim carried as fact** — not specifically a relocation. "Grep the
+receiving branch after a scope move" would not have caught instance 3, because nothing moved.
+
+**All three were caught by running something.** None was caught by reading. That is what selects the medium.
+
+#### The control
+
+> **`[inherited]` — every claim a plan makes about state it does not itself create must appear as a verify-script
+> row that re-executes the check on the receiving branch.**
+
+Three properties make this the right shape:
+
+1. **It is executable, not prose.** The failure mode being mitigated is "nobody re-read the sentence." A row is
+   re-run on every verify invocation whether or not anyone remembers it exists.
+2. **It runs on the receiving branch.** That is exactly R13's own instruction — *"a grep of the receiving branch
+   for the thing being assumed, not a reading of the sending plan"* — automated instead of asked for.
+3. **It generalises past relocation** to the whole inherited-claim class, which is what instance 3 requires.
+
+#### Label semantics, alongside `[pre-passes]`
+
+| Label | Meaning | Reading a green row |
+|---|---|---|
+| `[pre-passes]` | Regression pin on pre-existing shape; passes on the unfixed tree by design | **Not progress** (script :120-122) |
+| `[inherited]` | A precondition this plan assumes but does not build | **Not this plan's work** — green means the assumption still holds; red means the assumption is an orphan |
+
+Both labels answer the same question — *what does a green row here actually prove?* — which is why they belong
+in the same convention.
+
+#### Rows this ticket adds
+
+| Row | Assertion | Expected on `27e2f21` |
+|---|---|---|
+| `X1` | `[inherited]` — nothing outside this plan is assumed to emit `X-Authz-Denied` | n/a: §3.1-A2b now **owns** it, so instance 2 is closed by ownership rather than by a row. Recorded here so the closure is deliberate |
+| `X2` | `[inherited]` — a mobile account holding `MOBILE_UI_LOG_IN` and **zero** `MOBILE_UI_VIEW_*` exists on the target tenant | **RED** until §14.6's purpose-made account is created. M23 cannot run before this is green |
+| `X3` | `[inherited]` — `Authority.AUTHZ_DENIED_HEADER` resolves on the branch under test | For **SBDEV-2967's** row set, not this one — see below |
+
+`X2` is the row that would have found §14.6 on the day §3.5 was written rather than the day the account was
+needed. It is the whole proposal in one line.
+
+#### Compile-time reinforcement (from decision ①)
+
+SBDEV-2967's Fix E must reference `Authority.AUTHZ_DENIED_HEADER` **by symbol, never a string literal** — row
+`A27` already enforces this on the interceptor side (script :118). An orphaned constant then breaks 2967's
+build instead of silently logging operators out, which is the loudest available signal and costs nothing.
+`X3` is the verify-script backstop for the case where 2967 is read before it is compiled.
+
+#### What this does not cover
+
+A claim nobody thought to write down is still invisible; the control catches *stated* assumptions, not
+unstated ones. And a row asserting the wrong thing is worse than no row — see §14.2 and §14.5, where two rows
+in this very script were red on correct code. `[inherited]` rows are subject to the same discipline as the
+rest: assert the status line as well as the payload, and confirm the row is red before the precondition is met.
+
+#### Two housekeeping notes from the same review
+
+- **`R13` ID collision — fixed 2026-08-19.** The ID was used twice in §8's register: the header-contract risk
+  and an unrelated `IS_SB_ADMIN` observability risk. Every cross-reference — §14.2, §14.4, §14.5, §14.7,
+  SBDEV-2870 `:516`, SBDEV-2967 `:393` — means the header contract, so **the observability row was renumbered
+  to `R14`** (previously unused) and `R13` was left untouched. No reference needed updating.
+- The review's other verdicts (①–④, all *sound* or *sound-with-changes*) are recorded in the review file and
+  are not repeated here. Two carry edits to this plan's own artifacts: `containsExactlyInAnyOrder` in place of
+  `containsExactly` for the two-header assertion, with row `H24` widened to match; and M23's rationale narrowed
+  to *"a curl check on the header's presence is inadmissible; on the expose list it is admissible but
+  insufficient."*

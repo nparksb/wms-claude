@@ -296,6 +296,24 @@ check_B13_nirvana_guard_ungated() {
     [ -n "$pre" ] || return 1
     printf '%s' "$pre" | grep -qE 'STORAGE_LOCATION_NIRVANA'
 }
+# ADDED after the 2026-08-19 review (both lanes flagged it independently): the shadow WARN was
+# implemented but pinned NOWHERE — not by a test, not by a row. Deleting LOG.warn from the
+# non-enforcing branch scored 153/153 targeted, 5170-run parity and 53/53 here. Since plan §5 Fix B
+# calls that line "load-bearing rather than a nicety" and §8.1 calls it "the only test of the
+# mechanism that retires R3", its absence has to be detectable. Slice assertCanReceiveStock from the
+# gate read to the end of the method and require a WARN inside it.
+check_B14_shadow_warn_emitted_when_gate_off() {
+    # ⚠ FALSE-RED FIXED on first run: this originally sliced from the sysprop constant, assuming the
+    # gate is read inline in assertCanReceiveStock. It is read via a private enforcing() helper defined
+    # AFTER both entry points, so the slice captured enforcing()'s body (no LOG.warn) and the row read
+    # red against a CORRECT implementation. Anchor the METHOD instead, which is what the row is about.
+    local body
+    body=$(code_only "$ELIG" | VW_START='public void assertCanReceiveStock' VW_END='(?:^\s*(?:public|protected|private)\s|\z)' \
+             perl -0777 -ne 'print $1 if /$ENV{VW_START}(.*?)$ENV{VW_END}/ms') || return 1
+    [ -n "$body" ] || return 1
+    printf '%s' "$body" | grep -qE 'LOG\.warn' || return 1
+    printf '%s' "$body" | grep -qE 'SBDEV-2994 shadow'
+}
 check_B10_guard_invoked_by_service() { code_contains 'assertCanReceiveStock\(' "$SVC"; }
 check_B11_probe_uses_predicate()     { code_contains 'canReceiveStock' "$CTL"; }
 
@@ -428,6 +446,11 @@ check_T7_bulk_loop_continuation_pinned() {
     file_contains 'continuesLoop|deadLabel_continues|reportsEveryRow' "$TEST_CTL"
 }
 # REVIEW FIX (new): makes R1 falsifiable rather than prose.
+# ADDED 2026-08-19: B14 pins the code shape; this pins that a TEST observes it. Without this a future
+# author can satisfy B14 with a log line no assertion reads.
+check_T9_shadow_warn_asserted_in_tests() {
+    file_contains 'ListAppender' "$TEST_ELIG" && file_contains 'SBDEV-2994 shadow' "$TEST_ELIG"
+}
 check_T8_log_emission_asserted() { file_contains 'LogCaptor|ListAppender' "$TEST_CTL"; }
 
 # === runner ==================================================================
@@ -467,6 +490,7 @@ run B10 "B10 service invokes the assert form"             check_B10_guard_invoke
 run B11 "B11 probe uses the predicate form"               check_B11_probe_uses_predicate
 run B12 "B12 eligibility sysprop gate wired"              check_B12_eligibility_sysprop_gate
 run B13 "B13 Nirvana refusal is UNGATED (SBDEV-2995)"     check_B13_nirvana_guard_ungated
+run B14 "B14 shadow WARN emitted when gate is OFF"        check_B14_shadow_warn_emitted_when_gate_off
 echo
 echo "-- Fix C: controller net, operator-safe --"
 run C1  "C1  catch is INSIDE transferStock"               check_C1_catch_inside_transferStock
@@ -501,6 +525,7 @@ run T5  "T5  controller test pins errors[0].field"        check_T5_controller_te
 run T6  "T6  setControllerAdvice registered"              check_T6_controller_advice_registered
 run T7  "T7  bulk loop-continuation pinned"               check_T7_bulk_loop_continuation_pinned
 run T8  "T8  log emission asserted (R1 falsifiable)"      check_T8_log_emission_asserted
+run T9  "T9  shadow WARN asserted by a test"              check_T9_shadow_warn_asserted_in_tests
 echo
 
 # Code-shape greps prove a call exists; these prove it works.

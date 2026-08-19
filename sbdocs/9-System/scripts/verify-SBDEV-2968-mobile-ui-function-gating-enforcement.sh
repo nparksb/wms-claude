@@ -279,11 +279,18 @@ run H23 "  ... pins the no-duplicate guard for it"               file_contains '
 # two-header expectation, never relaxed to contains() — relaxing it would let the
 # header be dropped again later in silence. (2870 §3.5.1-5 said "this test asserts
 # the list exactly"; precisely one of the two does, and it is this one.)
-run H24 "  ... dedup test still uses containsExactly (not relaxed) [pre-passes]" \
-    file_contains 'containsExactly\(' "$SECTEST"
-run H25 "  ... and its exact list now names both headers"        bash -c "
+# WIDENED 2026-08-19 (review 2): the plan now prescribes containsExactlyInAnyOrder,
+# which preserves exact MEMBERSHIP while dropping an accidental coupling to the order
+# of two addExposedHeader calls. Note 'containsExactlyInAnyOrder(' does NOT contain the
+# substring 'containsExactly(' - both rows were anchored on the literal and would have
+# gone RED on correct code, the same defect as this row's 2026-08-17 error (see 14.5).
+# Accept either exact form; reject ONLY the permissive contains(, which tolerates extras.
+run H24 "  ... dedup test still asserts an EXACT list (not relaxed to contains) [pre-passes]" bash -c "
     [ -f '$SECTEST' ] || exit 1
-    grep -A2 'containsExactly(' '$SECTEST' | grep -q 'X-Authz-Denied'"
+    grep -qE 'containsExactly\\(|containsExactlyInAnyOrder\\(' '$SECTEST'"
+run H25 "  ... and that exact list now names both headers"       bash -c "
+    [ -f '$SECTEST' ] || exit 1
+    grep -A2 -E 'containsExactly\\(|containsExactlyInAnyOrder\\(' '$SECTEST' | grep -q 'X-Authz-Denied'"
 run H26 "  ... SBDEV-2632 header still asserted (no regression) [pre-passes]" file_contains 'X-Export-Skipped-Cycle-Counts' "$SECTEST"
 # Directory-scoped: the plan names test/plugins/axios.spec.js, but this repo's
 # plugin specs are per-concern (axios-auth-timing, keycloak-ready, ...), so accept
@@ -299,6 +306,41 @@ run H28 "mobile-ui plugins/axios.js keys on the authz header"    file_contains '
 # Deliberately NOT a proximity grep tying it to retryCondition: that shape asserts
 # "same block" and goes stale under a harmless refactor. That the guard actually
 # suppresses the retry-then-logout path is behavioural, and its evidence is M23.
+
+# ---------------------------------------------------------------------------
+echo
+echo "Inherited preconditions  [inherited] = this plan ASSUMES it, does not build it"
+# ---------------------------------------------------------------------------
+# ADDED 2026-08-19 - plan 14.7, the structural replacement for R13's prose mitigation.
+# A green [inherited] row is NOT this plan's work: it means an assumption still holds.
+# A red one means the assumption is an orphan. Three instances of an inherited claim
+# carried as fact have already cost this ticket cluster real time (14.7's table).
+#
+# X1 - instance 2 ("2870 already emits the header") is closed by OWNERSHIP, not by a
+# row: 3.1-A2b builds the constant and the emitter here. Recorded so the closure is
+# deliberate rather than forgotten. The rows that grade it are A26-A31 / H21-H28.
+skip X1 "[inherited] header emitter owned here, not assumed (see 3.1-A2b)"
+#
+# X2 - instance 3 (14.6): M23 needs a subject holding MOBILE_UI_LOG_IN and ZERO
+# MOBILE_UI_VIEW_*. Measured 2026-08-18: no such live user exists on either reachable
+# tenant. This shell cannot reach the DB, so the row grades the RECORDED result of the
+# query - drop the SELECT output at the path below when the account is created. This is
+# the row that would have found 14.6 the day 3.5 was written rather than the day the
+# account was needed.
+# Anchored to THIS script, not PROJECT_ROOT: PROJECT_ROOT is repointed at a symlink
+# shadow root when grading a worktree, and sbdocs does not exist under it.
+ACCT_EVIDENCE="${ACCT_EVIDENCE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/evidence/SBDEV-2968-m23-test-account.txt}"
+if [ -f "$ACCT_EVIDENCE" ]; then
+  run X2 "[inherited] an M23 test subject exists (MOBILE_UI_LOG_IN, 0 view fns)" \
+      file_contains 'MOBILE_UI_LOG_IN' "$ACCT_EVIDENCE"
+else
+  run X2 "[inherited] an M23 test subject exists - RED until 14.6's account is created" false
+fi
+#
+# X3 - the consuming-plan backstop, listed here for completeness and graded in
+# SBDEV-2967's row set: Fix E must resolve Authority.AUTHZ_DENIED_HEADER by symbol, so
+# a fourth re-home breaks 2967's BUILD instead of silently logging operators out.
+skip X3 "[inherited] 2967 resolves AUTHZ_DENIED_HEADER by symbol (graded in 2967)"
 
 # ---------------------------------------------------------------------------
 echo

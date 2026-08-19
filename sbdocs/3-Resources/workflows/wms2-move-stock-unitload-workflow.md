@@ -7,7 +7,7 @@ scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-07-22
+last_verified: 2026-08-19
 verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -202,6 +202,41 @@ Never invent a new code at a call site — add a constant to `WmsConstants` firs
 | Flowbin itemdata mismatch | `"Flowbin has different SKU"` | 273 |
 | Destination label fails regex | `"noValidString"` | 288 |
 
+#### Destination error contract — `POST /v3/stockUnit/transferStock` (SBDEV-2994, 2026-08-19)
+
+This endpoint is the **desktop + mobile Move Stock** path (distinct from `/v3/moveStock/*`, which is the
+mobile-only flow above). Its destination failures now have a stated contract:
+
+| Condition | Type | HTTP | Operator sees |
+|---|---|---|---|
+| Scanned destination label does not resolve | `BusinessException(transferStockDestinationUnitloadNotFound)` | **200** `{errors:[{field,message}]}` | *"Container UL314581 was not found. It may have been emptied or removed — scan a container that is currently in use."* |
+| Client-supplied destination location does not resolve | `BusinessException(transferStockDestinationLocationNotFound)` | **200** `{errors:…}` | *"Location X was not found."* |
+| Destination exists but cannot receive stock | `BusinessException(transferStockDestinationNotUsable)` | **200** `{errors:…}` | *"Container UL1 is To Delete / retired / already shipped and cannot receive stock."* |
+| Internal reference lookup fails (`UnitloadType`, `Location` by id, `Client`, FLA …) | `EntityNotFoundException`, caught at the controller | **200** `{errors:[{field:"Runtime Error"}]}` | a fixed *"This move could not be completed. Please report reference <id> to support."* — never the exception's own text |
+| Bad `stockUnit.id` (surgorate key, before the `try`) | `EntityNotFoundException` → advice | **404** | deliberately unchanged |
+
+The discriminator behind that split — operator-supplied vs internally-derived — is documented in
+[[wms-exception-taxonomy]] §3. Before SBDEV-2994 the first row threw `EntityNotFoundException` and
+returned **404**, which both UIs render as *"Request failed due to a network or server issue"*: the
+scanned-label case, the most likely failure on the screen, produced the least informative message.
+
+**Destination eligibility** is centralised in `DestinationEligibilityService`, with two entry points over
+one rule — `assertCanReceiveStock` (throws, write paths) and `canReceiveStock` (**TOTAL**, never throws,
+backs the `isUnitLoadIdValid` probe both UIs pre-validate with). A destination may receive stock only
+while its lock is `NOT_LOCKED` — an allowlist, because `BusinessObjectLockState` has eight members and a
+denylist silently drifts on the next addition.
+
+> [!warning] The probe must never throw
+> `canReceiveStock` backs `GET /v3/stockUnit/isUnitLoadIdValid/{labelId}`, which has no `try` and whose
+> contract is a bare `Boolean`. `Unitload.storagelocationId` is a plain `Long` with no FK guarantee and
+> `findById(null)` raises `InvalidDataAccessApiUsageException`, so a null or dangling location would turn
+> the probe into a 404 — reproducing this exact ticket's toast on the desktop, on a healthy container.
+> Contract: null or unresolvable `storagelocation_id` ⇒ `false`.
+>
+> Note the deliberate asymmetry: the probe fails **closed** there, while `assertCanReceiveStock` does not
+> refuse the same data. A probe cannot explain itself, so "no" is the safe answer; the write path will not
+> invent an ungated rejection over unresolvable reference data.
+
 ---
 
 ## 7. OMS Callback
@@ -236,6 +271,7 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 | `PRINTING_PATTERN_OUTBOUND_PALLET_LABEL` (`OUT-%1$06d`) | Secondary match for outbound pallet labels |
 | `STRING_PATTERN_SEPARATE_STOCK` (`SU-\d{6}`) | Move Stock: destination label matching this pattern creates a new unit load at CLEARING location |
 | `WEBSERVICE_STOCK_UPDATE` | Target URL for stock-change notification to OMS |
+| `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` (**default `false`**, seeded by `V2.2.17`) | SBDEV-2994: when `true`, `transferStock` refuses a destination whose lock is not `NOT_LOCKED` or which sits at `Shipped`. While `false` the rule runs in **shadow mode** — evaluated and logged as `SBDEV-2994 shadow: …` at WARN, but the move is **allowed**. Read via the house pattern `Boolean.parseBoolean(getSysvalue(KEY))`, so an absent row is OFF. ⚠ The **Nirvana-sentinel** refusal is deliberately **outside** this gate: it is the SBDEV-2995 silent-data-loss path |
 
 ---
 
@@ -277,3 +313,9 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 **Re-verify every 90 days.** Next due: **2026-10-20**.
 
 _2026-07-22 (SBDEV-2610): reserved-stock guard (`checkReservedStock`) rewritten — now blocks only on an in-progress pick and allows stranded reservations; `TransferInfoDto.activeReplenNumber` added and surfaced on the source-scan screen._
+
+_2026-08-19 (SBDEV-2994): destination error contract added to §6 — operator-supplied lookups on
+`POST /v3/stockUnit/transferStock` now raise keyed `BusinessException`s instead of 404-ing, internal
+lookups are netted at the controller with an operator-safe string, and destination eligibility is
+centralised in `DestinationEligibilityService` behind `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED`
+(default OFF, shadow-logging). `RestExceptionHandler`'s `EntityNotFoundException` log raised debug→warn._

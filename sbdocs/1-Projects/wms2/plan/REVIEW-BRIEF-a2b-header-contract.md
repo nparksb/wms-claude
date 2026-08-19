@@ -5,7 +5,9 @@ project: [wms2]
 version: v2
 requester: "Nam Park"
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
+status: reviewed
+review_report: reviews/SBDEV-2968-review-a2b-header-contract.md
 related:
   - SBDEV-2968-mobile-ui-function-gating-enforcement.md
   - SBDEV-2967-web-ui-function-gating-enforcement.md
@@ -17,6 +19,13 @@ tags:
 ---
 
 # Review brief — the `X-Authz-Denied` header contract (SBDEV-2968 §3.1-A2b)
+
+> ✅ **Reviewed 2026-08-19 — [reviews/SBDEV-2968-review-a2b-header-contract.md](reviews/SBDEV-2968-review-a2b-header-contract.md).**
+> Verdicts: ① sound (+ structural addition) · ② sound-with-changes (`containsExactlyInAnyOrder`) · ③ sound,
+> narrowed — the CORS claim was **checked in a browser**, not reasoned · ④ sound, wording tightened to "no
+> *silent* env-specific drift" after a near-miss reversal · ⑤ inadequate, replaced by the `[inherited]`
+> verify-row class (2968 §14.7). **All recommendations applied**; see the report's disposition addendum.
+> Outstanding and unaffected: M23 still has no test subject (F10 / 2968 §14.6).
 
 **Self-contained.** Everything needed is here or cited with `file:line`. You should not need to read the three
 plans; their relevant content is reproduced below. All code facts were checked on `origin/develop` =

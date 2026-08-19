@@ -391,9 +391,24 @@ Five properties that were established empirically and should not be re-litigated
 4. **`X-Authz-Denied` requires CORS exposure or it is invisible.** `SecurityConfiguration.corsConfigurationSource` must list it (follow the SBDEV-2632 precedent and its de-duplication guard). Without it, §5.1-P8's `retryCondition` fix cannot see the header. **This came here with Fix C precisely because nothing in 2870 could emit it** — the five `@PreAuthorize` gates produce Spring's default 403 and there is no `AccessDeniedHandler` in the codebase.
 
     ⚠️ **Ownership reassigned 2026-08-17 — this plan CONSUMES the header, it no longer creates it.** Landing it here was wrong on ordering: **SBDEV-2968 lands first** (§12) and needs the same header for its own `retryCondition` fix, so it would have had to wait on a plan scheduled after it. `Authority.AUTHZ_DENIED_HEADER`, the CORS entry and the `SecurityConfigurationTest` extension are now **SBDEV-2968 §3.1-A2b**. Fix E must **reference the existing constant** and find the CORS entry already present — verify that with a grep before writing either, and if 2968 has been descoped or reordered, take both items back here rather than assuming they exist. See 2968 §14-Δ1 and its R13.
+
+    **Reference it by symbol, never by literal (review ①, 2026-08-19).** Fix E must write
+    `Authority.AUTHZ_DENIED_HEADER`, not the string `"X-Authz-Denied"`. That is the whole structural control
+    over a third re-home: if 2968 is descoped, reordered or reverted, this plan's code **fails to compile**
+    instead of silently logging operators out on every denial — the loudest available signal, at no cost.
+    SBDEV-2968's verify row `A27` enforces this on the interceptor side with
+    `file_not_contains '"X-Authz-Denied"'`; **mirror that row into this plan's row set**, plus an
+    `[inherited]` row (2968 §14.7) asserting `Authority.AUTHZ_DENIED_HEADER` resolves on the branch under
+    test — that is 2968's `X3`, and it belongs here rather than there because this is the consuming plan.
 5. **`SecurityConfigurationTest` asserts the exposed-header list *exactly*** and will fail when the header is added. Extend the expectation; do not loosen the assertion.
 
     ⚠️ **Made precise 2026-08-17 — as written this sends you to the wrong test.** `unit/config/SecurityConfigurationTest` has *two* SBDEV-2632 cases and only one is exact: `…_exposesSkippedCycleCountHeader_whenPropertyAbsent` (`:64`) uses `.contains(…)` and stays green; `…_doesNotDuplicateHeader_whenPropertyAlreadySuppliesIt` (`:83`) uses `.containsExactly("X-Export-Skipped-Cycle-Counts")` and **is the one that goes red**. Since the CORS entry itself now lands in SBDEV-2968 §3.1-A2b, **2968 makes this edit** — Fix E should find the list already carrying both headers. Verify, don't re-do.
+
+    ⚠️ **The assertion 2968 lands is `containsExactlyInAnyOrder`, not `containsExactly`** (review ②,
+    2026-08-19). `containsExactly` is order-sensitive, and with two headers the outcome would depend on the
+    order of two `addExposedHeader` calls that no requirement constrains. Exact **membership** is preserved;
+    only the accidental order coupling is dropped. Do not "restore" `containsExactly` on the grounds that
+    property 5 above says *exactly* — that word is about the list's contents, not its sequence.
 
 Two caveats carried over unresolved, both flagged by review and deliberately not self-applied:
 

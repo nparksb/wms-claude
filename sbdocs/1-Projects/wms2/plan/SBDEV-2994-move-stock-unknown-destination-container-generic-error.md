@@ -4,13 +4,13 @@ ticket: "SBDEV-2994"
 ticket_url: "https://app.clickup.com/t/868ktubtu"
 type: "bugfix"
 priority: "normal"
-status: "reviewed — gate-ready (A/B/C/D); Q5 downgraded to confirm-and-close"
+status: "implemented — PRs open, merge order web #67 -> api #167 -> mobile #36. Verify 55 pass / 0 fail. R3 still blocks per-tenant ENABLEMENT of TRANSFER_DESTINATION_ELIGIBILITY_ENABLED; §8.6 manual plan not executed; the null/dangling-storagelocation_id population remains unmeasured (§13)."
 project:
   - wms2
 version: "v2"
 requester: "Zeshan (via Nam Park)"
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-19
 db_verified: true
 related:
   - "[[wms2-move-stock-unitload-workflow]]"
@@ -489,8 +489,20 @@ lock/Shipped clauses. Seed the row `false` for every tenant in step 4a. Absent r
 **⚠ SHADOW MODE — designed here, because it was previously named as a mitigation and never built.**
 The gate must not simply skip the check when off; it must **evaluate and log without refusing**:
 
+⚠ **CORRECTED 2026-08-19 during implementation — `syspropService.getBoolean(...)` DOES NOT EXIST.**
+`SyspropService` exposes `getSysvalue`, `getString`, `getStringDefault` and `getIntValue`; there is no
+boolean accessor. The house pattern for a default-OFF gate is
+`Boolean.parseBoolean(syspropService.getSysvalue(KEY))`, documented at `WmsConstants.java:930` against the
+SBDEV-2658 precedent (seeded by `V2.2.11`), and it delivers the absent-row ⇒ OFF fail-safe this section
+requires for free — `parseBoolean(null)` is `false`. The 1-arg `getSysvalue` is also the **only** safe
+overload here: `getStringDefault(client, workstation, key, default)` calls `createSystemProperty(...)` on a
+miss, i.e. an INSERT, and `canReceiveStock` runs inside `readOnly = true`. ⚠ Do **not** copy the
+default-ON idiom at `WmsConstants:1115` (`RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED`) — that one forbids
+`parseBoolean` precisely because a missing row must not disable its fix; this gate wants the opposite.
+
 ```java
-boolean enforcing = syspropService.getBoolean(SYSTEM_PROPERTY_TRANSFER_DESTINATION_ELIGIBILITY_ENABLED_KEY);
+boolean enforcing = Boolean.parseBoolean(
+        syspropService.getSysvalue(WmsConstants.SYSTEM_PROPERTY_TRANSFER_DESTINATION_ELIGIBILITY_ENABLED_KEY));
 if (violatesEligibility(destination)) {
     if (enforcing) {
         throw new BusinessException(WmsConstants.MSG_TRANSFER_DESTINATION_NOT_USABLE, ...);
@@ -1208,7 +1220,114 @@ Neither has a plan file yet; both are ClickUp-only until picked up.
 
 ## 13. Implementation Status
 
-_Not started. To be filled in by the implementing session: commit SHAs per fix, test class + method names, `mvn test` / `mvn clean compile` summary, the final `Result: N pass, 0 fail` line from the verify script, and the PR link._
+**Implemented 2026-08-19.** Three repos, one commit each, all off `origin/develop` in per-ticket worktrees.
+
+| Repo | Branch | Commit | Base | PR |
+|---|---|---|---|---|
+| `v2/wms2-web-ui` | `feature/SBDEV-2994-move-stock-unknown-destination-container` | `860de0e` | `d4f71c1` | [#67](https://github.com/SiteBossInc/wms2-web-ui/pull/67) — **merge 1st** |
+| `v2/wms2-api` | same | `3abb1f22` | `d2bedc02` | [#167](https://github.com/SiteBossInc/wms2-api/pull/167) — merge 2nd |
+| `v2/wms2-mobile-ui` | same | `6b4531b` | `8e623b8` | [#36](https://github.com/SiteBossInc/wms2-mobile-ui/pull/36) — merge 3rd |
+
+⚠ **Merge/deploy order is web → api → mobile** (§7.1). PRs must not be merged in any other order.
+
+### Results
+
+| Gate | Result |
+|---|---|
+| `mvn -o clean compile` | BUILD SUCCESS (full clean, not incremental — catches DI/signature drift) |
+| Targeted API tests (5 classes) | **153 pass, 0 fail** |
+| Full API suite | **5172 run, 2 failures, 0 errors, 67 skipped** — `OptionalSafetyArchTest.noNewOptionalGetCallsInServiceClasses` (6 violations, **none in SBDEV-2994 files**; Fix A4 *reduced* the count by one) and `MobilePalletizingServiceTest.testScanParcelBulkPalletAlreadyAssignedToGate`. Both confirmed pre-existing by an independent verifier lane that ran them on a throwaway detached worktree at `origin/develop` `d2bedc02` |
+| Mobile Jest | **156 pass, 0 fail** (10 suites) |
+| Verify script | **`Result: 55 pass, 0 fail, 0 skip`** (`RUN_MVN=1`, all three roots at the worktrees) |
+
+### Test classes
+
+- **`unit/service/StockunitServiceTransferStockDestinationTest`** (new, 11) — Fix A both sites; the
+  internal-lookup split pin; `EligibilityIsConsulted` (refusal propagates, no stock moved, and an
+  `InOrder` proof the gate runs *before* the pallet-type lookup and before `transferStockToUnitLoad`);
+  `MessageBundles` (both bundles, UTF-8 `Reader`, `%1$s`/`%2$s` interpolation, non-fallback rendering).
+- **`unit/service/DestinationEligibilityServiceUnitTest`** (new, 18) — the rule against the real
+  implementation: gate ON refusals, both shadow-mode pass-throughs **with the WARN asserted**, the
+  absent-sysprop fail-safe, `nirvanaSentinel_gateOff_STILL_throws`,
+  `nirvanaSentinel_doesNotConsultTheGate` (asserts the *absence* of the sysprop read), and the PM-1
+  totality set incl. `canReceiveStock_nullEntityLock_returnsFalseWithoutThrowing`.
+- **`unit/controller/StockUnitControllerUnitTest`** (+6) — Fix C 200/`field=="Runtime Error"`, no-leak,
+  ERROR-log emission, bulk parity, bulk loop-continuation, and `entityNotFoundStillMapsTo404_onTheUnnettedPath`
+  (a second MockMvc *with* `RestExceptionHandler` — the only automated proof the advice mapping is real).
+- **`test/components/move-stock-destination-probe.spec.js`** (new, 8) — Fix D blocking, fail-OPEN at both
+  layers, `new`-mode non-probe, plus the re-entry and mid-probe-state-clear cases.
+
+### Ablations run
+
+| Ablation | Result |
+|---|---|
+| Shadow `LOG.warn` deleted | ✅ 3 eligibility tests fail; verify `B14` fails |
+| Mobile re-entry guard removed | ✅ the double-dispatch test fails |
+| Mobile state snapshot removed | ✅ the mid-probe-clear test fails |
+
+⚠ **One of my own tests was vacuous and was fixed.** The mid-probe-clear case originally committed
+`moveStock/initialize`, which the spec's mount factory stubs as a **no-op**, so it passed with and without
+the snapshot. It now clears the state directly.
+
+### Deviations from this plan, all deliberate
+
+1. **§5 Fix B's `getBoolean`** does not exist — see the correction in §5 above.
+2. **§8.1's `canReceiveStock_*`/`assertCanReceiveStock_*` rows moved** to their own class so the rule is
+   asserted against the real implementation rather than a mocked collaborator (which would have been
+   `doThrow` → `assertThrows`, a tautology). Both review lanes judged the move a strengthening. All 16
+   §8.1 behaviours survive; the shadow-WARN assertion was the one initially lost and is now restored plus
+   pinned by new verify rows `B14`/`T9`.
+3. **§8.3's predicted breakage was misdiagnosed.** `StockunitServiceUnitTest` broke because the class had
+   no `@Mock` for the new collaborator (all **4** tests in `TransferStockToExistingContainer`), not from an
+   unstubbed `locationRepository.findById(10L)` — that lookup now lives behind the extracted service, so
+   the predicted mechanism cannot occur.
+4. **§8.4's claim that `test/pages/workflow-reset-on-entry.spec.js` drives `submit()` is false.** It
+   imports the component but never calls `submit()`; it needed no change and stays green.
+5. **Fix C's catch is placed after the existing two**, as §5 Fix C prescribes. Placing it first made
+   verify `C3` fail, because its from-here-to-end slice then swallowed the pre-existing legitimate
+   `e.getMessage()` in the `BusinessException` catch.
+6. **One commit per repo** rather than per-fix. Fixes A/B/C interlock across the same files; each repo's
+   commit is atomic and revertable as a unit.
+
+### Verify-script changes made during implementation
+
+`B14` (shadow WARN present in `assertCanReceiveStock`'s non-enforcing branch) and `T9` (a test observes
+it) were **added** — both review lanes independently found that deleting the WARN scored 153/153 and
+53/53. Baseline moved 53 → 55 rows. ⚠ `B14` was a **false RED on its first run**: it anchored on the
+sysprop constant, which appears only inside the private `enforcing()` helper defined *after* both entry
+points, so the slice captured the wrong method. Re-anchored on the method signature and re-tested in three
+directions (correct → PASS, pre-fix replay → FAIL, ablated → FAIL).
+
+⚠ **`B13` is weaker than it reads.** It slices `assertCanReceiveStock` → the sysprop constant and requires
+Nirvana to appear first; because the gate is read via `enforcing()` rather than inline, that slice now spans
+past `canReceiveStock` too. The *behaviour* is pinned properly by `nirvanaSentinel_doesNotConsultTheGate`.
+
+### Landmines found that this plan did not predict
+
+- **`OptionalSafetyArchTest` (SBDEV-2116) forbids `Optional.get()` anywhere under
+  `net.aim_ai.wms.service`, which collides with verify row `B8`.** `B8` explicitly blesses the idiomatic
+  `isPresent()` + `get()` form for the total predicate; using it added a 7th arch violation. Resolved with
+  `orElse(null)`, which satisfies both. Anyone writing a total predicate in a service package hits this.
+- **`SyspropMigrationDescriptionWidthTest`** already enforces the `varchar(255)` limit the plan warns
+  about in prose — the guard exists, no new one needed.
+- The Flyway sweep across all 130 remote branches confirmed `V2.2.16` as the high-water mark (a plain
+  `ls db/migration/` happened to agree this time), so this ships `V2.2.17`.
+
+### Still open
+
+- **§8.6 manual test plan (M1-M10)** — not executed; requires a WineCo dev session. M9 (dangling-location
+  probe) and M10 (Nirvana sentinel) are the two that pin behaviour nothing else covers at runtime.
+- **The null/dangling-`storagelocation_id` population is unmeasured.** `canReceiveStock` fails **closed**
+  there per §5's explicit contract, and that branch is **outside** the sysprop gate — so at the shipped
+  default the desktop will refuse those containers while the server would accept the move. §5's fail-safe
+  claim ("an un-seeded tenant behaves exactly as today") does not hold for this class of row. The Shipped
+  population was measured to the unit; this one was not. Query to run before enabling — or before merge if
+  the count is feared non-trivial:
+  `SELECT count(*) FROM unitload u LEFT JOIN location l ON l.id = u.storagelocation_id WHERE u.storagelocation_id IS NULL OR l.id IS NULL;`
+  Changing the fail-closed contract would contradict §5 and break pinned rows `B8`/`B8b`, so it is left as
+  an owner decision rather than silently redesigned.
+- **R3 enablement** — unchanged: ship with the sysprop `false`, read the shadow WARN count per tenant over
+  one operating cycle, enable where it is zero.
 
 ---
 

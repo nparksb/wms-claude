@@ -2,7 +2,8 @@
 type: architecture
 status: active
 system: wms1+wms2
-last_verified: 2026-07-22
+last_verified: 2026-08-19
+verified_by: SBDEV-2994 implementation — code read of v2 StockunitService, StockUnitController, DestinationEligibilityService, RestExceptionHandler + both message bundles
 ---
 
 # WMS Exception Taxonomy
@@ -143,6 +144,50 @@ cannot declare a checked exception, so a checked type there surfaces as a 500. U
 enough either: the type originally shipped **without** an `@ExceptionHandler`, and an unhandled
 unchecked exception is *also* a 500 — so every HAL rejection returned 500 while the class javadoc
 claimed 422. Both halves are required. Caught by the SBDEV-2732 3b review.
+
+---
+
+### SBDEV-2994 — the operator-input vs internal-reference discriminator (v2)
+
+**The rule, stated so it can be applied rather than argued:** a failed lookup on a value the **caller
+supplied** is a `BusinessException`; a failed lookup on a value the **system already held** is an
+`EntityNotFoundException`.
+
+| Lookup key | Origin | Exception | Rationale |
+|---|---|---|---|
+| Scanned container label (`unitLoadLabelId`) | operator, via a scan | `BusinessException` | the operator can act on it — rescan, or pick a live container |
+| Destination location name (`locationName`) | client request / a replayed audit value | `BusinessException` | client-supplied on every caller |
+| `UnitloadType` by name, `Location` by id, `Client` by id, `FixLocationAssignment` … | resolved internally from reference data or an FK | `EntityNotFoundException` | referential-integrity fault; the operator can do nothing |
+| Surrogate primary key (`stockUnit.id` from the request) | client, but not operator-visible | `EntityNotFoundException` | a bad surrogate key is a client-programming error, and stays a 404 |
+
+**Why the distinction is load-bearing and not stylistic.** `StockUnitController.transferStock` wrapped
+its service call in a `catch` for `BusinessException`/`FacadeException` only, so an
+`EntityNotFoundException` escaped to `RestExceptionHandler` → **404**, and both UIs' axios layers render
+a 4xx they do not recognise as *"Request failed due to a network or server issue. Please retry."* A
+scanned label that no longer resolves is the single most likely failure on that screen, and it produced
+the least informative message in the product. Converting **only** the operator-supplied lookups keeps a
+corrupt FK distinguishable from a scan mistake — a blanket conversion would flatten both into one
+indistinguishable string and leave non-HTTP callers (e.g. `CancellationReversalService`) unable to tell
+them apart either.
+
+**The controller-level net is complementary, not a substitute.** `transferStock` also gained the
+`catch (EntityNotFoundException)` its sibling `bulkTransferStock` already had, so the internally-derived
+failures return `200 {errors:[…]}` instead of a 404 — but with a **fixed, operator-safe** string plus the
+stock-unit id as a support reference, never `e.getMessage()`. Those constructors build strings like
+`"Location not found with id: 3421"`, and `store/moveStock.js` renders `errors[0].message` verbatim on a
+handheld; routing raw entity names and primary keys to an operator would contradict the very
+classification above.
+
+**Estate-wide half.** `RestExceptionHandler`'s `EntityNotFoundException` handler logged at `debug` —
+invisible in every environment — so a referential failure left no trace anywhere. Now `warn`, covering
+all 61 controllers.
+
+> [!warning] `orElseThrow` *can* throw a checked exception
+> `Optional.orElseThrow(Supplier<? extends X>) throws X` is generic over `X extends Throwable`; the
+> lambda only *constructs* the exception, so `X` infers to `BusinessException` wherever the enclosing
+> method declares it. There are 30+ working examples in v2 (`ReceivingService`,
+> `PutawayDestinationValidator`, `CancellationReversalService`). A belief to the contrary once produced a
+> needlessly verbose `Optional`/`isEmpty()` shape in a plan draft.
 
 ---
 
@@ -343,6 +388,34 @@ Is the error an unrecoverable server-side condition in a /rest/ flow?
 Is the error a tenant routing / config failure? (v2 only)
   └─ Yes → TenantException (propagates as 500 — infrastructure concern, not business logic)
 ```
+
+
+### SBDEV-2994 move-stock destination keys (v2)
+
+Three keys, in **both** bundles for the same parent-chain reason.
+
+| Key | Args | Meaning |
+|---|---|---|
+| `transferStockDestinationUnitloadNotFound` | `%1$s` = scanned label | The destination container does not resolve — emptied, removed, or label-mangled by `sendToNirvana` |
+| `transferStockDestinationLocationNotFound` | `%1$s` = location name | The client-supplied destination location does not resolve |
+| `transferStockDestinationNotUsable` | `%1$s` = label, `%2$s` = reason | The container exists but cannot receive stock |
+
+`%2$s` is a reason token supplied per branch: `BusinessObjectLockState.getCodeText(lock)` (e.g.
+`"To Delete"`, `"Shipped"`), the literal `"retired"` for the Nirvana sentinel, `"already shipped"` for a
+destination parked at the Shipped location, and `"in an unknown state"` for a null lock. That last one is
+deliberately **not** `getCodeText(NOT_FOUND)` = `"Not Found"`, which would read as *"Container UL1 is Not
+Found and cannot receive stock"* about a container that demonstrably **was** found — colliding with
+`transferStockDestinationUnitloadNotFound`.
+
+⚠ Assert `getKey()`, never rendered text, and always construct with the **keyed** two-arg form. The
+single-String overload `BusinessException(String)` silently sets `key = "placeholder"`, so an implementer
+who omits the second argument gets a runtime `getKey()` mismatch rather than a compile error.
+
+⚠ A key-presence test is not enough. `transferStockDestinationUnitloadNotFound=Container not found.`
+would satisfy one while failing the entire point of the change, which is to **name** the container — so
+the tests assert each value contains its `%1$s` (and `%2$s` where applicable), in both bundles, loaded
+through an explicit UTF-8 `Reader`. `Properties.load(InputStream)` decodes ISO-8859-1 while
+`PropertyResourceBundle` — what production uses — decodes UTF-8.
 
 ---
 
