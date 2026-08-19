@@ -6,8 +6,8 @@ project: [wms2]
 version: v2
 requester: nam.park@siteboss.net
 created: 2026-06-09
-last_verified: 2026-06-09
-verified_by: "Static audit of wms2-web-ui + wms2-mobile-ui (feature/utc-timezone); date-column types confirmed in wms2-hydra-dev2; display-path systemic bug reproduced live + fixed"
+last_verified: 2026-08-05
+verified_by: "Static audit of wms2-web-ui + wms2-mobile-ui (feature/utc-timezone); date-column types confirmed in wms2-hydra-dev2; display-path systemic bug reproduced live + fixed. 2026-08-05: §2c `date`-via-$formatDateTime item closed by SBDEV-2781 Fix D (only that item re-verified; the rest of the audit is unchanged from 2026-06-09)."
 related:
   - ./260526-utc-migration-code-changes-reference.md
   - ../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md
@@ -121,7 +121,7 @@ the 84 refactored components rendered in the wrong zone for **non-LA** tenants.
 ## 2c. Residual cosmetic items (low severity, not timezone-correctness)
 
 - **Hardcoded `'(EST)'` column labels** — ✅ **FIXED (2026-06-09):** `containerRecord.vue:133` `'Time Stamp (EST)'` → `'Time Stamp'` (the value was always correctly warehouse-converted; only the static header text was wrong for non-Eastern warehouses). `stockUnitRecord.vue:142` already read plain `'Time Stamp'`. A repo-wide sweep for parenthesized TZ abbreviations `(EST|EDT|PST|PDT|CST|CDT|MST|MDT|UTC|GMT)` across both UIs found no other occurrences.
-- **`date` columns rendered via `$formatDateTime`** (e.g. `outboundBolDetails.vue:57` `outboundBol.shipped`) show a spurious `12:00:00 am` time. Cosmetic — not a tz error. Use `$formatDate` for `date`-only fields.
+- **`date` columns rendered via `$formatDateTime`** (e.g. `outboundBolDetails.vue:57` `outboundBol.shipped`) show a spurious `12:00:00 am` time. Cosmetic — not a tz error. Use `$formatDate` for `date`-only fields. ✅ **FIXED (2026-08-05, SBDEV-2781 Fix D):** `outboundBol.shipped` now renders through a new `getShippedDate` → `$formatDate`; the adjacent `outboundBol.created` (a real `timestamptz`) deliberately keeps `getTimeDate` → `$formatDateTime`. Pinned by `test/components/outbound/outboundBolShippedDate.spec.js`, which also asserts `created` keeps its time. The same bug class on the Inbound Notices "Expected" column (`advice.dayofdelivery`) was fixed separately by `e6ca85a` + PR #116 — see [[SBDEV-2781-expected-return-date-stray-time-and-tz-shift]]. Complete list of `date`-typed columns in the v2 tenant schema, for anyone auditing this class again: `advice.dayofdelivery`, `advice.dayofdeliveryuntil`, `billoflading.shipped`, `customerorder.pickingdate` (fixed by SBDEV-2660), `customerorder_old.pickingdate` (dead table).
 
 ---
 

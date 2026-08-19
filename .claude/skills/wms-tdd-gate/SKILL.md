@@ -1,6 +1,6 @@
 ---
 name: wms-tdd-gate
-description: Write failing tests from a reviewed WMS plan's acceptance criteria, confirm they fail for the right reason, and pause for human approval before implementation starts. Normally invoked automatically as the final phase of wms-bugfix-plan / wms-feature-plan; can also be run standalone against an approved plan from an earlier session.
+description: Create the per-ticket git worktree off freshly-fetched origin/develop, then write failing tests from a reviewed WMS plan's acceptance criteria, confirm they fail for the right reason, and pause for human approval before implementation starts. Normally invoked automatically as the final phase of wms-bugfix-plan / wms-feature-plan; can also be run standalone against an approved plan from an earlier session.
 version: 1.1.0
 ---
 
@@ -39,16 +39,26 @@ If the plan has no §0 table, §3 Fix Design, or §8 Acceptance section, stop an
 
 ## Step 2 — Branch precondition, then map to test classes
 
-### 2a. Confirm the branch BEFORE writing any file
+### 2a. Create the worktree BEFORE writing any file
 
-Plans live in `sbdocs/` (not git), but this skill writes Java into `v1/wms-api` or `v2/wms2-api` — real repositories. On the chained path nothing has checked out a branch yet, so verify it here:
+Plans live in `sbdocs/` (not git), but this skill writes Java into `v1/wms-api` or `v2/wms2-api` — real repositories. On the chained path nothing has touched git yet, and this skill is the first thing that does.
 
-1. Read the branch name from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout — for phased plans use the **Phase 1** branch). If the plan names none, derive `feature/<plan-id>`.
-2. ```bash
-   cd v{1|2}/wms-api && git status --short && git branch --show-current
+Tests go into a **dedicated per-ticket worktree**, never the main checkout — the same worktree `wms-plan-executor` will implement in, so the gate tests and the production code share one branch and one tree.
+
+1. Read the branch name from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout — for phased plans use the **Phase 1** branch). If the plan names none, derive one matching the repo's own prefixes (`feature/`, `bugfix/`, `fix/`, `task/`), defaulting to `feature/<plan-id>`.
+2. Create or reuse the worktree at `.claude/worktrees/<repo-dir-name>/<TICKET>` (bare ticket id, e.g. `SBDEV-2778`; for an untracked plan use the plan-id date-slug):
+   ```bash
+   MONO=/home/nampark/dev/wms-claude
+   REPO=v2/wms2-api; TICKET=SBDEV-####; BRANCH=<from the plan>
+   WT="$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
+   git -C "$MONO/$REPO" fetch origin
+   git -C "$MONO/$REPO" worktree list                                    # reuse if it already exists
+   git -C "$MONO/$REPO" worktree add -b "$BRANCH" "$WT" origin/develop   # else create
+   cd "$WT" && git status --short && git branch --show-current
    ```
-3. Working tree must be clean and the branch must be the plan's branch, created off `develop` (unless the plan says otherwise). Create it if absent.
-4. **Never write tests onto `develop` or `main`.** If the tree is dirty or the base looks wrong, stop and ask — do not guess, and do not stash someone else's work.
+3. Base is **freshly-fetched `origin/develop`** unless the plan says otherwise. The worktree must be clean at creation.
+4. **Never write tests onto `develop` or `main`, and never into the main checkout** — leave `v{1,2}/wms-api` on whatever branch the user left it on, dirty or not. If an existing worktree for this ticket is dirty, or the base looks wrong, stop and ask.
+5. Every path from here on — test files, `mvn`, `grep` for existing test classes — resolves under `$WT`, not `v{1|2}/wms-api`. `sbdocs/` paths stay at the monorepo root. State the absolute worktree path in the baseline report so the executor picks up the same tree.
 
 ### 2b. Map criteria to test classes
 
@@ -56,19 +66,19 @@ For each service in §0:
 
 1. Grep for an existing test class:
    ```bash
-   grep -rln "class <ServiceName>.*Test" v{1|2}/wms-api/src/test/
+   grep -rln "class <ServiceName>.*Test" "$WT/src/test/"
    ```
 2. If found: read the class header + existing `@Test` method names (targeted `offset+limit` read) to understand mocks, setup, and naming conventions in use.
 3. If not found: create a new test class at the path below.
 
-**Test class paths:**
+**Test class paths** — all relative to `$WT` (the worktree), *not* to `v{1,2}/wms-api`:
 
-| Type | Path |
+| Type | Path under `$WT` |
 |---|---|
-| v1 unit | `v1/wms-api/src/test/java/net/aim_ai/wms/unit/service/<ServiceName>UnitTest.java` |
-| v1 integration | `v1/wms-api/src/test/java/net/aim_ai/wms/service/<ServiceName>IT.java` |
-| v2 unit | `v2/wms2-api/src/test/java/net/aim_ai/wms/unit/service/<ServiceName>UnitTest.java` |
-| v2 integration | `v2/wms2-api/src/test/java/net/aim_ai/wms/service/<ServiceName>IT.java` |
+| v1 unit | `src/test/java/net/aim_ai/wms/unit/service/<ServiceName>UnitTest.java` |
+| v1 integration | `src/test/java/net/aim_ai/wms/service/<ServiceName>IT.java` |
+| v2 unit | `src/test/java/net/aim_ai/wms/unit/service/<ServiceName>UnitTest.java` |
+| v2 integration | `src/test/java/net/aim_ai/wms/service/<ServiceName>IT.java` |
 
 **Default to unit tests.** Only escalate to integration (Testcontainers) when the acceptance criterion requires real DB state — e.g., testing a native query's result set, testing `@Transactional` rollback, or testing a pessimistic lock race condition.
 
@@ -147,7 +157,7 @@ Same unit test structure as v1 except:
 Run only the new tests:
 
 ```bash
-cd v{1|2}/wms-api && mvn test -Dtest=<ClassName>#<method1>+<method2> 2>&1 | tail -60
+cd "$WT" && mvn test -Dtest=<ClassName>#<method1>+<method2> 2>&1 | tail -60
 ```
 
 Classify each result:
@@ -193,7 +203,8 @@ If ANY is false: **pause**. Print the report and wait for "go" or equivalent. Do
 ```
 ## TDD Gate Baseline — <plan-id>
 
-Branch: <repo>@<branch> (clean, off develop)
+Branch:   <repo>@<branch> (off freshly-fetched origin/develop)
+Worktree: <absolute path — the executor must implement in this same tree>
 
 ### Tests written
 | Test class | Method | Criterion |
@@ -233,12 +244,12 @@ When the user approves, hand off to **`wms-plan-executor`** — it owns the impl
 
 1. State the run command that defines completion:
    ```bash
-   cd v{1|2}/wms-api && mvn test -Dtest=<ClassName>
+   cd "$WT" && mvn test -Dtest=<ClassName>
    ```
    Target the **class**, not `<Class>#<method>` — the method form silently runs zero tests on `@Nested` classes and reports success.
 2. Pass this as the completion criterion:
    > "Implementation is complete when this command exits 0 with all N tests passing, and `verify-<plan-id>.sh` reports `Result: N pass, 0 fail`."
-3. Invoke `Skill("wms-plan-executor", "<path-to-plan-file>")`, or tell the user to run it in a fresh session if they want to stop here. The tests and the verify script are the two contracts the executor must satisfy — it may not weaken either.
+3. Invoke `Skill("wms-plan-executor", "<path-to-plan-file>")`, **passing the absolute worktree path** so it reuses this tree instead of creating a second one — the gate tests live here and nowhere else. If the user stops and resumes in a fresh session, the executor re-discovers it via `git worktree list`. The tests and the verify script are the two contracts the executor must satisfy — it may not weaken either.
 4. Remind: the **full** suite (`mvn test`) runs only after the targeted tests pass, and its failures get compared against the pre-existing baseline, not read as new regressions.
 
 ---
@@ -251,7 +262,7 @@ When the user approves, hand off to **`wms-plan-executor`** — it owns the impl
 4. **Do not run the full test suite.** Only run the tests you wrote. Pre-existing failures are outside scope.
 5. **Do not proceed past Step 5 without explicit user approval — unless auto-proceed criteria are met.** See Step 5 for the four conditions. When in doubt, pause.
 6. **If the plan has no acceptance criteria**, stop at Step 1 and ask for them. A TDD gate without criteria is just test theater.
-7. **Never write a test file before Step 2a passes.** Not on `develop`, not on `main`, not onto someone else's dirty working tree. On the chained path this skill is the first thing that touches a real git repo.
+7. **Never write a test file before Step 2a passes.** Not on `develop`, not on `main`, and never in the main checkout — tests belong in the per-ticket worktree. On the chained path this skill is the first thing that touches a real git repo, so it owns creating that worktree.
 
 ---
 

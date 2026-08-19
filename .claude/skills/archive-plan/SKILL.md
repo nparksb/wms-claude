@@ -1,6 +1,6 @@
 ---
 name: archive-plan
-description: Move a completed plan file from 1-Projects/wms{1,2}/plan/ to 4-Archieves/wms{1,2}/plan/, flip frontmatter status to archived, and update both folder READMEs (remove from active list, bump archive count). Use when the user says "archive plan X", "this plan is done, archive it", or provides a plan filename with context that it's complete. Destructive (file moves) — always confirm with the user before the `git mv`.
+description: Move a completed plan file from 1-Projects/wms{1,2}/plan/ to 4-Archieves/wms{1,2}/plan/, flip frontmatter status to archived, update both folder READMEs (remove from active list, bump archive count), retire the paired verify script, and remove the per-ticket implementation worktree(s) left behind by wms-tdd-gate / wms-plan-executor. Use when the user says "archive plan X", "this plan is done, archive it", or provides a plan filename with context that it's complete. Destructive (file moves + worktree removal) — always confirm with the user first.
 ---
 
 # archive-plan
@@ -9,14 +9,17 @@ Cleanly complete a plan's lifecycle: move the file, update the frontmatter, patc
 
 ## What this skill IS and is NOT
 
-- **IS:** a coordinated archival script — file move + frontmatter update + source README edit + target README edit.
+- **IS:** a coordinated archival script — file move + frontmatter update + source README edit + target README edit + verify-script retirement + implementation-worktree cleanup.
 - **IS NOT:** a decider. The user decides a plan is complete. This skill takes that decision and executes the plumbing.
 
 ## Inputs
 
 - A plan filename (e.g. `Auto_Release_Club_Transfer_Lane_Fix.md`) — skill locates it under `1-Projects/wms{1,2}/plan/`.
 - OR an absolute / relative path to the plan file.
-- Optional flag: `--dry-run` → print the 4 planned operations, don't execute.
+- Optional flags:
+  - `--dry-run` → print the planned operations, don't execute.
+  - `--keep-script` → leave the paired verify script active in `9-System/scripts/` (see 5e).
+  - `--keep-worktree` → leave the implementation worktree(s) in place (see 5f).
 
 If the user says "archive plan X" ambiguously, check both `1-Projects/wms1/plan/` and `1-Projects/wms2/plan/` and confirm which.
 
@@ -57,6 +60,10 @@ Archival plan for <filename>:
   4. Bump the archive count in sbdocs/4-Archieves/README.md (~N → ~N+1 for wms{1,2}/plan/)
   5. (if a paired verify script exists — see 5e) mv sbdocs/9-System/scripts/verify-<plan-id>.sh
         sbdocs/4-Archieves/scripts/verify-<plan-id>.sh, then refresh 4-Archieves/scripts/README.md
+  6. (if an implementation worktree exists — see 5f) remove
+        .claude/worktrees/<repo-dir-name>/<TICKET>   [one line per repo]
+        .claude/worktrees/.verify-root/<TICKET>
+        + delete the merged local branch <branch>, then `git worktree prune`
 ```
 
 ### 4. Require explicit confirmation
@@ -75,6 +82,51 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
    - After moving, append/refresh the row in `sbdocs/4-Archieves/scripts/README.md` (the script→plan index table) and add a one-line pointer to the moved plan's Archive-note/frontmatter: `> Acceptance script retired to sbdocs/4-Archieves/scripts/verify-<plan-id>.sh`.
    - **Opt-out (`--keep-script`):** if the user wants the script to stay an active regression check, leave it in `9-System/scripts/` and instead add `> Acceptance script retained at sbdocs/9-System/scripts/verify-<plan-id>.sh` to the plan.
    - If no script exists for this plan (e.g. legacy archive predating the convention), simply skip 5e — do not auto-generate one.
+
+- **5f. Clean up the implementation worktree(s) (added 2026-08-03).** `wms-tdd-gate` / `wms-plan-executor` implement in per-ticket worktrees at `.claude/worktrees/<repo-dir-name>/<TICKET>` and deliberately leave them in place after the PR so review feedback can be applied without re-creating them (`wms-plan-executor` Phase 7). Archival is the point where that lease expires — the plan is done, the PR is merged, the tree is dead weight holding a stale branch checkout. Retire them here.
+
+   **Discover, don't assume.** The plan may have no worktree at all (docs-only plans, investigation-derived plans, plans implemented before the worktree convention). Enumerate rather than deriving paths:
+
+   ```bash
+   MONO=/home/nampark/dev/wms-claude
+   TICKET=SBDEV-####                       # bare ticket id, or the plan-id date-slug for untracked plans
+   for REPO in v1/wms-api v1/wms-web-ui v1/wms-mobile-ui v2/wms2-api v2/wms2-web-ui v2/wms2-mobile-ui; do
+     [ -d "$MONO/$REPO/.git" ] || [ -f "$MONO/$REPO/.git" ] || continue
+     git -C "$MONO/$REPO" worktree list | grep -F "/$TICKET" && echo "  ^ in $REPO"
+   done
+   ls -d "$MONO/.claude/worktrees/.verify-root/$TICKET" 2>/dev/null
+   ```
+
+   **If nothing matches, skip 5f entirely and say so** — "no worktree for this plan" is a normal outcome, not a problem to solve. Never create one, and never remove a worktree whose directory name doesn't match this plan's ticket.
+
+   **Pre-removal gates — all four, per worktree.** Removal deletes a working tree and its branch ref; anything in it that was never pushed is gone for good. Push state is the entire safety net, so prove it before deleting.
+   1. **Merged.** Confirm the branch actually landed: `gh pr list --head "$BRANCH" --state all --json number,state,mergedAt` from inside the repo. Prefer this over `git merge-base --is-ancestor "$BRANCH" origin/develop` — that ancestor check reports "not merged" for a **squash-merged** PR even though it landed, which is the normal merge style here. If the PR is still open or was closed unmerged → **stop, do not remove**, and report it: archiving a plan whose PR never merged is itself worth surfacing to the user.
+   2. **Nothing uncommitted.** `git -C "$WT" status --porcelain` must be empty. If it isn't, show the user the file list and ask before proceeding — never pass `--force` on your own initiative. (Expect a stray mutated ArchUnit store from a `mvn test` run; still ask.)
+   3. **Nothing unpushed.** Compare against `origin/<branch>` **explicitly** — do **not** use `@{u}`:
+
+      ```bash
+      B=$(git -C "$WT" rev-parse --abbrev-ref HEAD)
+      git -C "$WT" ls-remote --heads origin "$B"        # empty output ⇒ never pushed ⇒ stop
+      git -C "$WT" log --oneline "origin/$B..$B"        # must be empty
+      ```
+
+      `git worktree add -b <branch> ... origin/develop` sets the new branch's upstream to **`origin/develop`**, not `origin/<branch>` (verified 2026-08-03: `branch.<b>.merge = refs/heads/develop`). So `log @{u}..` lists the branch's own legitimate commits and reads as "unpushed" even for a fully-pushed branch — it fails open in the noisy direction on every worktree. Unpushed commits, or no remote head at all → stop and ask; a worktree with commits that exist nowhere else is the one thing removal can permanently destroy.
+   4. **Repo matches the plan's version.** Same guardrail as 5e: v1/v2 plan pairs share a base name and can have sibling worktrees in *different* repos. Retire only the worktree(s) whose repo matches the plan being archived (`v1/...` for a v1 plan, `v2/...` for a v2 plan); **keep any worktree in a repo whose sibling plan is still active in `1-Projects/`.** A multi-repo plan of one version (API + web-ui, e.g. `SBDEV-2731`) has sibling worktrees that all belong to that plan — remove them all together.
+
+   **Execute, once every gate passes:**
+
+   ```bash
+   git -C "$MONO/$REPO" worktree remove "$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
+   git -C "$MONO/$REPO" branch -d "$BRANCH"    # -d, not -D; it refuses if the branch isn't merged
+   git -C "$MONO/$REPO" worktree prune
+   ```
+
+   - Use `branch -d` and let it refuse. If it refuses on a **squash-merged** branch (git can't see the squash as a merge), that is the one case `-D` is correct — but only after gate 1 proved `mergedAt` is set. Leave the remote branch alone; GitHub's own merge settings own that.
+   - Remove the shadow verify root too: `rm -rf "$MONO/.claude/worktrees/.verify-root/$TICKET"`. It contains only symlinks and a mirrored dir skeleton, so it needs no gates — but scope the `rm -rf` to the `$TICKET` subdirectory, never to `.verify-root/` itself.
+   - Repeat the whole block per repo for multi-repo plans.
+   - Note the cleanup in the archived plan's Archive-note, one line: `> Implementation worktree(s) removed <YYYY-MM-DD>: <repo>/<TICKET>` — so a later reader knows the tree's absence is intentional and not a lost checkout.
+
+   **Opt-out (`--keep-worktree`):** if the user still has review feedback in flight, leave every worktree in place and record `> Implementation worktree retained at .claude/worktrees/<repo>/<TICKET>` in the plan instead.
 
 ### 6. Re-audit
 
@@ -102,7 +154,10 @@ The archival plumbing is atomic at the filesystem level but the user may want to
 - Do not update any other MOC (e.g., architecture README) — archival affects only the two plan READMEs.
 - Do not `git commit`. Staging stays with the user.
 - Do not archive a plan that still has open tasks or `status: draft` without warning.
+- Do not `worktree remove --force`, `branch -D`, or `rm -rf` a worktree directory on your own judgment — every one of those discards work git cannot recover. Ask.
+- Do not touch the **main** sub-repo checkouts (`v1/wms-api`, `v2/wms2-api`, `v2/wms2-web-ui`, …). They are usually sitting on someone's in-progress branch; 5f removes *worktrees*, never a main checkout's branch or state.
+- Do not remove a worktree whose PR is still open — surface it instead.
 
 ## Exit criteria
 
-Done when the operations are applied (including any verify-script retirement from 5e), re-audit shows 0 drift, and the user confirms visually (or runs `git status` and sees a clean diff).
+Done when the operations are applied (including any verify-script retirement from 5e and worktree cleanup from 5f), re-audit shows 0 drift, and the user confirms visually (or runs `git status` and sees a clean diff). If 5f ran, `git -C <repo> worktree list` no longer shows the ticket and the main checkout is untouched on its original branch.

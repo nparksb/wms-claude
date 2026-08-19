@@ -1,6 +1,6 @@
 ---
 name: wms-plan-executor
-description: Execute a reviewed WMS plan end-to-end — ralph-loop the implementation until the TDD-gate tests and verify script pass, confirm plan conformance in a separate verifier lane, run code review and fix every High/Medium finding, audit doc drift, commit, open a PR into develop, update the plan document, and move the ClickUp ticket to "pr submitted". Use when the user says "implement plan X", "execute the plan", "ship SBDEV-####", or hands back a plan this session just authored. Stops at PR — does NOT merge, deploy, or archive the plan.
+description: Execute a reviewed WMS plan end-to-end — create a per-ticket git worktree off freshly-fetched origin/develop, ralph-loop the implementation until the TDD-gate tests and verify script pass, confirm plan conformance in a separate verifier lane, run code review and fix every High/Medium finding, audit doc drift, commit, open a PR into develop, update the plan document, and move the ClickUp ticket to "pr submitted". Use when the user says "implement plan X", "execute the plan", "ship SBDEV-####", or hands back a plan this session just authored. Stops at PR — does NOT merge, deploy, or archive the plan.
 ---
 
 # WMS Plan Executor
@@ -31,8 +31,8 @@ Ambiguous or multiple matches → list them and ask. Never guess which plan to i
 | 1 | Plan exists and is **reviewed** | frontmatter `status:` — see the vocabulary below | Stop. Route to `wms-bugfix-plan` / `wms-feature-plan` for ralplan sign-off first |
 | 2 | §10 Open Questions all resolved | read §10 | Stop and ask. Implementing an open contract wastes the work |
 | 3 | Verify script exists | `sbdocs/9-System/scripts/verify-<plan-id>.sh` | Author it per the plan skill's Verification-script section, then continue |
-| 4 | TDD-gate tests exist | grep the plan's named test classes in `v{1\|2}/wms-api/src/test/` | Run `wms-tdd-gate` first — it is the completion contract for Phase 1 |
-| 5 | Target repo + branch | see below | Stop if the tree is dirty |
+| 4 | Dedicated worktree off fresh `origin/develop` | see below — **do this before gate 5**, it defines where every later path resolves | Stop — never implement in the main checkout |
+| 5 | TDD-gate tests exist | grep the plan's named test classes in `$WT/src/test/` | Run `wms-tdd-gate` first — it is the completion contract for Phase 1. If it already ran, its tests are in this same worktree; if they are missing, you are in the wrong tree — recheck `git worktree list` before concluding they were never written |
 | 6 | Toolchain on PATH | `mvn -v` | export SDKMAN paths (below) |
 
 ### Plan-status vocabulary
@@ -50,19 +50,58 @@ Ambiguous or multiple matches → list them and ask. Never guess which plan to i
 
 A plan authored in this session by `wms-bugfix-plan` / `wms-feature-plan` has already cleared ralplan Critic sign-off — proceed regardless of the literal string, but say which plan and status you are acting on.
 
-### Branch
+### Worktree — every execution gets its own, no exceptions
 
-Take the branch from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout). Phased plan → the branch for the phase being implemented. Derive `feature/<plan-id>` if the plan names none.
+Implementation **never** happens in the main checkout (`v1/wms-api`, `v2/wms2-api`, `v2/wms2-web-ui`, …). Each run creates a dedicated `git worktree` off freshly-fetched `origin/develop`, named by the ticket. The main checkout stays on whatever branch the user left it on, clean and usable, while this skill runs.
 
-```bash
-cd v{1|2}/wms-api
-git status --short && git branch --show-current
-git fetch origin && git checkout -b feature/SBDEV-####-kebab origin/develop   # if absent
+**Layout** — one worktree per repo per ticket, under the monorepo root:
+
+```
+/home/nampark/dev/wms-claude/.claude/worktrees/<repo-dir-name>/<TICKET>
 ```
 
-- Base is `origin/develop` unless the plan says otherwise.
-- **Stacked branch:** if this plan builds on another unmerged branch, base off that branch, set the PR base to it in Phase 6, and state the merge order explicitly. Stacked PRs must merge base-first into `develop`; verify with `git merge-base --is-ancestor` before advancing anything.
-- Never implement on `develop` or `main`.
+`<repo-dir-name>` is the sub-repo's directory name (`wms2-api`, `wms-api`, `wms2-web-ui`, …) so a multi-repo plan gets sibling worktrees. `<TICKET>` is the bare ticket id (`SBDEV-2778`); for an untracked plan with no ticket, use the plan-id's date-slug (`260424-runclubline-transaction-boundary-hardening`). `.claude/worktrees/` is already in the umbrella `.gitignore` — do not add it to `.claudecodeignore`, that would hide the very files being edited.
+
+**Branch name** stays independent of the directory name: take it from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout). Phased plan → the branch for the phase being implemented. If the plan names none, derive one matching what the target repo actually uses — observed prefixes are `feature/`, `bugfix/`, `fix/`, and `task/`; pick by change type and fall back to `feature/<plan-id>`.
+
+**Create it:**
+
+```bash
+MONO=/home/nampark/dev/wms-claude
+REPO=v2/wms2-api                                     # the target sub-repo, relative to $MONO
+TICKET=SBDEV-####
+BRANCH=bugfix/SBDEV-####-kebab                       # from the plan
+WT="$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
+
+git -C "$MONO/$REPO" fetch origin                    # MUST be fresh — the base is origin/develop as of now
+git -C "$MONO/$REPO" worktree list                   # reuse an existing worktree for this ticket, don't duplicate
+git -C "$MONO/$REPO" worktree add -b "$BRANCH" "$WT" origin/develop
+cd "$WT" && git status --short && git branch --show-current && git log --oneline -1
+```
+
+- Base is `origin/develop` **after a fetch** — a stale local `develop` is the whole reason this gate exists. Confirm with `git merge-base --is-ancestor origin/develop HEAD`.
+- **Reuse, don't recreate.** `wms-tdd-gate` creates this same worktree when it runs first on the chained path; if `worktree list` already shows `<repo>/<TICKET>`, work in it. Its uncommitted TDD-gate tests are expected, not a dirty-tree failure. Any *other* uncommitted content in it → stop and ask.
+- If the branch already exists (remote or local), attach instead of creating: `git worktree add "$WT" "$BRANCH"`, then verify it is up to date with `origin/develop` and say whether it already carries commits.
+- **Stacked branch:** if this plan builds on another unmerged branch, base the worktree off that branch instead (`git worktree add -b "$BRANCH" "$WT" origin/<base-branch>`), set the PR base to it in Phase 6, and state the merge order explicitly. Stacked PRs must merge base-first into `develop`; verify with `git merge-base --is-ancestor` before advancing anything.
+- Never implement on `develop` or `main`, and never `git checkout` inside the main checkout to do this work.
+
+**Everything after this point runs inside `$WT`.** Concretely:
+
+| Path | Where it resolves |
+|---|---|
+| Java/Vue source, tests, `pom.xml`, Flyway migrations | `$WT/...` — **never** `v2/wms2-api/...` |
+| `mvn` / `yarn` invocations | `cd "$WT"` first; `mvn -f "$WT/pom.xml"` if you must stay put |
+| `git diff origin/develop...HEAD`, commit, push | `git -C "$WT" ...` |
+| Plan doc, verify script, `sbdocs/` anything | monorepo root — **unchanged**, `sbdocs/` is not part of any sub-repo worktree |
+
+State the absolute worktree path in your first Phase 0 message and use it in every subsequent path. The failure mode this guards against is grep/Explore returning a hit in the main checkout and the edit landing on the stale develop copy — a diff that then shows nothing.
+
+**Fresh-worktree gaps to expect** (a worktree copies tracked files only):
+
+- Git-ignored local config does **not** come along — notably `v2/wms2-api/src/main/resources/db/v1-to-v2-onboarding/onboarding-tz-variants/scripts/migration.env*` and any `.env`. Copy what the plan actually needs; never commit them.
+- `node_modules/` is absent in UI worktrees → `yarn install` (or the nvm-node `npm install`) before running Jest.
+- `target/` is absent → the first `mvn test` is a cold build. Budget for it; `~/.m2` is shared so nothing re-downloads.
+- The tracked ArchUnit store is a **fresh copy** here, so `mvn test` mutating it (see Phase 2) dirties the worktree, not the main checkout — still revert it before staging.
 
 ### Toolchain
 
@@ -73,7 +112,26 @@ mvn -v    # confirm; v1/wms-api needs Java 8, v2/wms2-api needs Java 21
 
 ### Baselines — capture BEFORE the first edit
 
-1. **Verify script:** `bash sbdocs/9-System/scripts/verify-<plan-id>.sh` → record the `Result:` line. Expect failures. **`0 fail` here means the script asserts nothing** — tighten it to call-site regexes before continuing, or the final green proves nothing.
+Run these **in the worktree** (`cd "$WT"`).
+
+**Verify scripts need a shadow root — this is not optional.** Every script defaults `PROJECT_ROOT=/home/nampark/dev/wms-claude` and asserts against paths like `v2/wms2-api/src/...`, so run as-is it grades the **main checkout** and is blind to everything you just wrote. Build a symlink tree that mirrors the monorepo but points the worktree'd repo at `$WT`, and pass it as `PROJECT_ROOT`:
+
+```bash
+MONO=/home/nampark/dev/wms-claude
+VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"
+rm -rf "$VROOT"; mkdir -p "$VROOT/v1" "$VROOT/v2"
+for p in "$MONO"/v1/*/ "$MONO"/v2/*/; do
+  ln -sfn "${p%/}" "$VROOT/$(basename "$(dirname "${p%/}")")/$(basename "${p%/}")"
+done
+ln -sfn "$MONO/sbdocs" "$VROOT/sbdocs"
+ln -sfn "$WT" "$VROOT/$REPO"        # override each repo that has a worktree; repeat for multi-repo plans
+
+PROJECT_ROOT="$VROOT" bash "$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
+```
+
+Prove the wiring before you trust a single run: append a marker matching one currently-failing assertion to a file **in the worktree**, then run both roots — the shadow root's pass count must move and the plain monorepo root's must not. (Verified 2026-08-01 on `verify-SBDEV-2731`: mono `8 pass, 33 fail` unchanged, shadow `9 pass, 32 fail`.) Remove the marker afterwards. Always state which root each reported `Result:` line came from; a `Result:` from the wrong root is worse than no result.
+
+1. **Verify script:** → record the `Result:` line. Expect failures. **`0 fail` here means the script asserts nothing** — tighten it to call-site regexes before continuing, or the final green proves nothing.
 2. **Targeted tests:** run the TDD-gate test classes → record which fail and why.
 3. **Pre-existing suite failures:** `mvn test` on the untouched branch, or trust the known baseline (2 of ~4442 fail on clean v2 `develop` as of 2026-07-28 — `OptionalSafetyArchTest` ArchUnit drift and `MobilePalletizingServiceTest`). Without this you will later blame your own change for someone else's red test.
 
@@ -101,7 +159,7 @@ Invoke `Skill("oh-my-claudecode:ralph", "<task>")`. Ralph is PRD-driven and its 
 
 Task text to hand ralph must state:
 
-> Implement `<plan path>`. The failing tests in `<test classes>` are the contract — make them pass. Do not weaken, skip, `@Disabled`, or delete any test to reach green. Do not change the plan's design; if a fix cannot work as designed, stop and report rather than improvising. Completion requires `bash sbdocs/9-System/scripts/verify-<plan-id>.sh` reporting `Result: N pass, 0 fail`.
+> Implement `<plan path>`. **All source edits and all `mvn`/`yarn` runs happen in the worktree `<absolute $WT>` — never in `<main checkout path>`, which is a stale copy on another branch.** The failing tests in `<test classes>` are the contract — make them pass. Do not weaken, skip, `@Disabled`, or delete any test to reach green. Do not change the plan's design; if a fix cannot work as designed, stop and report rather than improvising. Completion requires `bash sbdocs/9-System/scripts/verify-<plan-id>.sh` reporting `Result: N pass, 0 fail`.
 
 **Hard constraints to carry into the loop:**
 
@@ -117,9 +175,10 @@ Abort the loop and report if: the plan's design is provably wrong, a fix needs a
 ## Phase 2 — Test and verify
 
 ```bash
+cd "$WT"                                 # everything below runs in the worktree
 mvn test -Dtest=<TouchedClass>          # fast feedback, per touched class
 mvn test                                 # full unit suite
-bash sbdocs/9-System/scripts/verify-<plan-id>.sh
+bash /home/nampark/dev/wms-claude/sbdocs/9-System/scripts/verify-<plan-id>.sh
 ```
 
 **Landmines — each one has produced a false green in this repo:**
@@ -147,7 +206,8 @@ Delegate to `oh-my-claudecode:verifier` — this is the systematic guard against
 Pass it, explicitly:
 
 - the plan path, its **§0 Affected Sites table** (every in-scope row), and **§8 Acceptance criteria**
-- `git diff origin/develop...HEAD`
+- the absolute worktree path, with the explicit warning that `<main checkout path>` holds a stale copy of the same files and must not be read as evidence
+- `git -C "$WT" diff origin/develop...HEAD`
 - the fresh test output and the `verify-<plan-id>.sh` `Result:` line from Phase 2
 - the instruction to **re-run the commands itself** rather than trusting those pasted results
 
@@ -173,7 +233,7 @@ The implementing context cannot approve its own work. Delegate with the diff, th
 - `oh-my-claudecode:code-reviewer` — always.
 - `oh-my-claudecode:security-reviewer` — additionally when the diff touches auth, Keycloak, SQL construction, file upload, or anything reading a secret.
 
-Run them in parallel; both get: `git diff origin/develop...HEAD`, the plan path, and the instruction to check plan-conformance (does the code do what §3 designed?) alongside correctness.
+Run them in parallel; both get: `git -C "$WT" diff origin/develop...HEAD`, the worktree path (plus the same stale-main-checkout warning), the plan path, and the instruction to check plan-conformance (does the code do what §3 designed?) alongside correctness.
 
 **Fix policy:**
 
@@ -206,10 +266,12 @@ Skill("verify-docs", "<changed file list, or origin/develop..HEAD>")
 
 ## Phase 5 — Commit
 
-1. Detect the repo's own convention first: `git log --oneline -20` in the target repo. Match it; do not impose Conventional Commits on a repo that doesn't use them.
+All git commands here run against the worktree — `git -C "$WT" ...`, or `cd "$WT"` once and stay there.
+
+1. Detect the repo's own convention first: `git -C "$WT" log --oneline -20`. Match it; do not impose Conventional Commits on a repo that doesn't use them.
 2. Include the ticket id in the subject.
 3. One commit per plan phase / fix when the plan is phased — atomic and revertable. Squash only if the plan says to.
-4. Before staging: `git status` and confirm nothing unintended (ArchUnit store, IDE files, `.env`, generated Swagger) is included.
+4. Before staging: `git -C "$WT" status` and confirm nothing unintended (ArchUnit store, IDE files, `.env`, a copied `migration.env`, generated Swagger, a stray `node_modules`) is included.
 5. End the commit message with:
    ```
    Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
@@ -224,6 +286,7 @@ Skill("verify-docs", "<changed file list, or origin/develop..HEAD>")
 ```
 ## Ready to push — <plan-id>
 Repo/branch:   <repo>@<branch>  →  PR base: develop
+Worktree:      <absolute $WT>  (base: origin/develop @ <sha>, fetched <when>)
 Diffstat:      <N files, +X/-Y>
 Commits:       <sha> <subject>   (one line each)
 Tests:         <N> targeted pass | full suite <N> pass, <M> fail (baseline <M>)
@@ -240,10 +303,13 @@ Wait for go. Skip the wait only if the user invoked the skill with `--auto` or a
 On approval:
 
 ```bash
-git push -u origin feature/SBDEV-####-kebab
-gh pr create --base develop --head feature/SBDEV-####-kebab \
+cd "$WT"
+git push -u origin "$BRANCH"
+gh pr create --base develop --head "$BRANCH" \
   --title "<SBDEV-####> <what changed>" --body-file <body>
 ```
+
+`gh` resolves the repo from the worktree's remote, so run it inside `$WT` — from the monorepo root it would target `nparksb/wms-claude`.
 
 PR body must carry: what changed and why (2–4 sentences), plan path, ClickUp link, per-fix summary mapped to §3, test results, the verify-script `Result:` line, the **conformance table** (each §8 criterion → VERIFIED, plus anything deliberately deferred with its rationale), code-review outcome (fixed / deferred), doc updates, the plan's §8 **manual test plan** for the reviewer to execute, and any deploy prerequisite (Flyway version, sysprop row, deploy order). For a stacked PR, state the required merge order in the first line. Footer:
 
@@ -280,6 +346,7 @@ Not done by this skill, by design — say so every time:
 - **Merging the PR** — human review gate.
 - **Setting ClickUp to `on dev`** — follows the merge.
 - **Archiving the plan** — run `archive-plan` after the merge lands.
+- **Removing the worktree** — it stays at `<absolute $WT>` so review feedback can be applied without re-creating it. **`archive-plan` step 5f owns the cleanup**, gated on the PR being merged, so it happens when the plan is archived — not here. Still print the path in the final report, along with the manual command if the user wants it gone sooner: `git -C <repo> worktree remove <$WT>` (add `--force` only if you accept losing uncommitted files there), then `git -C <repo> worktree prune`.
 - **Deploying / tagging** — GitLab CI tag-driven (`dev-*`, `qa-*`, `ua-*`, `v*`); GitHub Actions for `oms-laravel-api` / `omsv2-UI`.
 - **Applying Flyway migrations to any tenant DB** — the app does not run Flyway at runtime. A merged migration is applied to **no** database until an operator runs it; use the `wms2-apply-pending-tenant-flyway` runbook. If this plan added a migration, say outright that every tenant is still unpatched.
 
@@ -287,7 +354,7 @@ Not done by this skill, by design — say so every time:
 
 ## Multi-repo plans
 
-API + UI changes live in separate git repos, so they get separate branches, commits, and PRs. Note the required merge order in both PR bodies (API first when the UI consumes a new contract). One ClickUp ticket covers both — comment both PR URLs on it.
+API + UI changes live in separate git repos, so they get separate worktrees, branches, commits, and PRs — `.claude/worktrees/wms2-api/SBDEV-####` and `.claude/worktrees/wms2-web-ui/SBDEV-####` as siblings, each off its own repo's `origin/develop`. Note the required merge order in both PR bodies (API first when the UI consumes a new contract). One ClickUp ticket covers both — comment both PR URLs on it.
 
 v1 + v2 paired plans: implement one version per run. Do not straddle both repos in a single execution.
 
@@ -296,5 +363,6 @@ v1 + v2 paired plans: implement one version per run. Do not straddle both repos 
 - Plan design turns out wrong → report, don't redesign.
 - Tests can only pass by weakening them → report; that is a plan defect.
 - Change needs data migration or a sysprop row the plan didn't sanction → stop.
-- Working tree has someone else's uncommitted work → stop; never stash it.
+- Main checkout has someone else's uncommitted work → leave it alone entirely; the worktree makes this a non-event, so never stash, never `git checkout` there. If an *existing* worktree for this ticket holds uncommitted work that isn't the TDD-gate tests → stop and ask.
+- The plan's branch already exists on `origin` with commits you didn't make → stop; someone else is mid-flight on this ticket.
 - Full suite has new failures you cannot attribute → stop before opening a PR.

@@ -1,3 +1,17 @@
+> [!warning] Superseded — 2026-08-06
+> This plan was **never implemented** (no commit in v1 or v2 ever changed the gate) and
+> the defect resurfaced on the same location as **SBDEV-2854**.
+> Active plan: [[SBDEV-2854-replenish-rejects-non-flowbin-destination]].
+>
+> Its four "Pre-Implementation Verification Needed" questions are now answered against
+> live tenant DBs. Two findings invalidate this document's recommendation:
+> - `Club01` is `cases and pallets` — Q1 confirmed.
+> - **`Club01` already holds 3 unit loads**, so the recommended Option A (widen the
+>   location-type allowlist) would *not* have fixed it — control falls through to
+>   `"Destination has already a unit load!"` at `MobileReplenishService.java:920`.
+>
+> Kept for the audit trail only. Do not implement from this file.
+
 # Fix: Replenishment to Club Locations - "Destination is not a flowbin!" Error
 
 ## Issue

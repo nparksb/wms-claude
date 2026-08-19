@@ -4,7 +4,7 @@ ticket: "SBDEV-2236"
 ticket_url: "https://app.clickup.com/t/868jj353c"
 type: "bug"
 priority: "normal"
-status: "archived"
+status: "superseded"
 pr: "https://github.com/SiteBossInc/wms2-api/pull/24"
 commit: "7f9c250"
 project:
@@ -22,6 +22,33 @@ tags:
   - wmsv2
 db_verified: true
 ---
+
+> # ⚠️ SUPERSEDED BY SBDEV-2778 (2026-08-03)
+>
+> **The behavior this plan removed has been deliberately restored.** BA decision (Brent Campbell):
+> WMS v2 must auto-receive and close a `type=RETURN` advice at creation time, as `v1/wms-api` does.
+> See [SBDEV-2778](../../../1-Projects/wms2/plan/SBDEV-2778-return-to-inventory-not-received-bol-not-closed.md).
+>
+> This is a reversal of a merged, DB-verified decision, made by the BA who owns the requirement. It is
+> not an accident. **Do not "re-fix" SBDEV-2236 by citing this document.**
+>
+> What survives, and what does not:
+>
+> - **The invariant is withdrawn.** "WMS must never auto-receive an advice" no longer holds. Return QA
+>   is treated as the physical confirmation, which is the premise this plan rejected in §3.2.
+> - **The phantom-inventory risk this plan existed to eliminate is now accepted**, with a per-tenant
+>   default-ON kill switch (`RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED`, Flyway V2.2.09) as the reversal
+>   lever rather than code. SBDEV-2778 §9-R2 records the trade explicitly.
+> - **This plan's regression tests are NOT lost.** `shouldCreateReturnAdviceWithoutAutoReceive` was
+>   retargeted to the kill-switch-OFF case and strengthened with the positive `state == OPEN` captor
+>   this plan's own checklist (`:309`) had specified. Four other tests were inverted or deleted.
+> - **Its verify script is retired** — `4-Archieves/scripts/verify-SBDEV-2236-…sh` now exits early;
+>   its negative assertions encode a contract that no longer exists.
+> - **A defect this plan did not identify:** the v1 block it deleted flips the advice to FINISHED even
+>   when no printer resolves and nothing was received (`v1:307` guard vs `v1:317-318` flips) — a
+>   phantom-CLOSED return. SBDEV-2778 fixes that rather than restoring it verbatim.
+
+
 
 # SBDEV-2236 — `AdviceRestController` RETURN-type advice auto-receives on creation
 

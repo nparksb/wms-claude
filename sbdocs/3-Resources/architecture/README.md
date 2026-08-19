@@ -65,7 +65,7 @@ Start in the group that matches your task; each doc has its own "How to use" tab
 
 | Doc | Scope | Read when… |
 |---|---|---|
-| [wms2-function-to-docs-map.md](./wms2-function-to-docs-map.md) | Every ~45 user-facing function → UI + role + endpoint + canonical doc | Support triage entry; coverage audit; "does X have a doc?" |
+| [wms2-function-to-docs-map.md](./wms2-function-to-docs-map.md) | Every ~45 user-facing function → UI + role + endpoint + canonical doc (§2–§8), plus §9 API symbol index (all 61 controllers + primary services → doc) | Support triage entry; coverage audit; "does X have a doc?"; pre-work doc lookup from a class name |
 | [wms1-function-to-docs-map.md](./wms1-function-to-docs-map.md) | Every v1 user-facing function → UI page + role + endpoint + canonical doc | v1 support triage; coverage audit; pre-work doc lookup for v1 bug fixes |
 | [wms1-vs-wms2-delta.md](./wms1-vs-wms2-delta.md) | 16-section diff of v1 vs v2 architecture, data, jobs, roles; porting checklist | Porting a v1 fix; weekly sync sweep; onboarding to the versioning story |
 | [wms1-entity-enumeration-report.md](./wms1-entity-enumeration-report.md) | All 55 v1 entities — table names, FK Long fields, state fields, domain groups, state constants | v1 schema questions; tracing a FK chain; understanding v1 vs v2 entity differences |

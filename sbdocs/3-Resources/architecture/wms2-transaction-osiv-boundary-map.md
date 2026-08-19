@@ -6,7 +6,7 @@ version: v2
 scope: transactions
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-06-01
+updated: 2026-08-14
 last_verified: 2026-06-01
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
@@ -121,7 +121,7 @@ Lazy associations cannot be resolved in the controller or view layer. Any fetch 
 - **File:** `net/aim_ai/wms/landlord/config/TenantDatabaseConfig.java:75-77`
 - **Wraps:** `tenantEntityManagerFactory` → `TenantDynamicRoutingDataSource`
 - **Invoked via:** `@Transactional("tenantTransactionManager")` OR `@TenantTransactional` / `@TenantTransactionalReadOnly` meta-annotations (`net/aim_ai/wms/config/TenantTransactionalReadOnly.java:16`).
-- **Used by:** all business services (~116 sites).
+- **Used by:** all business services — **163 sites** counted 2026-08-06 (`@Transactional` lines naming `tenantTransactionManager`; 221 `@Transactional` annotations exist in `src/main/java` in total, the remainder being landlord/repository). The former figure was `~116`.
 
 ### 4.3 No `ChainedTransactionManager`
 
@@ -142,13 +142,13 @@ There is no chained / multi-DS transaction manager. Operations that need both DB
 Bare `@Transactional` on tenant code is a bug.
 
 ### Rule 2 — `REQUIRES_NEW` for job-step isolation
-Use `REQUIRES_NEW` only when each step of a batch must commit independently so the next step sees it (the replenish/release job pattern). All 20 current `REQUIRES_NEW` sites follow this pattern; see §7.
+Use `REQUIRES_NEW` only when each step of a batch must commit independently so the next step sees it (the replenish/release job pattern). All **29** current `REQUIRES_NEW` sites follow this pattern; see §7. (Re-counted 2026-08-06 — this line and §9 item 5 had drifted to `20` while §7's own header already said 28.)
 
 ### Rule 3 — Never open `@Transactional` on a controller
 Controllers in `wms2-api` do not open transactions. Exception-handling at the controller layer (see `PickingController`) is the one acceptable reason the annotation appears there — no method-level `@Transactional` on any current controller.
 
 ### Rule 4 — `readOnly = true` for pure-query service methods
-16 sites currently. This matters more under PgBouncer (transaction pooling mode cannot piggyback prepared statements across autocommit connections), so spreading `readOnly = true` to more query paths is a pending optimization lever.
+**29 sites** as of 2026-08-06 (was documented as 16). This matters more under PgBouncer (transaction pooling mode cannot piggyback prepared statements across autocommit connections), so spreading `readOnly = true` to more query paths is a pending optimization lever.
 
 ### Rule 5 — Post-commit side effects go through `TransactionSynchronizationManager`
 Never fire an external call (OMS, Keycloak, printer, broker) inside the tenant transaction. Register a post-commit synchronization; see §6 and the `ParcelMonitorViewService` / `OmsNotificationService` patterns.
@@ -179,7 +179,7 @@ Neither `TransactionTemplate` nor direct `PlatformTransactionManager.getTransact
 
 ---
 
-## 7. `REQUIRES_NEW` Inventory (28 sites)
+## 7. `REQUIRES_NEW` Inventory (29 sites)
 
 Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service, the sequence-transaction service, the inventory-record service (escapes the `readOnly=true` outer transaction in `WarehouseStockReportService.streamStockCount` per SBDEV-2219), the message-cleanup batch service (per-batch tx boundary for the daily message-cleanup loop — SBDEV-2220), the idempotency service (SBDEV-2222 — `persistResponse` commits the dedup row independently so a handler rollback doesn't wipe the stored response), the outbox service (SBDEV-2221 — each `mark*` / claim / reclaim phase commits independently so no row lock is held across the OMS HTTP round-trip), or — as of SBDEV-2237 — `MobilePickingService.releaseClaimQuietly` (compensating RESERVED→PROCESSABLE reset after a fresh Tx-1 claim followed by Tx-2 failure). The pattern is: the outer loop wants to survive a failure of one inner step, and each inner step must commit independently so downstream steps see it.
 
@@ -201,6 +201,7 @@ Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service,
 | `service/InventoryRecordService.java` | 29 | `createEntity` | SBDEV-2219 — escapes outer `readOnly=true` tx in `WarehouseStockReportService.streamStockCount`; without REQUIRES_NEW, Postgres rejects every per-row INSERT |
 | `service/InventoryRecordService.java` | — | `createEntitiesBulk` | SBDEV-2228 Fix C — bulk-insert variant replacing per-row `createEntity`; same REQUIRES_NEW rationale; called after cursor tx closes (OMS HTTP calls also deferred post-cursor) |
 | `service/job/ReleaseOrderJobService.java` | — | `streamOrderPositionsForEach` | SBDEV-2228 Fix A — `readOnly=true` outer tx that keeps the JDBC cursor alive during streaming iteration; per-order commits via `releaseOrder` (REQUIRES_NEW) suspend this tx |
+| `service/job/ReleaseOrderJobService.java` | — | `markClientHasNoSection` | SBDEV-2961 — **second** inner committer under `streamOrderPositionsForEach`'s `readOnly=true` cursor tx. Called from `OrderReleaseJob.processOrderGroup`, i.e. from inside the consumer, so a `REQUIRED` write would join the read-only tx: an entity `save` vanishes unflushed with no error, and the bulk JPQL CAS used here raises Postgres `25006`. Delegates to a `@Modifying` CAS on `CustomerorderRepository`. |
 | `service/job/MessageCleanupBatchService.java` | 41 | `archiveOnce` | SBDEV-2220 — per-batch tx boundary for daily message cleanup (was previously a bare `@Transactional` on `MessageRepository.archiveMessages` binding to landlord TM) |
 | `service/job/MessageCleanupBatchService.java` | 53 | `deleteOnce` | SBDEV-2220 — per-batch tx boundary releases row locks between iterations so concurrent inserts on `message` are not blocked across the entire cleanup run (AC-2/AC-3) |
 | `service/RestIdempotencyService.java` | — | `persistResponse` | SBDEV-2222 — commits the dedup row (status + body) independently so a handler rollback does not delete the stored response; OMS replays must get the cached 2xx, not re-execute |
@@ -213,6 +214,27 @@ Every `REQUIRES_NEW` site lives in a scheduled-job service, the message service,
 | `service/job/OutboxDispatchService.java` | — | `cleanupSent` | SBDEV-2221 — per-tenant bulk DELETE of `SENT` rows older than retention window; called at end of each tick from `OutboxDispatcherJob` (via Spring proxy — not via `this.`) |
 
 None uses a non-default isolation level — everything relies on PostgreSQL's `READ_COMMITTED`.
+
+---
+
+> **SBDEV-2732 (2026-08-10, wms2-api PR #139 — OPEN, not merged) — two more MANDATORY sites, and
+> `REQUIRES_NEW` is UNCHANGED at 28.** Verified: the branch adds zero `REQUIRES_NEW` (the only match in
+> the diff is prose describing MANDATORY as the anti-`REQUIRES_NEW` device).
+>
+> - **`PutawayDestinationResolver.resolve`** — `@Transactional("tenantTransactionManager", propagation = MANDATORY)`.
+>   Deliberately structural rather than defensive: it makes it *impossible* to call the resolver outside
+>   a caller's transaction, so no future caller can reach for `REQUIRES_NEW` and reintroduce the
+>   SBDEV-2232 deadlock class. The consequence is that **no controller may call it** — there is zero
+>   `@Transactional` under `controller/`, so a direct call raises `IllegalTransactionStateException` (a
+>   bare `RuntimeException`) on **every** request. Controllers go through
+>   `PutawayDestinationQueryService`, a `readOnly = true` facade that supplies the transaction.
+> - **`PutawayConfigAuditService.record`** — MANDATORY, copied from `CancellationLogService.recordCancellation`:
+>   the audit row commits with the configuration change or not at all.
+>
+> Consequence worth knowing: MANDATORY **cannot be called from a Spring Data REST `@HandleBefore*`
+> method**, which fires outside any transaction. That is why the HAL channel splits — `Before`
+> validates, `After` audits — and why the audit there does *not* get the atomic guarantee the typed
+> writers have (the SDR save has already committed by then).
 
 ---
 
@@ -286,7 +308,7 @@ No business-logic scheduler runs in-process. Replenish / release / cron-autoflus
 2. **Scheduled methods see no tenant.** `TenantContext` is ThreadLocal; the scheduler thread never had it set. New cron jobs that need tenant data must enumerate tenants and `set` the context per iteration. Root-cause pattern of `260331-cron-job-autoflush-optimistic-lock-debug-plan.md`.
 3. **`LosSequencenumber` has both `@Version` AND `PESSIMISTIC_WRITE`.** The `@Version` is defensive — the pessimistic lock is the primary mechanism. Don't remove the version field without verifying all call sites route through `findByIdForUpdate()`.
 4. **Most pessimistic locks have no timeout.** `CustomerorderBatch` and `Billoflading` use a 5s `jakarta.persistence.lock.timeout`; `PickingorderRepository.findByIdForUpdate` uses 1s (SBDEV-2237, interactive pick-claim). The rest will wait for the full Hikari connection-acquire window under row contention, contributing to pool-exhaustion incidents (see `260424-connection-pool-exhaustion-fix-plan.md`).
-5. **`REQUIRES_NEW` ×20 = 20 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
+5. **`REQUIRES_NEW` ×29 = 29 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
 6. **`TenantDynamicRoutingDataSource` falls back to landlord when no context is set** (line 40). A bug that clears the ThreadLocal mid-request would route subsequent writes to landlord without an error until a schema mismatch surfaces downstream.
 7. **Post-commit hooks can silently no-op.** If `TransactionSynchronizationManager.isSynchronizationActive()` is `false` at the call site, the sync is never registered. When a service method that uses `registerSynchronization` is invoked outside a transaction (e.g. from a test or an unusual caller), the side-effect simply drops.
 
@@ -312,6 +334,7 @@ None recorded yet. Candidates that should be written up:
 | 2026-05-15 | SBDEV-2235: New `SkuBatchCreateUpdateService.upsertAll(...)` added as `@Transactional(value="tenantTransactionManager", rollbackFor={WebserviceBusinessExceptionClientSide.class, BusinessException.class})`. `SkuRestController.create()` and `.update()` refactored to two-phase: Phase 1 validates all inputs + resolves all lookups (no writes), Phase 2 delegates to `upsertAll`. Self-recursion `this.create(createList)` inside `update()` DELETED (bypassed CGLIB proxy). `/create` and `/update` validation-failure status changed 400 → 422; `/delete` unchanged at 400. `@CacheEvict(value="itemdata", allEntries=true)` retained on both controller methods. No new lock sites. | All annotations confirmed by grep + verify script 23/24 pass (AC21 = pre-existing SBDEV-2230 incomplete) | SBDEV-2235 fix review |
 | 2026-05-15 | SBDEV-2237: `MobilePickingService.selectAndReservePickingOrder` — `@Transactional` removed; replaced with two programmatic `TransactionTemplate` TXs (Tx-1 `claimPickingOrderAtomically` acquires `SELECT FOR UPDATE` + reserves; Tx-2 `finalizePickingOrderForStart` re-reads entity + handles RAPID_PICKING/finish). New `releaseClaimQuietly` compensating method added with `PROPAGATION_REQUIRES_NEW` (§7 count 21→22). `PickingorderRepository.findByIdForUpdate` gains 1s `jakarta.persistence.lock.timeout` hint (§8.2 updated). `processPickingOrderForStart` deleted; residual subset inlined into `resumePickingOrderIfExists`. | All changes confirmed by verify script (21 pass, 1 fail = pre-existing mvn failures) | SBDEV-2237 lock-split fix review |
 | 2026-05-17 | SBDEV-2221: 6 new REQUIRES_NEW sites added (§7 count 22→28): `OutboxService.reclaimStaleInFlight`, `OutboxService.claimDueBatch`, `OutboxService.markSent`, `OutboxService.markRetry`, `OutboxService.markTerminal`, `OutboxDispatchService.cleanupSent`. Pattern: claim-then-release — Phase 1 commits (releasing `FOR UPDATE SKIP LOCKED` row locks) before Phase 2 HTTP POST begins; each per-row outcome commits independently so no tenant-pool connection is held across the OMS round-trip. `BillofladingService.closeBOL` enqueue method is MANDATORY (joins caller's tx), not REQUIRES_NEW. | All 6 new sites confirmed by grep; TDD gate tests pass (5/5) | SBDEV-2221 outbox pilot implementation |
+| 2026-08-10 | SBDEV-2732 (PR #139, open): 13 new `@Transactional` sites, all on `tenantTransactionManager`; **`REQUIRES_NEW` count unchanged at 28** (verified — zero added by the diff). Two new **MANDATORY** sites recorded in §7: `PutawayDestinationResolver.resolve` and `PutawayConfigAuditService.record`. | Confirmed by diff read at `aff434e`. **Describes UNMERGED behaviour.** Scoped check — the rest of the doc was NOT re-verified, and it is past its 2026-07-31 due date. | Code read (SBDEV-2732 diff) |
 | 2026-05-20 | 260520 fix: New REQUIRED site — `ReplenishmentOrderMaintenanceService.recalculateOrder(Replenishorder, RecalcContext)` now `@Transactional(tenantTransactionManager, REQUIRED)`. REQUIRES_NEW count unchanged (§7 = 28). Self-injection (`@Lazy @Autowired self`) added to service so `recalculateOpenOrders(boolean)` sweep loop can route each order through the CGLIB proxy. 2026-05-15 entry note updated: "recalculateOrder itself also remains non-transactional" is now **superseded** — it IS transactional as of this fix. §5.4 WARNING: `recalculateForItem`'s inner loop deliberately remains `this.recalculateOrder` to avoid poisoning the shared REQUIRED outer tx via proxy-intercepted rollbackFor. | Annotation confirmed by grep + 44-test TDD gate pass | 260520 replenishment open-orders missing-tx fix |
 | 2026-05-21 | 260521 fix: No new `@Transactional` sites added. `CustomerorderBatchService.validateClubLine` (line 606), `finalizeClubLine` (line 689), and `rollbackClubLineState` (line 709) were always correctly annotated `@Transactional(tenantTransactionManager)` but were being called via `this.*` from `runClubLine` — bypassing the CGLIB proxy so all three annotations were inert. REQUIRED count and REQUIRES_NEW count unchanged (§7 = 28). Self-injection (`@Lazy @Autowired self`) added to `CustomerorderBatchService` so `runClubLine` routes all three phase calls through `self.*`. `runClubLine` itself remains non-transactional (Rule 5 — Phase 4 OMS HTTP must run outside JPA tx). Additional bug fixed: `validateClubLine` was capturing `originalState` after `setState(IN_PROGRESS)` — always recording the mutated state; now captured before mutation so `rollbackClubLineState` correctly restores the original `ACTIVATED`/`STAGING_LANE_ASSIGNED` state on failure. | Annotation confirmed by verify script (19 pass, 0 fail, 1 skip) + 5 test suites green | 260521 runClubLine self-invocation TX fix |
 
@@ -319,7 +342,10 @@ None recorded yet. Candidates that should be written up:
 | 2026-06-10 | 260610 hardening Phase A: §8.3 consumer inventory updated — inert `OptimisticLockRetry` call sites removed from `PickingorderBusinessService.confirmPick` and `UnitloadBusinessService.transferUnitLoadToLocation` (both wrapped in-transaction mutations where the catch can never fire); dead injection removed from `MobileReplenishService`. Sole remaining consumer: `MobilePalletizingService.scanPallet` (non-tx). Scope pinned by new `OptimisticLockRetryScopeTest`. No `@Transactional` site added/removed; §7 REQUIRES_NEW count unchanged (28). NOTE: §9 "only 2 @Scheduled methods" is stale (8 business + 2 infra exist) — full-map refresh tracked by 260610 audit backlog item 7. | Verify script Phase A 9/9 + suites green | 260610 Phase A implementation |
 | 2026-06-29 | Fix `260629-transfer-lane-leak-on-cancel`: new REQUIRED tenant-TM site — `TransferOrderService.unlinkTransferLaneFromTransferOrder` now `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` (previously **none** → ran on the `@Primary` landlord TM in auto-commit; same latent-bug class as the 2026-05-15 `ReplenishmentOrderMaintenanceService.recalculateForItem` entry). Sole caller `TransfersController.unlinkTransferLane` is non-transactional, so this opens a fresh tenant TX (REQUIRED, no propagation join) — no nested-tx hazard. `CustomerorderService.cancelOrder`/`forceCancelOrder` gained a guarded `setTransferlaneId(null)` but **no** new annotation (already tenant-TM). REQUIRES_NEW count unchanged (28; this is a REQUIRED site). | Annotation confirmed by grep + verify script (12 pass, 0 fail) + 143-test green run + code review (SHIP) | Fix `260629` implementation + code review |
 
-**Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-07-31.
+| 2026-08-06 | Cadence sweep of the doc's **countable** claims (prompted by SBDEV-2731, which itself touches none of this surface — its diff contains zero `@Transactional` and zero state transitions). Three counts were stale and one was internally contradictory: §4.2 tenant-TM sites `~116` → **163**; Rule 2 `REQUIRES_NEW` `20` → **28**, which §7's own header already stated correctly, and §9 item 5 carried the same stale 20; Rule 4 `readOnly = true` `16` → **29**. | Corrected. Counts are `grep -rn` over `src/main/java` at `origin/develop` (`169065c`): `Propagation.REQUIRES_NEW` = 28, `readOnly = true` = 29, `@Transactional` lines naming `tenantTransactionManager` = 163 (221 `@Transactional` annotations total). **Counts only — the narrative sections, §7's per-site table and §8's lock analysis were NOT re-verified, so `last_verified` stays at 2026-06-01.** | Code read (grep-based, SBDEV-2731 doc sweep) |
+| 2026-08-14 | SBDEV-2961 (branch `feature/SBDEV-2961-order-release-silent-section-exclusion`, **unmerged**): one new `REQUIRES_NEW` site — `ReleaseOrderJobService.markClientHasNoSection`. Counts corrected **28 → 29** in all three live places (Rule 2, §7 header, §9 item 5) and the site added to §7's table. It is the **second** inner committer under `streamOrderPositionsForEach`'s `readOnly=true` cursor tx, which is the whole reason it needs the annotation: an earlier revision of this fix used a `REQUIRED` entity `save` from inside the stream consumer, which joins the read-only tx and is **discarded unflushed with no error** — and because the job processes its last buffered group *outside* that tx, exactly one order per tick would have been written. Worth reading §7 before adding any writer on this path. | Counts + one §7 row only; **describes UNMERGED behaviour**. The narrative sections, §8's lock analysis and the rest of §7 were NOT re-verified, so `last_verified` stays at 2026-06-01 — and the doc is past its 2026-07-31 due date. | Code read of the branch diff + `mvn` verification (gate tests 5/5, verify script 44/0) |
+
+**Re-verify every 60 days** — concurrency surface changes fast. Next due: 2026-07-31. ⚠️ **Overdue as of 2026-08-06.** The 2026-08-06 sweep corrected countable claims only; a full pass over §7's site table and §8's lock analysis is still owed.
 
 ---
 

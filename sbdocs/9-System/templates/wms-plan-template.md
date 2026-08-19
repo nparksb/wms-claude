@@ -120,7 +120,7 @@ List everything that must be prepared before implementation starts. Every row is
   MANDATORY before phase sign-off. Every code change in this plan must have:
     - At least one unit test asserting the new behavior
     - Testcontainers integration test for any native-SQL / JPQL change
-    - Controller test (BaseControllerTest) for any endpoint change
+    - Controller test (`BaseControllerUnitTest` subclass — NOT `BaseControllerTest`, which does not exist; the integration sibling is `BaseControllerIntegrationTest`) for any endpoint change
   Run `mvn test -Dtest=<ClassName>` per touched class; `mvn verify` before merge.
   On any failure the phase is NOT complete.
   If coverage is truly impossible (config-only / auto-generated), record the reason here.
