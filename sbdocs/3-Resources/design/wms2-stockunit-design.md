@@ -280,9 +280,29 @@ Both `Stockunit` and `Unitload` share the same `BusinessObjectLockState` integer
 | `STOCK_SPLITTED` | `"STOCK_SPLITTED"` | Legacy split path |
 | `STOCK_ALTERED` | `"STOCK_ALTERED"` | `changeAmount` |
 | `STOCK_REMOVED` | `"STOCK_REMOVED"` | `StockrecordService.recordRemoval` |
-| `STOCK_TRANSFERRED` | `"STOCK_TRANSFERRED"` | `StockrecordService.recordTransferStockUnit` |
+| `STOCK_TRANSFERRED` | `"STOCK_TRANSFERRED"` | `StockrecordService.recordTransferStockUnit` — **writes `amount = 0` and carries the quantity in `amountstock`** (see below) |
 | `STOCK_COUNTED` | `"STOCK_COUNTED"` | Cycle count adjustment |
 | `STOCK_RESERVED_CHANGED` | `"STOCK_RESERVED_CHANGED"` | `changeReservedAmount` |
+
+### ⚠ `amount` vs `amountstock` — `amount` has no invariant
+
+Any report or query reading a `Stockrecord` quantity must know **which column that writer populated**. `amountstock` is consistent; `amount` is not.
+
+| Writer | `amount` | Kind |
+|---|---|---|
+| `recordCreation` | `amount` param | **delta** |
+| `recordChange` | `amount` param | **delta** |
+| `recordRemoval` | `amount` param (negated) | **delta** |
+| `recordChangeReservedAmount` | `BigDecimal.ZERO` | **zero** |
+| **`recordTransferStockUnit`** | **`BigDecimal.ZERO`** | **zero** — quantity is in `amountstock` |
+| `recordRelocation` | `stockunit.getAmount()` | **level** ⚠ the one writer that breaks the dominant convention |
+| `recordCounting` | *(not set)* | — |
+
+**All of them set `amountstock = stockUnit.getAmount()`** — the stock unit's level after the operation. That column has a real invariant; `amount` does not.
+
+`amount = 0` on a full move is *semantically correct*, not a bug: a full move does not change the stock unit's quantity, only which unit load holds it.
+
+**This omission caused SBDEV-2890 twice** (originally SBDEV-1319). `transaction_detail()` filtered picking rows on `sr.amount != 0` while valuing `STOCK_TRANSFERRED` rows from `sr.amountstock`, so every full-move unit-load pick evaluated `0 != 0` and vanished from the Detailed Transaction Report. Fixed in `V2.2.12`; v1 carries the same defect. **Before filtering or summing a stockrecord quantity, check this table.**
 
 ### `UnitloadRecordType` — unit-load audit types
 
@@ -438,9 +458,33 @@ At pick confirmation (`confirmPickPosition`):
 
 1. Load `Stockunit` by `pickingPosition.pickfromstockunitId`.
 2. Call `changeReservedAmount(su, -amount, true, CODE_PICKING, …)` — releases the reservation.
-3. Call `transferStockToUnitLoad(su, puUnitLoad, amount, CODE_PICKING, …, ignoreLock=true, removeUnitLoad=true)` — moves picked qty to the pick-up (PU) unit load.
+3. Call `transferStockToUnitLoad(su, puUnitLoad, amount, CODE_PICKING, …, ignoreLock=true, removeUnitLoad=true)` — moves picked qty to the pick-up (PU) unit load. **This splits into two paths that write different stockrecord shapes** — see below.
 4. Source SU may be sent to Nirvana if emptied; source unit load sent to Nirvana if also emptied.
 5. `pickingPosition.pickfromstockunitId` is set to `null` after confirm.
+
+#### Full move vs partial move — they write different stockrecord shapes
+
+`StockunitBusinessService:336` diverts to placeholder-creation when
+`sourceStockunit.getAmount().compareTo(amount) > 0 || fixLocationAssignment != null`. So the
+full-move branch at `:345` fires **only when the entire stock unit moves**.
+
+| Path | Branch | Writer | `type` | `amount` | `amountstock` |
+|---|---|---|---|---|---|
+| **Full move** (whole SU / unit-load pick) | `:345` → `:360` | `recordTransferStockUnit` | `STOCK_TRANSFERRED` | **0** | picked qty |
+| Placeholder SU creation | `:336-342` → `createStockUnit` | *(inline, bypasses `StockrecordService`)* | `STOCK_CREATED` | **0** | 0 |
+| **Partial move / merge** | `:369` else → `:377` | `recordCreation` | `STOCK_CREATED` | picked qty | dest SU total |
+| Partial move, source side | `:376` | `recordRemoval` | `STOCK_REMOVED` | −qty | — |
+
+**Why this matters for reporting:** a full-move pick and a partial-move pick of the same
+quantity produce rows that differ in *both* type and which column holds the quantity. Report
+predicates must handle both — filtering on `amount` alone silently drops every full-move pick
+(SBDEV-1319, SBDEV-2890).
+
+**Latent defect (unfixed):** `createStockUnit`'s `recordZeroAmount` parameter (`:129`) is never
+read — `:134` delegates to `createStockUnitCore` without it, and `:172` saves unconditionally.
+That path hand-rolls its `Stockrecord` inline instead of calling `StockrecordService.recordCreation`,
+which *does* guard zero amounts at `:61-64`. Two write paths for `STOCK_CREATED`, one guarded and
+one not — the reason the SQL-side zero-amount guard was needed at all.
 
 `ignoreLock=true` means picking bypasses all lock checks. A `QUALITY_FAULT` SU can technically be picked if a position was assigned before the lock was set.
 
