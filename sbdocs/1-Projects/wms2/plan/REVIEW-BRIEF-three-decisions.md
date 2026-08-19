@@ -24,7 +24,7 @@ transfer primitive against a flowbin, whose `location_constraint` permits only `
 
 The chosen design (**Q12 → option iv-b**): **configure anywhere, place everywhere EXCEPT pick faces.** A
 pick-face destination is diverted at receipt to the standard putaway lane, and **putaway** routes it —
-because `MobilePutAwayService.storeBoxOnLocation:471-489` already auto-creates a `FixLocationAssignment`,
+because `MobilePutAwayService.storeBoxOnLocation:497-514` already auto-creates a `FixLocationAssignment`,
 resolves its virtual `PickLocation` unit load, and merges stock into it.
 
 **Proven on running code, 2026-08-09, wineco DEV:**
@@ -45,7 +45,7 @@ resolves its virtual `PickLocation` unit load, and merges stock into it.
 reject had been closing *as a side effect*. Putaway auto-creates a `FixLocationAssignment` binding a flowbin
 to **whichever SKU is put away first**. The table carries `UNIQUE(assignedlocation_id)` **and**
 `UNIQUE(itemdata_id)` (`V2.2.00__base_v2_schema.sql:3760-3763`, `:3712-3715`), so every later SKU under a
-merchant or warehouse default then fails — at `verifyScannedLocation:430-444` or
+merchant or warehouse default then fails — at `verifyScannedLocation:447-453` or
 `UnitloadBusinessService:180-183`. A merchant default applies to every SKU that merchant receives, so the
 blast radius is the whole scope, not one SKU. **M1a confirmed the auto-create behaviour is real.**
 
@@ -65,7 +65,7 @@ and silently undo Q12.
 2. **Does it MISS a case?** Specifically: a tier-2/3 default on an **FLA-BEARING** flowbin; a tier-2/3
    default on a `cases and pallets` location; a tier-2/3 default on an `overstock box` pick face.
 3. Is the **tier-1 exemption** safe? The argument is that a SKU binding its own pick face is the intent,
-   mirroring the runtime rule at `UnitloadBusinessService.java:170-175`, which rejects only on SKU *mismatch*.
+   mirroring the runtime rule at `UnitloadBusinessService.java:178-184`, which rejects only on SKU *mismatch*.
 4. Is `sltname` load-bearing in the way claimed, or is there a better predicate?
 
 ---
@@ -99,6 +99,46 @@ fails *open*.
 ---
 
 ## DECISION 3 — SBDEV-2643 D1 reverted: the SKU picker offers pick faces again
+
+> [!note] **STATUS UPDATE 2026-08-12 — Q1 and Q2 have been answered BY IMPLEMENTATION; Q3 and Q4 have
+> not.** This brief was never formally returned. In the meantime SBDEV-2732 shipped (iv-b) end to end
+> (both phases merged 2026-08-11, its verify script 285/0) and **SBDEV-2821 merged 2026-08-09** (PR #135,
+> `fd90487`), so:
+>
+> - **Q1 — "is reverting D1 correct under (iv-b)?"** Ratified in code. `GET
+>   /putawayConfig/eligibleLocations?scope=SKU` returns the pick faces as `eligible: true`, and the
+>   route-at-putaway path SBDEV-2821 shipped is what makes them placeable. **2,554 eligible rows at SKU
+>   scope on `wms2-wineco-dev` against 516 at merchant/warehouse scope — the gap IS the pick faces.**
+> - **Q2 — "should the picker exclude anything now?"** Answered by 2732's rule (f) plus the 7-value
+>   `BlockingReason`: flowbins bound to a *different* SKU are excluded (`BOUND_TO_ANOTHER_SKU`), and
+>   `FIX_ASSIGNED` / `LOCKED` / `LANE` / `AREA_NOT_USABLE` / `FLOWBIN_SCOPE` / `TYPE_INCOMPATIBLE` name
+>   the rest. Server-side, one source of truth.
+> - **Q3 — the operator message — ✅ ANSWERED 2026-08-12: MIRROR 2732's ALREADY-APPROVED WORDING.**
+>   No new copy is written. 2732 step 19a's variant-A sentence is in `messages.properties`:
+>   `putawayDestinationDivertedToLane=Received to %1$s. Putaway will move it to %2$s — the stock is not
+>   on %2$s until then.` SBDEV-2643 §3.8.2a now specifies the **configure-time mirror** of that
+>   sentence, so an operator meets one voice at config time and at receipt. ⚠ It is a mirror, not a
+>   reuse: the key is emitted only when a receipt was actually diverted, there is no receipt at config
+>   time to bind its arguments, and `wms2-web-ui` has no `vue-i18n`. **The two strings must move
+>   together** if a later product read revises variant A.
+> - **Q4 — ✅ ANSWERED 2026-08-12: option (ii) — SBDEV-2643 ships the server-side search parameter.**
+>   This was **not** merely a UX question. This brief's own Q2 close assigned the remedy to 2643 *"as a
+>   parameter on `eligibleLocations`"* and **it was never built** — the endpoint takes only `scope`,
+>   `subjectId`, `Pageable`. Measured 2026-08-12: the UI store accumulates every page at `size=200`, so
+>   **2,564 candidate locations on `wms2-wineco-dev` = 13 sequential round-trips before the operator can
+>   type** (`wsl-wineco-uat` 2,703/14; both hydra copies 602/4). It is now SBDEV-2643 **Phase A4**
+>   (§3.5a, +0.5 d), with an in-query case-insensitive contains and an **empty-search identity
+>   contract** — tiers 2 and 3 call the same endpoint with no `name`, so a predicate bug would silently
+>   shrink the WAREHOUSE and MERCHANT pickers with no error shown.
+>   ⚠ **Q4's original framing was also based on the wrong number.** It asked about *"the unfiltered
+>   229-location picker on HMG production"*; 229 is a **PRD** figure, and the reachable HMG copies
+>   measure **602** candidates while the WineCo tenants measure **~2,600**. The volume problem is
+>   WineCo-shaped, not HMG-shaped.
+>
+> **Consequence for SBDEV-2643: DECISION 3 IS NOW FULLY ANSWERED — all four questions.** D1 is settled
+> and is no longer a schedule risk. The banner wording is derived from copy already accepted, so §5.7's
+> product-review item is a courtesy rather than a blocker. Q4 added **Phase A4** to the plan.
+> **Decisions 1 and 2 of this brief remain unreturned** — they block nothing in 2643.
 
 **Plan:** `SBDEV-2643-sku-default-putaway-location-ui.md`, revision-3 banner near the top.
 

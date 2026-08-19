@@ -122,6 +122,33 @@ The core inbound operation at `ReceivingService.java:303-543`. Called from the r
 
 ### 4.2 Core loop (line 459-499)
 
+⚠ **Updated 2026-08-10 for SBDEV-2732 (wms2-api PR #139, open — not merged).** `putAwayLocation` is no
+longer `itemdata.putawaylocation_id`. It is resolved through a **four-tier hierarchy** ONCE above the
+loop, on **both** the carrier and non-carrier branches, and a pick-face destination is diverted before
+placement.
+
+```java
+// ABOVE the loop. Resolving inside `if (carrier == null)` is SBDEV-2731's root cause: the configured
+// destination then never reaches the display and the operator cannot see where the receipt is going.
+Resolution putaway = putawayDestinationResolver.resolve(itemdata, client, adviceposition.getUnitloadtypeId());
+//   tier 1 itemdata.putawaylocation_id → tier 2 client.defaultputawaylocation_id
+// → tier 3 sysprop DEFAULT_PUTAWAY_LOCATION (system client, workstation DEFAULT) → tier 4 PutAwayLane
+putawayResolutionMetrics.resolved(putaway.source(), carrier != null, putaway.compatible());
+
+// (iv-b) PLACEMENT GATE. A pick face is a LEGAL configuration at every tier, but a receipt is never
+// placed into one: receiving moves a whole unit load and a flowbin permits only PickLocation. The
+// receipt goes to the lane and putaway routes it into the bin (SBDEV-2821, §5.2).
+// The OR is deliberate — the constraint is a location TYPE property, useforpicking is an AREA
+// property, and nothing in the schema ties them.
+boolean pickFace = area.getUseforpicking() == TRUE || locationType.getSltname() == 'flowbin';
+if (pickFace && putaway.source() != STANDARD_PUTAWAY_LANE)
+    putaway = putawayDestinationResolver.divertPickFaceToLane(putaway, unitloadtypeId);
+
+// Hard-fail ONLY on the non-carrier branch (D10): on the carrier path the destination is surfaced but
+// not applied, so a config error irrelevant to this receipt must not abort it.
+if (carrier == null) putawayDestinationResolver.requireCompatible(putaway);
+```
+
 ```
 for each case being received on the adviceposition:
     Unitload unitload = unitloadService.createUnitload(workstation, typeId, client, CODE_RECEIVING, ...)
@@ -131,7 +158,7 @@ for each case being received on the adviceposition:
     goodsreceiptpositionRepository.save(pos)
 
     if (carrier == null)
-        unitloadBusinessService.transferUnitLoadToLocation(unitload, putAwayLocation, ...)
+        unitloadBusinessService.transferUnitLoadToLocation(unitload, putaway.location(), ...)
     else
         unitloadBusinessService.transferUnitLoadToCarrier(unitload, carrier, ...)
 ```
@@ -139,6 +166,12 @@ for each case being received on the adviceposition:
 The loop runs once per case (`amountBottlesPerCase` drives the divisor). Each iteration creates: 1 `Unitload` + 1 `Stockunit` + 1 `Stockrecord` (via `createStockUnit`) + 1 `Goodsreceiptposition` row.
 
 Pessimistic-write lock on the `Adviceposition` row guards against concurrent receivers doing the same case twice.
+
+**The resolution is per-RECEIPT, not per-case** — the SKU, merchant and unit-load type are identical for
+every case in the loop, and a bad destination fails before any unit load exists. `GET
+/v3/receiving/getPutawayDestination/{advicePositionId}` returns the same resolution for the display,
+including a `divertedTo` field when the gate retargets it, so the screen and the placement cannot
+disagree.
 
 ### 4.3 OMS stock-change gate (line 505-523)
 
@@ -245,12 +278,21 @@ Operator scans pallet
 ⚠ **Updated 2026-08-09 for SBDEV-2821.** Two things changed: where candidates come from, and a fourth
 location type that was previously dropped.
 
+⚠ **Updated again 2026-08-10 for SBDEV-2732 step 17a (PR #139, open).** The second argument is no
+longer the tier-1 column: `V2.2.13` nulls `putawaylocation_id` wherever it merely held the seeded lane
+id, and §4.2's gate diverts pick-face destinations at **every** tier — so a merchant- or
+warehouse-scope destination left on tier 1 would be diverted to the lane at receipt and then never
+offered here, stranding the unit load on the lane with nowhere the screen will send it.
+
 ```java
 // SBDEV-2821: was getStorageLocationsForPutAwayItemData(skuId), which derives candidates ONLY from
 // where the SKU already has stock — so a SKU being received into a dedicated bin for the first time
 // got ZERO candidates and its configured destination was never offered.
+// SBDEV-2732 step 17a: the destination is the FOUR-TIER resolution, not the SKU column. Tier 4 maps
+// back to null — resolve() always answers, and passing the lane id would offer the lane the unit load
+// is being moved OFF as somewhere to move it TO.
 List<Location> candidates = locationRepository.getPutAwayCandidateLocations(
-        currentSku.getId(), currentSku.getPutawaylocationId());
+        currentSku.getId(), resolveCandidateDestinationId(currentSku, skuClient));
 for (Location loc : candidates) {
     LocationType type = locationTypeRepository.findById(loc.getTypeId()).orElseThrow(...);
     switch (type.getSltname()) {
@@ -391,5 +433,6 @@ All callbacks use `omsNotificationService.sendAfterCommit(...)` — post-commit 
 | 2026-08-06 | §4 receiving loop's `if (carrier == null)` fork and §5.2 target-location classification, re-checked for SBDEV-2731 (PRs wms2-api #133 / wms2-web-ui #39) | Both **confirmed accurate** against `ReceivingService:491-495` and `MobilePutAwayService:268-288`. §5.2's anchor was stale (`line 263-283`) and is corrected to `268–288`, now naming the enclosing method. SBDEV-2731 changed only the *message* thrown on constraint rejection, not the routing this doc describes, so no behavioural text needed updating. **Scoped check — the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10.** | Code read (SBDEV-2731 diff + targeted greps) |
 
 | 2026-08-09 | §5.2 and §5.3 **rewritten** for SBDEV-2821. §5.2's quoted code block was invalidated on two counts: candidates now come from `getPutAwayCandidateLocations(skuId, configuredLocationId)` rather than the stock-derived `getStorageLocationsForPutAwayItemData(skuId)`, and the switch gained a fourth case (`cases and pallets`) that previously fell to `default:` and was silently dropped. §5.3 gained the flowbin-only scoping of the fixed-assignment branch and the club-lane no-FLA rule. Anchor corrected `268–288` → `268–295`; §5.3 anchor and its `:418` citation rebased to `433-455` / `:427`. | Confirmed against the SBDEV-2821 branch. The `(useforstorage OR staginglane)` predicate on the query's second leg was additionally proven by executing the shipped SQL against `wms2-wineco-dev` — it is what keeps `PutAwayLane` (itself `cases and pallets`, `useforstorage=false`, the configured destination of 8,803/8,804 SKUs) out of the candidate list. **Scoped check — the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10.** | Code read (SBDEV-2821 diff) + live SQL on `wms2-wineco-dev` |
+| 2026-08-10 | §4.2 and §5.2 updated for **SBDEV-2732** (wms2-api PR #139, **open — not merged**). §4.2's `putAwayLocation` is no longer `itemdata.putawaylocation_id`: it is a four-tier resolution taken ONCE above the loop on both branches, followed by the (iv-b) pick-face placement gate and a `carrier == null`-only `requireCompatible`. §5.2's second query argument moves from the tier-1 column to that same resolution, with tier 4 mapping back to null. | Confirmed against the SBDEV-2732 branch at `aff434e`. **Describes UNMERGED behaviour** — until PR #139 lands, the shipped code is what the 2026-08-09 row describes. **Scoped check: the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10** — it is now 92 days old and due a full pass. | Code read (SBDEV-2732 diff) |
 
 **Re-verify every 90 days.** Next due: **2026-07-18** — receiving logic is stable but mobile putaway (SBDEV-2102 area) is fix-prone. ⚠️ **Overdue as of 2026-08-06.** Two scoped checks have landed since (2026-08-03, 2026-08-06) but neither was a full pass; a top-to-bottom re-verification is still owed.

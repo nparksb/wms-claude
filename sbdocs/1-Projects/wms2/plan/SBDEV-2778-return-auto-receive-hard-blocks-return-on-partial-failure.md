@@ -5,7 +5,7 @@ ticket_url: "https://app.clickup.com/t/868kj2bv4"
 type: "bugfix"
 severity: "high"
 priority: "urgent"
-status: "draft rev3 — architect + critic review applied; pending consensus review"
+status: "draft rev4 — H1 RE-VERIFIED against merged code 2026-08-09 (SBDEV-2731 #133 and SBDEV-2821 #135 both merged since rev3; neither removes H1's trigger — ReceivingService is byte-identical to its pre-2731 state). Architect + critic review applied at rev3; pending consensus review"
 project: ["wms2-api", "oms-laravel-api"]
 version: "v2"
 requester: "Brent Campbell"
@@ -371,15 +371,51 @@ numeric; `unitload_type 'Case'`; boxtype by `externalid`; client by `clNr`; item
 
 **H1 (PRIMARY) — SBDEV-2731 flowbin putaway rejection.** `ReceivingService.java:492` calls
 `unitloadBusinessService.transferUnitLoadToLocation(...)`, which throws at
-`UnitloadBusinessService.java:191` when the putaway target is a flowbin pick face.
-*For:* SBDEV-2731 is `status: reviewed` and **NOT implemented** ⇒ live in prod; same requester; same
-tenant and warehouse (its `db_verified_note` establishes NYWH == HMG == Hydra); `db_verified: true`
-against prod-shaped data; the call site is inside the exact `try` (`:461-510`) whose rethrow at `:503`
-becomes `RETURN_AUTO_RECEIVE_PARTIAL`.
-*Against / unproven:* not reproducible on any reachable DB. **Probe P1 settles it.**
+`UnitloadBusinessService.java:235` when the putaway target is a flowbin pick face.
 
-**H2 — SBDEV-2732 putaway destination hierarchy.** `status: reviewed`, unimplemented; same call site,
-adjacent cause.
+> [!important] **✅ RE-CHECKED AGAINST MERGED CODE 2026-08-09 — H1 SURVIVES, and is now PROVEN rather
+> than INFERRED.** Two of this ticket's three named dependencies merged since rev3 was written
+> (SBDEV-2731 on 2026-08-07, SBDEV-2821 on 2026-08-09). Verified on `origin/develop` = `fd90487`:
+>
+> 1. **`ReceivingService.java` is byte-identical to its pre-SBDEV-2731 state** (`git diff 68274b0
+>    origin/develop -- ReceivingService.java` is **empty**). Neither 2731 nor 2821 nor 2863 touched
+>    receiving. **Every line number this hypothesis and H3 depend on is therefore still exact** —
+>    `:454-457`, `:492`, the `try` at `:461-510`, the rethrow at `:503`, and all seven H3 anchors.
+> 2. **SBDEV-2731 changed the message, not the rejection.** Its diff to `UnitloadBusinessService`
+>    replaces one raw concatenated `throw` with `throw new BusinessException(
+>    "unitloadTypeNotPermittedOnLocation", …)`. The guard `if (!foundPermittingConstraint)` is
+>    untouched — no `if`/`return`/control-flow change anywhere in the diff. **The rejection fires
+>    identically.**
+> 3. **SBDEV-2821 does not help either**, by its own design: it adopted route-at-putaway and its
+>    acceptance criteria state *"Receiving behaviour is unchanged."* Confirmed by (1).
+> 4. **The tier-1 direct-placement path is live and unguarded on `develop` today.** At `:454-457`,
+>    when `carrier == null`, `putAwayLocation` is resolved unconditionally from
+>    `itemdata.getPutawaylocationId()`; `:492` transfers the unit load there. **No diversion gate
+>    exists** — that is SBDEV-2732 step 15, which is unimplemented.
+>
+> **Net: the trigger H1 names is still present in merged code.** What changed is only the operator-facing
+> string it produces. *(Rev3 read `:191` — the pre-2731 line — and argued from "2731 is unimplemented".
+> Both are superseded; the conclusion is unchanged and the evidence is now stronger.)*
+>
+> ⚠ **Consequence beyond this ticket:** with 2821 merged and on `dev`, **receiving `ICE PACK` into the
+> `ICE PACK` flowbin still fails** — 2821 made the destination reachable *at putaway*, not *at receipt*.
+> The originally reported SBDEV-2731 symptom closes only when SBDEV-2732 step 15 ships.
+
+*For:* **the mechanism is confirmed live in merged code** (box above); same requester; same
+tenant and warehouse (2731's `db_verified_note` establishes NYWH == HMG == Hydra); `db_verified: true`
+against prod-shaped data; the call site is inside the exact `try` (`:461-510`) whose catch at `:503`
+rethrows at `:509` and becomes `RETURN_AUTO_RECEIVE_PARTIAL`. *(All anchors in this paragraph and in
+H3 re-verified against `origin/develop` 2026-08-09 — every one exact, because `ReceivingService` is
+unchanged. `:503` was cited as "the rethrow"; it is the `catch`, with `throw e;` at `:509`.)*
+*Against / unproven:* the **trigger** is still not proven for the 2026-08-05 incident — only the
+mechanism is. Not reproducible on any reachable DB. **Probe P1 still settles it, and is now much
+narrower:** per 2731's `db_verified_note`, `ICE PACK` (itemdata `52072` → location `52075`) is the
+**only** SKU on prod with a non-`PutAwayLane` destination — 0 on UAT and both dev tenants. So H1
+requires that the 2026-08-05 return advice contained `ICE PACK`, which is a single-row question.
+
+**H2 — SBDEV-2732 putaway destination hierarchy.** `status: **draft**` *(corrected 2026-08-09 — rev3
+said `reviewed`)*, unimplemented; same call site, adjacent cause. **It is also the only ticket that
+removes H1's trigger** — see §5.5.
 
 **H3 — a lookup inside `receiveGoods` the preflight does not cover:** `:359`
 `userRepository.findByName(...)`, `:384` `Location 'InboundWorkstation'`, `:399` `unitload_type` by id,
@@ -1046,24 +1082,28 @@ time. Versions are append-only; this exact trap cost SBDEV-2778 a renumber from 
 >
 > | | Real state | Real scope |
 > |---|---|---|
-> | **SBDEV-2731** | **IMPLEMENTED** — one commit `b5b35ab` on `bugfix/SBDEV-2731-…`, **not pushed to origin, no PR**, therefore **not** in `v0.0.13` (prod) | **Message-only.** Does **not** touch `ReceivingService`. Replaces the raw concatenated throw at `UnitloadBusinessService:191` with the keyed `unitloadTypeNotPermittedOnLocation`. Its own commit message: *"The constraint-gate logic is unchanged - message only. The rejection itself is correct."* |
-> | **SBDEV-2732** | `status: draft` (pending approval; no source file touched) | Owns the **behaviour** fix — `ReceivingService:454-457` and `:491-495`, named in its §0 rows 1-2 as the *"SBDEV-2731 root cause"* |
+> | **SBDEV-2731** | ~~IMPLEMENTED — one commit `b5b35ab`, **not pushed**, no PR, therefore not in `v0.0.13`~~ → **MERGED 2026-08-07**, PR #133, merge `6bc709a` *(updated 2026-08-09)* | **Message-only.** Does **not** touch `ReceivingService`. Replaces the raw concatenated throw — at `UnitloadBusinessService:191` **before** its own fix, now at **`:235`** — with the keyed `unitloadTypeNotPermittedOnLocation`. Its own commit message: *"The constraint-gate logic is unchanged - message only. The rejection itself is correct."* **Confirmed 2026-08-09 by diff: no control-flow change.** |
+> | **SBDEV-2821** | **MERGED 2026-08-09**, PR #135, merge `fd90487`, ClickUp `on dev` — *added 2026-08-09; this ticket did not exist when rev3 was written* | **Putaway-only, by design.** Adopted route-at-putaway; its AC states *"Receiving behaviour is unchanged"*, which the empty `ReceivingService` diff confirms. **Does not stop H1 either.** |
+> | **SBDEV-2732** | `status: draft` (pending approval; no source file touched) — **unchanged** | Owns the **behaviour** fix — `ReceivingService:454-457` and `:491-495`, named in its §0 rows 1-2 as the *"SBDEV-2731 root cause"*. Its **step 15** adds the diversion gate that is the only thing removing H1's trigger |
 >
-> **Consequence: SBDEV-2731 landing does NOT stop H1 firing.** The flowbin rejection is by design
-> and survives it. Only **SBDEV-2732** removes the trigger, and it is the least mature of the three.
+> **Consequence — now VERIFIED against merged code rather than predicted: neither SBDEV-2731 nor
+> SBDEV-2821 stops H1 firing.** The flowbin rejection is by design and survives both. Only
+> **SBDEV-2732** removes the trigger, and it is still the least mature of the three.
 
 **This plan does not touch `ReceivingService` at all.**
 
 | Scenario | Effect |
 |---|---|
-| **SBDEV-2731 lands first** | H1 keeps firing — 2731 is message-only. What changes is the **classifier basis**: `:191` gains the real key `unitloadTypeNotPermittedOnLocation`, so F3 could switch on `getMessageKey()` instead of the state probe. **F3 is not broken either way** — the probe is key-independent by construction, which is exactly why it was chosen (rev2, Critic B5). Treat the key as a possible simplification, not a required rework. **The no-leak tests stay mandatory:** the new throw still passes `destinationLocation.getName()` as a parameter, so `getMessage()` still renders the location name |
+| ~~**SBDEV-2731 lands first**~~ **← THIS IS NOW THE ACTUAL WORLD (merged 2026-08-07); it is no longer a scenario** | H1 keeps firing — 2731 is message-only, **confirmed by diff, not predicted**. What changed is the **classifier basis**: the throw (now `:235`, was `:191`) carries the real key `unitloadTypeNotPermittedOnLocation`, so F3 could switch on `getMessageKey()` instead of the state probe. **F3 is not broken either way** — the probe is key-independent by construction, which is exactly why it was chosen (rev2, Critic B5). Treat the key as a possible simplification, not a required rework. **The no-leak tests stay mandatory:** the new throw still passes `destinationLocation.getName()` as a parameter, so `getMessage()` still renders the location name |
 | **SBDEV-2732 lands first** | H1 stops firing; `PUTAWAY_LOCATION_REJECTED` becomes rare. Rebase needed and scope guard **S1 must be re-anchored** — 2732 reworks `ReceivingService:491-495`, the exact lines S1 asserts are untouched. The §8.6 manual row then needs a different trigger (`ZPL_TEMPLATE_MISSING`, by unsetting `PRINTING_ZPL_CASE_LABEL` on a scratch tenant) |
 | **This plan lands first** | A failing receive stops blocking returns and starts naming its reason — removes the *urgency* of 2731/2732, not their correctness. No shared file with either |
 | **All in flight** | No merge conflict with 2731 (disjoint files). Conflict with 2732 is possible only if S1's anchor lines move |
 
 **Do not "fix H1 while you are in there."** If P1 confirms H1, the escalation target is **SBDEV-2732**
-(the behaviour fix), not 2731. Also flag that **2731's commit is unpushed** — 2732 consumes its key
-name as a hard prerequisite, so an unpushed 2731 blocks 2732. The changes have different blast radii
+(the behaviour fix), not 2731 and not 2821 — both are merged and neither touches the trigger.
+~~Also flag that **2731's commit is unpushed** — 2732 consumes its key name as a hard prerequisite, so
+an unpushed 2731 blocks 2732.~~ **RESOLVED 2026-08-09: 2731 merged (PR #133, `6bc709a`), so 2732's
+prerequisite on the key name is satisfied.** The changes have different blast radii
 (this one cannot move stock; 2732 changes which primitive moves it) and must be revertable
 independently.
 

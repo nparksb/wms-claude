@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-06-27
+last_verified: 2026-08-14
 verified_by: Claude (executor)
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
@@ -538,7 +538,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 | `findByLabelidIn` | JPQL | Batch fetch by set of labelids |
 | `findCountByCarrierunitloadId` | native | Count ULs without carrier (or with specific carrier) |
 | `getBatchLocationsByItemIdAndLaneName` | native | ULs with a given SKU at a staging lane |
-| `getBatchLocationsByItemIdAndNamedLocations` | native | ULs with SKU at staging lanes or clearing |
+| `getBatchLocationsByItemIdAndTransferableAreas` | native | ULs with SKU sourceable by transfer picking / club runs: any staging lane, the Clearing location, any area flagged `location_area.usefortransfer`, or the `users` area. **Renamed from `getBatchLocationsByItemIdAndNamedLocations` and its 3rd `locationNameList` param dropped by SBDEV-2952**, which replaced a hardcoded six-area-name whitelist with the `usefortransfer` flag (behaviour-identical on all six tenant DBs at the time). The old HAL search endpoint was removed, not deprecated. |
 | `findUnitloadsByItemDataIdForReplenish` | native | Distinct ULs with available stock in replenish areas |
 | `getDetailViewByKeyword` | native | Paginated search UI — lock != 405 |
 

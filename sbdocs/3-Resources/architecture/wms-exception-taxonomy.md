@@ -132,6 +132,20 @@ The catch block in every `/rest/` controller:
 
 ---
 
+### SBDEV-2732 — `PutawayConfigValidationException` (v2, PR #139 open)
+
+| Exception | Extends | HTTP | Where it is thrown |
+|---|---|---|---|
+| `PutawayConfigValidationException` | `RuntimeException` (**unchecked**) | **422** via `RestExceptionHandler` | `PutawayConfigService.validateOnly`, and `PutawayConfigRepositoryEventHandler`'s `sysvalue` parse |
+
+**Why unchecked, and why the handler is not optional.** A Spring Data REST `@HandleBefore*` method
+cannot declare a checked exception, so a checked type there surfaces as a 500. Unchecked alone is not
+enough either: the type originally shipped **without** an `@ExceptionHandler`, and an unhandled
+unchecked exception is *also* a 500 — so every HAL rejection returned 500 while the class javadoc
+claimed 422. Both halves are required. Caught by the SBDEV-2732 3b review.
+
+---
+
 ## §4 — Transaction Rollback Matrix
 
 ### Background: checked vs unchecked and Spring's default
@@ -265,6 +279,28 @@ Fallback behaviour: if the bundle or key is missing, the key and parameters are 
 > **ApiException subclasses do not use ResourceBundle.** Pass a plain English string to their constructor — it goes directly into `ApiErrorMessage.errorMessage`.
 
 ---
+
+### SBDEV-2732 putaway destination keys (v2, PR #139 open)
+
+Ten keys, present in **both** `messages.properties` and `messages_en_US.properties` — the ResourceBundle
+parent chain hides a deletion from the child, so both files must carry every key.
+
+| Key | Meaning |
+|---|---|
+| `putawayDestinationNotPermitted` | P1 failure at receipt: the unit-load type cannot sit on the destination |
+| `putawayDestinationLocked` | Destination is entity-locked (P2.1, absolute at all three scopes) |
+| `putawayDestinationIsALane` | Operational lane rejected — absolute for transfer/automation/gate, SKU-scope only for staging/cross-dock |
+| `putawayDestinationFlowbinNotAllowedForScope` | Flowbin at merchant/warehouse scope (rule (e)) — putaway's FLA auto-bind would break every other SKU |
+| `putawayDestinationAreaNotUsable` | Area is neither goods-in nor storage (P2.4) |
+| `putawayDestinationBoundToAnotherSku` | Rule (f): the flowbin is another SKU's fixed pick face |
+| `skuAlreadyBoundToAnotherPickFace` | Rule (f), other direction: this SKU already owns a different pick face |
+| `putawayDestinationTypeIncompatible` | P2.6 write-time pre-check against the SKU's default unit-load type |
+| `putawayDestinationIncompatibleForEverySku` | 100% of SKUs in scope incompatible — 422, no confirmation can override |
+| `putawayDestinationUseTypedEndpoint` | The system-property screen refuses the guarded syskey; use `PUT /putawayConfig/warehouse` |
+
+⚠ `putawayDestinationNotPermitted` takes **five** format args and its arg map is documented at the
+throw site. `%3$s` is the incompatibility *sentence*, not a bare type id — passing an id there produces
+a garbled message, which shipped once and was caught in review because no test rendered the template.
 
 ## §6 — When to Use Which Exception (Decision Guide)
 

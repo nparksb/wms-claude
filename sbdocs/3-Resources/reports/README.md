@@ -30,6 +30,7 @@ Filename convention: `YYMMDD-kebab-description.md` (date-prefixed) or a stable t
 
 | Report | Scope | Created |
 |---|---|---|
+| [Hydra UAT — Triage of Three Failed QA Flows (Pick & Pack, Club Line Palletize, Transfer Offsite)](260814-hydra-uat-three-flow-qa-triage.md) | wms2 | 2026-08-14 |
 | [WMS v2 — `los_sysprop` Current-Value Census (DEV + UAT)](260730-wms2-sysprop-current-value-census.md) | wms2 | 2026-07-30 |
 | [SBDEV-2514 — WineCo post-release (v1.26.43): Reserved-Out unit-load block + Replen Monitor QTY accuracy](260702-sbdev-2514-wineco-post-release-reserved-out-and-replen-monitor.md) | wms1 | 2026-07-02 |
 | [SBDEV-2507 — Parcel Re-Palletized & Double-Shipped After Closed BOL (Web Palletize Check Gap)](260701-sbdev-2507-repalletize-double-ship-after-closed-bol.md) | wms1 | 2026-07-01 |

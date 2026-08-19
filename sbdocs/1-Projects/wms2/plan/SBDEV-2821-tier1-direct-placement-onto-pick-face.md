@@ -78,7 +78,7 @@ tags:
 > were corrected the same day.
 >
 > **Degraded, not broken, if the order is violated:** the operator can still *manually scan* the destination
-> (`verifyScannedLocation:403-447` accepts it — §3.2), so shipping 2732 first strands the destination as
+> (`verifyScannedLocation:412-456` accepts it — §3.2), so shipping 2732 first strands the destination as
 > undiscoverable rather than unreachable. That is a UX regression against the ticket's intent, not data loss.
 
 > [!done] **Q15 CLOSED 2026-08-09 — option (A), with one mandatory addition.**
@@ -94,13 +94,13 @@ tags:
 > The divergence (B) warned about is real but **planned and bounded**: step 17a explicitly *replaces* the raw
 > read rather than adding a second one.
 >
-> **⚠ THE MANDATORY ADDITION — the (B) argument was right about this much.** SBDEV-2732's `V2.2.11`
+> **⚠ THE MANDATORY ADDITION — the (B) argument was right about this much.** SBDEV-2732's `V2.2.13`
 > **nulls the column this ticket reads**: it drops the `NOT NULL`, stops seeding, and runs
 > `UPDATE itemdata SET putawaylocation_id = NULL WHERE putawaylocation_id IN (SELECT id FROM location WHERE
 > name = 'PutAwayLane')`. So the column's meaning changes from *"always populated, lane by default"* to
 > *"NULL means no override"*.
 >
-> **This ticket must handle `putawaylocation_id == NULL` from day one — before `V2.2.11` exists.** Today the
+> **This ticket must handle `putawaylocation_id == NULL` from day one — before `V2.2.13` exists.** Today the
 > column is `NOT NULL`, so a naive implementation will not crash and will look correct; it will break
 > **later**, when 2732 lands, on a tenant nobody is watching. That is a delayed, silent failure and it is the
 > worst shape available. A `NULL` must simply mean *"no configured destination — surface nothing"*.
@@ -212,7 +212,7 @@ must run against a migrated tenant as well.**
 
 ### 3.1 The insight: Fix B already exists, in putaway
 
-`MobilePutAwayService.storeBoxOnLocation:471-489`, flowbin branch:
+`MobilePutAwayService.storeBoxOnLocation:497-514`, flowbin branch:
 
 ```java
 FixLocationAssignment fla = fixLocationAssignmentRepository.findByAssignedlocationId(location.getId()).orElse(null);
@@ -242,7 +242,7 @@ WHERE i.id = :itemDataId AND a.useforstorage = 'true'
 `ICE PACK` has **zero stockunits anywhere**, so this returns **zero candidates** — a chicken-and-egg: you can
 only put away to where the SKU already is.
 
-**But `MobilePutAwayService.verifyScannedLocation:403-447` already ACCEPTS a manual scan of `ICE PACK`:**
+**But `MobilePutAwayService.verifyScannedLocation:412-456` already ACCEPTS a manual scan of `ICE PACK`:**
 the area is `useforstorage = true`, and on the flowbin branch the SKU has no FLA *and* the location has no
 FLA, so it passes.
 
@@ -301,7 +301,7 @@ overstock → `overstockLocationList`). Prefer a repository-level change so the 
 > (`itemdata.putawaylocation_id` is `@NotNull`, so production's "no override" is *PutAwayLane*, not
 > `null`). Admitting the type to the switch without also filtering the candidate query would have offered
 > every operator *"put it back on the PutAwayLane."* The query's second leg carries
-> `(a.useforstorage = 'true' OR l.staginglane = true)` — mirroring `verifyScannedLocation:418`'s own gate —
+> `(a.useforstorage = 'true' OR l.staginglane = true)` — mirroring `verifyScannedLocation:427`'s own gate —
 > which excludes it. **That predicate is load-bearing, not defensive.**
 
 `storeBoxOnLocation:472-503` switches on `locationType.getSltname()` against exactly **three** constants —
@@ -314,7 +314,7 @@ reaches `:502`:
 throw new BusinessException("Unsupported location type " + locationType.getSltname());
 ```
 
-**Worse, the failure is late.** `verifyScannedLocation:418` gates only on `!useforstorage && !staginglane`.
+**Worse, the failure is late.** `verifyScannedLocation:427` gates only on `!useforstorage && !staginglane`.
 Club locations sit in *Storage and Picking* with `useforstorage = true`, so **the scan is ACCEPTED and the
 store then throws** — the operator scans, gets a tick, then an error.
 
@@ -700,7 +700,7 @@ Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mec
 
 | Stage | Prediction | Why |
 |---|---|---|
-| Scan of `04-A01` | **ACCEPTED** | `verifyScannedLocation:430-444` — SKU has no FLA **and** the location has no FLA, so the mismatch branch passes |
+| Scan of `04-A01` | **ACCEPTED** | `verifyScannedLocation:447-453` — SKU has no FLA **and** the location has no FLA, so the mismatch branch passes |
 | Store | ✅ **SUCCEEDS** | flowbin branch: FLA auto-created, virtual `PickLocation` UL created, stock merged via `transferStockToUnitLoad` |
 | After | FLA exists on `04-A01` bound to `SBB18S`, bounds 36/60/84; stock on the virtual UL | |
 
@@ -739,7 +739,7 @@ Case UL onto the location. If that does not work, option (iii)/(iv-b) has no mec
 | Stage | Prediction | Why |
 |---|---|---|
 | Receipt | **succeeds**, stock goes to the container | container mandated ⇒ `carrier != null` ⇒ `ReceivingService:454` never reads the configured destination |
-| Scan of `Club08` | **ACCEPTED** | `verifyScannedLocation:418` passes (`useforstorage = true`); the FLA branch at `:430-444` is flowbin-only, so a `cases and pallets` location skips it entirely |
+| Scan of `Club08` | **ACCEPTED** | `verifyScannedLocation:427` passes (`useforstorage = true`); the FLA branch at `:430-444` is flowbin-only, so a `cases and pallets` location skips it entirely |
 | Store | ⛔ **THROWS** `Unsupported location type cases and pallets` | `storeBoxOnLocation:496-503` — the switch covers only `flowbin` / `overstock box` / `overstock pallet`; `staginglane = false` so `default:` reaches the throw |
 
 **The accept-then-throw sequence is the finding.** The operator gets a successful scan and *then* an error,
@@ -886,7 +886,7 @@ ever revived, C1 must be re-decided against Brent's answer, not assumed.
 
 ### Q15's mandatory addition — satisfied
 
-`putawaylocation_id == NULL` is handled **from day one, before `V2.2.11` exists**: `calculatePutAwayList` passes the raw value through, and `CAST(:configuredLocationId AS bigint)` makes leg 2 return zero rows for NULL. Proven two ways — §6.1 M2 row **S3** (executed SQL) and the unit test `shouldLeaveCandidateListUnchangedWhenNoOverrideConfigured`, which asserts the null is passed through rather than defaulted.
+`putawaylocation_id == NULL` is handled **from day one, before `V2.2.13` exists**: `calculatePutAwayList` passes the raw value through, and `CAST(:configuredLocationId AS bigint)` makes leg 2 return zero rows for NULL. Proven two ways — §6.1 M2 row **S3** (executed SQL) and the unit test `shouldLeaveCandidateListUnchangedWhenNoOverrideConfigured`, which asserts the null is passed through rather than defaulted.
 
 ### Landmines found during implementation that the plan did not predict
 

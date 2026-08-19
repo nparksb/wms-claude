@@ -4,7 +4,32 @@ ticket: "SBDEV-2732"
 ticket_url: "https://app.clickup.com/t/868kgfzt9"
 type: feature
 priority: high
-status: draft
+status: "MERGED (Phase 1-API) 2026-08-11 — wms2-api PR #139 into develop, merge commit 889298d, review-round commit 0837289. V2.2.13 is on develop. ClickUp moved to `on dev`. Merged develop re-verified: 4824 tests / 2 pre-existing failures, verify PHASE=1 209 pass 0 fail. PHASE 2 NOT STARTED — every UI acceptance criterion is still open, so the feature is API-reachable only and ships inert (sysprop seeded blank). Do NOT archive until Phase 2 lands. §​3.11 REWRITTEN 2026-08-11 (r-next) against the merged code: Step 19 was unimplementable (`/location/detailView` carries none of the predicate columns), so PHASE 2 NOW CARRIES API WORK — new step 18a: a pure `PutawayDestinationRules` evaluator, `GET /putawayConfig/eligibleLocations` (bulk, 5 queries), and 4 more `BlockingReason` values. Q2 closed; SBDEV-2643's row 0b + 0d satisfied. STEP 18a PARTIALLY IMPLEMENTED 2026-08-11 — deliverable 4 (BlockingReason +4 values, all 7 rejection keys mapped) is in wms2-api PR #141 (branch feature/SBDEV-2732-phase2-eligible-locations, commit 5e4aacc), NOT merged. Deliverables 1+2 (PutawayDestinationRules extraction + validator facade) are HELD pending an independent review lane. Deliverable 3 (eligibleLocations) is BLOCKED on deliverable 1 — it reduces to per-row validate() (~16,400 queries/request) or a second copy of P2, both forbidden by §3.11.0.1; its 5 gate tests are written and @Disabled. STEPS C AND D MERGED 2026-08-11 — PR #145 (merge 5a6d517, the PutawayDestinationRules extraction, mutation-verified) and PR #144 (merge 27845cd, the ~8,800-query N+1 fixed WITHOUT step C). ⚠ Step C was reported as `PHASE=1 220 pass / 0 fail` in its commit message, PR body and ClickUp comment; the run was actually 220/6 — six `V-*` rows still grepped the validator for predicates the step moved into the new evaluator. Rows repointed and negative-tested; merged develop reads `PHASE=1` 226 pass / 0 fail, `PHASE=all` 240 pass / 6 fail — and the 6 are exactly the `U-*` wms2-web-ui rows for steps 19-22, i.e. the whole remaining gap is the UI half. ALL THREE REVIEW FOLLOW-UPS MERGED 2026-08-11 — wms2-web-ui #46 (merge aac55d4, the logout blob-clear across all THREE exits), wms2-api #146 (merge 0517c94, the corrected javadoc plus 5 re-armed tests), wms2-mobile-ui #31 (merge 2e5a995, the same logout clear; most of SBDEV-2732 does NOT apply to mobile). Merged develop re-verified per repo: web 216 Jest / 0 fail, mobile 39 / 0 fail, api 38 targeted / 0 fail / 0 skipped, zero false-claim phrases left; PHASE=all 283 pass / 1 fail and the 1 is U-source (step 19a). Three DEV deploys fired. SBDEV-2930 filed for the mobile per-page reset gap, which #31 does NOT close. ⚠ THE sb_admin GATE QUESTION IS NOW CLOSED STATICALLY, no live-session check needed: `sb_admin` is carried in the JWT via the Keycloak GROUP, i.e. the `groups` claim (confirmed with the user 2026-08-11), and both the API's `extractRoles` (`GROUP_ELEMENT_IN_JWT = "groups"`, harvested at :98) and `util/keycloakRoles.js` read that claim. **AND THAT SHARPENS H1b FROM "NARROWER THAN THE BACKEND" TO "WOULD NEVER HAVE WORKED AT ALL"** — group membership does not appear under `resource_access`, so the original `hasResourceRole('sb_admin', clientId)` returned false for 100% of real sb_admins on every tenant regardless of KEYCLOAK_CLIENT, permanently. STEP 19a IS BUILT 2026-08-11 — wms2-web-ui #47 (merge 83c6e97) + wms2-api #147 (merge 509be61), merged in that order 2026-08-11; copy = variant A chosen by Nam and moved out of a hardcoded controller literal into messages.properties, so a product revision is a properties edit. **verify PHASE=all 285 pass / 0 fail — the whole script green for the first time.** **EVERY STEP OF BOTH PHASES IS NOW BUILT AND MERGED. verify PHASE=all 285 pass / 0 fail against merged develop in both repos, zero stderr.** The plan is complete bar an optional product read of the diversion wording (a one-line properties edit) and the SBDEV-2930 mobile follow-up, which is a separate ticket. READY TO ARCHIVE once someone confirms the wording. REVIEW ROUND DONE 2026-08-11 on PRs #42-#45 (three independent lanes): conformance PASS, but 2 High + 4 Medium defects in shipped behaviour, ALL FIXED in the tip commit — the permission gate locked out real sb_admins (a non-reactive computed, AND narrower than the API's own role harvesting), one shipper's unsaved selection was written against the NEXT shipper, every 409/422 message was discarded, a second Save 409'd, 'Save anyway' double-submitted, and a truncated location read was reported as an empty facility. Also excluded a PLAINTEXT CUPS credential from localStorage. 207 tests, 16/16 review mutations caught, 10 RV-* rows negative-tested, PHASE=2 65/1. ALL FOUR PHASE-2 UI PRs MERGED TO DEVELOP 2026-08-11, base-first — #42 (merge 9edb743), #43 (ec01dd7), #44 (536ac2b), #45 (bb6fd22); every branch verified an ancestor of develop, no orphans. Review fixes were REDISTRIBUTED onto their owning branches first (step 20 `1f2e4a1`, step 21 `fa7a256`, step 22 `74164cd`) so each merge was safe on its own — the gate fix landed WITH #43, not after it. Merged develop re-verified: 208 Jest tests / 0 failures, PHASE=1 226/0, PHASE=2 65/1, PHASE=all 283 pass / 1 fail — and the single fail is U-source, i.e. step 19a. Four Docker Image CI runs fired, so this is deploying to DEV. **PHASE 2 IS NOW COMPLETE EXCEPT STEP 19a**, which is blocked on PRODUCT SIGN-OFF for its diversion copy, not on code. STEP 22 DONE 2026-08-11 — wms2-web-ui PR #45 (`0e88b1c`, open, STACKED on #44): config health for invalid EXISTING configs + the persistedState exclusion, 18 tests, 15/15 mutations caught. **verify PHASE=2 is now 55 pass / 1 fail and the 1 is step 19a — the ONLY Phase 2 item left, and it is blocked on PRODUCT SIGN-OFF for its diversion copy, not on code.** MERGE ORDER: #42 -> #43 -> #44 -> #45. STEP 21 DONE 2026-08-11 — wms2-web-ui PR #44 (`f5f3e44`, open, STACKED on #43): the merchant tier, 22 tests, 15/15 mutations caught, verify PHASE=2 49 pass / 2 fail (only steps 19a and 22 remain). ⚠ §3.11.3 named the WRONG read source — `/client/detailView` does not carry the column — and has been CORRECTED in place; this plan has now twice assumed a detailView carries a column it does not. MERGE ORDER: #42 -> #43 -> #44. STEP 20 DONE 2026-08-11 — wms2-web-ui PR #43 (`cf2ced2`, open, STACKED on #42; merge #42 first): the warehouse tier is settable from the UI through the TYPED endpoint, 33 tests, 16/16 mutations caught, verify PHASE=2 43 pass / 3 fail (the 3 are steps 19a/21/22). ⚠ §11.1a named SEVEN UI acceptance rows that did not exist in the verify script; steps 19/20 closed five, and one of them (`U-neg-flags-in-js`) is UNSATISFIABLE as worded — 8 existing master-data files legitimately display those columns — so it is implemented scoped to the putaway surfaces. STEP 19 DONE 2026-08-11 — wms2-web-ui PR #42 (`91d500e`, open), the tiered LocationPicker: 17 tests, 12/12 mutations caught, verify PHASE=2 33 pass / 4 fail (the 4 are steps 20/21/22). Ships INERT — no page references it yet. STEPS 4, A and B ALL MERGED TO DEVELOP 2026-08-11 — PR #143 (merge a8129c7, the validator characterization guard), PR #141 (merge 913f017, BlockingReason +4 values and the enum moved to the service layer), PR #142 (merge 41c8257, the paginated eligibleLocations read). Verify against merged develop: PHASE=1 214/0, PHASE=all 228 pass / 6 fail — the 6 are all U-* rows for the wms2-web-ui steps 19-22, which #142 exists to unblock. Three Docker Image CI runs fired on push to develop, so this is deployed to DEV. STEP C (the extraction) is unblocked and has a real guard; STEP D (summariseScope's ~8,800-query N+1) remains unowned. STEP 18a RESEQUENCED 2026-08-11 after an independent design-review lane (critic SOUND-WITH-CHANGES + architect): the extraction is NO LONGER a prerequisite of the read. §3.11.0 now specifies four ordered steps -- A: ship the eligibleLocations read PAGINATED with per-row validate() behind PutawayDestinationQueryService, which unblocks steps 19-22 and SBDEV-2643 B2 with ZERO changes to live validation code; B: write PutawayDestinationValidatorUnitTest against the MERGED validator (it has NEVER existed -- the plan wrongly named it as the guard three times) and merge it alone; C: then extract PutawayDestinationRules as a zero-dependency @Service pinned by ArchUnit; D: re-point summariseScope/countIncompatible, where the real measured problem is (~8,800 queries on a live ungated GET /preview). ClickUp stays `on dev` (Phase 1's state; PR #141 does not regress it)."
+approval_note: >
+  APPROVED 2026-08-09 by the ticket owner (Nam Park), on the instruction to run wms-tdd-gate.
+  IMPLEMENTED 2026-08-10 — Phase 1-API only. wms2-api PR #139
+  (https://github.com/SiteBossInc/wms2-api/pull/139) into develop, branch
+  feature/SBDEV-2732-putaway-destination-hierarchy, 22 commits off origin/develop fd90487.
+  Suite 4819 tests / 2 failures, both pre-existing (OptionalSafetyArchTest at its frozen baseline of
+  8 violations, none in a touched class; MobilePalletizingServiceTest). verify-SBDEV-2732 PHASE=1:
+  209 pass, 0 fail, negative-controlled against a detached worktree at origin/develop.
+  REVIEW ROUND 2026-08-11 (Codex on PR #139, 3 findings, all accepted and fixed): the HAL sysprop
+  DELETE had no sb_admin gate (P1); the HAL path skipped P2.6 at tiers 2/3 (P2a); the typed writers
+  recomputed and wrote in separate transactions (P2b). 12 tests + 9 verify rows added, each
+  negative-controlled. See Sec 12.
+  Migration is V2.2.13 (V2.2.11 was taken by PR #138 and V2.2.12 is also taken).
+  Phase 2 (web UI) NOT started. NOT merged, NOT deployed, NOT archived.
+  Basis: Q12 -> (iv-b) closed on the owner's decision; SBDEV-2821 merged (gate 3); and two review
+  passes -- the three (iv-b) decisions (independent, sound-with-changes) and the sections D18 left
+  unreviewed (2026-08-09, sound-with-changes, F-1..F-4 fixed; see Sec 12).
+  SCOPE OF THE APPROVAL, stated so it is not over-read:
+    - The second review pass was run by the same agent that had authored edits earlier in that
+      session. It is NOT an independent pass in the sense D18 originally intended.
+    - Sec 3.9 (Spring Data REST write hole), 3.10 (cache coherence), 3.11 (Phase-2 picker),
+      3.13 (metrics), 6 (backward compatibility) and 7.6 (horizontal scalability) remain
+      UNREVIEWED. None is in the Sec 7.1 test set the TDD gate writes, so the gate is not blocked
+      on them -- but they must be reviewed before the Phase 1-API PR merges.
+    - The "12 Critic findings" gate was retired as undischargeable (see the banner), not satisfied.
 project: [wms2]
 version: v2
 db_verified: true
@@ -14,8 +39,16 @@ depends_on:
   - {ticket: SBDEV-2731, sha: 6bc709a}    # MERGED 2026-08-07 — PR #133 api @ 6bc709a, #39 ui @ 4ce39a1.
                                           # Prerequisite 0 SATISFIED. Claims about it re-verified same day.
   - {ticket: SBDEV-2854, sha: 68274b0}    # MERGED 2026-08-07 (PR #132). Its V2.2.10 is on develop, but
-                                          # must still be APPLIED per tenant BEFORE this plan's V2.2.11.
-  - {ticket: SBDEV-2821, sha: UNMERGED}   # ADDED 2026-08-08 (Q15 -> (A)). NEW dependency, and it REVERSES
+                                          # must still be APPLIED per tenant BEFORE this plan's V2.2.13.
+  - {ticket: SBDEV-2863, sha: 675b4a1}    # MERGED 2026-08-07 (PR #134, merge 7d9d38e). NOT a blocker —
+                                          # recorded because it silently REMOVED one: Authority.IS_SB_ADMIN
+                                          # named a non-existent SpEL method until this landed, so all six
+                                          # of this plan's @PreAuthorize sites would have returned HTTP 500
+                                          # to everyone. Now renders hasAuthority('sb_admin'). KEEP the
+                                          # constant as written; see the warning box in Sec 3.12.
+  - {ticket: SBDEV-2821, sha: fd90487}    # MERGED 2026-08-09 (PR #135, feature commit cfb6d49). Gate 3
+                                          # CLEARED. Was `UNMERGED` until 2026-08-09.
+                                          # ADDED 2026-08-08 (Q15 -> (A)). NEW dependency, and it REVERSES
                                           # the order §8.4 previously stated. Under Q12 -> (iv-b) step 15
                                           # diverts pick-face destinations to the putaway lane; 2821 is
                                           # what makes them OFFERABLE at putaway. Ship 2821 first, then
@@ -45,7 +78,7 @@ tags:
 **Ticket:** [SBDEV-2732](https://app.clickup.com/t/868kgfzt9)
 **Project:** wms2 | **Version:** v2 | **Type:** feature
 **Priority:** high
-**Status:** draft (pending approval — no source file under `v2/wms2-api/` or `v2/wms2-web-ui/` has been touched)
+**Status:** **approved 2026-08-09** — cleared for `wms-tdd-gate`. No source file under `v2/wms2-api/` or `v2/wms2-web-ui/` has been touched yet. See `approval_note` in the frontmatter for what the approval does **not** cover (§3.9, §3.10, §3.11, §3.13, §6, §7.6 remain unreviewed and must be before the Phase 1-API PR merges).
 **Date:** 2026-07-31 · **Updated:** 2026-08-08 · **Design changelog:** §12
 **Ships AFTER [SBDEV-2821](https://app.clickup.com/t/868km8j9z)** — order reversed 2026-08-08 by Q15 → (A); see §8.4
 
@@ -77,6 +110,8 @@ tags:
 > **Consequence: this plan no longer waits on anything unowned.**
 >
 > [!done] **Flyway version RENUMBERED to `V2.2.11` (2026-08-06) — `V2.2.10` went to SBDEV-2854**
+> ⚠ **This banner records the 2026-08-06 event. The file is now `V2.2.13` — renumbered AGAIN on
+> 2026-08-10; see §12's top entry. Do not read the numbers below as current.**
 > **SBDEV-2854** occupies `V2.2.10__seed_replenish_allow_non_flowbin_destinations_sysprop.sql` on branch
 > `bugfix/SBDEV-2854-replenish-non-flowbin-destination`, shipped in **PR #132 — open and pushed**. It
 > originally took `V2.2.11` and left `V2.2.10` reserved for this plan, but that gap is **unsafe**: there
@@ -86,19 +121,21 @@ tags:
 > until someone read the log or ran `flyway repair`. SBDEV-2854 is an urgent client fix and deploys
 > first, so it took the contiguous number; its own §5.1 **H3** records the consequence directly —
 > *"SBDEV-2732 must now take a later version"*.
-> **This plan now takes `V2.2.11`, renumbered throughout on 2026-08-06.** Flyway head on `origin/develop`
+> **This plan then took `V2.2.11`, renumbered throughout on 2026-08-06.** Flyway head on `origin/develop`
 > is still `V2.2.09`; `V2.2.10` is held by an open PR and is therefore invisible to
 > `ls src/main/resources/db/migration/` on `develop`. **Re-sweep every remote branch for the next free
 > version immediately before the PR** — that sweep is what caught this collision, and D16 below still
 > mandates it.
 >
-> **D16 — one migration, `V2.2.11`.** §2.9 originally reserved *two* versions and wrote both as `V2.2.08`;
+> **D16 — one migration, `V2.2.13`.** §2.9 originally reserved *two* versions and wrote both as `V2.2.08`;
 > §5.2 had already removed that split. Resolved as **one** file,
-> `V2.2.11__putaway_destination_hierarchy.sql`. Renumbered **twice**: `V2.2.08` → `V2.2.10` on
-> 2026-08-04 because `V2.2.08` (SBDEV-2801) and `V2.2.09` (SBDEV-2778) both merged that day, then
-> `V2.2.10` → `V2.2.11` on 2026-08-06 when SBDEV-2854 took `V2.2.10` (banner above). **Re-sweep every remote branch for the
-> next free version immediately before the PR** — unmerged branches hold invisible versions, which is
-> exactly how this collision happened.
+> `V2.2.13__putaway_destination_hierarchy.sql`. Renumbered **three times**: `V2.2.08` → `V2.2.10` on
+> 2026-08-04 because `V2.2.08` (SBDEV-2801) and `V2.2.09` (SBDEV-2778) both merged that day; `V2.2.10`
+> → `V2.2.11` on 2026-08-06 when SBDEV-2854 took `V2.2.10` (banner above); and `V2.2.11` → `V2.2.13`
+> on 2026-08-10 when PR #138 claimed `V2.2.11` and a third branch already held `V2.2.12`. **Re-sweep
+> every remote branch for the next free version immediately before the PR** — unmerged branches hold
+> invisible versions, which is exactly how all three collisions happened. That sweep is now a script:
+> `db/check-migration-version-collision.sh` (SBDEV-2916).
 >
 > **D17 — the §6 receipt-correction guard STAYS, and correction is documented as unavailable for
 > directly-placed receipts.** Not relaxed. Relaxing it is only safe once C2b is fixed, and C2b is now
@@ -111,24 +148,45 @@ tags:
 > previous Critic pass returned 12 findings including a CRITICAL one. Review → address → approve →
 > `wms-tdd-gate` → implement.
 >
-> **⚠ PARTIALLY DISCHARGED 2026-08-09 — status STAYS `draft`.** The three (iv-b) decisions (P2.7 rule (e),
-> the P1 skip, and SBDEV-2643's D1 revert) went through an independent pass and came back
-> **sound-with-changes**; all three corrections are folded in above and recorded in §12. **That covers the
-> 2026-08-08 rewrite only.** The rest of the plan — the resolver, the audit table, V2.2.11, the Phase-2
-> picker, D11's count-and-confirm — is still unreviewed, and the previous Critic pass's 12 findings were
-> never re-checked against the current text. **Do not read "reviewed" into this.**
+> **⚠ SUBSTANTIALLY DISCHARGED 2026-08-09 — status STAYS `draft` pending sign-off.** Two passes have now run:
 >
-> **Remaining gates before `wms-tdd-gate` can run — TWO, down from three:**
+> 1. **The three (iv-b) decisions** (P2.7 rule (e), the P1 skip, SBDEV-2643's D1 revert) — independent
+>    pass, **sound-with-changes**, all three corrections folded in and recorded in §12.
+> 2. **The remaining sections** (resolver §3.1, audit table §3.14, `V2.2.13` §5.1, D11/P2.6) — reviewed
+>    2026-08-09, **sound-with-changes**, four defects found and fixed (F-1…F-4, §12). Verified sound in
+>    that pass: the `ReceivingService` citations, `application.properties:55/:70`,
+>    `LocationRepository.findByName`, the zero-`@Transactional`-in-`controller/` premise behind §3.1.5,
+>    and the `putaway_config_audit` DDL against `V2.2.13`'s pre-image INSERT (every `NOT NULL` supplied;
+>    `version` / `previous_value_unavailable` covered by defaults).
+>
+> **⚠ THE "12 CRITIC FINDINGS" GATE IS RETIRED AS UNDISCHARGEABLE.** It cannot be met as written: the 12
+> are **not enumerated anywhere in this plan**, and this repo's history for the file begins 2026-08-07 —
+> *after* the Critic passes that produced them. There is nothing to re-check against. The 2026-08-09 pass
+> above replaces it. Recorded rather than quietly dropped, because an obligation nobody can close reads
+> like outstanding work forever.
+>
+> **Still NOT reviewed, and named so the gap is explicit:** §3.9 (Spring Data REST write hole), §3.10
+> (cache coherence), §3.11 (Phase-2 picker, Vue), §3.13 (metrics), §6 (backward compatibility), §7.6
+> (horizontal scalability), and the `V2.2.13` SQL beyond column consistency and statement ordering.
+>
+> **Remaining gates before `wms-tdd-gate` can run — ONE, down from three:**
 > 1. **This plan reviewed end-to-end and flipped off `draft`.** Still outstanding.
-> 2. **Q12 → (iv-b) signed off** — put to @David Oppenheim and @Brent Campbell 2026-08-08, **no reply
->    recorded**. Every test in §7.1 derives from it. Still outstanding.
+> 2. ~~Q12 → (iv-b) signed off~~ — ✅ **CLOSED 2026-08-09 by the ticket owner.** **(iv-b) is the
+>    decision**, reaffirmed by @Nam Park on 2026-08-09, and §7.1's tests derive from it as written.
+>    It was put to @David Oppenheim and @Brent Campbell on 2026-08-08 with no reply recorded — **that
+>    is an outstanding notification, not an outstanding gate**, and it does not hold the TDD gate.
+>    **Precedent, same family, same week:** SBDEV-2821's Q4 (route-at-putaway) was adopted on David's
+>    endorsement plus the ticket owner's direction, with Brent never replying to the hand-off — and it
+>    shipped and merged. (iv-b) is the *same design decision* one tier wider. If either objects later,
+>    Q12 reopens and (i)–(iii)/(iv-a) return to the table; until then it is settled.
 > 3. ~~SBDEV-2821 merged~~ — ✅ **CLEARED 2026-08-09.** `wms2-api` **PR #135 merged to `develop`** (merge
 >    `fd90487`, feature commit `cfb6d49`); ClickUp `on dev`. Step 17a's foundation — putaway candidate
 >    surfacing — is now on `develop`, together with §3.2a's `cases and pallets` handling in **both** type
 >    switches.
 >
-> Running the gate before (1) and (2) writes tests that encode a design that can still change — and gate
-> tests are a contract the executor may not weaken, so a wrong one is worse than none.
+> Running the gate before (1) writes tests against text that the review can still change — and gate tests
+> are a contract the executor may not weaken, so a wrong one is worse than none. **(2) is no longer part
+> of that risk:** the design is fixed by owner decision, so §7.1 can be written against it today.
 >
 > ---
 >
@@ -153,15 +211,15 @@ tags:
 **Absorbs:** SBDEV-2731 (per D8/D9 — its slice is **Phase 1**, separately mergeable). **Unblocks:** SBDEV-2643.
 **db_verified:** true — evidence from `wh01_hydra_v2` (v1→v2 migrated copy) and `wh01_hydra_v2t` (fresh-seeded copy), MCPs `wms2-hydra-dev2` / `wms2-hydra-v2t`.
 
-> **Phases — SUPERSEDED, see §5.2 and §8.1.** This paragraph described the old **four-merge** `1a`/`1b` split; §5.2 collapsed it to **two merges — Phase 1-API then Phase 2-UI** — and D16 collapsed the two migrations into one `V2.2.11`. **Both of its gating claims are also false:** `V2.2.11` *does* add a column an entity maps (`client.defaultputawaylocation_id`), and `ddl-auto` is **`none`**, not `validate` (`application.properties:70`; `:69` has `validate` commented out) — so nothing validates the schema at startup and there is no "exempt from the operator gate" half. Read **§8.1** for the real merge order and gate. *(Kept only so a reader who remembers the 1a/1b vocabulary knows where it went; every `1a`/`1b` label still surviving in §0 and §4 is stale — treat every API row as Phase 1-API.)*
+> **Phases — SUPERSEDED, see §5.2 and §8.1.** This paragraph described the old **four-merge** `1a`/`1b` split; §5.2 collapsed it to **two merges — Phase 1-API then Phase 2-UI** — and D16 collapsed the two migrations into one `V2.2.13`. **Both of its gating claims are also false:** `V2.2.13` *does* add a column an entity maps (`client.defaultputawaylocation_id`), and `ddl-auto` is **`none`**, not `validate` (`application.properties:70`; `:69` has `validate` commented out) — so nothing validates the schema at startup and there is no "exempt from the operator gate" half. Read **§8.1** for the real merge order and gate. *(Kept only so a reader who remembers the 1a/1b vocabulary knows where it went; every `1a`/`1b` label still surviving in §0 and §4 is stale — treat every API row as Phase 1-API.)*
 >
-> **Read §5.2 O1–O5 before starting any phase.** Three things whose phase is counter-intuitive: the audit *writer* (O1 — the table ships in 1a so the backfill pre-image has somewhere to land, but the entity, service and audit rows are 1b), `onClient` in the event handler (O2 — 1b; written in 1a it will not compile), and stop-seeding the lane id (O3 — 1a, and it must travel in the **same commit** as `V2.2.11`).
+> **Read §5.2 O1–O5 before starting any phase.** Three things whose phase is counter-intuitive: the audit *writer* (O1 — the table ships in 1a so the backfill pre-image has somewhere to land, but the entity, service and audit rows are 1b), `onClient` in the event handler (O2 — 1b; written in 1a it will not compile), and stop-seeding the lane id (O3 — 1a, and it must travel in the **same commit** as `V2.2.13`).
 
 ---
 
 ## 0. Affected Sites
 
-Enumerated against disk on 2026-07-31 (not from memory). Every **in-scope** row is visited by a §3 sub-section or a §5 phase step; every **out-of-scope** row carries a one-line rationale. **Phase** column per D9: `1a` = API + `V2.2.11`, `1b` = API + `V2.2.11`, `2` = web UI.
+Enumerated against disk on 2026-07-31 (not from memory). Every **in-scope** row is visited by a §3 sub-section or a §5 phase step; every **out-of-scope** row carries a one-line rationale. **Phase** column per D9: `1a` = API + `V2.2.13`, `1b` = API + `V2.2.13`, `2` = web UI.
 
 ### 0.1 API — `v2/wms2-api/src/main/java/net/aim_ai/wms/`
 
@@ -175,15 +233,15 @@ Enumerated against disk on 2026-07-31 (not from memory). Every **in-scope** row 
 | 5a | `service/mobile/MobilePutAwayService.java:121-128` | requires the UL to be on `PutAwayLane`, else `unitLoadNotInPutAwayLane` — runs **after** row 5, so a unit load sitting in a storage area never reaches it | **in — audit, unchanged; NOT the exception a direct placement produces** | 1b | §3.7.4 |
 | 6 | `service/mobile/MobilePutAwayService.java:190-206` | `storePalletBackOnPutawayLane` (SBDEV-2102 fix) | **in — audit, must not regress** | 1b | §3.7.4 |
 | 7 | `service/mobile/MobileMoveUnitloadService.java:362-366` | creates inbound pallet at putaway lane by name | **in — audit, unchanged** | 1b | §3.7.4 |
-| 8 | `controller/rest/SkuRestController.java:85-88, 144-146` | create path seeds `putawaylocation_id` = PutAwayLane id | **in — stop seeding; same commit as `V2.2.11`** | **1a** | §3.2, **O3** |
-| 9 | `controller/rest/SkuRestController.java:198-201, 257-259` | update path, same | **in — stop seeding; same commit as `V2.2.11`** | **1a** | §3.2, **O3** |
-| 10 | `service/SkuBatchCreateUpdateService.java:36, 53` | `itemData.setPutawaylocationId(defaultPutawayLocationId)` | **in — parameter removed; same commit as `V2.2.11`** | **1a** | §3.2, **O3** |
-| 11 | `controller/FileImportController.java:355-359, 383` | CSV import seeds the lane id; `:355` guard is the SBDEV-2037 fix | **in — stop seeding, keep an equivalent guard; same commit as `V2.2.11`** | **1a** | §3.2, **O3** |
-| 12 | `model/Itemdata.java:49-51` | `@NotNull @Column(name="putawaylocation_id") private Long putawaylocationId` | **in — drop `@NotNull`; same commit as `V2.2.11`** | 1a | §3.2 |
+| 8 | `controller/rest/SkuRestController.java:85-88, 144-146` | create path seeds `putawaylocation_id` = PutAwayLane id | **in — stop seeding; same commit as `V2.2.13`** | **1a** | §3.2, **O3** |
+| 9 | `controller/rest/SkuRestController.java:198-201, 257-259` | update path, same | **in — stop seeding; same commit as `V2.2.13`** | **1a** | §3.2, **O3** |
+| 10 | `service/SkuBatchCreateUpdateService.java:36, 53` | `itemData.setPutawaylocationId(defaultPutawayLocationId)` | **in — parameter removed; same commit as `V2.2.13`** | **1a** | §3.2, **O3** |
+| 11 | `controller/FileImportController.java:355-359, 383` | CSV import seeds the lane id; `:355` guard is the SBDEV-2037 fix | **in — stop seeding, keep an equivalent guard; same commit as `V2.2.13`** | **1a** | §3.2, **O3** |
+| 12 | `model/Itemdata.java:49-51` | `@NotNull @Column(name="putawaylocation_id") private Long putawaylocationId` | **in — drop `@NotNull`; same commit as `V2.2.13`** | 1a | §3.2 |
 | 13 | `service/ItemdataService.java:62-76` | `setPutAwayLocation` — dead (0 production callers) but has the **correct** targeted 2-key `@CacheEvict` | **in — promote to the single validated writer** | 1a | §3.5 |
 | 13a | `service/ItemdataService.java:47-50` | `getById` is **`@Cacheable`**, and `ItemDataController:89-90` mutates the returned instance **in place** | **in — writers MUST use `itemdataRepository.findById`, never this** | 1a | §3.5 |
 | 14 | `controller/ItemDataController.java:80-95` | `@CacheEvict(allEntries=true)` + `@GetMapping` that mutates + **raw save, zero validation**, and **no `@PreAuthorize` today** | **in — route through §3.5, fix the evict; adding authz is a back-compat change** | 1a | §3.5, §3.12, §6 |
-| 15 | `service/UnitloadBusinessService.java:180-193` | constraint allow-list + raw-ID `BusinessException` at `:191` — **also serves 21 non-receiving call sites** | **in — extract predicate; `:191` gets the NEUTRAL key `unitloadTypeNotPermittedOnLocation`, the putaway-specific key is thrown by the resolver** | 1a | §3.4b, §3.6.1 |
+| 15 | `service/UnitloadBusinessService.java:188-237` | constraint allow-list + raw-ID `BusinessException` at `:191` — **also serves 21 non-receiving call sites** | **in — extract predicate; `:191` gets the NEUTRAL key `unitloadTypeNotPermittedOnLocation`, the putaway-specific key is thrown by the resolver** | 1a | §3.4b, §3.6.1 |
 | 16 | `repo/jpa/LocationConstraintRepository.java:16-17` | only `findByStoragelocationtypeId` | **in — reused as-is, no new method** | 1a | §3.4b (rationale below) |
 | 17 | `service/LocationConstraintService.java:27-39` | only `createEntity` | **in — home of the new predicate** | 1a | §3.4b |
 | 18 | `model/Client.java:10-22` | tenant-PU entity carrying per-facility config | **in — new nullable FK field** | 1b | §3.3 |
@@ -210,10 +268,10 @@ Enumerated against disk on 2026-07-31 (not from memory). Every **in-scope** row 
 | 31c | `DELETE /v3/sysprop/{id}` (SDR-exported, called by `store/admin/configuration.js:125-147`, axios at `:127`) | live "delete" button on the Operation Options dialog; the plan defines no delete handler, so the row can be removed unvalidated and unaudited | **in — accepted and audited, see D12** | 1a | §3.9.1 |
 | 32 | `service/WmsConstants.java:771` | `STORAGE_LOCATION_PUTAWAY_LANE = "PutAwayLane"` | **in — stays, becomes the tier-4 fallback only** | 1a | §3.4b |
 | 32a | `service/WmsConstants.java:731, 1163` | `UNIT_LOAD_TYPE_BOX = "Case"`; `SystemProperty.WORKSTATION_DEFAULT = "DEFAULT"` (nested class `SystemProperty`) | **in — reused, not changed** | 1a | §3.4a, §3.4c |
-| 33 | `service/mobile/MobilePutAwayService.java:212-283` `calculatePutAwayList` | classification via `LocationType.sltname`; area predicate | **in — audit only, no change** | 1b | §3.7.4 |
-| 34 | `repo/jpa/LocationRepository.java:104-120` `getStorageLocationsForPutAwayItemData` / `...ForStockUnitItemData` | native predicate `location_area.useforstorage='true'` — **can never return `PutAwayLane`** (L-PRE.10) | **out as a selector** — must NOT back the Phase-2 picker or the validator. §3.4c. |
+| 33 | `service/mobile/MobilePutAwayService.java:217-305` `calculatePutAwayList` | classification via `LocationType.sltname`; area predicate | **in — audit only, no change** | 1b | §3.7.4 |
+| 34 | `repo/jpa/LocationRepository.java:104-118` `getStorageLocationsForPutAwayItemData` *(⚠ re-derived 2026-08-11 — was `:104-120`. Javadoc `:104-110`, `@RestResource` `:111`, `@Query` `:112-117`, signature `:118`. The `...ForStockUnitItemData` sibling is now **`:183-190`**, not adjacent — SBDEV-2821 inserted `getPutAwayCandidateLocations` at `:120-180` between them. The merged javadoc at `:105-109` now states this query is **HAL-exported consumers only and no longer drives putaway**)* | native predicate `location_area.useforstorage='true'` — **can never return `PutAwayLane`** (L-PRE.10) | **out as a selector** — must NOT back the Phase-2 picker or the validator. §3.4c. |
 | 34a | `repo/jpa/LocationRepository.java:21-22` | `findByName` → `Optional<Location>`, **no `client_id` filter**; `location.name` has **no unique constraint** (`V2.2.00…sql:959-979`, `name varchar(255) NOT NULL`) | **in — defines what tier 4 resolves; the backfill predicate MUST match it exactly** | 1a | §5.1 |
-| 34b | `repo/jpa/LocationRepository.java:52` `findByIdForUpdate` | taken at `UnitloadBusinessService.java:150` + `entityManager.refresh` **before** the Unitload write at `:293-294` — Location→UL, **inverting** the SBDEV-2232 SU→UL→Location order | **in — accepted risk with a named detector; blast radius grows from "an inbound lane" to "any live storage/pick location"** | 1b | §7.6 #8, §8.2 |
+| 34b | `repo/jpa/LocationRepository.java:52` `findByIdForUpdate` | taken at `UnitloadBusinessService.java:158` + `entityManager.refresh` **before** the Unitload write at `:293-294` — Location→UL, **inverting** the SBDEV-2232 SU→UL→Location order | **in — accepted risk with a named detector; blast radius grows from "an inbound lane" to "any live storage/pick location"** | 1b | §7.6 #8, §8.2 |
 | 35 | `controller/rest/UtilRestController.java:760` | provisioning/util lane lookup | **out** — provisioning tooling, no receipt path. |
 | 36 | `service/ReportService.java:182` | `view.getDefaultputawaylocationname()` | **out** — read-only reporting column, unchanged semantics. |
 | 38 | `repo/jpa/LocationRepository.java:37-47` `getAvailableStagingLanes` | **`@RestResource`-exported** JPQL: `WHERE l.staginglane = true AND NOT EXISTS (CustomerorderBatch ob WHERE ob.staginglaneId = l.id AND ob.id != :batchId AND ob.state < :state)` — **verified `origin/develop` 2026-08-04: there is NO stock or unit-load predicate.** A staging lane holding received inventory is still offered to the next club batch. | **in — audit, unchanged; see §6 N-23** | 1-API | §6 N-23 |
@@ -237,21 +295,21 @@ Enumerated against disk on 2026-07-31 (not from memory). Every **in-scope** row 
 | N9 | `GET /client/{id}/effectivePutawayDestination` | the merchant screen's **Inherited** value — §3.11.3 is unrenderable without it | 1b | §3.8 |
 | N10 | `GET /putawayConfig/preview?scope=…&locationId=…` | D11's incompatible-SKU count — the config-health signal D3 asked for and D6 dropped | 1a | §3.4c, §3.5a |
 | N11 | `model/PutawayConfigAudit.java` + repository + `service/PutawayConfigAuditService.java` | **⚠ PHASE COLUMN STALE — see §5.2 O1.** With one API phase the table, entity, repository, service **and** audit rows all ship together, so **AC15 IS claimed by this plan** — the "1a validates + WARN-logs and does not claim AC15" interim state is gone. Do not implement the WARN-log stub. | the audit AC. The **table**, entity, repository, service and audit rows all ship together in the single API commit, so **AC15 IS claimed by this plan** *(superseded 1a/1b wording removed 2026-08-06 — it contradicted the correction in the preceding cell)* | 1-API | §3.14 (**O1**) |
-| N12 | `db/migration/V2.2.11__putaway_destination_hierarchy.sql` | **one** migration (decided 2026-08-04): preflight guard, `DROP NOT NULL`, `putaway_config_audit` table, reversible pre-image, scoped backfill, `client.defaultputawaylocation_id` + guarded FK, `DEFAULT_PUTAWAY_LOCATION` sysprop seeded `''` | 1-API | §5.1 |
+| N12 | `db/migration/V2.2.13__putaway_destination_hierarchy.sql` | **one** migration (decided 2026-08-04): preflight guard, `DROP NOT NULL`, `putaway_config_audit` table, reversible pre-image, scoped backfill, `client.defaultputawaylocation_id` + guarded FK, `DEFAULT_PUTAWAY_LOCATION` sysprop seeded `''` | 1-API | §5.1 |
 | N14 | `controller/PutawayConfigController.java` + `PutawayConfigPreview` | the typed write surface; the only place D11's count-and-confirm can live | 1a (`preview`, `setSku`, `setWarehouse`) / 1b (`setMerchant`) | §3.5a |
 
 ### 0.2 Web UI — `v2/wms2-web-ui/` (Phase 2)
 
 | # | File:line | Construct | Verdict | § |
 |---|---|---|---|---|
-| 38 | `components/receiving/open/receive/receivingForm.vue:9-13` | "Inbound Putaway Staging" value is the **hardcoded string "Put Away Lane"**; `putawayStaging: null` at `:206` never read/written | **in — SBDEV-2731 display half** | §3.11.1 |
+| 38 | `components/receiving/open/receive/receivingForm.vue` | ⚠ **STALE — this row describes the pre-SBDEV-2731 file. Corrected r-next 2026-08-11.** PR1 (`4ce39a1`) shipped the binding: `putawayStaging` is `:228` and is bound at `:336` from `newVal.defaultputawaylocationname`; the tri-state is `:296-300`; the `=== false` test is `:24`; the override chip is `:19`. **What is still missing is the diversion rendering** (`divertedTo` / `divertedReason`) | **in — narrowed, step 19a** | §3.11.1 |
 | 39 | `components/admin/parametersAndConfiguration/editParamAndConfig.vue:23-30` (+ `addParamAndConfig.vue:22`) | generic sysprop dialog, `groupName` branches only | **in — add a `syskey` branch with a tiered location picker** | §3.11.2 |
 | 40 | `components/admin/shippers/editShipper.vue:14-80` | merchant form; no putaway field, no inherited-vs-configured concept | **in — new three-state field** | §3.11.3 |
 | 41 | `store/admin/configuration.js:73-93` (`PUT /sysprop/{id}`), `:95-123` (`POST /systemProperty/create`, axios at `:99`), `:125-147` (`DELETE /sysprop/{id}`, axios at `:127`), `:254-264` | the generic dialog's three write actions plus the groupname read | **in — the `DEFAULT_PUTAWAY_LOCATION` branch writes through `PUT /putawayConfig/warehouse`, NOT through any of these three** | §3.11.2 |
 | 42 | `store/admin/shippers.js` (`:47` `PATCH /client/{id}`) | `GET /client/detailView`, `POST /client/create`, `PATCH /client/{id}` | **in — read the new field via `detailView`; write it through `PUT /putawayConfig/merchant/{clientId}`** | §3.11.3 |
 | 43 | `plugins/persistedState.client.js:22-25` | persists the **entire** `admin` module (incl. `admin.configuration.operationOptions`) to `localStorage['vuex-web']` | **in — add exclusion** | §3.11.4 |
 | 44 | `layouts/default.vue:264-268, 284-286`; `store/index.js:92-117`; `nuxt.config.js:167` | `adminMenu` never referenced; `'super-admin'` returned unconditionally; `APP_ADMIN_GROUP` read nowhere | **in — bounded decision, not a framework** | §3.12 |
-| 45 | `components/masterData/skuData.vue:107-131, 142` | create/edit block commented out; `putawayLocation` already displayed read-only | **out of THIS plan** — that is SBDEV-2643's SKU edit form. §10 Q3 records that 2643 is materially bigger than "add a field". |
+| 45 | `components/masterData/material/skuData/skuData.vue:100-123, 142` *(⚠ corrected 2026-08-11 per SBDEV-2643 §10.3 **C4** — the path was missing its `material/skuData/` segments and the range was off by seven lines. An actions column already exists at `:95-99` with a live eye button, and the load-bearing line for the details overlay is `:130`'s `exclude-fields`, not `:142`)* | create/edit block commented out; `putawayLocation` already displayed read-only | **out of THIS plan** — that is SBDEV-2643's SKU edit form. §10 Q3 records that 2643 is materially bigger than "add a field". |
 | 46 | `components/putaway/storePallet.vue:14-23` (mobile UI) | free-text scan, no expected destination shown | **out** — `wms2-mobile-ui` is a third phase, not in D4. Follow-up ticket, §8.4. |
 
 ---
@@ -266,14 +324,14 @@ Receiving in v2 can send inbound stock to exactly **one** destination per SKU, a
 unitloadtypeId=4 not allowed on location=Ice Pack with location type=2
 ```
 
-thrown at `service/UnitloadBusinessService.java:191`. It leaks raw database ids, names no remedy, and arrives *after* the first unit load has already been created inside `receiveGoods`' single transaction — so the whole receipt rolls back with a message no warehouse user can act on. (Reproduced structurally on `wh01_hydra_v2t`: `unitload_type 4 = Case`, `location_type 2 = flowbin`, and `location_constraint` for `flowbin` has exactly one row permitting `unitloadtype_id=1 (PickLocation)`. `Ice Pack` itself exists only on NYWH UAT/prod.)
+thrown at `service/UnitloadBusinessService.java:235`. It leaks raw database ids, names no remedy, and arrives *after* the first unit load has already been created inside `receiveGoods`' single transaction — so the whole receipt rolls back with a message no warehouse user can act on. (Reproduced structurally on `wh01_hydra_v2t`: `unitload_type 4 = Case`, `location_type 2 = flowbin`, and `location_constraint` for `flowbin` has exactly one row permitting `unitloadtype_id=1 (PickLocation)`. `Ice Pack` itself exists only on NYWH UAT/prod.)
 
 **What is missing.** There is no warehouse-level default and no merchant-level default. The ticket asks for a four-tier precedence — SKU → merchant → warehouse → standard putaway lane — configurable from the UI, validated, permission-gated, and audited.
 
 **Why "just set the SKU field" is not an answer.** Three independent facts, all verified:
 
 1. The SKU field is `NOT NULL` in DDL (`V2.2.00__base_v2_schema.sql:951`) and `@NotNull` on the entity (`model/Itemdata.java:49`), and **all four** write paths unconditionally seed it with the `PutAwayLane` id (§0.1 rows 8–11). On `wh01_hydra_v2`, **2,720 of 2,720 rows (100 %)** point at the single location `PutAwayLane` (id 50155). There is no "unset" state, so there is nothing for a lower tier to inherit *into*.
-2. There is **no validated write path**. `controller/ItemDataController.java:88-90` is a raw `save()` with zero validation, reached by a `@GetMapping` that mutates state; `service/ItemdataService.setPutAwayLocation` (`:68-76`) has **zero production callers** and would not have validated anyway (it loads the old location only for a log line). And `PATCH /v3/itemdata/{id}` bypasses both — `RestConfiguration.java:47` uses `RepositoryDetectionStrategies.ANNOTATED` and `:55-60` registers only bean-validation validators. This is almost certainly how the invalid Ice Pack configuration was created.
+2. There is **no validated write path**. `controller/ItemDataController.java:88-90` is a raw `save()` with zero validation, reached by a `@GetMapping` that mutates state; `service/ItemdataService.setPutAwayLocation` (**`:73-82`**, cache block `:66-72` — re-derived 2026-08-11) has **zero production callers** and would not have validated anyway (it loads the old location only for a log line). And `PATCH /v3/itemdata/{id}` bypasses both — `RestConfiguration.java:47` uses `RepositoryDetectionStrategies.ANNOTATED` and `:55-60` registers only bean-validation validators. This is almost certainly how the invalid Ice Pack configuration was created.
 3. The destination is **structurally ignored on the carrier path**. `ReceivingService.java:454-457` reads `itemdata.getPutawaylocationId()` **only when `carrier == null`**; on a carrier receipt `putAwayLocation` is hard-`null` and the unit load goes onto the carrier. That is a branch, not a data problem.
 
 **Two corrections to the ticket's framing**, for the record:
@@ -306,12 +364,12 @@ if (carrier == null) {
 
 Two properties to preserve: resolution is hoisted out of the loop, and `receiveGoods` is **one** tenant transaction (`:302`) so a bad destination fails on the first case and everything rolls back.
 
-**Finding that materially de-risks D2.** On the non-carrier path, `transferUnitLoadToLocation` **already** places the unit load directly into the SKU's configured location. D2's "direct placement, bypass manual putaway" therefore requires **no new placement mechanism** — the only change is *which* `Location` the code hands to the existing call. And v2 has **no putaway-task entity**: `MobilePutAwayService.calculatePutAwayList` (`:212-283`) derives suggestions on the fly from unit loads sitting on the putaway lane. A directly-placed unit load simply never appears in that list, so *"no orphan putaway task remains open"* is satisfied with nothing to suppress. (Resolves open question 6 from the analysis bundle.)
+**Finding that materially de-risks D2.** On the non-carrier path, `transferUnitLoadToLocation` **already** places the unit load directly into the SKU's configured location. D2's "direct placement, bypass manual putaway" therefore requires **no new placement mechanism** — the only change is *which* `Location` the code hands to the existing call. And v2 has **no putaway-task entity**: `MobilePutAwayService.calculatePutAwayList` (`:217-305`) derives suggestions on the fly from unit loads sitting on the putaway lane. A directly-placed unit load simply never appears in that list, so *"no orphan putaway task remains open"* is satisfied with nothing to suppress. (Resolves open question 6 from the analysis bundle.)
 
 ### 2.2 Validation (the only compatibility gate today)
 
 ```java
-// UnitloadBusinessService.java:180-193, inside transferUnitLoadToLocation (declared :125)
+// UnitloadBusinessService.java:188-237, inside transferUnitLoadToLocation (declared :125)
 List<LocationConstraint> locationConstraintList =
     locationConstraintRepository.findByStoragelocationtypeId(destinationLocation.getTypeId());
 if (locationConstraintList != null && !locationConstraintList.isEmpty()) {     // <-- FAIL-OPEN on empty
@@ -389,7 +447,7 @@ The **only** entity-audit precedent is hand-rolled and domain-specific: `model/C
 
 ### 2.8 Transaction & observability constraints
 
-- `transferUnitLoadToLocation` is `Propagation.REQUIRED` and its sibling carries the explicit contract at `UnitloadBusinessService.java:214-215`: *"joins the caller's transaction. Caller must hold all row-level locks before invoking this method (SBDEV-2232 §3.0). Do NOT call from a non-transactional context."* ⇒ **the resolver must never open `REQUIRES_NEW`** — that produces a Postgres deadlock the detector cannot see (parent idle-in-transaction, hangs forever).
+- `transferUnitLoadToLocation` is `Propagation.REQUIRED` and its sibling carries the explicit contract at `UnitloadBusinessService.java:259-260`: *"joins the caller's transaction. Caller must hold all row-level locks before invoking this method (SBDEV-2232 §3.0). Do NOT call from a non-transactional context."* ⇒ **the resolver must never open `REQUIRES_NEW`** — that produces a Postgres deadlock the detector cannot see (parent idle-in-transaction, hangs forever).
 - `transferUnitLoadToLocation` / `transferUnitLoadToCarrier` have **33 call sites** (24 + 9) across picking, palletizing, truck loading, transfer orders, on-hold, nirvana and the empty-pool. **The resolver is wired at the receiving call-sites only, never inside `transferUnitLoadToLocation`.**
 - **OSIV risk is LOW**: `Itemdata`, `Location`, `Client`, `LocationConstraint`, `LocationType`, `LocationArea`, `UnitloadType`, `Sysprop` all use manual `Long` FK ids with no JPA associations. `Location.equals` (`:163-168`) is id-based; `AbstractBaseEntity.hashCode()` (`:76-79`) deliberately returns `getClass().hashCode()`.
 - **Micrometer: there is no counter or timer anywhere on the receiving path.** Zero hits for `MeterRegistry|Counter|Timer` in `ReceivingService`, `UnitloadBusinessService`, `ReceivingController`. `schedulejob/JobMetrics.java` is cron-only. Instrumentation is **net-new** (§3.13).
@@ -398,11 +456,11 @@ The **only** entity-audit precedent is hand-rolled and domain-specific: `model/C
 
 ### 2.9 Flyway / repo state
 
-Migration head on `origin/develop` is **`V2.2.09__seed_return_advice_auto_receive_sysprop.sql`** ⇒ **next free version is `V2.2.11`** — one migration (D16, 2026-08-04). **`V2.2.08`** was taken by SBDEV-2801 and **`V2.2.09`** by SBDEV-2778, both merged that day; `V2.2.11` was verified free across `origin/develop` **and every remote branch**. **Re-verify with a full remote-branch sweep immediately before the PR** — unmerged branches hold invisible versions, which is exactly how the original `V2.2.08` reservation collided. Three hard facts:
+Migration head on `origin/develop` is **`V2.2.09__seed_return_advice_auto_receive_sysprop.sql`** ⇒ **next free version is `V2.2.13`** — one migration (D16, 2026-08-04). **`V2.2.08`** was taken by SBDEV-2801 and **`V2.2.09`** by SBDEV-2778, both merged that day; `V2.2.13` was verified free across `origin/develop` **and every remote branch**. **Re-verify with a full remote-branch sweep immediately before the PR** — unmerged branches hold invisible versions, which is exactly how the original `V2.2.08` reservation collided. Three hard facts:
 
-1. **The running app DOES invoke Flyway, on every boot — this reverses the plan's original premise.** `app.flyway.migrate-on-startup=true` (`application.properties:133`) + `landlord/config/StartupFlywayMigrationRunner.java` (an `ApplicationRunner`, default-ON via `matchIfMissing = true`) migrate the landlord and then **every active tenant DB** before readiness (SBDEV-2801, merged 2026-08-04; see `v2/wms2-api/CLAUDE.md` §Database). **But a tenant DB with no `flyway_schema_history` is SKIPPED, not auto-baselined** — and the Hydra DEV copy is exactly such a DB (§8.1). So on that tenant merging changes nothing and the migration silently never applies until it is repaired once with `db/backfill-flyway-history.sh`.
+1. **The running app DOES invoke Flyway, on every boot — this reverses the plan's original premise.** `app.flyway.migrate-on-startup=true` (`application.properties:133`) + `landlord/config/StartupFlywayMigrationRunner.java` (an `ApplicationRunner`, default-ON via `matchIfMissing = true`) migrate the landlord and then **every active tenant DB** before readiness (SBDEV-2801, merged 2026-08-04; see `v2/wms2-api/CLAUDE.md` §Database). **But a tenant DB with no `flyway_schema_history` is SKIPPED, not auto-baselined** — and the Hydra DEV copy is exactly such a DB (§8.1). So on that tenant merging changes nothing and the migration silently never applies until it is repaired once with `db/backfill-flyway-history.sh` ⚠ **CORRECTED 2026-08-11 on the ticket owner's information: `wh01_hydra_v2` is INACTIVE on DEV.** The only active DEV tenant is WineCo's `dev_wh01_om1`. `StartupFlywayMigrator` iterates ACTIVE tenants only, so an inactive DB is never migrated and never served — there is no `42703`, and no operator repair is owed. Everything below about backfilling its Flyway history is MOOT for DEV. It would matter only if that tenant were reactivated..
 2. **`ddl-auto` is `none`, not `validate`** — `application.properties:70`; `:69` has `validate` commented out, and the value flows into both EMFs (`LandlordDatabaseConfig.java:32-50`, `TenantDatabaseConfig.java:32-63`). `validate` is the **test** profile only. **Consequence: a missing column does NOT prevent startup.** The app boots clean and then fails `42703 column ... does not exist` on every Hibernate SELECT that touches the mapped column — per-request, with green liveness/readiness probes. See §8.1's detector.
-3. **The IT harness scans `classpath:db/v1-to-v2-onboarding/schema`, not `db/migration/`** (`v2/wms2-api/CLAUDE.md:141`) ⇒ `V2.2.11` is **invisible** to integration tests. No IT can prove the DDL.
+3. **The IT harness scans `classpath:db/v1-to-v2-onboarding/schema`, not `db/migration/`** (`v2/wms2-api/CLAUDE.md:141`) ⇒ `V2.2.13` is **invisible** to integration tests. No IT can prove the DDL.
 
 Branch off **`develop`** explicitly. *(The local checkout has sat on unrelated ticket branches; do not assume it is on `develop`, and do not branch off another ticket's branch — stacked-PR orphan trap.)*
 
@@ -416,9 +474,9 @@ Four tiers, one resolver, one validator, one audit writer, one metrics holder. E
                                   PutawayDestinationResolver.resolve(itemdata, client, unitloadtypeId)
                                                    │
   Tier 1  SKU        itemdata.putawaylocation_id  NOT NULL ──► SKU_OVERRIDE
-                        │ NULL  (new — V2.2.11 drops NOT NULL)
+                        │ NULL  (new — V2.2.13 drops NOT NULL)
   Tier 2  Merchant   client.defaultputawaylocation_id  NOT NULL ──► MERCHANT_OVERRIDE
-                        │ NULL  (new column — V2.2.11)
+                        │ NULL  (new column — V2.2.13)
   Tier 3  Warehouse  los_sysprop(client_id = <system>, syskey='DEFAULT_PUTAWAY_LOCATION')  non-blank ──► WAREHOUSE_DEFAULT
                         │ absent / blank-after-trim
   Tier 4  Fallback   location WHERE name = WmsConstants.STORAGE_LOCATION_PUTAWAY_LANE ──► STANDARD_PUTAWAY_LANE
@@ -446,7 +504,7 @@ public class PutawayDestinationResolver {
      *
      * <p>MANDATORY propagation, deliberately: (a) it structurally forbids a new transaction, which is
      * what makes the {@code REQUIRES_NEW}-inside-a-lock-holding-tx deadlock (SBDEV-2232 §3.0,
-     * {@code UnitloadBusinessService.java:214-215}) unreachable by construction; (b) it joins the
+     * {@code UnitloadBusinessService.java:259-260}) unreachable by construction; (b) it joins the
      * caller's read-write transaction so the {@code readOnly} question does not arise; (c) it makes an
      * accidental non-transactional call fail loudly instead of silently auto-committing.
      *
@@ -495,9 +553,9 @@ A tier that is *configured* but whose location id does not resolve to a `locatio
 
 The resolver applies **only** predicate **P1 (compatibility)** — §3.4b — to the winning tier. It does **not** apply the broader suitability predicate **P2** (§3.4c) at receive time.
 
-**Rationale, and this is load-bearing:** applying P2 at receive time would make the resolver *stricter* than `transferUnitLoadToLocation` and would break receipts that work today. Specifically, `PutAwayLane` on `wh01_hydra_v2t` sits in area `Inbound` with `useforstorage = false` — a suitability predicate that required `useforstorage` would reject tier 4 itself. P2 is a *"is this a sane thing to configure"* question and belongs at config-write time only. P1 is byte-for-byte the semantics already enforced at `UnitloadBusinessService.java:180-193`, so hoisting it earlier changes *when* and *how* the failure is reported, never *whether*.
+**Rationale, and this is load-bearing:** applying P2 at receive time would make the resolver *stricter* than `transferUnitLoadToLocation` and would break receipts that work today. Specifically, `PutAwayLane` on `wh01_hydra_v2t` sits in area `Inbound` with `useforstorage = false` — a suitability predicate that required `useforstorage` would reject tier 4 itself. P2 is a *"is this a sane thing to configure"* question and belongs at config-write time only. P1 is byte-for-byte the semantics already enforced at `UnitloadBusinessService.java:188-237`, so hoisting it earlier changes *when* and *how* the failure is reported, never *whether*.
 
-The lock check (`:156-158`) and `FixLocationAssignment` checks (`:161-177`) are also **not** duplicated at receive time — `transferUnitLoadToLocation` still runs them a few lines later. Duplicating them would double the queries for no behavioural gain.
+The lock check (`:163-165`) and `FixLocationAssignment` checks (`:169-184`) are also **not** duplicated at receive time — `transferUnitLoadToLocation` still runs them a few lines later. Duplicating them would double the queries for no behavioural gain.
 
 #### 3.1.3 Failure semantics
 
@@ -512,7 +570,7 @@ throw new BusinessException("putawayDestinationNotPermitted",
         WmsConstants.STORAGE_LOCATION_PUTAWAY_LANE); // %5$s  remedy anchor
 ```
 
-**`putawayDestinationNotPermitted` is thrown HERE, in the resolver, and NOWHERE ELSE.** In particular it is **not** thrown at `UnitloadBusinessService.java:191`: that throw site also serves picking, palletizing, truck loading, transfers, on-hold and nirvana — 21 call sites with no configured putaway destination, for whom the remedy clause ("clear the configured destination") is actively misleading. `:191` gets the neutral key `unitloadTypeNotPermittedOnLocation` instead (§3.6.1). The putaway-specific key belongs where the putaway context exists, and keeping it out of `:191` is also what removes any need to pipe `unitloadRepository.findLabelidById` / `unitloadTypeRepository.findNameById` lookups into that method.
+**`putawayDestinationNotPermitted` is thrown HERE, in the resolver, and NOWHERE ELSE.** In particular it is **not** thrown at `UnitloadBusinessService.java:235`: that throw site also serves picking, palletizing, truck loading, transfers, on-hold and nirvana — 21 call sites with no configured putaway destination, for whom the remedy clause ("clear the configured destination") is actively misleading. `:191` gets the neutral key `unitloadTypeNotPermittedOnLocation` instead (§3.6.1). The putaway-specific key belongs where the putaway context exists, and keeping it out of `:191` is also what removes any need to pipe `unitloadRepository.findLabelidById` / `unitloadTypeRepository.findNameById` lookups into that method.
 
 It **must** be a `BusinessException` (never a bare `RuntimeException`): `ReceivingController.java:283-300` catches `BusinessException` and surfaces `e.getMessage()`, but `:298-300` swallows `RuntimeException` into *"Receiving failed due to an unexpected internal error. Please contact support."* — which would defeat the ticket's error-handling AC outright. **`IllegalTransactionStateException` is exactly that forbidden class** — see §3.1.5.
 
@@ -528,7 +586,7 @@ The contract is nevertheless required, because **`GET /receiving/getPutawayDesti
 
 #### 3.1.5 Reaching a `MANDATORY` resolver from a non-transactional controller
 
-`Propagation.MANDATORY` on `resolve(...)` is the structural anti-`REQUIRES_NEW` device and stays. Its consequence is that **no controller may call it**: there is **zero `@Transactional` anywhere under `controller/`** — the only three matches in the whole tree are comments, two of which explicitly state the controller has no transaction. A `MANDATORY` call from there raises `IllegalTransactionStateException: No existing transaction found for transaction marked with propagation 'mandatory'`, a bare `RuntimeException`, on **every single call**. OSIV does not help: even when enabled it opens an `EntityManager`, never a transaction — and it is disabled (`application.properties:55` `spring.jpa.open-in-view=false`). Since §3.8's endpoint declares only `throws BusinessException`, `RestExceptionHandler` would map it to a 500 — and under D9 that endpoint is the *sole* data source for the entire 2731 display feature, in **Phase 1**.
+`Propagation.MANDATORY` on `resolve(...)` is the structural anti-`REQUIRES_NEW` device and stays. Its consequence is that **no controller may call it**: there is **zero `@Transactional` anywhere under `controller/`** — **re-measured 2026-08-09 on `origin/develop`: six matches, all of them comments** (`mobile/PickingController.java:346`, `rest/AdviceRestController.java:172, 286, 316`, `rest/SkuRestController.java:167, 281`), several of which explicitly state the controller has no transaction. *(Was "three matches"; the count grew, the conclusion did not.)* A `MANDATORY` call from there raises `IllegalTransactionStateException: No existing transaction found for transaction marked with propagation 'mandatory'`, a bare `RuntimeException`, on **every single call**. OSIV does not help: even when enabled it opens an `EntityManager`, never a transaction — and it is disabled (`application.properties:55` `spring.jpa.open-in-view=false`). Since §3.8's endpoint declares only `throws BusinessException`, `RestExceptionHandler` would map it to a 500 — and under D9 that endpoint is the *sole* data source for the entire 2731 display feature, in **Phase 1**.
 
 **Every read caller therefore goes through a read-only tenant-tx facade:**
 
@@ -551,7 +609,7 @@ public class PutawayDestinationQueryService {
 
 **Rationale.** `NULL` is the only honest representation of "inherit". The alternatives were both rejected in §9 (A2, A3). This is the plan's single non-additive change and its primary compatibility risk.
 
-**DDL** — `V2.2.11`, statement 2 (statement 1 is the preflight guard; full ordered script in §5.1):
+**DDL** — `V2.2.13`, statement 2 (statement 1 is the preflight guard; full ordered script in §5.1):
 
 ```sql
 ALTER TABLE public.itemdata ALTER COLUMN putawaylocation_id DROP NOT NULL;
@@ -561,7 +619,7 @@ Forward-only, cannot fail on existing data. The FK to `location(id)` (`V2.2.00..
 
 **Entity** — remove the `@NotNull` above `putawaylocationId` at `model/Itemdata.java:49`. Keep the `@Column`. (`@NotNull` is what Spring Data REST's bean-validation validators enforce at `RestConfiguration.java:55-60`; leaving it would keep HAL writes of `null` rejected while typed writes succeeded — an inconsistency worse than either state.)
 
-**Stop seeding — 4 sites, all in Phase 1, all in the same commit as `V2.2.11` (O3):**
+**Stop seeding — 4 sites, all in Phase 1, all in the same commit as `V2.2.13` (O3):**
 
 | Site | Change |
 |---|---|
@@ -585,7 +643,7 @@ Forward-only, cannot fail on existing data. The FK to `location(id)` (`V2.2.00..
 
 **Rationale.** `client` is a tenant-PU entity (`model/Client.java:10-22`) already carrying per-facility operational config (`enablereceiving`, `printerreceiving_id`, `section_id`). Because one facility == one tenant DB (§2.4), a column on `client` satisfies *"one value per merchant per warehouse"* **structurally, for free** — no composite key, no facility column, no join table. A typed FK gives referential integrity a `sysprop.sysvalue text` cannot, and it sidesteps landmines A3, A4 and A5 entirely. The repository is already REST-exposed (`ClientRepository.java:18-19`), and `/client/detailView` already feeds the Phase-2 merchant screen.
 
-**DDL** — `V2.2.11`, statement 1 (Phase 1; the FK gets the re-apply guard shown in §5.1):
+**DDL** — `V2.2.13`, statement 1 (Phase 1; the FK gets the re-apply guard shown in §5.1):
 
 ```sql
 ALTER TABLE public.client
@@ -669,7 +727,7 @@ Additionally, the event handler (§3.9) **rejects a write to this syskey on any 
 
 **Value format: the numeric `location.id`.** Rationale: tier 2 stores an id, so both configurable tiers agree and the Phase-2 picker writes one shape; ids survive a location rename; **`location.name` has no unique constraint** (`V2.2.00__base_v2_schema.sql:959-979` — `name varchar(255) NOT NULL`, nothing more), the same fact that drives §5.1's backfill preflight guard. Cost: the value is not human-legible in the raw sysprop table — mitigated by writing the location name into the sysprop `description` on every write (§3.5) and by the Phase-2 picker (§3.11.2).
 
-**Seed** — `V2.2.11`, final statement, modelled exactly on `V2.2.04` (draw `id` from `nextval('public.seqentities')`, never a literal; `INSERT ... WHERE NOT EXISTS` for idempotency):
+**Seed** — `V2.2.13`, final statement, modelled exactly on `V2.2.04` (draw `id` from `nextval('public.seqentities')`, never a literal; `INSERT ... WHERE NOT EXISTS` for idempotency):
 
 ```sql
 INSERT INTO public.los_sysprop
@@ -686,7 +744,7 @@ WHERE NOT EXISTS (
 
 Seeded **blank**, so no tenant's behaviour changes when the migration is applied. **This is the single most load-bearing line in the whole migration** — the entire §6 back-compat argument rests on it, and a migration that seeded a real location id would pass every other check while silently changing behaviour on all five tenants. Verify row `check_M_sysprop_seed_blank` asserts the literal `''` **in the INSERT's SELECT list**, not merely that the key name appears somewhere in the file.
 
-**The seed is a convenience, not a dependency.** An absent row yields `Optional.empty()` ⇒ `null` ⇒ not-configured, which is exactly the same behaviour as a blank value. Seeding explicitly only makes the key **visible in the generic admin dialog** before the first write. That is why the seed can sit in `V2.2.11` while tier 3 itself is live from Phase 1: `PUT /putawayConfig/warehouse` (§3.5a) creates the row on first write if the seed has not run.
+**The seed is a convenience, not a dependency.** An absent row yields `Optional.empty()` ⇒ `null` ⇒ not-configured, which is exactly the same behaviour as a blank value. Seeding explicitly only makes the key **visible in the generic admin dialog** before the first write. That is why the seed can sit in `V2.2.13` while tier 3 itself is live from Phase 1: `PUT /putawayConfig/warehouse` (§3.5a) creates the row on first write if the seed has not run.
 
 #### 3.4b Predicate P1 (compatibility) — extract, do not reinvent
 
@@ -702,7 +760,7 @@ Seeded **blank**, so no tenant's behaviour changes when the migration is applied
  * written as "missing row = disallowed" would reject configurations that work correctly today.
  *
  * <p>Deliberately uses the existing {@code findByStoragelocationtypeId} + in-memory scan rather than a
- * new {@code existsBy...} query: the list fetch reproduces {@code UnitloadBusinessService.java:180-193}
+ * new {@code existsBy...} query: the list fetch reproduces {@code UnitloadBusinessService.java:188-237}
  * byte-for-byte, which is the whole point, whereas an {@code exists} formulation needs two round-trips
  * to express the same fail-open rule and invites drift.
  */
@@ -721,7 +779,7 @@ public boolean isUnitloadTypePermitted(Long storagelocationtypeId, Long unitload
 }
 ```
 
-`UnitloadBusinessService.java:180-193` is then rewritten to call it (§3.6), so the rule exists once. **No new repository method** — §0.1 row 16 stays as-is.
+`UnitloadBusinessService.java:188-237` is then rewritten to call it (§3.6), so the rule exists once. **No new repository method** — §0.1 row 16 stays as-is.
 
 > [!warning] **⚠ P1 MUST NOT BE APPLIED TO A PICK-FACE DESTINATION — at write time OR at receive time. Added 2026-08-08.**
 >
@@ -736,7 +794,7 @@ public boolean isUnitloadTypePermitted(Long storagelocationtypeId, Long unitload
 >
 > **Why the question is wrong.** Under (iv-b) no Case unit load ever sits on the pick face. Receiving diverts
 > to the lane; putaway merges the stock into the flowbin's **resident `PickLocation` unit load**
-> (`storeBoxOnLocation:479-487`) and retires the Case UL en route. P1 is testing a unit load that will never
+> (`storeBoxOnLocation:499-513`) and retires the Case UL en route. P1 is testing a unit load that will never
 > be there.
 >
 > **Rule: skip P1 when the destination is a `flowbin`** — predicate **`sltname == 'flowbin'` ONLY**, at
@@ -800,10 +858,37 @@ public boolean isUnitloadTypePermitted(Long storagelocationtypeId, Long unitload
 >    P1 keyed on `defultype_id` is not a sound predictor of the receive-time check.
 >
 > Unpopulated today (all 42,377 advice positions and all 8,804 SKUs on `wms2-wineco-dev` are `Case`), but
-> **P2.6 must say which column it enumerates.** Note the honest consequence: if P1 must hold for *every* type
-> an advice could carry, it rejects nearly everything — a flowbin permits only `PickLocation`. That is
-> further reason to treat write-time P1 as a **heuristic pre-check** and the runtime check as authoritative,
-> which is exactly why the skip is safe **only** where the runtime path won't re-impose it.
+> **P2.6 must say which column it enumerates.**
+>
+> **✅ RESOLVED 2026-08-09 — P2.6 enumerates `itemdata.defultype_id`, and is declared a HEURISTIC
+> PRE-CHECK.** Both halves of that sentence are load-bearing:
+>
+> - **Why `defultype_id`:** it is the only unit-load type knowable when a configuration is written. A
+>   configuration has no advice positions yet, and future ones do not exist to enumerate. Keying on
+>   `adviceposition.unitloadtypeId` would make P2.6 unevaluable at write time — the one place it runs.
+> - **Why heuristic, stated plainly:** receiving takes the actual type from
+>   `adviceposition.getUnitloadtypeId()` (`ReceivingService:399`), which is operator/EDI-supplied per
+>   advice. **So P2.6 passing does NOT guarantee the receipt passes**, and P2.6 is therefore *not* an
+>   authority — the runtime check at `UnitloadBusinessService:188-237` is. P2.6's job is to move the
+>   common failure out of the receipt and into the config dialog, not to make the failure class
+>   unreachable. §3.1.2 already says the same thing about receive-time P1; this makes it explicit at
+>   write time too.
+> - **What was rejected, and why:** enumerating *every* type an advice *could* carry. A flowbin permits
+>   only `PickLocation`, so that reading rejects nearly every pick-face configuration — including
+>   `ICE PACK` — and would re-create SBDEV-2731 at config time. It also cannot be tested meaningfully:
+>   the enumerated set would be "all unit-load types", making P2.6 equivalent to "the destination
+>   permits everything".
+> - **Divergence is observable, not silent:** a receipt whose advice carries a type that write-time P2.6
+>   did not see fails at the runtime check with the actionable `putawayDestinationNotPermitted` message
+>   (§3.1.3), naming the configured tier. That is the intended fallback, not a gap.
+>
+> **Corrected alongside:** this box's own opening sentence attributes `defultype_id` to `ICE PACK` the
+> *location*. The column exists only on `itemdata` — the substance (a `Case` unit load against a
+> `PickLocation`-only flowbin) is right, the attribution was not. Do not let it become a test fixture.
+>
+> **Test consequence:** §7.1's P2.6 tests must assert against `itemdata.defultype_id` and must **not**
+> assert that a P2.6 pass implies a receive-time pass. A test asserting the latter encodes a guarantee
+> this plan explicitly declines to make.
 
 > **`Club08` passes P1 only by accident** — `cases and pallets` has **zero** `location_constraint` rows, so
 > P1 fails *open*. Do not mistake that for the rule working.
@@ -825,8 +910,8 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 | P2.2 | `entityLock == BusinessObjectLockState.NOT_LOCKED` | closest proxy for "active"; `WmsConstants.java:1188-1195` |
 | P2.3 | none of `staginglane / transferlane / automationlane / crossdockinglane / gate` is `TRUE` | `model/Location.java:33-41` |
 | P2.4 | its `location_area` has `useforgoodsin == TRUE` **OR** `useforstorage == TRUE` | **OR, not AND, and not `useforstorage` alone** — `PutAwayLane` on `wh01_hydra_v2t` sits in area `Inbound` with `useforstorage=false, useforgoodsin=true`. This is also why the Phase-2 picker must **not** be built on `LocationRepository.getStorageLocationsForPutAwayItemData` (`:104-111`), whose native predicate is `location_area.useforstorage='true'` and which therefore **can never return `PutAwayLane`** (§0.1 row 34). |
-| P2.5 | no `FixLocationAssignment` on the destination | **⚠ DROPPED 2026-08-08 (Q12 → iv-b) — this is NO LONGER a write-time reject at any scope. Do not implement it; the historical rationale is retained below because it explains why the runtime gate in step 15 must ship in the same change.** ~~Absolute reject at all three scopes~~ — `fixLocationAssignmentRepository.findByAssignedlocationId(destId).isPresent()` ⇒ reject. Structurally safe to treat as a single-row test: `fix_location_assignment` carries `UNIQUE (assignedlocation_id)` **and** `UNIQUE (itemdata_id)` (`V2.2.00__base_v2_schema.sql:3760-3763`, `:3712-3715`), so a location has at most one assignment and a SKU at most one pick face — the `Optional`-returning finder can never raise `IncorrectResultSizeDataAccessException`. **⚠ This is DELIBERATELY STRICTER THAN THE RUNTIME CHECK, and that is the whole mechanism enforcing D15.** At runtime `UnitloadBusinessService.java:170-175` rejects only on *SKU mismatch* (`WRONG_ITEMDATA_FIXASSIGNMENT`), so pointing a SKU at *its own* pick face is legal there — and SBDEV-2796's answer (c) says it is a legitimate operation. This plan nonetheless refuses to **write** that configuration, because tier-1 pick-face placement is deferred (D15) and `ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally: there is no runtime gate to stop it, so **refusing the config is the only thing that keeps the deferred path unreachable.** **⚠ REVISED 2026-08-08.** This previously read *"SBDEV-2821 must relax this to the mismatch-only form as part of shipping tier-1 placement, not before"* — which assumed 2821 would ship direct placement. **Under 2821's adopted option (iii) it will not.** Neither live override carries an FLA, so **P2.5's relaxation is not required by (iii) at all**; the predicate that actually blocks those configs is P2.7(c) clause 1. Relaxing P2.5 to the mismatch-only form remains *optional and harmless* (it mirrors the runtime rule at `UnitloadBusinessService.java:170-175`), but it is **not** what unblocks anything. See the conflict box under P2.7(c). *(A 2026-08-04 revision briefly made P2.5 mismatch-only; reverted the same day — it permitted the config while the placement path stayed ungated, which put a second unit load on a location whose `assignedunitload_id` is `UNIQUE`. See §12.)* Do **not** add a carrier clause here: `:162-167`'s `CARRIER_NOT_ON_FIXLOC` fires when the *moved unit load has child unit loads*, not on the receipt's `carrier` parameter — it has no write-time inputs and is unreachable from `receiveGoods`, whose UL is freshly created at `ReceivingService.java:474`. |
-| P2.6 | **P1** holds for every unit-load type the scope can produce | see below |
+| P2.5 | no `FixLocationAssignment` on the destination | **⚠ DROPPED 2026-08-08 (Q12 → iv-b) — this is NO LONGER a write-time reject at any scope. Do not implement it; the historical rationale is retained below because it explains why the runtime gate in step 15 must ship in the same change.** ~~Absolute reject at all three scopes~~ — `fixLocationAssignmentRepository.findByAssignedlocationId(destId).isPresent()` ⇒ reject. Structurally safe to treat as a single-row test: `fix_location_assignment` carries `UNIQUE (assignedlocation_id)` **and** `UNIQUE (itemdata_id)` (`V2.2.00__base_v2_schema.sql:3760-3763`, `:3712-3715`), so a location has at most one assignment and a SKU at most one pick face — the `Optional`-returning finder can never raise `IncorrectResultSizeDataAccessException`. **⚠ This is DELIBERATELY STRICTER THAN THE RUNTIME CHECK, and that is the whole mechanism enforcing D15.** At runtime `UnitloadBusinessService.java:178-184` rejects only on *SKU mismatch* (`WRONG_ITEMDATA_FIXASSIGNMENT`), so pointing a SKU at *its own* pick face is legal there — and SBDEV-2796's answer (c) says it is a legitimate operation. This plan nonetheless refuses to **write** that configuration, because tier-1 pick-face placement is deferred (D15) and `ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally: there is no runtime gate to stop it, so **refusing the config is the only thing that keeps the deferred path unreachable.** **⚠ REVISED 2026-08-08.** This previously read *"SBDEV-2821 must relax this to the mismatch-only form as part of shipping tier-1 placement, not before"* — which assumed 2821 would ship direct placement. **Under 2821's adopted option (iii) it will not.** Neither live override carries an FLA, so **P2.5's relaxation is not required by (iii) at all**; the predicate that actually blocks those configs is P2.7(c) clause 1. Relaxing P2.5 to the mismatch-only form remains *optional and harmless* (it mirrors the runtime rule at `UnitloadBusinessService.java:178-184`), but it is **not** what unblocks anything. See the conflict box under P2.7(c). *(A 2026-08-04 revision briefly made P2.5 mismatch-only; reverted the same day — it permitted the config while the placement path stayed ungated, which put a second unit load on a location whose `assignedunitload_id` is `UNIQUE`. See §12.)* Do **not** add a carrier clause here: `:173-176`'s `CARRIER_NOT_ON_FIXLOC` fires when the *moved unit load has child unit loads*, not on the receipt's `carrier` parameter — it has no write-time inputs and is unreachable from `receiveGoods`, whose UL is freshly created at `ReceivingService.java:474`. |
+| P2.6 | **P1** holds for `itemdata.defultype_id` across the scope — **a heuristic pre-check, not a guarantee** (resolved 2026-08-09; see the box below) | see below |
 
 #### P2.7 — tiers 2 and 3 destination rules (D13) — ⚠ RE-FRAMED 2026-08-08 (Q12 → iv-b)
 
@@ -890,9 +975,12 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > Earlier revisions of this box asserted the club case *"ships, safely"* on this plan alone. **That was
 > false** — it assumed `storeBoxOnLocation` already handled the type, which it does not.
 >
-> *Provenance: (iv-b) chosen by the ticket owner (Nam Park) 2026-08-08, following SBDEV-2821's option (iii).
-> Put to @David Oppenheim and @Brent Campbell on the ticket the same day; **no reply recorded yet.** If either
-> objects, Q12 reopens — options (i)–(iii) and (iv-a) are preserved in §10.4.*
+> *Provenance: (iv-b) chosen by the ticket owner (Nam Park) 2026-08-08, following SBDEV-2821's option (iii),
+> and **reaffirmed 2026-08-09. This is the decision — Q12 is CLOSED and blocks nothing.** It was put to
+> @David Oppenheim and @Brent Campbell on the ticket 2026-08-08 with no reply recorded; that is an
+> outstanding **notification**, not a pending approval. Precedent: SBDEV-2821's Q4 shipped on David's
+> endorsement plus owner direction, with no Brent reply. If either objects later, Q12 reopens — options
+> (i)–(iii) and (iv-a) are preserved in §10.4.*
 >
 > **⚠ THE RELAXATION AND THE GATE ARE ONE CHANGE.** P2.5/P2.7(c) were absolute for exactly one stated reason —
 > *"`ReceivingService.java:454-457 → :491` places tier-1 destinations unconditionally… refusing the config is
@@ -962,11 +1050,11 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > the gate's justification did not remove this.
 >
 > **The mechanism.** A tier-2/3 default resolves to an FLA-free flowbin. Receiving diverts it to the lane
-> (step 15). At putaway, `MobilePutAwayService.storeBoxOnLocation:479-482` **auto-creates** a
+> (step 15). At putaway, `MobilePutAwayService.storeBoxOnLocation:499-506` **auto-creates** a
 > `FixLocationAssignment` binding that location to **whichever SKU is put away first**. The table carries
 > `UNIQUE (assignedlocation_id)` **and** `UNIQUE (itemdata_id)`
 > (`V2.2.00__base_v2_schema.sql:3760-3763`, `:3712-3715`). **Every subsequent SKU under that default then
-> fails** — at `verifyScannedLocation:430-444` or `UnitloadBusinessService:180-183`.
+> fails** — at `verifyScannedLocation:447-453` or `UnitloadBusinessService:180-183`.
 >
 > **Blast radius is the whole scope, not one SKU.** A merchant default applies to every SKU that merchant
 > receives; the first one silently claims the bin and the rest break. A warehouse default is worse.
@@ -980,7 +1068,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 >
 > **Why tier 1 is exempt, and why this costs the club use case nothing.** A *SKU-scope* default binding its
 > own location to itself is precisely the intent — that is what a dedicated `ICE PACK` bin **is**, and it is
-> the runtime rule already (`UnitloadBusinessService.java:170-175` rejects only on SKU *mismatch*). And the
+> the runtime rule already (`UnitloadBusinessService.java:178-184` rejects only on SKU *mismatch*). And the
 > club lanes are **`cases and pallets`, not `flowbin`** — `storeBoxOnLocation` never reaches the FLA branch
 > for them, so they are unaffected by rule (e). **The 656 hazardous locations are excluded; the 70 clubs are
 > not.** Rule (e) closes the hazard without touching the use case Q12 was asked about.
@@ -993,7 +1081,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > [!warning] **Why rule (f) exists — the tier-1 exemption does NOT mirror the runtime rule, it is weaker.**
 >
 > Rule (e)'s rationale says tier 1 is exempt because it *"is the runtime rule already
-> (`UnitloadBusinessService.java:170-175` rejects only on SKU **mismatch**)"*. **An unconditional exemption
+> (`UnitloadBusinessService.java:178-184` rejects only on SKU **mismatch**)"*. **An unconditional exemption
 > does not reject on mismatch at all.** As written, nothing at write time stops SKU `A`'s tier-1 default
 > naming a flowbin whose FLA belongs to SKU `B`, or two SKUs naming the same FLA-free flowbin. The
 > exemption's own justification argues *for* implementing the mismatch check, not for omitting it.
@@ -1008,7 +1096,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > Every one is a legal tier-1 target for the ~8,800 / ~2,720 SKUs that do not own it.
 >
 > **The failure is late, silent at write time, and permanent.** The config saves; receipts divert to the lane
-> (step 15); then **every putaway of that SKU fails at the scan** — `verifyScannedLocation:437`
+> (step 15); then **every putaway of that SKU fails at the scan** — `verifyScannedLocation:444`
 > (`itemDataNotMatchFixedAssignment`) or `:441` (`scannedLocationHasDifferentFixedAssignment`) — with nothing
 > naming the configuration that caused it.
 >
@@ -1026,7 +1114,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 > fixLocationAssignmentRepository.findByAssignedlocationId(destId)
 >     .filter(fla -> !fla.getItemdataId().equals(itemdataId))
 >     .ifPresent(fla -> reject(FIX_ASSIGNED_TO_OTHER_SKU));
-> // reject if this SKU already owns a different pick face (mirrors verifyScannedLocation:428-437
+> // reject if this SKU already owns a different pick face (mirrors verifyScannedLocation:437-445
 > // and StockunitService:186-190's "SKU already assigned to flow bin")
 > fixLocationAssignmentRepository.findByItemdataId(itemdataId)
 >     .filter(fla -> !fla.getAssignedlocationId().equals(destId))
@@ -1054,7 +1142,7 @@ The ticket's "*Be active*" has no column (§2.3). P2 is the concrete replacement
 
 > [!note] **Gap 3 — P2.4 and putaway's own area gate disagree.**
 >
-> `verifyScannedLocation:418` requires `area.useforstorage == TRUE || location.staginglane`. **P2.4 admits
+> `verifyScannedLocation:427` requires `area.useforstorage == TRUE || location.staginglane`. **P2.4 admits
 > `useforgoodsin` OR `useforstorage`.** A goods-in-only pick face therefore saves, diverts, and then throws
 > `locationNotUsableForStorage` at putaway. Empty on both reachable tenants — every `useforpicking` area also
 > carries `useforstorage = TRUE` — so this is *data, not structure*, which is the same shape as the miss that
@@ -1145,7 +1233,8 @@ D2 direct placement does exactly that, and this plan had **no capacity concept a
 Restricting tiers 2/3 to staging / goods-in areas is where the ticket's club and fast-turn use cases
 actually live — so no business capability is lost. It also **subsumes the H1 lock mitigation**: keeping
 receiving off live pick faces is the same outcome the tiered picker was reaching for, so implement it
-once, here, and have §3.11.2's picker simply reflect it for merchant/warehouse scope.
+once, here, and have the §3.11.5 picker simply reflect it at merchant/warehouse scope (rendered by
+§3.11.2 and §3.11.3).
 
 > **D13's justification changed on 2026-08-04 — keep the rule, drop the reason.** D13 was originally
 > justified as *"sidesteps F3 without inventing a capacity subsystem."* SBDEV-2796's answer (c) makes
@@ -1192,8 +1281,25 @@ once, here, and have §3.11.2's picker simply reflect it for merchant/warehouse 
 
 **Per-scope rule (D11):**
 
-- **SKU scope** — one pair: `P1(destination.typeId, itemdata.defultypeId)`. Exact, and an
-  **absolute reject**. Blast radius is one SKU, so there is nothing to trade off.
+- **SKU scope** — one pair: `P1(destination.typeId, itemdata.defultypeId)`. **An absolute reject —
+  but only where P1 is evaluated at all.** Blast radius is one SKU, so where it applies there is
+  nothing to trade off.
+
+  > [!warning] **⚠ ORDERING, ADDED 2026-08-09 — the P1 skip runs BEFORE P2.6/D11, not after.**
+  >
+  > Read without this, D11 contradicts (iv-b) and re-blocks the parent bug. §3.4b skips P1 entirely when
+  > the destination's `location_type.sltname == 'flowbin'`. `ICE PACK` is `Case` (`defultype_id = 4`) into
+  > a flowbin that permits only `PickLocation` — so an *unskipped* P1 rejects it, and **"absolute reject"
+  > at SKU scope would refuse the exact configuration SBDEV-2731 exists to make savable**, which
+  > SBDEV-2643 r3/r5 depends on being legal.
+  >
+  > **Correct evaluation order at write time:** resolve the destination → **if `sltname == 'flowbin'`,
+  > P1 and therefore P2.6 are SKIPPED for that destination** → otherwise evaluate P2.6, and at SKU scope
+  > a failure is an absolute reject. The skip is `sltname == 'flowbin'` **only**, never the
+  > `useforpicking` form (§3.4b).
+  >
+  > Test consequence: `skuWritePermitsPickFaceDestination` (§7.1) is the test that pins this. If it fails
+  > while a D11 test passes, D11 was implemented ahead of the skip.
 - **Merchant scope** — evaluate against `SELECT DISTINCT defultype_id FROM itemdata WHERE client_id = ?`.
   Return the **count of incompatible SKUs** and one example. **Reject outright only at 100 %
   incompatibility**; otherwise accept on **explicit admin confirmation**
@@ -1278,13 +1384,13 @@ public class PutawayConfigService {
 }
 ```
 
-Each method: (1) read the **previous** value, (2) run **P2** for its scope when `locationIdOrNull != null`, (3) write, (4) call `PutawayConfigAuditService.record(...)`, (5) `metrics.configChanged(scope, channel)`. `locationIdOrNull == null` clears the override — no validation needed, still audited. The warehouse writer writes `sysvalue = ''` for a clear (never a DELETE), creates the row if the `V2.2.11` seed has not run yet, and refreshes `description` with the resolved location name.
+Each method: (1) read the **previous** value, (2) run **P2** for its scope when `locationIdOrNull != null`, (3) write, (4) call `PutawayConfigAuditService.record(...)`, (5) `metrics.configChanged(scope, channel)`. `locationIdOrNull == null` clears the override — no validation needed, still audited. The warehouse writer writes `sysvalue = ''` for a clear (never a DELETE), creates the row if the `V2.2.13` seed has not run yet, and refreshes `description` with the resolved location name.
 
 **Three further members exist for the event handler (§3.9), on the same bean:** `readCommittedDestination`, `validateOnly` and `auditAndEvict`. `validateOnly` also carries `@PreAuthorize(Authority.IS_SB_ADMIN)` — it is the authorization boundary for the HAL channel (§3.12).
 
 **Existing-code cleanup carried here (§0.1 rows 13, 14):**
 
-- `service/ItemdataService.setPutAwayLocation` (`:68-76`) is **promoted, not deleted** — it already carries the correct targeted 2-key `@CacheEvict` at `:62-67` that `ItemDataController.java:80` gets wrong. It is rewritten to delegate to `PutawayConfigService.setSkuDestination` and its `locationRepository.findById(itemData.getPutawaylocationId())` at `:71` gains a null guard (the previous value is now legitimately `NULL`).
+- `service/ItemdataService.setPutAwayLocation` (**`:73-82`** — ⚠ re-derived 2026-08-11, was `:68-76`) is **promoted, not deleted** — it already carries the correct targeted 2-key `@CacheEvict`, in a `@Caching` block at **`:66-72`** that sits ABOVE the method, so an edit scoped to the method's own lines moves it away from its annotations (SBDEV-2643 §10.3 **C9**). Was cited as `:62-67` that `ItemDataController.java:80` gets wrong. It is rewritten to delegate to `PutawayConfigService.setSkuDestination` and its `locationRepository.findById(itemData.getPutawaylocationId())` at `:71` gains a null guard (the previous value is now legitimately `NULL`).
 - `controller/ItemDataController.java:80` — `@CacheEvict(value="itemdata", allEntries = true)` **flushes every tenant's entries**. Replaced by delegation to `ItemdataService.setPutAwayLocation`, so the correct 2-key eviction applies. The `@GetMapping`-that-mutates smell at `:81` is **left as-is** — the web UI calls it, and changing the verb is a breaking API change outside this ticket's scope (§10 Q5).
 
 ### 3.5a `PutawayConfigController` — the typed write surface
@@ -1372,23 +1478,23 @@ confirmation, so they get the strict rule; see §3.9.8.
 
 **Phase placement.** `setSku`, `setWarehouse` and `preview` are **Phase 1** (no schema dependency: tier 3
 is a sysprop row, and a missing row already reads as "not configured", §3.4a). `setMerchant` is
-**Phase 1** — `client.defaultputawaylocation_id` does not exist until `V2.2.11` (ordering hazard O2).
+**Phase 1** — `client.defaultputawaylocation_id` does not exist until `V2.2.13` (ordering hazard O2).
 
 ### 3.6 The actionable message (D6) and the error envelope
 
 #### 3.6.1 Two message keys, thrown from two different places
 
-The raw-concatenated throw at `UnitloadBusinessService.java:191` serves **24 call sites**, only one of
+The raw-concatenated throw at `UnitloadBusinessService.java:235` serves **24 call sites**, only one of
 which is receiving. Replacing it with a putaway-specific message would put a misleading remedy
 ("clear the configured putaway destination") in front of pickers, palletizers, truck loaders and transfer
 operators. So the failure is reported by **two** keys:
 
 | Key | Thrown from | Audience |
 |---|---|---|
-| `unitloadTypeNotPermittedOnLocation` | `UnitloadBusinessService.java:191` — the shared, context-free backstop for all 24 call sites | anyone moving a unit load anywhere |
+| `unitloadTypeNotPermittedOnLocation` | `UnitloadBusinessService.java:235` — the shared, context-free backstop for all 24 call sites | anyone moving a unit load anywhere |
 | `putawayDestinationNotPermitted` | `PutawayDestinationResolver.requireCompatible(...)` — §3.1.3, and **nowhere else** | a receiving operator whose *configured* destination is wrong |
 
-**`UnitloadBusinessService.java:180-193` becomes:**
+**`UnitloadBusinessService.java:188-237` becomes:**
 
 ```java
 if (!locationConstraintService.isUnitloadTypePermitted(destinationLocation.getTypeId(), unitload.getTypeId())) {
@@ -1573,7 +1679,7 @@ So "honor" is discharged on the carrier path as: (a) the destination is resolved
 
 No code change. Four behavioural notes for §6:
 
-- **The exception a direct placement actually produces is `unitloadNotInInboundArea`, not `unitLoadNotInPutAwayLane`.** `MobilePutAwayService.java:113-117` runs **first**: `if (!locationArea.getUseforgoodsin() && !storageLocation.equals(Clearing)) throw new BusinessException("unitloadNotInInboundArea")`. A unit load placed directly into a storage or pick area sits in an area with `useforgoodsin = false`, so it trips that guard and **never reaches** the lane check at `:119-126`. Any operator note, manual row or training material that names `unitLoadNotInPutAwayLane` for this scenario is wrong.
+- **The exception a direct placement actually produces is `unitloadNotInInboundArea`, not `unitLoadNotInPutAwayLane`.** `MobilePutAwayService.java:113-117` runs **first**: `if (!locationArea.getUseforgoodsin() && !storageLocation.equals(Clearing)) throw new BusinessException("unitloadNotInInboundArea")`. A unit load placed directly into a storage or pick area sits in an area with `useforgoodsin = false`, so it trips that guard and **never reaches** the lane check at `:121-128`. Any operator note, manual row or training material that names `unitLoadNotInPutAwayLane` for this scenario is wrong.
 - `MobilePutAwayService.java:121-128` (`unitLoadNotInPutAwayLane`) still fires for a unit load that *is* in an inbound-flagged area but not on the lane itself — e.g. one moved to `InboundWorkstation`. Unchanged, and unaffected by this plan.
 - **Correction path for a misplaced unit load.** Neither guard offers a remedy in the putaway screen, so an operator who scans a directly-placed unit load must move it with `MobileMoveUnitloadService` (mobile "Move Unit Load") or the web **Transfer Stock** screen (`transferStock.vue`). Naming that path is the answer to the long-open recoverability question: the unit load is not stuck, it is simply already at its destination and the putaway screen has nothing to do with it. Manual row **M13a** exercises the move; **M13** asserts the correct exception text.
 - `MobilePutAwayService.java:190-206` `storePalletBackOnPutawayLane` is the **SBDEV-2102 fix**; its "pallet must be on the current user's location" guard must survive untouched. The verify script asserts it.
@@ -1613,7 +1719,7 @@ facade *and still* calling the resolver directly from the controller — which r
 
 `source` is the enum name (`SKU_OVERRIDE` | `MERCHANT_OVERRIDE` | `WAREHOUSE_DEFAULT` | `STANDARD_PUTAWAY_LANE`) so Vue never re-derives the precedence; `sourceLabel` is the display string ("SKU override", "Merchant default", "Warehouse default", "Standard putaway lane"); `compatible` reports **P1** without throwing, so the form can warn *before* the operator commits a receipt; `warning` carries the rendered `putawayDestinationNotPermitted` text when `compatible == false`.
 
-Resolved **per advice position**, not per list row — the open-receiving list can be hundreds of rows and N resolver calls there would be 1–4 queries each. Needs a `BaseControllerTest` subclass and a `SecurityConfiguration` review (it is a read under the existing `/receiving/**` rules).
+Resolved **per advice position**, not per list row — the open-receiving list can be hundreds of rows and N resolver calls there would be 1–4 queries each. Needs a `BaseControllerUnitTest` subclass and a `SecurityConfiguration` review (it is a read under the existing `/receiving/**` rules).
 
 ### 3.9 Closing the Spring Data REST write hole (D7, extended to `Sysprop`)
 
@@ -1710,7 +1816,7 @@ public class PutawayConfigRepositoryEventHandler {
     }
 
     // Client: same four-method shape. Phase 1 only — Client.defaultputawaylocationId does not exist
-    // until V2.2.11 (ordering hazard O2), so writing onClient* in Phase 1 will not compile.
+    // until V2.2.13 (ordering hazard O2), so writing onClient* in Phase 1 will not compile.
 
     // Sysprop: same shape, plus @HandleBeforeDelete (reads the previous value, never throws) and
     // @HandleAfterDelete (audits the clear) per D12 / §3.9.1. Every method returns immediately unless
@@ -1901,7 +2007,7 @@ documented hard stop for pre-mortem P3.
 
 #### 3.9.8 Channel tagging
 
-The handler passes `channel = "hal"` to the audit writer and the metrics counter; the typed writers pass `channel = "typed"`; `V2.2.11`'s backfill pre-image rows carry `channel = "migration"` (§5.1). A non-zero `hal` count after Phase 2 ships is the signal that a client is still bypassing the intended UI.
+The handler passes `channel = "hal"` to the audit writer and the metrics counter; the typed writers pass `channel = "typed"`; `V2.2.13`'s backfill pre-image rows carry `channel = "migration"` (§5.1). A non-zero `hal` count after Phase 2 ships is the signal that a client is still bypassing the intended UI.
 
 **HAL writes cannot carry a confirmation.** D11's count-and-confirm requires a query parameter that SDR discards (§3.5a), so the handler applies the **strict** rule on the HAL channel: any incompatibility ⇒ reject. An admin who needs to accept a partially-incompatible destination must use `PutawayConfigController`. The rejection message must say so explicitly, or the HAL 422 looks like a bug.
 
@@ -1918,78 +2024,613 @@ The handler passes `channel = "hal"` to the audit writer and the metrics counter
 
 **Freshness contract.** Receiving never reads a stale **tier value**: `receiveGoods` loads `Client` via `clientRepository.findById` (`ReceivingService.java:369-370`, uncached), `Itemdata` via `itemdataRepository.findById` (`:357`, uncached), and tier 3's `sysvalue` through the uncached derived query `findBySyskeyAndClientIdAndWorkstation` (`SyspropRepository.java:35-36`, not `@Cacheable`). The receiving path is **not** entirely cache-free: tier 3 dereferences `clientService.getSystemClient()`, which **is** `@Cacheable(value = "clients", key = … + ':SYSTEM')` (`ClientService.java:100`). That is harmless — the system client's identity does not change — and a cache read inside a read-only transaction is fine. The **admin screens** can show a value up to 5 min stale after another replica's write under the Caffeine profile. §7.3 rows encode "re-read after the write in the same session" rather than "wait out the TTL".
 
-### 3.11 Phase 2 — web UI (`v2/wms2-web-ui`)
+### 3.11 Phase 2 — web UI (`v2/wms2-web-ui`), plus one API read
 
-#### 3.11.1 Receiving form — the SBDEV-2731 display half
-
-`components/receiving/open/receive/receivingForm.vue:9-13` hardcodes the value `"Put Away Lane"`; the `putawayStaging: null` data property at `:206` is never read or written, and the receive payload (`:325-335`) carries no destination field. Replace the static label's value with `putawayStaging`, populated from `GET /receiving/getPutawayDestination/{advicePositionId}` (§3.8), rendered as `locationName` plus a subdued `sourceLabel` chip, and a warning banner when `compatible === false`. The receive payload is **unchanged** — the destination is server-derived, never client-supplied.
-
-> **⚠ SBDEV-2731 PR1 (#39) already rewrote this component, and two of its properties are load-bearing. Do not regress them — added 2026-08-06 after 2731's plan was reconciled to as-shipped code.**
-> The as-shipped form carries a **tri-state** computed (`receivingForm.vue:296`):
-> ```js
-> isPutawayDestinationApplied() {
->   if (this.noContainer === true) return true
->   if (this.requireReceiveToContainer === true || this.parentContainer) return false
->   return null                       // undetermined — render NO qualifier
-> }
-> ```
-> Its purpose is to stop the screen asserting a destination-truth the submit path has not established — `validate():470` rejects `!parentContainer && !noContainer`, so before the operator chooses, *no* claim is honest. Two things must survive this plan's edits:
-> 1. **The template tests `=== false`, never `!`** (`receivingForm.vue:24`). `!null` is `true`, so a falsy test silently restores the exact bug 2731 fixed — on first paint, for every tenant with `REQUIRE_RECEIVING_TO_CONTAINER = false`, i.e. precisely the population that configures alternate putaway locations. `isPutawayOverride` likewise ANDs on `=== true`.
-> 2. **The `requireReceiveToContainer` clause.** Drop it and the container-mandating tenant falls through to `null` and says nothing.
+> [!warning] **§3.11 REWRITTEN 2026-08-11 against merged `889298d` / `4ce39a1` (r-next). Five defects, one fatal.**
 >
-> 2731 pins these with verify check `A10` and tests `T24`/`T25`. **This plan adds `sourceLabel` to the same block, so this plan can break them** — Phase 2 step 19 must keep the tri-state intact, and `U-tristate` (§11.1) asserts the `=== false` comparison survives. Treat it as a preservation check, not a new feature.
+> Everything below was verified `file:line` against the merged code on 2026-08-11. The previous text was
+> written **before** Q12 → (iv-b) and **before** Phase 1-API existed; it was not merely stale, and
+> **Step 19 as written was unimplementable.** Recorded here because two of its instructions would have
+> shipped the exact defect SBDEV-2731 was opened for.
+>
+> 1. **FATAL — the client-side filter cannot exist.** The old text mandated *"sourced from
+>    `/location/detailView` and filtered client-side on P2.3/P2.4."* `getLocationView()`
+>    (`ViewDtoService.java:806-832`) emits exactly eight keys — `id`, `locationName`, `clientNumber`,
+>    `clientName`, `areaName`, `locationType`, `created`, `modified`. It carries **no `entity_lock`, no
+>    lane flags, and no area `useforgoodsin` / `useforstorage`**. Four of the five predicates are
+>    therefore not evaluable in Vue at all. `areaName` is an area *name*, not its flags.
+> 2. **The mandated filter was the wrong filter.** The old text said *"exactly P2.4"* and *"a pick-only
+>    area is not offered."* Under (iv-b) the merged validator has **no P2.7(c) and no P2.5**, and the
+>    real predicate set is **scope-dependent in five places** (§3.11.5a). A P2.4-only filter both
+>    over-offers (locked rows, transfer lanes, gates) and under-offers (the club lanes that are this
+>    ticket's own tier-2 use case).
+> 3. **§3.11.1 was ~70% already shipped by SBDEV-2731 PR1** (`4ce39a1`), and what remained was not what
+>    the old text described. Missing instead: the **diversion** rendering, a field family that did not
+>    exist when §3.11.1 was written.
+> 4. **The `createBol.vue` precedent citation was wrong on all three counts** (SBDEV-2643 §10.3 C7):
+>    `:100-130` is a run of plain `v-text-field`s, the file's only `v-autocomplete` is at **`:68-76`**,
+>    and `grep -n 'Lookup'` over the whole file returns nothing.
+> 5. **`persistedState` shape was wrong.** It is a single top-level reducer at
+>    `plugins/persistedState.client.js:22-25` naming three keys — not a per-module exclusion list.
+
+#### 3.11.0 The eligible-locations read — **PAGINATED, and it needs no refactor** (resequenced r-next+1)
+
+> [!warning] **RESEQUENCED 2026-08-11 after an independent design-review lane. The previous version of
+> this section made a refactor of merged, live validation code a PREREQUISITE of a read-only feature.
+> It does not have to be, and the reason it appeared to be was a response-shape choice this plan never
+> examined.**
+>
+> **Root cause, stated plainly:** "return every location in the tenant, unpaginated" is what made
+> per-row `validate()` expensive; that expense is what made the extraction a prerequisite; and that
+> prerequisite is what put steps 19–22 behind a rewrite of the write path. **Paginate and the
+> prerequisite dissolves.** At page size 50 a per-row `validate()` is ~50 iterations — cheaper than the
+> `GET /preview` endpoint already merged and shipping (§3.11.0.3). This repo sets
+> `api.paging.max-size=5000` (`application.properties:109`) and **12 typed controllers already accept
+> `Pageable`**, so the unpaginated `List<Map<String, Object>>` was the anomaly, not the alternative.
+>
+> **Two factual errors in the superseded version, both load-bearing, both recorded so they are not
+> repeated:**
+> 1. It named **`PutawayDestinationValidatorUnitTest`** as the extraction's behaviour-preservation
+>    guard, in three places, including a verify row asserting byte-identity to `889298d`. **That file
+>    has never existed in any commit on any branch** (`git log --all --diff-filter=A` returns nothing).
+>    The whole safety argument rested on an artifact that does not exist. See §3.11.0.2.
+> 2. Its arithmetic was wrong in both directions — "four repository lookups" understated, "6 lookups ≈
+>    16,400 queries" overstated. **The true maximum is five** (a flowbin skips the
+>    `location_constraint` lookup; a non-flowbin skips FLA direction 1; the two are mutually exclusive),
+>    and the L1-corrected naive figure is **~8,200**. The conclusion "unacceptable" survives; the number
+>    that justified it did not.
+
+##### 3.11.0.0 The four steps, in order — and why this order
+
+| # | Step | Touches live validation code? | Unblocks |
+|---|---|---|---|
+| **A** | **`GET /putawayConfig/eligibleLocations`, paginated, per-row `validate()`**, behind `PutawayDestinationQueryService` | **No** | **steps 19–22 and SBDEV-2643 B2, immediately** |
+| **B** | Write `PutawayDestinationValidatorUnitTest` against the **merged** validator; merge it alone | No | step C |
+| **C** | Extract `PutawayDestinationRules`; validator becomes a facade over it | Yes | step D |
+| **D** | Collapse the `summariseScope` / `countIncompatible` N+1 | **No — revised 2026-08-11** | — |
+
+**Why A first.** It is the deliverable everything else waits on, and it is the only step with no risk to
+merged code. Shipping it first means the extraction is then judged on its own merit rather than as a
+prerequisite — which is the only honest way to judge it, because as a prerequisite it was never
+compared against alternatives.
+
+**Why B before C, and never after.** A characterization test written *after* a refactor pins the
+refactored behaviour, not the merged behaviour, and is worthless as a guard. B must merge separately so
+it is provably green against the **un**refactored validator first.
+
+**Why D is in scope at all.** It is where the measured problem actually is (§3.11.0.3), and if C lands
+without D the plan will claim to have removed an N+1 while the worst instance survives untouched.
+
+⚠ **REVISED 2026-08-11 — D no longer depends on C, and shipped first (PR #144).** The dependency was an
+artefact of *how* this section proposed to fix it (build a `Ctx`, call the extracted `evaluate`), not of
+the defect. Memoizing the existing validator's verdict per distinct `defultypeId` achieves the same
+collapse while touching no validation logic. **This is the second time in this plan that a step's
+prerequisite turned out to be an artefact of the proposed mechanism rather than the problem** — step A
+was the first (an unpaginated response shape). Worth pausing on before declaring the next dependency.
+
+##### 3.11.0.1 Step A — the endpoint, with no extraction
+
+```java
+// service/PutawayDestinationQueryService.java — NOT the controller. See the boundary note below.
+@Transactional(value = "tenantTransactionManager", readOnly = true)
+public Page<EligibleLocation> eligibleLocations(PutawayScope scope, Long subjectId, Pageable pageable)
+        throws BusinessException;
+
+public record EligibleLocation(Long locationId, String locationName, String areaName,
+                               String locationType, String tier, boolean eligible,
+                               PutawayConfigController.BlockingReason blockingReason) {}
+```
+
+**The boundary goes on the query service, not the controller.** `PutawayDestinationQueryService`
+exists for exactly this — its own javadoc calls it *"the read-only tenant-transaction facade. The ONLY
+way a controller may reach the `MANDATORY` resolver"*. Three reasons beyond convention:
+
+1. **One snapshot.** The read spans five tables; without a shared transaction those are five
+   independent snapshots and an eligibility answer can straddle a concurrent FLA write. With 1,345 FLA
+   rows and putaway auto-creating them, that is a live race, not a theoretical one.
+2. `readOnly = true` is load-bearing for memory, not decoration — Spring propagates it to
+   `Session.setDefaultReadOnly(true)`, skipping Hibernate's dirty-check snapshot per entity.
+3. `PutawayConfigController` is already the **only** controller in the repo carrying a real
+   `@Transactional` (three, all from Phase 1), and `ClientController:64` still asserts *"there is zero
+   `@Transactional` under `controller/`"* — merged code containing a comment its own sibling
+   falsified. A fourth annotation deepens that drift. The controller reduces to envelope mapping, the
+   way `ClientController.effectivePutawayDestination` already is.
+
+**Contract:**
+
+| Field | Contract |
+|---|---|
+| `tier` | `"DEFAULT"` when `location_area.useforgoodsin`, else `"ADVANCED"`. Computed **server-side** — the flag is in no payload the UI can see |
+| `eligible` | `validate(...)` did not throw for this `(scope, location, subject)` |
+| `blockingReason` | the key it threw, mapped through §3.11.0a's enum |
+
+- **`subjectId` is required at SKU scope** and ignored otherwise — P2.7(f) and P2.6 both need the
+  subject SKU.
+- **Ineligible rows are RETURNED, not filtered out.** With 1,345 of 2,068 flowbins FLA-bound, silently
+  omitting them is its own confusion; the picker must be able to show a row and say why it is blocked.
+  Order by `useforgoodsin DESC, name` so §3.11.5's two-tier grouping survives paging.
+- **Exclude the tier-4 lane** by `WmsConstants.STORAGE_LOCATION_PUTAWAY_LANE` (`WmsConstants.java:771`)
+  — the machine name, never an id, never the display label `'Put Away Lane'`.
+- **Page-scoped evaluation.** Load the three small tables once (8 + 8 + 5 rows), let the database filter
+  and page `location`, and evaluate only the page's rows — one FLA-by-location-ids query per page
+  instead of a whole-table load. That is O(page), not O(tenant), and it survives 10× where the
+  unpaginated contract does not (27,390 rows is ~30 MB of managed entities *and* a 27,390-element JSON
+  array; a picker that renders 27k rows is not a picker).
+
+> **Per-row `validate()` here is deliberate and is NOT the anti-pattern the superseded section
+> forbade.** The forbidden thing was per-row evaluation over an unbounded set. Over a bounded page it
+> is ~50 calls, the small tables are L1-served after the first, and it keeps **one** authority for P2.
+> Do not "optimise" it into a second copy of the predicates — that is the hazard
+> `PutawayConfigController`'s own comment names.
+
+##### 3.11.0.2 Step B — write the guard that this plan wrongly claimed already existed
+
+`PutawayDestinationValidatorUnitTest` does not exist. Actual coverage of the predicate chain today is
+**indirect**: `PutawayConfigServiceUnitTest` constructs a *real* `PutawayDestinationValidator` over
+mocked repositories (deliberately — stubbing it would be tautological). Measured against the chain, that
+reaches **4 of 8 keys**. Unexercised:
+
+| Branch | Status |
+|---|---|
+| P2.2 `putawayDestinationLocked` | ✗ every fixture sets `NOT_LOCKED`; the `null`-`entityLock` guard too |
+| P2.4 `putawayDestinationAreaNotUsable` | ✗ **never fires** — the only neither-goods-in-nor-storage fixture gets the lane exemption at MERCHANT and is caught by P2.3 first at SKU |
+| `transferlane` / `automationlane` / `gate` | ✗ ✗ ✗ all three `rejectIfTrue` sites unreached |
+| P2.3 `crossdockinglane` | ✗ |
+| P2.7(e) at WAREHOUSE scope | ✗ scope asymmetry untested |
+| P2.7(f) dir-1 gated on `isFlowbin` (a **non**-flowbin bound to another SKU must PASS) | ✗ — the (iv-b) "P2.5 is dropped" semantics are unpinned |
+| **P2.6 flowbin skip** | ✗ nothing asserts an incompatible-type flowbin still PASSES at SKU scope — the ICE PACK case |
+| P2.6 `defaultUnitloadTypeId == null` skip; `locationType == null`; `subjectItemdataId == null` | ✗ |
+| **which key wins on multi-failure** | ✗ entirely |
+
+**So a reordering, an inverted lane flag, a dropped `isFlowbin` gate, a lost flowbin skip, or a broken
+lock check would all ship green today.** Six of eight keys are effectively unguarded.
+
+Step B must produce, from a real validator over mocked repositories: **all 8 distinct keys**, every row
+above, and at least three deliberately multi-failing locations asserting the **winning** key. **Assert
+`getKey()` AND `getMessage()`** — only the latter catches a dropped message argument (§3.11.0.4 M1).
+
+##### 3.11.0.3 Step D — the N+1 that is already merged, and is bigger than the one this plan set out to avoid
+
+`PutawayConfigService.countIncompatible` (`:417-427`) and `summariseScope` (`:462-479`) loop
+`validate()` over `skusInScope(...)`, which at WAREHOUSE scope is `itemdataRepository.findAll()` —
+**8,804 SKUs on `wms2-wineco-dev`, all with `defultype_id` set.** The `locationId` is constant across
+the loop, so the three `findById` calls collapse in L1, but
+`locationConstraintRepository.findByStoragelocationtypeId` is a **derived query with no `@Cacheable`**
+and re-executes every iteration: **~8,800 queries on a single `GET /putawayConfig/preview?scope=WAREHOUSE`,
+already live, and deliberately not admin-gated.**
+
+That is larger than the number this plan used to justify the extraction, and the plan never mentioned it.
+Step D builds **one** `Ctx` for the constant `locationId` outside the loop and varies only
+`subjectItemdataId` + `defaultUnitloadTypeId` — which is why those two must be `evaluate` **parameters**,
+not `Ctx` fields.
+
+**Acceptance criterion for D, stated as a number because the whole justification is a number:** assert
+the query count before and after (Hibernate statistics or a datasource proxy in a unit test). Nothing
+else can gate "one constraint query instead of 8,800", and no textual verify row can.
+
+##### 3.11.0.4 Step C — the extraction, with the four things the review found missing
+
+```java
+// service/PutawayDestinationRules.java — a @Service bean with ZERO dependencies, not a static utility.
+public record Ctx(Location location, LocationType type, LocationArea area,
+                  Long flaItemdataIdForLocation,   // FLA bound to this location, or null
+                  Long flaLocationIdForSku,        // pick face this SKU already owns, or null
+                  boolean unitloadTypePermitted) {}
+
+public record Verdict(boolean eligible, String messageKey, List<Object> args) {}
+
+public Verdict evaluate(PutawayScope scope, Ctx ctx, Long subjectItemdataId, Long defaultUnitloadTypeId)
+```
+
+1. **`defaultUnitloadTypeId` is a fourth PARAMETER.** P2.6's throw carries two args and
+   `messages.properties:24` is `Location %1$s does not accept unit load type %2$s, …`. Without it the
+   facade's rethrow supplies one arg, `String.format` raises `IllegalFormatException`,
+   `BusinessException` **catches it** and falls back to `concatenateKeyAndParameter`, and the live 422
+   `detail` silently degrades to `"putawayDestinationTypeIncompatible, 'GoodsIn01'"`. `getKey()` is
+   unaffected — which is exactly why no existing test would catch it, since they all assert `getKey()`
+   by design. A parameter, not a `Ctx` field: it is per-subject, like `subjectItemdataId`, and putting
+   it in `Ctx` duplicates one scalar 2,739 times.
+2. **P2.1 stays in the facade.** `Ctx` presupposes a resolved `Location`; `entityNotFoundForId` needs a
+   `locationId` that `Ctx` does not carry. **`evaluate`'s behaviour for a null `ctx.location()` is
+   undefined and must stay undefined** — the facade guarantees it never happens, and the bulk read
+   sources locations from a query where they always resolve.
+3. **The evaluation ORDER is the contract.** The live order is **not** the P2.x numbering — it is
+   P2.2 → flowbin derivation → P2.3 (SKU staging/crossdock) → transferlane → automationlane → gate →
+   P2.7(e) → P2.4 (with the lane exemption) → P2.7(f) dir 1 → dir 2 → **P2.6 last**. `evaluate` returns
+   the **first** failing predicate. This is behaviour, not style: `blockingReason` is wire-visible, and
+   **1,345 of 2,068 flowbins fail two or more predicates**, so multi-failure is the majority path at SKU
+   scope, not an edge. A "tidy up the numbering" refactor changes which key wins. Model the chain as an
+   **ordered list of predicates** so a later collecting fold (`evaluateAll`, for a picker that wants
+   *all* reasons) is addable without a rewrite.
+4. **`unitloadTypePermitted` is built short-circuited:**
+   `flowbin ? true : constraintService.isUnitloadTypePermitted(location.getTypeId(), defaultUnitloadTypeId)`.
+   Eager evaluation is logically equivalent (the service returns `true` for a null type and fails open on
+   an empty constraint set) but would issue a `location_constraint` query for 2,068 of 2,739 locations
+   that the merged path skips — a query-profile change inside a commit claiming behaviour preservation.
+
+**A `@Service` bean, not `static`.** The purity is worth protecting — a class with no repository fields
+structurally cannot touch a datasource, which matters most in a codebase whose worst mistake is a bare
+`@Transactional` hitting the landlord DB. But `static` is the wrong protector: **pin it with an ArchUnit
+rule** (no dependency on `..repo..`, no `@Transactional`), which this repo already runs and which a
+textual verify row cannot match. And `static` fights the next requirement: a sysprop-gated predicate
+would have to be hoisted into `Ctx` by *every* caller, and `PutawayDestinationResolver:59-65` already
+establishes the opposite pattern for metrics, arguing the counter must live *inside* the rejecting method
+*"rather than at the call site: … a counter that lives beside the caller can be forgotten by the next
+caller added."*
+
+**`Verdict.args` is a `List<Object>`, not `Object[]`.** A record with an array field gets
+array-**identity** `equals`, so the obvious assertion — `assertThat(verdict).isEqualTo(new Verdict(...))`
+— fails against a correct implementation. That is the third gate this plan would have written to fail a
+correct implementation.
+
+**Null-guard the `Ctx` builder** on `location.getAreaId()` and `getTypeId()`. Eager construction makes two
+conditional loads unconditional, and `findById(null)` raises `IllegalArgumentException` → HTTP 500 where
+today the request passes. Measured zero nulls across all 2,739 rows on `wms2-wineco-dev`, so no live data
+reaches it — guard anyway rather than rely on the data.
+
+##### 3.11.0.5 The divergence rule — write it down or the shared evaluator rots
+
+One `evaluate` serves a **throwing writer** (must be exact) and a **bulk reader** (must be cheap). They
+will diverge. The rule that keeps that safe, and it is one-directional:
+
+> **The shared evaluator may make the read more PERMISSIVE than the write. Never stricter.**
+
+A reader stricter than the writer *hides a legal destination* — a silent failure with no error to trace.
+That is precisely the direction the existing SQL restatement got wrong:
+`LocationRepository.getPutAwayCandidateLocations`'s own javadoc admits it is *"deliberately STRICTER than
+the Java gate, not an exact mirror"* and that the two *"agree on today's data"* — duplication that has
+already drifted, documented rather than prevented. When the writer gains a check the reader cannot
+afford, that check stays in the **facade**, outside `evaluate`; reader-`eligible == true` then no longer
+implies the write succeeds, which is fine because the preview is already advisory and the writer already
+recomputes.
+
+**Not shared, ever:** mobile putaway's `verifyScannedLocation`. P2 deliberately does not run at receive
+time — `PutawayDestinationValidator:18-24` — because applying it there would reject tier 4 (`PutAwayLane`
+sits in an `Inbound` area with `useforstorage = false`) and break receipts that work today. Scope the
+ArchUnit rule to who may depend on the rules bean.
+
+##### 3.11.0.6 Deliberately NOT doing
+
+- **No Caffeine cache** on `location_type` / `location_area` / `location_constraint`. 21 rows total;
+  every `@Cacheable` key in this repo is hand-prefixed for tenancy, so each new cache is a fresh
+  cross-tenant leak surface. Paging removes the need. *(A `@Cacheable` on
+  `isUnitloadTypePermitted` was raised as a cheap prior fix for §3.11.0.3's live N+1 — it needs
+  invalidation analysis against `createEntity` and the HAL `@RepositoryRestResource` before anyone
+  asserts it is safe, and step D removes the need. Recorded as an option, not adopted.)*
+- **No `@PreAuthorize` on the new read.** It matches `preview`'s explicit rationale — *"it reveals no
+  more than the location list the picker already shows"*. Stated so an implementer does not guess and a
+  reviewer does not have to ask.
+- **`PutawayDestinationResolver.resolve`'s `Propagation.MANDATORY` is a non-issue here** — this read
+  never calls the resolver. Stated so a reader does not have to verify it.
+
+#### 3.11.0a `BlockingReason` needs four more values — and this plan owns the enum
+
+`PutawayConfigController.java:65` ships `{LOCKED, FIX_ASSIGNED, LANE}`, and its own Javadoc `:58-64`
+records the gap: nothing distinguishes a flowbin bound to **this** SKU (legal under the rule-(e) tier-1
+exemption) from one bound to **another** (illegal under rule (f)). Worse, `blockingReasonFor(...)`
+(`:133-152`) returns **`null` for every unmapped key** while `compatible` is already `false` — so the
+picker is told "blocked, reason unknown."
+
+| Validator throw | Current mapping | r-next mapping |
+|---|---|---|
+| `putawayDestinationBoundToAnotherSku` (`:179`) | `FIX_ASSIGNED` | **`BOUND_TO_ANOTHER_SKU`** |
+| `skuAlreadyBoundToAnotherPickFace` (`:190`) | `FIX_ASSIGNED` | **`BOUND_TO_ANOTHER_SKU`** |
+| `putawayDestinationAreaNotUsable` (`:128`) | **`null`** | **`AREA_NOT_USABLE`** |
+| `putawayDestinationFlowbinNotAllowedForScope` (`:112`) | **`null`** | **`FLOWBIN_SCOPE`** |
+| `putawayDestinationTypeIncompatible` (`:149`) | **`null`** | **`TYPE_INCOMPATIBLE`** |
+| `putawayDestinationLocked` (`:80`) / `putawayDestinationIsALane` (`:95, :201`) | `LOCKED` / `LANE` | unchanged |
+
+**Scale of the omission, measured 2026-08-11:** on `wms2-wineco-dev` **1,345 of 2,068** flowbins are
+already FLA-bound — so at SKU scope the single most common rejection is the one the enum cannot name.
+Three keys mapped to `null` means three more silent classes.
+
+> **Ownership note for SBDEV-2643:** 2643 MUST-4 forbids 2643 extending this enum from its own PR, and
+> correctly so. That makes the extension **this plan's obligation, in Phase 2**, and 2643's picker is
+> blocked on it exactly as this plan's two are.
+
+#### 3.11.1 Receiving form — **narrowed**: SBDEV-2731 shipped the display; this plan adds the diversion
+
+**Do not rewrite this component.** PR #39 (`4ce39a1`) already delivered the label binding, the source
+chip position, the tri-state guard and the label mapping. Verify before editing:
+
+| Construct | `receivingForm.vue` | Status |
+|---|---|---|
+| `putawayStaging` data prop | `:228` | **live** — bound at `:336` from `newVal.defaultputawaylocationname` |
+| `isPutawayDestinationApplied` tri-state | `:296-300` | **live** — returns `true` / `false` / `null` |
+| Template tests `=== false` | `:24` | **live, load-bearing** (`:20-23` carries the comment explaining why) |
+| `isPutawayOverride` ANDs on `=== true` | `:301-304` | **live** |
+| Name-vs-label constants | `:221-222` | **live** — `'PutAwayLane'` for comparison, `'Put Away Lane'` for display |
+
+**Three changes only:**
+
+1. **Re-source, do not re-shape.** Replace the `:336` assignment from `newVal.defaultputawaylocationname`
+   with `GET /receiving/getPutawayDestination/{advicePositionId}` (`ReceivingController.java:80-87`),
+   assigning **`envelope.locationName`** into `putawayStaging`. Keeping `putawayStaging` a location
+   **name** preserves `isPutawayOverride` (`:302-304`) and the label computed (`:307-313`)
+   **byte-for-byte**, so SBDEV-2731's `A10` / `T24` / `T25` stay green. Everything else arrives in new
+   data props — never by widening the meaning of `putawayStaging`.
+2. **Render `sourceLabel` as a subdued chip** beside the existing `(SKU override)` span at `:19`. The
+   envelope supplies `source` (the enum NAME) *and* `sourceLabel` (the display string) precisely so Vue
+   never re-derives precedence (`ReceivingController.java:105-106`).
+3. **NEW, and the reason this subsection still exists — render the diversion.** The envelope carries
+   `divertedTo` + `divertedReason` **only when (iv-b)'s gate retargeted the receipt**
+   (`ReceivingController.java:113-119`), and `warning` only when P1 failed against the *placement*
+   (`:122-124`). Both are **absent, not null**, in the common case.
+
+> **Why item 3 is not optional.** Under (iv-b) a pick-face destination is configured but **not placed**
+> at receipt: the receipt goes to the standard lane and putaway routes it. Without this rendering the
+> screen shows `ICE PACK` while the unit load lands on `PutAwayLane` — an operator-visible lie, and the
+> same defect class as SBDEV-2731 itself. Required copy, per SBDEV-2643 D1: say the destination is
+> **routed via putaway**, not placed directly, **and** state the consequence — *the stock is not on the
+> pick face when the receipt closes; it arrives when someone puts it away.*
+
+Render `divertedTo` as a distinct line, never by overwriting `putawayStaging`: the admin's configured
+value must stay visible beside where the stock will actually land. **The wording needs product sign-off
+(Scott Dalton / David Oppenheim) before merge** — it is what an operator reads to understand why stock
+is not where the configuration says it is.
 
 #### 3.11.2 Warehouse default — Operation Options
 
-`editParamAndConfig.vue:23-30` and `addParamAndConfig.vue:22` branch on `groupName`. Add a `syskey === 'DEFAULT_PUTAWAY_LOCATION'` branch rendering a location picker instead of a free-text field.
+`editParamAndConfig.vue:23` and `addParamAndConfig.vue:22` both branch on
+`groupName == 'Operation Options' || groupName === 'System Settings'`, rendering a free-text
+`v-text-field` for `sysvalue`. Add a nested `syskey === 'DEFAULT_PUTAWAY_LOCATION'` branch rendering
+**`defaultPutawayLocationField.vue`** at `scope=WAREHOUSE` instead of the text field.
 
-**Render the control unconditionally.** The Operation Options screen must offer the putaway-destination control **whether or not a `DEFAULT_PUTAWAY_LOCATION` row exists** in the `findByGroupname` list — driven by the typed endpoints, not by list membership. Two independent reasons: the `V2.2.11` seed may not have run yet on a given tenant, and D12 lets an operator delete the row. Since `POST /v3/systemProperty/create` rejects this syskey (§3.9.1), a list-driven control would leave the warehouse tier unreachable from the UI in both cases. `setWarehouseDestination` creates the row on first write (§3.5).
+> [!note] **CORRECTED 2026-08-11.** This said "rendering `LocationPicker` (§3.11.5)". Step 20 introduced
+> a wrapper instead, because the preview gate, D11's count-and-confirm and the typed write are needed in
+> **four** places — the edit dialog, the add dialog, the unconditional Operation Options control, and
+> step 21's shipper screen — and three copies of a confirmation gate is how one ends up without it.
+> `LocationPicker` stays presentational. A verify lane flagged that §3.11.3 was corrected in place while
+> this section was not; that inconsistency is what this note closes.
 
-**Write path: `PUT /putawayConfig/warehouse` (§3.5a), never `PUT /sysprop/{id}` and never `POST /systemProperty/create`.** The generic dialog's three existing write actions (`store/admin/configuration.js:73-93`, `:95-123`, `:125-147`) stay in place for every *other* syskey; the `DEFAULT_PUTAWAY_LOCATION` branch must dispatch to a new action that calls the typed endpoint, because that endpoint is the only path carrying validation, audit, cache eviction and D11's confirmation. Two of the three existing actions bypass the event handler entirely (§3.9.1), so reusing them would silently ship an unvalidated warehouse tier — the highest-blast-radius tier in the plan.
+**Render the control unconditionally** — whether or not a `DEFAULT_PUTAWAY_LOCATION` row appears in the
+`findByGroupname` list (`store/admin/configuration.js:52`). Two independent reasons: `V2.2.13`'s seed may
+not have run on a given tenant, and D12 lets an operator delete the row. Since
+`POST /v3/systemProperty/create` rejects this syskey (§3.9.1), a list-driven control leaves the warehouse
+tier unreachable from the UI in both cases. `setWarehouseDestination` creates the row on first write
+(§3.5).
 
-**Render the config-health signal.** Before enabling the Save button, call `GET /putawayConfig/preview?scope=WAREHOUSE&locationId=<id>` and show `incompatibleSkuCount` / `totalSkuCount` plus `exampleIncompatibleSku`. A non-zero count drives D11's confirm dialog, which re-issues the write with `confirmIncompatibleSkus=<n>`; a non-null `blockingReason` (`LOCKED` | `FIX_ASSIGNED` | `LANE`) disables Save outright.
+**Write path: `PUT /putawayConfig/warehouse` (`PutawayConfigController.java:204-207`).** Never
+`PUT /sysprop/{id}` and never `POST /systemProperty/create`. The generic dialog's three existing write
+actions — `configuration.js:73-93` (`$put /sysprop/${id}`), `:95-123` (`$post /systemProperty/create`),
+`:125-147` (`$delete /sysprop/${id}`) — stay in place for every **other** syskey. **Two of the three
+bypass the event handler entirely** (§3.9.1), so reusing them ships an unvalidated, unaudited warehouse
+tier — the highest-blast-radius tier in the plan. Add one new action for the typed endpoint.
 
-**Picker shape — tiered, not flat.** No searchable location selector exists anywhere in the app: every existing picker is a client-side filter over a preloaded Vuex list (`moveFixedLocation.vue:13`, `transferStock.vue:36, 72-73`), and `/location/detailView` (`store/masterData/storageLocation.js:53`) returns the full facility list with no search parameter. Build `components/common/LocationPicker.vue` on the two-tier pattern from `createBol.vue:109-121` (inline `v-autocomplete`) + `:125` ("Lookup" button opening a search dialog, cf. `searchPallet.vue`), sourced from `/location/detailView` and filtered client-side on P2.3/P2.4.
-
-**The picker must not be sourced from `/location/getStorageLocationsForPutAwayItemData`** — its `useforstorage='true'` predicate can never return `PutAwayLane` (§3.4c / §0.1 row 34).
-
-**Two tiers of candidate, and the second one carries a warning:**
-
-| Tier | Contents | Presentation |
-|---|---|---|
-| default | locations whose `location_area.useforgoodsin = true` | shown immediately in the autocomplete |
-| advanced | locations whose `location_area.useforstorage = true` | behind an explicit **"Show storage locations"** toggle, which reveals the lock-contention warning below |
-
-**The picker's filter must be exactly P2.4** (`useforgoodsin OR useforstorage`), split across the two tiers. Offering anything P2.4 rejects produces a 422 the operator cannot act on. In particular a **pick-only** area — `useforpicking` with neither `useforgoodsin` nor `useforstorage` — is **not** offered, because P2.4 rejects it; whether it should be admissible at all is **Q9**.
-
-The advanced tier exists because the ticket legitimately wants a storage destination, and is gated because pointing a tier-2/3 default at a **live storage location** moves a `FOR UPDATE` lock onto a row that replenishment and transfer also lock, in the opposite order — see §7.6 row 8. The warning text must say that receiving will hold a lock on the chosen location for the duration of a whole multi-case receipt, and that a location in active use may cause receipts to fail with a deadlock. The same tiering and the same warning apply to the merchant picker (§3.11.3) and to the SKU picker whenever SBDEV-2643 builds one.
-
-Whether a preloaded list scales depends on location count per facility — §10 Q2.
+**Config-health gate before Save.** Call `GET /putawayConfig/preview?scope=WAREHOUSE&locationId=<id>`
+(`PutawayConfigController.java:93`) and render `incompatibleSkuCount` / `totalSkuCount` /
+`exampleIncompatibleSku`. A non-zero count drives D11's confirm dialog, which re-issues the write with
+`confirmIncompatibleSkus=<n>`; a **non-null `blockingReason` disables Save outright**. The envelope is a
+7-field record (`PutawayConfigController.java:47-53`) — bind it, do not re-derive any of it.
 
 #### 3.11.3 Merchant default — shipper screen
 
-`components/admin/shippers/editShipper.vue:14-80` gains one field bound to `defaultputawaylocationId`, read from `/client/detailView` and **written through `PUT /putawayConfig/merchant/{clientId}`** (§3.5a) — not through `PATCH /client/{id}` (`store/admin/shippers.js:47`), which is the HAL path and cannot carry D11's confirmation.
+`editShipper.vue` gains one field in the existing stack (`:32-45` is the Assigned-Zone select — label
+`:32`, `v-select` `:37-45`; `:50-63` is the Receiving-Printer select — both are the idiom to copy).
 
-Because `NULL` means inherit, the field renders as a three-state control: **Configured** (`<location>`), **Inherited** (`<effective location>` shown greyed with its source), and a **Clear** action writing `null`. There is no configured-vs-inherited precedent anywhere in the app. The **Inherited** value comes from `GET /client/{id}/effectivePutawayDestination` (N9), whose `source` + `sourceLabel` fields (§3.8) are what make it displayable without re-deriving precedence in Vue; without that endpoint this control cannot be rendered at all.
+> [!warning] **CORRECTED 2026-08-11 (step 21) — this section named the wrong read source, and it is the
+> SAME defect §3.11 defect 1 caught for `/location/detailView`.**
+>
+> The original text said the field is *"bound to `defaultputawaylocationId` and read from
+> `/client/detailView` (`store/admin/shippers.js:20-22`)"*. **The column is not in that payload.**
+> `ViewDtoService.getClientView()` (`:934-957`) hand-builds the DTO and puts exactly eight keys: `id`,
+> `clientName`, `clientNumber`, `sectionName`, `enablereceiving`, `printerName`, `printerreceivingId`,
+> `sectionId`. Adding it there would touch a DTO five other screens consume, for no gain.
+>
+> **Implemented against `GET /client/{id}/effectivePutawayDestination`** (N9), which already carries
+> everything the three-state control needs — including the `inherited` boolean. Recorded as a plan
+> defect rather than silently worked around, because the same wrong assumption has now appeared
+> **twice** in this plan: a `detailView` endpoint presumed to carry a column it does not.
 
-The picker is the same tiered `LocationPicker.vue` as §3.11.2, including the advanced-tier lock warning, and the same `GET /putawayConfig/preview?scope=MERCHANT&subjectId=<clientId>&locationId=<id>` call driving `incompatibleSkuCount` and the confirm dialog.
+**Write through `PUT /putawayConfig/merchant/{clientId}` (`PutawayConfigController.java:186-189`), not
+through `editShipper`.** `store/admin/shippers.js:45-55` is `$patch('/client/${id}', data)` (`:47`) — the
+HAL path, which carries no validation, no audit, no cache eviction and cannot carry D11's confirmation.
+`editShipper.vue:129-132`'s `save()` dispatches exactly that, so the new field must be **excluded from
+the patched payload** and written by its own dispatch. A field that rides along in the existing PATCH
+silently defeats the whole typed write surface.
 
-#### 3.11.4 persistedState
+**The three-state control is now directly bindable — do not re-derive it.**
+`GET /client/{id}/effectivePutawayDestination` (`ClientController.java:67-79`) returns
+`{locationId, locationName, source, configuredFor, inherited}`, where **`inherited` is already the
+boolean the control needs** (`:78` — `source != MERCHANT_OVERRIDE`):
 
-`plugins/persistedState.client.js:22-25` persists the **entire** `admin` Vuex module — including `admin.configuration.operationOptions` — to `localStorage['vuex-web']`, excluding only `warehouseTimezone`, `selectedWarehouse`, `warehouses`. This is the exact failure class as the stale-timezone bug: a rehydrated prior value overwrites the fetched one. Add the putaway config keys to the reducer exclusion list. (A cross-tenant leak here would show one tenant's location id in another tenant's admin screen.)
+| State | Condition | Presentation |
+|---|---|---|
+| **Configured** | `inherited === false` | `locationName`, normal weight |
+| **Inherited** | `inherited === true` | `locationName` greyed, with `source` naming the tier it came from |
+| **Cleared** | operator action | `locationId` omitted → the validator returns early (`PutawayDestinationValidator.java:66-68`), so clearing is always legal |
+
+Same `LocationPicker` at `scope=MERCHANT`, and the same
+`GET /putawayConfig/preview?scope=MERCHANT&subjectId=<clientId>&locationId=<id>` driving
+`incompatibleSkuCount` and the confirm dialog.
+
+#### 3.11.4 persistedState — corrected coordinates
+
+`plugins/persistedState.client.js:22-25` is a **single top-level reducer** (`reducer:` on `:24`) excluding
+exactly three keys — `warehouseTimezone`, `selectedWarehouse`, `warehouses`. Everything else,
+**including the whole `admin` module and therefore `admin.configuration.operationOptions`**, is persisted
+to `localStorage['vuex-web']`.
+
+This is the same failure class as the stale-timezone bug (SBDEV-2726): a rehydrated prior value
+overwrites the fetched one, and cross-tenant it would show one tenant's location id in another tenant's
+admin screen. Add the putaway config keys to the exclusion. Note the plugin's self-heal idiom at
+`:30-31` — a re-assert from a dedicated key after rehydration — if the simple exclusion proves
+insufficient for already-deployed browsers.
+
+#### 3.11.5 `components/common/LocationPicker.vue` — the component contract
+
+**Precedent (corrected).** The repo's only `v-autocomplete` in that family is
+`components/outbound/bol/create/createBol.vue:68-76` — `v-model` `:69`, `:items` `:70`,
+`item-text="label"` `:74`, `item-value="value"` `:75`. The other naive precedent is
+`moveFixedLocation.vue:13`. **There is no "Lookup" button anywhere in `createBol.vue`** — the old
+citation invented a control that does not exist.
+
+**Props / events.** This is the contract SBDEV-2643 §3.8.2b specified and handed to this plan (2643 `Q6`
+/ `D14`); adopting it verbatim closes 2643 §5.1 row 0b.
+
+| Prop | Type | Contract |
+|---|---|---|
+| `value` | `Number` or `null` | `v-model` — the selected `locationId`; `null` means cleared / inherit |
+| `items` | `Array` | rows from `/putawayConfig/eligibleLocations`, **passed in by the caller**, not fetched by the component. ⚠ **That read is PAGINATED as of 2026-08-11 (§3.11.0.1)** — the caller owns paging and accumulation, and must handle a partial set rather than assuming one response is the whole facility. **`totalCount`** reads the envelope's `totalElements`; **`eligibleCount` is necessarily counted from the accumulated rows** — corrected 2026-08-11: the `EligibleLocation` record carries no such field, so the original "reads the page metadata" was true of one number only. |
+| `disabled` | `Boolean` | the permission gate (§3.12) |
+| `item-text` / `item-value` | `String` | `'locationName'` / `'locationId'` |
+
+| Event | Payload |
+|---|---|
+| `@input` | the `locationId`, for `v-model` |
+| `@select` | **the full row**, so the caller reads `blockingReason` / `tier` without re-deriving anything |
+
+**Two tiers, driven by the server's `tier` field — never by a client-side flag test:**
+
+| Tier | Contents | Presentation |
+|---|---|---|
+| default | `tier === 'DEFAULT'` (`useforgoodsin`) | shown immediately in the autocomplete |
+| advanced | `tier === 'ADVANCED'` (storage-only) | behind an explicit **"Show storage locations"** toggle that reveals the lock-contention warning |
+
+**The advanced tier's warning stays, unchanged and mandatory.** Pointing a tier-2/3 default at a live
+storage location moves a `FOR UPDATE` lock onto a row replenishment and transfer also lock, in the
+opposite order (§7.6 row 8). The text must say that receiving holds a lock on the chosen location for the
+duration of a whole multi-case receipt, and that a location in active use may cause receipts to fail with
+a deadlock. **There is no deadlock-retry infrastructure in this codebase** (SBDEV-1762: an up-front
+lane-Location lock is a cross-caller `40P01` anti-pattern).
+
+**The currently-selected row is always offered, tier notwithstanding — added 2026-08-11 from step 19's
+implementation.** A tier-2/3 default already saved against a storage location carries
+`tier === 'ADVANCED'`, so the two-tier filter above, read literally, leaves it out of the autocomplete's
+items and the field renders **empty** — telling an operator nothing is configured when something is. The
+tier gate exists to stop a storage location being *chosen* without the warning, not to hide one already
+in effect. `eligible` is **not** relaxed by this: a saved destination that has since become invalid stays
+unoffered, because surfacing it is step 22's job. **Steps 20, 21 and SBDEV-2643's SKU picker all inherit
+this**, since all three can load a previously-saved advanced-tier value.
+
+**An unrecognised `tier` fails CLOSED** (step 19). Only `DEFAULT` and `ADVANCED` are offered; anything
+else appears in neither tier, because promoting an unknown value to the visible tier is precisely how a
+storage location reaches an operator without the lock warning.
+
+**Ineligible rows are not offered.** `eligible === false` rows are excluded from `items` by the caller;
+the picker renders no third "offered with a warning" state. When the eligible set is small relative to
+the facility, the caller shows `{eligibleCount}` of `{totalCount}` so an operator never concludes the
+search is broken (SBDEV-2643 §3.8.2a).
+
+##### 3.11.5a The eligible set is scope-dependent in five places — measured
+
+The old §3.11.2's single "exactly P2.4" filter cannot express this. Derived from
+`PutawayDestinationValidator.java:63-193` as merged:
+
+| Predicate | SKU (tier 1) | MERCHANT / WAREHOUSE (tiers 2/3) |
+|---|---|---|
+| P2.2 `entity_lock == 0` (`WmsConstants.java:1209`) | reject | reject |
+| `transferlane` / `automationlane` / `gate` | reject | reject |
+| `staginglane` / `crossdockinglane` | **reject** (`:94-95`) | **PERMIT** — no reject fires; rationale at `:88-91` |
+| `sltname == 'flowbin'` (`WmsConstants.java:736`) | **PERMIT** — rule (e) tier-1 exemption (`:111`) | **reject** (`:111-113`) |
+| area `useforgoodsin OR useforstorage` | require (`:126-128`) | require **unless** staging/cross-dock (`:120`) |
+| P2.7(f) FLA coherence (`:164-193`) | apply — needs `subjectId` | n/a |
+| P2.6 unit-load-type heuristic (`:137-150`) | apply, **skipped for flowbin** (`:146`) | apply |
+
+**Measured 2026-08-11, SELECT-only, both DEV tenants:**
+
+| Tenant | total locations | SKU-scope eligible | merchant/warehouse eligible | flowbins (of which FLA-bound) |
+|---|---|---|---|---|
+| `wms2-wineco-dev` (`dev_wh01_om1`) | 2,739 | **2,554** | **516** | 2,068 (1,345) |
+| `wms2-hydra-dev2` (`wh01_hydra_v2`) | 666 | **602** | **112** | 496 |
+
+Zero locked rows on either tenant, so P2.2 excludes nothing today — it is a correctness guard, not a
+filter. The `PutAwayLane` exclusion accounts for the 1-row gap against SBDEV-2643's 2,555.
+
+**This settles §10 Q2, and settles it differently per scope.** Q2 asked whether a preloaded,
+client-side-filtered picker scales, with the remedy *"if any tenant exceeds ~2,000, add a search
+parameter."* **Phase 2's own two pickers do not cross the threshold** — 516 and 112 rows. **SKU scope
+does** — 2,554 on wineco-dev. So the remedy belongs to whoever ships the SKU picker (SBDEV-2643 Phase
+B2), and it is a **paging/search parameter on `/putawayConfig/eligibleLocations`**, not on
+`/location/detailView` — the latter would re-open defect 1 by inviting a client-side filter over a
+payload carrying no flags. **Recorded as an explicit hand-off, not a silent cap.**
 
 ### 3.12 Permissions — bounded decision (AC item 7)
 
 **There is no frontend role gating in this app.** `layouts/default.vue:284-286` returns the `'super-admin'` menu unconditionally for every authenticated user; `adminMenu` (`:264-268`) is never referenced; `APP_ADMIN_GROUP` (`nuxt.config.js:167`) is read nowhere. `store/index.js:92-101` `getUserRoles` and `:103-117` `getAffiliatedGroupsByUsername` already fetch roles, and nothing gates on them.
 
+> [!warning] **`Authority.IS_SB_ADMIN` was BROKEN when this section was written, and is now FIXED. Added 2026-08-09.**
+>
+> Between `ded4d644` (2025-10-29) and 2026-08-07 the constant was the string `"isSbAdmin()"`, naming a
+> SpEL method that existed on no expression root — the rename that introduced it moved
+> `IS_AIM_ADMIN`/`isAimAdmin()` but left the root's method named `isAimAdmin()`. **Every
+> `@PreAuthorize(Authority.IS_SB_ADMIN)` therefore threw `SpelEvaluationException EL1004E` inside the
+> authorization check and returned HTTP 500 to every caller, a genuine `sb_admin` included.** Had this
+> plan merged as written before that date, **all six of its admin-gated writes would have 500'd for
+> everyone** — and neither M16 nor M16a would have read as a security failure, only as a broken endpoint.
+>
+> **[SBDEV-2863](https://app.clickup.com/t/868knmx18) fixed it — merged 2026-08-07, `wms2-api` PR #134,
+> commits `675b4a1` + `d8e0137`, merge `7d9d38e`, ClickUp `on dev`.** `Authority.java:44` now reads
+> `IS_SB_ADMIN = "hasAuthority('" + SB_ADMIN_ROLE + "')"`, and the same commit added a `@Nested
+> AuthorityExpressionsResolve` test that evaluates the constant through the real
+> `CustomMethodSecurityExpressionHandler`.
+>
+> **Consequences for this plan — all favourable, and no edit is required:**
+> - **Every `@PreAuthorize(Authority.IS_SB_ADMIN)` below is CORRECT as written.** Keep the constant; do
+>   **not** swap it for `Authority.getExpForRole(Authority.SB_ADMIN_ROLE)`. Since `675b4a1` the two
+>   render the identical string, and 2863's `getExpForRole_expressionResolves` asserts that equality so
+>   they cannot drift.
+> - **SBDEV-2643 §5.1 row 0e — *"2732 must NOT merge carrying `Authority.IS_SB_ADMIN`"* — is
+>   DISCHARGED**, and its verify probe `X-2732-authz` has been **deleted**: it asserted the *absence* of
+>   this annotation and **would have failed this plan's correct implementation**. It is replaced by
+>   `X-authz-constant`, a regression guard on `Authority.java` itself.
+> - **M16 / M16a now expect 403 and mean what they say.** A **500** on either is a regression of 2863,
+>   not a defect in this plan.
+> - Prerequisite §5.1 row 7 is updated to match.
+
+> [!note] **HOW `sb_admin` ACTUALLY REACHES THE TOKEN — confirmed with the user 2026-08-11, and it
+> closes the residual risk this section carried.**
+>
+> `sb_admin` is granted by **Keycloak GROUP membership**, so it arrives in the **`groups`** claim — not
+> under `resource_access`. Both sides read it: the API's `JwtAccessTokenCustomizer.extractRoles`
+> harvests `GROUP_ELEMENT_IN_JWT = "groups"` (`:98`), and `util/keycloakRoles.js` reads
+> `tokenParsed.groups`. **A genuine `sb_admin` therefore gets an enabled control, verifiable without a
+> live session.**
+>
+> ⚠ **This makes the original gate worse than recorded.** `hasResourceRole('sb_admin', clientId)` reads
+> `resource_access[clientId].roles`, and a group membership is not there — so it returned `false` for
+> **every real `sb_admin`, on every tenant, permanently**, independent of `KEYCLOAK_CLIENT`. H1b was not
+> a deployment-dependent edge case; the control would simply never have enabled for anyone entitled to
+> it.
+>
+> **WMS operational users are unaffected either way:** they are assigned `wms_user` and/or `wms_admin`
+> only, and never touch these admin write endpoints. `sb_admin` gating is also the house pattern rather
+> than something this plan introduced — at this plan's base commit `fd90487` the API already carried 13
+> `@PreAuthorize(Authority.IS_SB_ADMIN)` gates (12 in `AdminController`, 1 in
+> `ReplenishmentReconciliationController`), and all 18 live gates use it.
+>
+> Observation, not an action: `Authority.getExpAppAdminGroupOrSbAdminGroup(...)` and
+> `getExpAppUserGroupOrAppAdminGroup(...)` are **defined and never used anywhere**. If product ever
+> wants WMS admins to self-serve putaway config rather than routing through SiteBoss staff, that helper
+> is where the wms_admin-or-sb_admin expression already exists — a product decision, not a defect.
+
 **Decision:** the security boundary is the **backend**, and it is enforced **in `PutawayConfigService`, not on the event-handler methods**.
 
-- `@PreAuthorize(Authority.IS_SB_ADMIN)` on `PutawayConfigController`'s three write endpoints (the pattern used throughout `controller/AdminController.java:93, 121, 134, 147, 156`).
+- `@PreAuthorize(Authority.IS_SB_ADMIN)` on `PutawayConfigController`'s three write endpoints (the pattern used throughout `controller/AdminController.java` — ⚠ **re-derived 2026-08-11 (SBDEV-2643 §10.3 C5): the ACTIVE sites are `:80, 108, 121, 134, 143, 155, 176, 200`, and `:190, 261, 285, 315` are commented out. Only `121` and `134` matched the list previously cited here. And the sites are no longer broken — SBDEV-2863 repaired the constant on 2026-08-07** — superseded citation was `:93, 121, 134, 147, 156`).
 - `@PreAuthorize(Authority.IS_SB_ADMIN)` on `PutawayConfigService.setSkuDestination`, `setMerchantDestination`, `setWarehouseDestination` **and `validateOnly`**. `validateOnly` is the method the event handler calls, so this is what makes the HAL channel admin-only.
 - **Nothing on the handler methods.** Spring Data REST registers handler beans via its own `AnnotatedHandlerBeanPostProcessor`; Spring Security's method-security advisor comes from a different post-processor, and depending on ordering SDR may capture the raw target rather than the security proxy — in which case an annotation on a handler method is **inert and silently never fires**. `PutawayConfigService` is an ordinary `@Service`, reliably proxied, and the handler invokes it from outside the bean, so the check cannot be bypassed by proxy-capture. §3.9.4.
 - `AccessDeniedException` is unchecked, so it propagates out of the handler and Spring Security maps it to **403** — ahead of any 422 from validation.
 
-Phase 2 additionally *hides* the fields using the already-fetched `affiliatedGroups` — a convenience, not a control.
+Phase 2 additionally *hides* the fields — a convenience, not a control.
+
+> [!warning] **`affiliatedGroups` CANNOT EXPRESS THIS GATE — corrected 2026-08-11 after review.**
+>
+> This section prescribed `affiliatedGroups`, and a review lane was right that Phase 2 used something
+> else. But the prescription is not implementable: `affiliatedGroups` comes from
+> `GET /userGroup/search/findByUsername` and holds WMS **`mywms_group.name`** values — measured on
+> `wms2-wineco-dev` they are `CS-REP`, `GROUP000008`, `GROUP000009`, … — warehouse groups, with nothing
+> role-like and no `sb_admin` anywhere. Gating on it would hide the field from everyone or no-one.
+>
+> **What Phase 2 does instead** (`util/keycloakRoles.js`): mirror the API's own resolution.
+> `JwtAccessTokenCustomizer.extractRoles` (`:86-106`) harvests roles from **every** client under
+> `resource_access` **plus** the `groups` claim, and `hasAuthority('sb_admin')` tests that set. The
+> client gate reads the same two claim sites, so it cannot be narrower than the endpoint it fronts.
+>
+> ⚠ **The first implementation was narrower, and it was a real lockout.** It called
+> `$kc.hasResourceRole('sb_admin', $config.keycloak.clientId)` — one client's roles, and that clientId
+> was `process.env.KEYCLOAK_CLIENT`, a build-wide value, while the token is issued by the **per-tenant**
+> client from tenant discovery. Worse, it was a **computed over a non-reactive injected object**, so it
+> cached `false` from the pre-init render and never recovered.
 
 **Proof.** Manual row **M16** (typed endpoints ⇒ 403) and **M16a** (`PATCH /v3/sysprop/{id}` as a non-`sb_admin` ⇒ 403, not 422 and not 200). A verify row asserts `@PreAuthorize` appears in `PutawayConfigService.java` and **not** in `PutawayConfigRepositoryEventHandler.java`.
 
@@ -2010,7 +2651,7 @@ Cardinality is bounded: `source` 4 × `carrier` 2 × **`compatible` 2** × `tena
 
 ### 3.14 Audit table (D7 / ticket AC)
 
-**New table** in `V2.2.11` (Phase 1 — the backfill pre-image needs somewhere to land, §5.1), modelled on `customerorder_cancellation_log`. The **entity, repository and audit service are Phase 1** (O1); Phase 1 creates the table and writes only the migration pre-image rows. Note that `CustomerorderCancellationLog` uses `GenerationType.IDENTITY` and does **not** extend `AbstractBaseEntity` — so this table gets its own `bigserial` and never touches `seqentities`, which sidesteps the dual-island id-space landmine on migrated tenants.
+**New table** in `V2.2.13` (Phase 1 — the backfill pre-image needs somewhere to land, §5.1), modelled on `customerorder_cancellation_log`. The **entity, repository and audit service are Phase 1** (O1); Phase 1 creates the table and writes only the migration pre-image rows. Note that `CustomerorderCancellationLog` uses `GenerationType.IDENTITY` and does **not** extend `AbstractBaseEntity` — so this table gets its own `bigserial` and never touches `seqentities`, which sidesteps the dual-island id-space landmine on migrated tenants.
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.putaway_config_audit (
@@ -2048,7 +2689,7 @@ Location **names** are denormalised alongside the ids so the log stays readable 
 
 | File | Add/Modify/Delete | Phase | Description |
 |---|---|---|---|
-| `src/main/resources/db/migration/V2.2.11__putaway_destination_hierarchy.sql` | **Add** | 1-API | **one** migration, statement order load-bearing (§5.1): preflight guard; `itemdata.putawaylocation_id DROP NOT NULL`; `putaway_config_audit` table + index; backfill pre-image; scoped NULL backfill; `client.defaultputawaylocation_id` + guarded named FK; `DEFAULT_PUTAWAY_LOCATION` sysprop seeded `''` |
+| `src/main/resources/db/migration/V2.2.13__putaway_destination_hierarchy.sql` | **Add** | 1-API | **one** migration, statement order load-bearing (§5.1): preflight guard; `itemdata.putawaylocation_id DROP NOT NULL`; `putaway_config_audit` table + index; backfill pre-image; scoped NULL backfill; `client.defaultputawaylocation_id` + guarded named FK; `DEFAULT_PUTAWAY_LOCATION` sysprop seeded `''` |
 | `service/PutawayDestinationResolver.java` | **Add** | 1a | §3.1 — the one shared 4-tier resolver, `Propagation.MANDATORY` |
 | `service/PutawayDestinationQueryService.java` | **Add** | 1a | §3.1.5 — `readOnly = true` tenant-tx facade; the only way a controller reaches the resolver |
 | `service/PutawayConfigService.java` | **Add** | 1a (merchant writer 1b) | §3.5 — validated + audited writers, `validateOnly` / `auditAndEvict` / `readCommittedDestination`, cache eviction, `@PreAuthorize` boundary |
@@ -2062,8 +2703,8 @@ Location **names** are denormalised alongside the ids so the log stays readable 
 | `controller/PutawayConfigController.java` + `PutawayConfigPreview` | **Add** | 1a (`setMerchant` 1b) | §3.5a — the typed write surface and D11's count-and-confirm |
 | `controller/RestExceptionHandler.java` | Modify | 1a | `@ExceptionHandler` for `PutawayConfigValidationException` ⇒ 422 with the rendered message (§3.9.7) |
 | `controller/SystemPropertyController.java` | Modify | 1a | `:77` and `:107` reject `syskey == DEFAULT_PUTAWAY_LOCATION` (§3.9.1) |
-| `model/Itemdata.java` | Modify | 1a | remove `@NotNull` at `:49` — same commit as `V2.2.11` |
-| `model/Client.java` | Modify | 1b | add `defaultputawaylocationId` + accessors — same commit as `V2.2.11` |
+| `model/Itemdata.java` | Modify | 1a | remove `@NotNull` at `:49` — same commit as `V2.2.13` |
+| `model/Client.java` | Modify | 1b | add `defaultputawaylocationId` + accessors — same commit as `V2.2.13` |
 | `service/WmsConstants.java` | Modify | 1a | add `SYSTEM_PROPERTY_DEFAULT_PUTAWAY_LOCATION_KEY` |
 | `service/LocationConstraintService.java` | Modify | 1a | add `isUnitloadTypePermitted` (§3.4b) |
 | `service/UnitloadBusinessService.java` | Modify | 1a | `:180-193` delegates to the predicate; `:191` raw-concat throw → the **neutral** `unitloadTypeNotPermittedOnLocation` (§3.6.1) |
@@ -2072,7 +2713,7 @@ Location **names** are denormalised alongside the ids so the log stays readable 
 | `controller/ItemDataController.java` | Modify | 1a | `:80` `allEntries=true` → delegation; `:88-90` raw save → service call |
 | `controller/ReceivingController.java` | Modify | 1a | add `getPutawayDestination` delegating to the §3.1.5 facade; `:314` literals → constants |
 | `controller/ClientController.java` | Modify | 1b | add `GET /client/{id}/effectivePutawayDestination` (N9), delegating to the facade |
-| `controller/rest/SkuRestController.java` | Modify | 1a | drop the lane lookup + argument at `:85-88, 144-146, 198-201, 257-259` — same commit as `V2.2.11` |
+| `controller/rest/SkuRestController.java` | Modify | 1a | drop the lane lookup + argument at `:85-88, 144-146, 198-201, 257-259` — same commit as `V2.2.13` |
 | `service/SkuBatchCreateUpdateService.java` | Modify | 1a | drop the `defaultPutawayLocationId` parameter (`:36`) and the setter (`:53`) |
 | `controller/FileImportController.java` | Modify | 1a | drop the setter at `:383`; keep an equivalent lane-presence guard at `:355-359` |
 | `src/main/resources/messages_en_US.properties` | Modify | 1a | add **both** `unitloadTypeNotPermittedOnLocation` and `putawayDestinationNotPermitted` (§3.6.1) |
@@ -2095,14 +2736,21 @@ Location **names** are denormalised alongside the ids so the log stays readable 
 | `src/test/.../common/fixtures/TestDataFactory.java` | Modify | 1a | `:694` |
 | 3 H2 tests + 2 `@Disabled` ITs | Modify | 1a | listed in §3.2 |
 
-### Phase 2 — `v2/wms2-web-ui` (**1a-UI** = receiving form only; everything else is **1b-UI**)
+### Phase 2 — `v2/wms2-web-ui` **+ one API read** (**1a-UI** = receiving form only; everything else is **1b-UI**)
+
+> ⚠ **r-next: Phase 2 is no longer UI-only.** The three `2-API` rows below are new and they **gate**
+> every UI row — no picker can filter client-side, because `/location/detailView` carries none of the
+> predicate columns (§3.11 defect 1). See §3.11.0 and §3.11.0.1.
 
 | File | Add/Modify/Delete | Phase | Description |
 |---|---|---|---|
-| `components/receiving/open/receive/receivingForm.vue` | Modify | 1a-UI | `:9-13` hardcoded label → effective destination + source chip + incompatibility banner; wire `putawayStaging` (`:206`) |
+| `service/PutawayDestinationRules.java` | **Add** | **2-API** | §3.11.0.1 — the pure predicate evaluator (`evaluate(scope, Ctx, subjectId) -> Verdict`). No repositories, no Spring |
+| `service/PutawayDestinationValidator.java` | Modify | **2-API** | §3.11.0.1 — becomes a facade over `PutawayDestinationRules`. **Behaviour-preserving: `PutawayDestinationValidatorUnitTest` must pass UNMODIFIED** |
+| `controller/PutawayConfigController.java` | Modify | **2-API** | §3.11.0 `GET /eligibleLocations` (bulk — 5 queries, never per-row `validate()`); §3.11.0a `BlockingReason` +4 values and 3 corrected key mappings |
+| `components/receiving/open/receive/receivingForm.vue` | Modify | 1a-UI | **NARROWED (r-next) — SBDEV-2731 PR1 already shipped the label binding, the tri-state and the override chip.** Re-source `putawayStaging` (`:228`, currently bound at `:336`) from `getPutawayDestination`; add the `sourceLabel` chip at `:19`; **render `divertedTo` / `divertedReason` / `warning`** (§3.11.1). Preserve `=== false` at `:24` |
 | `store/receiving/*.js` | Modify | 1a-UI | fetch `getPutawayDestination` |
 | `plugins/persistedState.client.js` | Modify | 1a-UI | `:22-25` exclusion list |
-| `components/common/LocationPicker.vue` | **Add** | 1b-UI | tiered autocomplete + lookup dialog, `createBol.vue:109-125` pattern; advanced tier carries the lock warning (§3.11.2) |
+| `components/common/LocationPicker.vue` | **Add** | 1b-UI | props/events per **§3.11.5**; two tiers driven by the server's `tier` field; advanced tier carries the lock warning. Precedent is `createBol.vue:68-76` — **the old `:109-125` citation was wrong on all three counts** (§3.11 defect 4) |
 | `components/admin/parametersAndConfiguration/editParamAndConfig.vue` | Modify | 1b-UI | `syskey` branch → tiered picker, writing `PUT /putawayConfig/warehouse` |
 | `components/admin/parametersAndConfiguration/addParamAndConfig.vue` | Modify | 1b-UI | same |
 | `store/admin/configuration.js` | Modify | 1b-UI | new action calling `PUT /putawayConfig/warehouse` + `GET /putawayConfig/preview`; the three existing sysprop write actions stay for other syskeys |
@@ -2119,13 +2767,13 @@ Location **names** are denormalised alongside the ids so the log stays readable 
 | # | Prerequisite | Required value / action | Owner | Notes |
 |---|---|---|---|---|
 | **0** | **External dependency — SBDEV-2731 PR1 merged to `develop`** (D12) | This plan assumes `receivingForm.vue` already binds `putawayStaging`, and that `UnitloadBusinessService:191` already throws the **neutral** `unitloadTypeNotPermittedOnLocation`. Both are 2731 PR1's deliverables, not this plan's. | 2731 | **New constraint: this plan can no longer merge independently.** If 2731 PR1 is abandoned or reworked, §3.6.1 and the display contract must be re-scoped back into this plan. |
-| 1 | **Database state** | **Repair the Hydra DEV copy first** — it has no `flyway_schema_history`, so `StartupFlywayMigrator` **skips** it and `V2.2.11` would never apply: run `db/backfill-flyway-history.sh --up-to <its true watermark>` once against that DB. **Then confirm `V2.2.10` (SBDEV-2854) is already applied to THAT tenant — PR #132 merged 2026-08-07 (`68274b0`), so it is on `develop`, but **merged is not applied**; see §8.1 merge 0b. Applying `V2.2.11` to a tenant that has not yet received `V2.2.10` wedges that tenant against 2854 permanently** (`outOfOrder=false` skips the lower version, `validateOnMigrate=true` then fails every boot, and `StartupFlywayMigrator` swallows it). Then `V2.2.11` applied to **every** DEV tenant **BEFORE the Phase 1-API PR merges** (§8.1 — the single gated merge); then UAT before UAT deploy; then prod before prod deploy. Flyway head on `origin/develop` reads **`V2.2.09`** at start. | operator + author | **HARD BLOCKER on the Phase 1-API merge.** `V2.2.11` **does** add a column an entity maps (`client.defaultputawaylocation_id`), so the whole migration is gated — there is no gate-free half. DEV **auto-deploys on push**, and because `ddl-auto` is **`none`** the app **starts fine** and then throws `42703` on every `client` SELECT — silently, with green probes. On tenants that *do* have Flyway history the runtime migrator (SBDEV-2801) applies `V2.2.11` at boot and self-heals; the history-less DEV copy is the one that does not. Follow the `sbdocs/2-Areas/` Flyway tenant runbook with `--env dev`. See §8.1 and pre-mortem **P1**. |
-| 2 | **Feature flags / system properties** | `DEFAULT_PUTAWAY_LOCATION` seeded by `V2.2.11` with `sysvalue = ''`. **No behaviour toggle.** | migration | D2 declined a sysprop gate; back-compat rests on "no config ⇒ no behaviour change", proven in §6. Blank = not configured (landmine A2). The seed is a convenience, not a dependency (§3.4a). |
+| 1 | **Database state** | **Repair the Hydra DEV copy first** — it has no `flyway_schema_history`, so `StartupFlywayMigrator` **skips** it and `V2.2.13` would never apply: run `db/backfill-flyway-history.sh --up-to <its true watermark>` once against that DB. **Then confirm `V2.2.10` (SBDEV-2854) is already applied to THAT tenant — PR #132 merged 2026-08-07 (`68274b0`), so it is on `develop`, but **merged is not applied**; see §8.1 merge 0b. Applying `V2.2.13` to a tenant that has not yet received `V2.2.10` wedges that tenant against 2854 permanently** (`outOfOrder=false` skips the lower version, `validateOnMigrate=true` then fails every boot, and `StartupFlywayMigrator` swallows it). Then `V2.2.13` applied to **every** DEV tenant **BEFORE the Phase 1-API PR merges** (§8.1 — the single gated merge); then UAT before UAT deploy; then prod before prod deploy. Flyway head on `origin/develop` reads **`V2.2.09`** at start. | operator + author | **HARD BLOCKER on the Phase 1-API merge.** `V2.2.13` **does** add a column an entity maps (`client.defaultputawaylocation_id`), so the whole migration is gated — there is no gate-free half. DEV **auto-deploys on push**, and because `ddl-auto` is **`none`** the app **starts fine** and then throws `42703` on every `client` SELECT — silently, with green probes. On tenants that *do* have Flyway history the runtime migrator (SBDEV-2801) applies `V2.2.13` at boot and self-heals; the history-less DEV copy is the one that does not. Follow the `sbdocs/2-Areas/` Flyway tenant runbook with `--env dev`. See §8.1 and pre-mortem **P1**. |
+| 2 | **Feature flags / system properties** | `DEFAULT_PUTAWAY_LOCATION` seeded by `V2.2.13` with `sysvalue = ''`. **No behaviour toggle.** | migration | D2 declined a sysprop gate; back-compat rests on "no config ⇒ no behaviour change", proven in §6. Blank = not configured (landmine A2). The seed is a convenience, not a dependency (§3.4a). |
 | 3 | **Config / env changes** | None. No new property, no new cache, no Jasypt secret, no Keycloak client. | — | `CacheConfig` deliberately unchanged (§3.10) — the four caches already exist in both profiles. |
 | 4 | **Deploy-order dependencies** | Each API phase merges and deploys **before** its UI phase. 1a-UI depends on `GET /receiving/getPutawayDestination`; 1b-UI depends on `PutawayConfigController`, `GET /client/{id}/effectivePutawayDestination` and `client.defaultputawaylocationId` in `/client/detailView`. No OMS dependency. | author | SBDEV-2731 and SBDEV-2643 must **not** be worked independently while this is open (D8, §8.1). |
-| 5 | **Data migration** | **Scoped backfill inside `V2.2.11`, ordered after the `DROP NOT NULL` and after the pre-image INSERT** — see below. | migration | Without it the feature ships **inert** for all 2,720 existing SKUs (pre-mortem **P2**). |
+| 5 | **Data migration** | **Scoped backfill inside `V2.2.13`, ordered after the `DROP NOT NULL` and after the pre-image INSERT** — see below. | migration | Without it the feature ships **inert** for all 2,720 existing SKUs (pre-mortem **P2**). |
 | 6 | **External systems** | None. No OMS notification, no printer change, no Keycloak realm change. Receipt labels (`sharedService.createCaseLabel`) are unchanged. | — | |
-| 7 | **Access / permissions** | `@PreAuthorize(Authority.IS_SB_ADMIN)` on `PutawayConfigController`'s three write endpoints **and** on `PutawayConfigService`'s three writers plus `validateOnly` — **not** on the event-handler methods. No new Keycloak role, no new group. | author | §3.12. An annotation on a handler method may be inert (§3.9.4), which is why the service is the boundary. Frontend gating is convenience only; the framework is out of scope. |
+| 7 | **Access / permissions** | `@PreAuthorize(Authority.IS_SB_ADMIN)` on `PutawayConfigController`'s three write endpoints **and** on `PutawayConfigService`'s three writers plus `validateOnly` — **not** on the event-handler methods. No new Keycloak role, no new group. **✅ The constant is sound as of SBDEV-2863 `675b4a1` (merged 2026-08-07, PR #134): `Authority.java:44` renders `hasAuthority('sb_admin')`. Before that date it named a non-existent SpEL method and all six of these sites would have returned HTTP 500 to everyone, `sb_admin` included — see the warning box in §3.12. Keep `Authority.IS_SB_ADMIN`; do NOT swap it.** | author | §3.12. An annotation on a handler method may be inert (§3.9.4), which is why the service is the boundary. Frontend gating is convenience only; the framework is out of scope. |
 | 8 | **Monitoring / alerts** | Three items: (a) a Grafana panel for `wms2.putaway.resolution` split by `source`; (b) an alert on `wms2.putaway.resolution.rejected > 0`; (c) **a deadlock detector** — alert on `40P01` / `DeadlockLoserDataAccessException` on `/receiving/receive`. | author + ops | §3.13. The tier-2/3 series staying at zero is pre-mortem **P2**'s only detector. (c) is the named detector for §7.6 row 8's lock-order inversion, and it **must be log/exception-based**: `/receiving/receive` returns 200-with-`errors`, never a 5xx, so an HTTP-status alert misses it entirely. |
 
 #### The D5 backfill — scoped, reversible, and order-sensitive
@@ -2136,7 +2784,7 @@ schema prevents two rows named `PutAwayLane`; every statement below is written s
 absent lane fails **loudly and first** rather than half-applying.
 
 ```sql
--- ============ V2.2.11, STATEMENT 1: preflight guard — MUST be first, before any DDL ============
+-- ============ V2.2.13, STATEMENT 1: preflight guard — MUST be first, before any DDL ============
 -- Tier 4 resolves the fallback by NAME with no client filter (LocationRepository.java:21-22,
 -- Optional<Location>), so it throws IncorrectResultSizeDataAccessException at runtime if the name is
 -- ambiguous. Fail the migration here, BEFORE the DROP NOT NULL, rather than leaving a half-applied
@@ -2152,14 +2800,14 @@ BEGIN
     END IF;
 END $$;
 
--- ============ V2.2.11, STATEMENT 2: widen the column ============
+-- ============ V2.2.13, STATEMENT 2: widen the column ============
 ALTER TABLE public.itemdata ALTER COLUMN putawaylocation_id DROP NOT NULL;
 
--- ============ V2.2.11, STATEMENT 3: create putaway_config_audit + index ============
+-- ============ V2.2.13, STATEMENT 3: create putaway_config_audit + index ============
 -- Placed ahead of the backfill so statement 4's pre-image has somewhere to land. Full DDL in §3.14 —
 -- reference it, do not duplicate it here.
 
--- ============ V2.2.11, STATEMENT 4: pre-image — MUST run BEFORE the backfill ============
+-- ============ V2.2.13, STATEMENT 4: pre-image — MUST run BEFORE the backfill ============
 -- Records what the backfill is about to discard, so "we destroyed intent" becomes "we recorded it and can
 -- replay it": the §7.3 rollback drill is then a single UPDATE ... FROM putaway_config_audit.
 --
@@ -2185,7 +2833,7 @@ SELECT current_database(),           -- one DB per facility, so this is provenan
        NULL,                         -- new_location_id: the override is being cleared
        NULL,
        'migration',
-       'V2.2.11',
+       'V2.2.13',
        now()
   FROM public.itemdata i
   JOIN public.location l ON l.id = i.putawaylocation_id
@@ -2193,7 +2841,7 @@ SELECT current_database(),           -- one DB per facility, so this is provenan
    AND NOT EXISTS (SELECT 1 FROM public.putaway_config_audit
                     WHERE channel = 'migration' AND scope = 'SKU');   -- idempotent on re-apply
 
--- ============ V2.2.11, STATEMENT 5: scoped backfill — AFTER the pre-image ============
+-- ============ V2.2.13, STATEMENT 5: scoped backfill — AFTER the pre-image ============
 -- IN (SELECT ...) not = (SELECT ...): IN cannot abort on 0 or N rows. And NO client_id filter, so the
 -- set nulled is *definitionally* what tier 4 resolves — the two can never disagree.
 UPDATE public.itemdata i
@@ -2206,7 +2854,7 @@ UPDATE public.itemdata i
 identical to success:
 
 ```sql
--- run immediately after V2.2.11; both counts must be equal and non-zero on a tenant with SKUs
+-- run immediately after V2.2.13; both counts must be equal and non-zero on a tenant with SKUs
 SELECT (SELECT count(*) FROM putaway_config_audit WHERE channel='migration' AND scope='SKU') AS captured,
        (SELECT count(*) FROM itemdata WHERE putawaylocation_id IS NULL)                       AS nulled;
 ```
@@ -2229,14 +2877,14 @@ migration would pick one while `findByName` threw at runtime. Matching tier 4 ex
 uniqueness guarantee, is what makes the two agree by construction. (On `wh01_hydra_v2` the lane does have
 `client_id = 0`, so this removes a latent divergence, not a live one.)
 
-**Statement order is load-bearing** — **one** migration, `V2.2.11`, in this order: preflight guard →
+**Statement order is load-bearing** — **one** migration, `V2.2.13`, in this order: preflight guard →
 `DROP NOT NULL` → **create `putaway_config_audit`** → pre-image INSERT → backfill UPDATE → `client`
 column + guarded FK → sysprop seed. §5.2 Phase 1 Step 3 restates it at the point of use.
 *(Reworded 2026-08-06: this read as two migrations sharing one version number — residue of D16's
 two-migrations→one collapse that a blanket version replace preserved.)*
 
 **Idempotency.** `flyway migrate` never re-runs an applied version, so "migrate twice" is a vacuous gate —
-use `psql -f` applied twice to a scratch DB instead. For that to be clean, the FK in `V2.2.11` needs a
+use `psql -f` applied twice to a scratch DB instead. For that to be clean, the FK in `V2.2.13` needs a
 guard, since Postgres has no `ADD CONSTRAINT IF NOT EXISTS`:
 
 ```sql
@@ -2256,9 +2904,9 @@ The pre-image INSERT is also not naturally idempotent — a second apply would d
 
 **Is a genuine override distinguishable from a seeded default on existing data?** For rows equal to the lane id, no — and that is exactly why nulling *only those rows* is safe:
 
-1. Every one of the four write paths seeds the lane id **unconditionally** (§0.1 rows 8–11); the SKU screen is read-only (`skuData.vue:107-131` create/edit commented out); so a row equal to the lane id is a seeded default with probability ≈ 1.
+1. Every one of the four write paths seeds the lane id **unconditionally** (§0.1 rows 8–11); the SKU screen is read-only (`skuData.vue:100-123` create/edit commented out); so a row equal to the lane id is a seeded default with probability ≈ 1.
 2. Rows **not** equal to the lane id are genuine overrides by construction — no code path ever writes a non-lane value except a deliberate human action. The predicate leaves every one of them untouched. `Ice Pack` survives.
-3. The only semantic loss is a SKU *deliberately* pinned to `PutAwayLane`, which becomes "inherit". At the instant the migration runs this is **behaviour-preserving by construction**: `client.defaultputawaylocation_id` does not exist yet (it arrives in `V2.2.11`, created `NULL`) and no `DEFAULT_PUTAWAY_LOCATION` row exists or is non-blank, so no tier-2/3 value can exist, so "inherit" resolves through to tier 4 = `PutAwayLane` — the identical destination.
+3. The only semantic loss is a SKU *deliberately* pinned to `PutAwayLane`, which becomes "inherit". At the instant the migration runs this is **behaviour-preserving by construction**: `client.defaultputawaylocation_id` does not exist yet (it arrives in `V2.2.13`, created `NULL`) and no `DEFAULT_PUTAWAY_LOCATION` row exists or is non-blank, so no tier-2/3 value can exist, so "inherit" resolves through to tier 4 = `PutAwayLane` — the identical destination.
 4. After the migration, "pinned to the lane" *is* expressible: select `PutAwayLane` explicitly in the SKU UI and the row gets a non-NULL tier-1 value that outranks tiers 2–3.
 
 So the backfill is lossless on genuine overrides, behaviour-preserving at apply time, and it is the only thing that makes tiers 2–3 reachable. The DB evidence (100 % of rows equal the lane id on `wh01_hydra_v2`) is the *argument for* the scoped predicate, not a licence for a blanket one.
@@ -2341,7 +2989,7 @@ footnote gets read after it bites.
 | Phase | Repo | Ships | Flyway? | Closes |
 |---|---|---|---|---|
 | *(external)* | — | **SBDEV-2731 PR1** — receiving-screen destination binding, `UnitloadBusinessService:191` neutral message, 4 keys in **both** properties files, tests. **Hard prerequisite for this plan.** | no | **SBDEV-2731** |
-| **1-API** | `wms2-api` | Resolver (all 4 tiers) + `Resolution`/`Source` (frozen contract) · validator P1+P2 with D11 count-and-confirm and D13's non-pick-face restriction · `PutawayConfigService` (3 writers) · `PutawayConfigController` (preview + 3 writes) · HAL event-handler guard + the direct-`save()` guards (N1) · `PutawayDestinationQueryService` + display endpoint · resolver wired into `ReceivingService` (**D14: this plan owns that surface**) · audit table + writer · direct placement · **`V2.2.11`** (preflight → `DROP NOT NULL` → audit table → pre-image → backfill → `client` column + guarded FK → sysprop seed) + stop-seeding in the same commit | **YES** | — |
+| **1-API** | `wms2-api` | Resolver (all 4 tiers) + `Resolution`/`Source` (frozen contract) · validator P1+P2 with D11 count-and-confirm and D13's non-pick-face restriction · `PutawayConfigService` (3 writers) · `PutawayConfigController` (preview + 3 writes) · HAL event-handler guard + the direct-`save()` guards (N1) · `PutawayDestinationQueryService` + display endpoint · resolver wired into `ReceivingService` (**D14: this plan owns that surface**) · audit table + writer · direct placement · **`V2.2.13`** (preflight → `DROP NOT NULL` → audit table → pre-image → backfill → `client` column + guarded FK → sysprop seed) + stop-seeding in the same commit | **YES** | — |
 | **2-UI** | `wms2-web-ui` | Admin Operation Options field · merchant field (configured / inherited / cleared) · location picker restricted per D13 · config-health surfacing | no | **SBDEV-2732** |
 
 #### Why the boundary is "is the tier REACHABLE?" — retained, because it still governs ONE rule
@@ -2351,7 +2999,7 @@ worth keeping even though the split is gone: **tier reachability is governed by 
 `itemdata.putawaylocation_id` is `NOT NULL` and all four sites seed it, 2,720/2,720 rows point at
 `PutAwayLane`, tier 1 wins 100 % of receipts, and tiers 2–4 are unreachable no matter what else ships.
 
-> **O3 — THE ONE ORDERING RULE THAT SURVIVES.** `V2.2.11` and **stop-seeding must land in the SAME
+> **O3 — THE ONE ORDERING RULE THAT SURVIVES.** `V2.2.13` and **stop-seeding must land in the SAME
 > COMMIT**. Ship the code first and `POST /rest/sku` plus the CSV import fail with `23502`; ship the
 > constraint change first and every new SKU silently re-acquires a tier-1 value, reintroducing the
 > inertness the backfill just cleared, one row at a time.
@@ -2361,7 +3009,7 @@ worth keeping even though the split is gone: **tier reachability is governed by 
 > later-phase problem because there is no later API phase.
 > **O4** — gate on `PHASE=1` 0-fail, never whole-plan 0-fail.
 
-#### Phase 1-API — `v2/wms2-api`, carries `V2.2.11`. Branch `feature/SBDEV-2732-putaway-destination-hierarchy`
+#### Phase 1-API — `v2/wms2-api`, carries `V2.2.13`. Branch `feature/SBDEV-2732-putaway-destination-hierarchy`
 
 **Prerequisite: SBDEV-2731 PR1 merged** (§5.1 row 0) — this phase assumes `receivingForm.vue` already
 binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeNotPermittedOnLocation`.
@@ -2370,32 +3018,38 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 |---|---|---|
 | 1 | `git checkout develop && git pull`, then branch. **The tree is currently on `bugfix/SBDEV-2777-…` — do not build on it, and do not let the TDD gate write onto it.** | `git branch --show-current` |
 | 2 | **TDD gate.** Write the failing §7.1 tests for the resolver, P1, the confirmation contract, the delta rule and the display endpoint. Confirm each fails *for the right reason*. **Pause for approval.** | red for the right reason |
-| 3 | **`V2.2.11` AND stop-seeding, in ONE commit (O3).** Migration in the §5.1 order: preflight guard → `DROP NOT NULL` → create `putaway_config_audit` + index → pre-image INSERT → backfill UPDATE → `client.defaultputawaylocation_id` + guarded FK → `DEFAULT_PUTAWAY_LOCATION` seeded `''`. Stop seeding at all four sites; update the ≈10 fixtures deliberately. | `psql -f` twice on a scratch DB, second run clean; full `mvn test` |
+| 3 | **`V2.2.13` AND stop-seeding, in ONE commit (O3).** Migration in the §5.1 order: preflight guard → `DROP NOT NULL` → create `putaway_config_audit` + index → pre-image INSERT → backfill UPDATE → `client.defaultputawaylocation_id` + guarded FK → `DEFAULT_PUTAWAY_LOCATION` seeded `''`. Stop seeding at all four sites; update the ≈10 fixtures deliberately. | `psql -f` twice on a scratch DB, second run clean; full `mvn test` |
 | 4 | `WmsConstants` key; `PutawayDestinationResolver` + `Resolution` + the `Source` enum; the `getSystemClient()` null guard (§3.4a). **`Propagation.MANDATORY`; never `REQUIRES_NEW`.** Freeze the `Source`/`Resolution` contract here — the UI consumes it. | unit tests + `mvn clean compile` |
-| 5 | `LocationConstraintService.isUnitloadTypePermitted` (P1). **Must replicate the empty-constraint-list fail-open at `UnitloadBusinessService.java:182`** or it rejects configurations that work today. | `emptyConstraintListPermitsEverything` |
+| 5 | `LocationConstraintService.isUnitloadTypePermitted` (P1). **Must replicate the empty-constraint-list fail-open at `UnitloadBusinessService.java:190`** or it rejects configurations that work today. | `emptyConstraintListPermitsEverything` |
 | 6 | **Consume** the neutral key 2731 PR1 added at `:191`; throw `putawayDestinationNotPermitted` from the **resolver** only (§3.6.1). **Do not re-specify `:191` — that is 2731 PR1's line.** | resolver message test |
 | 7 | `PutawayDestinationValidator` — P1 + P2 for **all three scopes**, including P2.7 (D13), the **locked** absolute (P2.1), P2.7's per-tier lane rules and D11's count-and-confirm. **⚠ REVISED 2026-08-08 (Q12 → iv-b): do NOT implement a fix-assigned or pick-face reject.** P2.5 and P2.7(c) are relaxed at all three scopes — the configuration is legal, and the placement is gated at run time by step 15. **But implement P2.7 rule (e):** reject a `flowbin`-type destination at **merchant and warehouse scope only** — putaway's FLA auto-creation would bind it to one SKU. Predicate is `location_type.sltname`, **not** the area flag; using `useforpicking` here re-bans the club lanes and undoes Q12. **The relaxation and that gate must land in the same change** (§3.4c). **⚠ ALSO implement P2.7 rule (f) (added 2026-08-09):** at **tier 1**, reject a flowbin whose `FixLocationAssignment` belongs to a *different* SKU, and reject a SKU whose own FLA sits on a different location — the tier-1 exemption from rule (e) is otherwise strictly weaker than the runtime rule it claims to mirror. **And apply the P1 skip with `sltname == 'flowbin'` ONLY** — the superseded `useforpicking OR flowbin` form relocates SBDEV-2731's error to putaway for overstock and club destinations (§3.4b). | unit tests — **must include `skuWritePermitsPickFaceDestination` and `merchantWritePermitsStagingLane`. The old `skuWriteRejectsFixAssignedLocation` / `skuWriteRejectsPickFaceDestination` / `merchantWriteRejectsFixAssignedLocation` are DELETED — they assert the superseded design and would fail a correct implementation** |
 | 8 | `PutawayResolutionMetrics` (4 counters; the `compatible` tag). | unit tests |
 | 9 | `PutawayConfigService`: `setSkuDestination`, `setMerchantDestination`, `setWarehouseDestination`, `readCommittedDestination` (**one query per scope**), `validateOnly`, `auditAndEvict`; authorization enforced **here**, not on the handler (N5). Rewire `ItemdataService.setPutAwayLocation` and `ItemDataController:80-95`. | unit tests |
-| 10 | `PutawayConfigController` — `preview` + all three writes and the 409/422 confirmation contract (§3.5a). | `BaseControllerTest` |
+| 10 | `PutawayConfigController` — `preview` + all three writes and the 409/422 confirmation contract (§3.5a). | `BaseControllerUnitTest` |
 | 11 | **§3.9.1 direct-save guards:** `SystemPropertyController:77` and `:107` reject the guarded syskey; the delete-path decision implemented. | HAL + direct-save tests |
 | 12 | `PutawayConfigRepositoryEventHandler` — `Itemdata`, `Client` **and** `Sysprop` (O2); separate create/save methods (§3.9.2); validate the **delta**, not the state; unchecked `PutawayConfigValidationException`. | HAL PATCH ⇒ **422** |
 | 13 | `PutawayConfigAudit` entity + repository + `PutawayConfigAuditService` (`MANDATORY`). | `mvn clean compile` |
-| 14 | `Client.defaultputawaylocationId` + accessors. **Same commit as `V2.2.11`** — otherwise every `client` read fails `42703` on any tenant the migration has not reached (`ddl-auto=none`, so it is a runtime failure, not a startup one). | context loads + a `client` read against a migrated tenant |
+| 14 | `Client.defaultputawaylocationId` + accessors. **Same commit as `V2.2.13`** — otherwise every `client` read fails `42703` on any tenant the migration has not reached (`ddl-auto=none`, so it is a runtime failure, not a startup one). | context loads + a `client` read against a migrated tenant |
 | 15 | Wire the resolver into `ReceivingService.java:451-459`. `requireCompatible` inside `if (carrier == null)` **above the loop** (§3.7.1); constants at `ReceivingController:314`. **Add the (iv-b) placement gate here:** if the resolved destination's area has `useforpicking = true` **OR its `location_type.sltname` is `flowbin`**, **do not place there** — fall back to the standard putaway lane (tier 4) and leave the destination for putaway. **The OR is deliberate, not belt-and-braces:** the reported failure is a location-*type* property (a flowbin's `location_constraint` permits only `PickLocation`), while `useforpicking` is an *area* property, and nothing in the schema ties them. Today every flowbin on both measured tenants happens to sit in a picking area — **that is data, not structure.** `sltname` is already read by P2.7 rule (e), so the second disjunct is free. Otherwise place as step 17 specifies. **This plan owns this surface (D14).** | `ReceivingServiceUnitTest` — **must include `pickFaceDestinationIsNotPlacedAtReceipt` and `stagingLaneDestinationIsPlacedAtReceipt`** |
 | 16 | `PutawayDestinationQueryService` (`readOnly = true`) + `GET /receiving/getPutawayDestination/{advicePositionId}` + `GET /client/{id}/effectivePutawayDestination` — **the controller must not call the resolver** (C1). | controller tests |
 | 17 | Direct placement + traceability (`UnitloadRecord` names the final destination) — **for NON-pick-face destinations only (Q12 → iv-b).** Pick-face destinations never reach this step; step 15's gate diverts them to the lane. **The gate in step 15 is what makes that true — it is no longer enforced by refusing the configuration, because (iv-b) permits pick-face configs at every scope.** **If you relax P2.5/P2.7(c) without step 15's gate in the same change, SBDEV-2731's reported failure returns.** | `ReceivingServiceUnitTest` |
-| **17a** | **NEW 2026-08-08 (Q15 → (A)) — extend putaway's candidate surfacing to all four tiers.** SBDEV-2821 ships the repository method that adds a SKU's configured destination to the putaway candidate list, but reads **tier 1** (`itemdata.putawaylocation_id`) only. Step 15 diverts pick-face destinations at **every** tier, so merchant- and warehouse-scope defaults must be surfaced too: pass `Resolution.locationId()` from `PutawayDestinationResolver` into that method instead of the raw `itemdata` column. **Do not build a second surfacing path, and do not widen the `@RestResource`-exported `getStorageLocationsForPutAwayItemData`** (SBDEV-2821 §3.2). **This step is why `depends_on` now names SBDEV-2821** — if that ticket has not merged, this step has nothing to extend and step 15's gate strands the destination. | `MobilePutAwayService` unit test: a **merchant**-scope pick-face default appears in the candidate list for a SKU with **no stock anywhere** **⚠ AND THIS PLAN IS WHAT BREAKS THAT READ.** `V2.2.11` drops the `NOT NULL`, stops seeding, and runs `UPDATE itemdata SET putawaylocation_id = NULL WHERE … name = 'PutAwayLane'`, so the column's meaning changes from *"always populated, lane by default"* to *"NULL means no override"*. **SBDEV-2821 must handle `NULL` from day one, before `V2.2.11` exists** — today the column is `NOT NULL`, so a naive implementation will not crash and will look correct, then break **later** when this migration lands. Recorded as a hard requirement in SBDEV-2821 §0. **Step 17a must REPLACE that raw read with the four-tier `Resolution`, not add a second reader.** |
+| **17a** | **NEW 2026-08-08 (Q15 → (A)) — extend putaway's candidate surfacing to all four tiers.** SBDEV-2821 ships the repository method that adds a SKU's configured destination to the putaway candidate list, but reads **tier 1** (`itemdata.putawaylocation_id`) only. Step 15 diverts pick-face destinations at **every** tier, so merchant- and warehouse-scope defaults must be surfaced too: pass `Resolution.locationId()` from `PutawayDestinationResolver` into that method instead of the raw `itemdata` column. **Do not build a second surfacing path, and do not widen the `@RestResource`-exported `getStorageLocationsForPutAwayItemData`** (SBDEV-2821 §3.2). **This step is why `depends_on` now names SBDEV-2821** — if that ticket has not merged, this step has nothing to extend and step 15's gate strands the destination. | `MobilePutAwayService` unit test: a **merchant**-scope pick-face default appears in the candidate list for a SKU with **no stock anywhere** **⚠ AND THIS PLAN IS WHAT BREAKS THAT READ.** `V2.2.13` drops the `NOT NULL`, stops seeding, and runs `UPDATE itemdata SET putawaylocation_id = NULL WHERE … name = 'PutAwayLane'`, so the column's meaning changes from *"always populated, lane by default"* to *"NULL means no override"*. **SBDEV-2821 must handle `NULL` from day one, before `V2.2.13` exists** — today the column is `NOT NULL`, so a naive implementation will not crash and will look correct, then break **later** when this migration lands. Recorded as a hard requirement in SBDEV-2821 §0. **Step 17a must REPLACE that raw read with the four-tier `Resolution`, not add a second reader.** |
 | 18 | `PutawayResolverContextLoadTest` (`@Disabled TODO(SBDEV-2217)`); `mvn clean compile`; full `mvn test`; **revert the mutated `archunit_store`**. | **`PHASE=1` verify run: 0 fail** |
 
-#### Phase 2-UI — `v2/wms2-web-ui`. Closes SBDEV-2732
+#### Phase 2 — `v2/wms2-web-ui` **+ step 18a in `wms2-api`**. Closes SBDEV-2732
 
 | Step | Work |
 |---|---|
-| 19 | `LocationPicker.vue` — **tiered** autocomplete + lookup dialog over `/location/detailView`: for merchant/warehouse scope offer only P2.7-eligible areas (D13); **never** `getStorageLocationsForPutAwayItemData`. |
-| 20 | `editParamAndConfig.vue` / `addParamAndConfig.vue` `syskey` branch → `PUT /putawayConfig/warehouse` (**not** `PUT /sysprop/{id}`, **not** `POST /systemProperty/create` — N1). |
-| 21 | `editShipper.vue` three-state merchant field (configured / inherited / cleared) → `PUT /putawayConfig/merchant/{clientId}`, inherited value from `effectivePutawayDestination`, `incompatibleSkuCount` driving D11's confirm dialog. |
-| 22 | Config-health surfacing for invalid existing configurations; `persistedState.client.js:22-25` exclusion; Jest specs. |
+| **18a-A** | ✅ **MERGED 2026-08-11 — PR #142, merge `41c8257`. Was: DO THIS FIRST — it unblocks 19–22 and SBDEV-2643 B2 with ZERO changes to live validation code.** `GET /putawayConfig/eligibleLocations`, **PAGINATED**, per-row `validate()`, behind `PutawayDestinationQueryService` (§3.11.0.1). Returns ineligible rows with reasons; orders by `useforgoodsin DESC, name`. **Resequenced 2026-08-11** — the previous form made step C a prerequisite; pagination dissolves that. |
+| **18a-4** | ✅ **MERGED 2026-08-11 (merge `913f017`)** — `BlockingReason` +4 values, all 7 rejection keys mapped (§3.11.0a). wms2-api PR #141 (`5e4aacc` + `4699dbb`) — ON DEVELOP. |
+| **18a-B** | ✅ **MERGED 2026-08-11 (merge `a8129c7`) — wms2-api PR #143 (`29fa719`) — ON DEVELOP.** `PutawayDestinationValidatorUnitTest` written against the MERGED validator: 50 tests, all 8 throw keys, the six previously-uncovered branches, multi-failure precedence, and `getMessage()` as well as `getKey()`. **Not a TDD gate** — it characterizes merged behaviour, so it is green on the first run; the skill's rule 2 forbids that shape, so it was not used. **14 mutations applied to the validator, all 14 caught**, validator left byte-identical to `889298d`. 5 new `P2B-*` verify rows, negative-tested against a tree without the guard. **Step C is now unblocked.** |
+| **18a-C** | ✅ **MERGED 2026-08-11 — wms2-api PR #145 (`e9a8e7b`), merge `5a6d517`.** `PutawayDestinationRules` extracted as a zero-dependency `@Service`, validator now a loading+throwing facade. **Step B's 50 assertions pass UNTOUCHED** — one line of fixture wiring, supplying the collaborator as a real `@Spy` not a `@Mock` (a mock would have made all 50 characterize a stub). All five review conditions met: `defaultUnitloadTypeId` a 4th `evaluate` param, P2.1 in the facade, ordered `List<Rule>` returning the FIRST objection, `Verdict.args` a `List`, purity pinned by ArchUnit (which asserts existence first, since a rule over a missing class passes vacuously). ⚠ **MUTATION TESTING FOUND A REAL GAP A GREEN SUITE HID:** two mutations survived — the P2.6 flowbin skip and rule (f)'s `isFlowbin` gate — because the extraction put each behaviour behind TWO guards and a facade-built `Ctx` cannot reach the rules-level copy. Behaviour preserved; the new SEAM was untested. Closed by `PutawayDestinationRulesUnitTest` (13 tests, no mocks — the payoff of extracting); both now caught. Also removed dead code the refactor left behind (an orphaned `rejectIfTrue`, 0 callers), caught by the redesigned derivation's new facade-purity assertion. 8 new `P2C-*` rows, negative-tested. ⚠ **AND THE VERIFY RESULT WAS REPORTED WRONG:** the commit message, PR body and ClickUp comment all said `PHASE=1 220 pass / 0 fail`. The run actually read **220 pass / 6 fail** — six `V-*` rows had gone red because they grepped `$VALIDATOR` for predicates this step moved into `$RULES`. The rows were stale, the code was correct, and the six were misattributed to the `U-*` UI rows *which `PHASE=1` filters out*. Rows repointed and all negative-tested 2026-08-11; merged develop now reads **`PHASE=1` 226 pass / 0 fail**. |
+| **18a-D** | ✅ **MERGED 2026-08-11 — wms2-api PR #144 (`a10bc08`), merge `27845cd`.** ⚠ **AND IT DID NOT NEED STEP C.** §3.11.0.3 specified fixing this by building a `Ctx` and calling the extracted `evaluate`, which made D depend on C — a refactor of merged validation code. The same collapse comes from memoizing the EXISTING validator's verdict per distinct `defultypeId`: at tiers 2/3 the only per-SKU input is `defultypeId` (rule (f) runs solely inside `if (scope == SKU)`, one site at `PutawayDestinationValidator:133`), so grouping is **equivalent, not approximate** — and that assumption is pinned by step B's merged `ruleFDoesNotRunAtMerchantScope`. **Measured: 8,804 SKUs, 1 distinct `defultype_id` → 8,804 evaluations collapse to 1.** SKU scope deliberately not grouped. 4 new `P2D-*` rows, negative-tested. |
+| 19 | ✅ **DONE 2026-08-11 — wms2-web-ui PR #42 (`91d500e`), MERGED, merge `9edb743`.** 17 tests, 12/12 mutations caught, 11 verify rows each negative-tested. Ships **inert** — no page references it yet; steps 20/21 are its callers. ⚠ **One design point was found by a test, not by the plan: the CURRENTLY-SELECTED row must bypass the tier gate.** A pure `tier` filter drops an already-saved `ADVANCED` destination out of `items`, so `v-autocomplete` renders an EMPTY field and tells the operator nothing is configured when something is. `eligible` stays absolute, so an invalid saved destination is still not re-offered (that is step 22's job). Also decided beyond the plan's letter: an **unrecognised tier fails CLOSED** (promoting it would show a storage location without the lock warning), and the picker **drops ineligible rows itself** rather than trusting the caller. ⚠ **Its two pre-existing verify rows were hollow** — `U-picker` was `file_exists`, `U-negq` a bare `file_not_contains`; `touch LocationPicker.vue` turned both green. Both strengthened, 9 `U19-*` rows added. Was: `LocationPicker.vue` — props/events per **§3.11.5**; `items` supplied by the caller from **`/putawayConfig/eligibleLocations`**; two tiers driven by the server's `tier` field; advanced tier carries the lock warning. **NEVER `/location/detailView`** — it carries none of the predicate columns (§3.11 defect 1) — and **never** `getStorageLocationsForPutAwayItemData`. ⚠ *r-next deletes "offer only P2.7-eligible areas (D13)": since (iv-b) D13 is a **placement** rule, and the eligible set is scope-dependent (§3.11.5a).* |
+| **19a** | ✅ **BUILT 2026-08-11 — wms2-web-ui PR #47 (`eed9e2a`) MERGED (merge `83c6e97`); copy in wms2-api PR #147 (`6cc86d5`) MERGED (merge `509be61`), merged FIRST as required.** Copy is **variant A, chosen by Nam**, and now lives in `messages.properties` (key `putawayDestinationDivertedToLane`) rather than hardcoded at `ReceivingController:118` — so a product revision is a properties edit, not a Java change. 15 tests + SBDEV-2731's 10 preserved, 9/9 mutations caught, **verify PHASE=all 285 pass / 0 fail — the whole script green for the first time.** ⚠ Mutation testing found a gap two of my own tests could not reach: deleting the per-position reset SURVIVED, because the normal path's assignments clear the fields anyway — it only matters on the early-return paths (rejected request, empty envelope), which is the worse case. D14/D15 drive that. Was: ⏸ blocked on PRODUCT SIGN-OFF for the copy, not on code. The API half is already merged and verified:** `ReceivingController` supplies `sourceLabel` (:106), `divertedTo` (:117), `divertedReason` (:118) and `warning` (:123), so nothing server-side remains. Its acceptance row **`U-diverted` was named in §11.1a and existed nowhere in the verify script until 2026-08-11** — the eighth such gap, and it covered item 3, the entire reason §3.11.1 still exists. Now added and validated the only way a row for unbuilt work can be: it goes GREEN against a correct implementation and stays RED for five near-misses (either field alone, both smuggled onto the same line as `putawayStaging`, both only inside an HTML comment, and `putawayStaging` renamed away). **NEW (r-next) — the receiving form had no step.** Re-source `putawayStaging` from `GET /receiving/getPutawayDestination/{advicePositionId}`, add the `sourceLabel` chip, and **render `divertedTo` / `divertedReason` / `warning`** (§3.11.1). Preserve the tri-state: template tests `=== false` (`receivingForm.vue:24`), `isPutawayOverride` ANDs on `=== true`. **Diversion copy needs product sign-off before merge.** |
+| 20 | ✅ **DONE 2026-08-11 — wms2-web-ui PR #43 (`cf2ced2`), MERGED, merge `ec01dd7`. Was stacked on #42.** 33 tests, 16/16 mutations caught, 10 verify rows negative-tested. New `defaultPutawayLocationField.vue` owns the preview gate, D11's confirm and the typed write — **one wrapper, not three copies**, since §3.11.2 needs it in the edit dialog, the add dialog AND the unconditional control, and step 21 needs it again at MERCHANT scope. New store actions `setWarehousePutawayDestination` / `previewPutawayConfig` / `getEligiblePutawayLocations`; the paginated read is **accumulated** and `totalCount` comes from `totalElements`. A cleared value **omits** `locationId` rather than sending `locationId=null` (it is `required=false Long`, so the literal would 400). The syskey literal now lives only in `util/putawayConfig.js`. Was: `editParamAndConfig.vue` / `addParamAndConfig.vue` `syskey` branch → `PUT /putawayConfig/warehouse` (**not** `PUT /sysprop/{id}`, **not** `POST /systemProperty/create` — N1). |
+| 21 | ✅ **DONE 2026-08-11 — wms2-web-ui PR #44 (`f5f3e44`), MERGED, merge `536ac2b`. Was stacked on #43.** 22 tests (the commit message understated this as 20), 15/15 mutations caught, 5 verify rows negative-tested. ⚠ **THIS ROW'S READ SOURCE IS WRONG AND WAS NOT FOLLOWED** — see §3.11.3's correction: `/client/detailView` does NOT carry `defaultputawaylocationId`. Implemented against `GET /client/{id}/effectivePutawayDestination`. `inherited` bound not re-derived; the picker binds the shipper's OWN id (null when inherited); the field is **destructured out** of editShipper's PATCH payload (not `delete`d, which would mutate the live form object). The step-20 wrapper now picks its write action by scope. Was: `editShipper.vue` three-state merchant field (configured / inherited / cleared) → `PUT /putawayConfig/merchant/{clientId}`, inherited value from `effectivePutawayDestination`, `incompatibleSkuCount` driving D11's confirm dialog. ⚠ **r-next: `inherited` is ALREADY a boolean in the envelope (`ClientController.java:78`) — bind it, do not re-derive. And the field must be EXCLUDED from `store/admin/shippers.js:47`'s `$patch('/client/{id}')` payload**, or it rides the HAL path and defeats the typed write surface (§3.11.3). |
+| 22 | ✅ **DONE 2026-08-11 — wms2-web-ui PR #45 (`0e88b1c`), MERGED, merge `bb6fd22`. Was stacked on #44.** 18 tests, 15/15 mutations caught, 5 verify rows negative-tested. The config-health gap was **created by step 19, correctly**: it refuses to offer an ineligible row even when it is the saved value, so an invalid config rendered as an EMPTY field — indistinguishable from unset, though the two behave differently at receipt time (unset falls through; invalid-but-set is still stored and gets diverted silently). The warning names the location, translates `blockingReason`, and says receipts are going to the standard lane meanwhile. Save stays ENABLED so it can be fixed. ⚠ **The persistedState reducer was a single TOP-LEVEL destructure and could not express the nested exclusion** — reshaped, rebuilding `admin.configuration` rather than deleting from it (the reducer runs against LIVE state, so a delete would empty the operator's table). |
 ---
 
 ## 6. Backward Compatibility
@@ -2499,20 +3153,20 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 
 | Change | Compatible? | Why / mitigation |
 |---|---|---|
-| `itemdata.putawaylocation_id` DROP NOT NULL | **Yes, with a hard deploy order** | Widening a constraint never breaks existing rows. But the *code* change (stop seeding) requires the DDL first: on an un-migrated DB, `POST /rest/sku` and the CSV import fail with `23502 null value in column "putawaylocation_id"`. They travel in one commit (O3) and `V2.2.11` must be applied promptly after the Phase 1-API merge. |
+| `itemdata.putawaylocation_id` DROP NOT NULL | **Yes, with a hard deploy order** | Widening a constraint never breaks existing rows. But the *code* change (stop seeding) requires the DDL first: on an un-migrated DB, `POST /rest/sku` and the CSV import fail with `23502 null value in column "putawaylocation_id"`. They travel in one commit (O3) and `V2.2.13` must be applied promptly after the Phase 1-API merge. |
 | Scoped NULL backfill | **Yes — behaviour-preserving at apply time** | Only rows equal to the `PutAwayLane` id are nulled; no tier-2/3 value can exist yet, so they resolve through to tier 4 = the same location. Non-lane overrides untouched. §5.1. |
 | `@NotNull` removed from `Itemdata` | **Yes** | Removing bean validation only widens what is accepted. HAL and typed writes now agree. |
-| `client.defaultputawaylocation_id` added (`V2.2.11`) | **Yes, with a hard deploy order** | Nullable additive column; every existing row reads `NULL` = inherit. `ddl-auto` is `none`, so the entity field without the column does **not** prevent startup — it fails `42703` per request instead, which is harder to notice. This is what gates the merge. §5.1 row 1, §8.1. |
-| `putaway_config_audit` and `client.defaultputawaylocation_id` both created in `V2.2.11` | **Yes** | One migration (D16), one gated merge — **there is no gate-free half any more**. A table no entity maps is harmless in either direction; the *column* is what gates. |
-| `DEFAULT_PUTAWAY_LOCATION` seeded `''` | **Yes** | Blank = not configured ⇒ tier 3 never wins until someone sets it. An absent row behaves identically, so a tenant that has not yet had `V2.2.11` applied is also unaffected. |
+| `client.defaultputawaylocation_id` added (`V2.2.13`) | **Yes, with a hard deploy order** | Nullable additive column; every existing row reads `NULL` = inherit. `ddl-auto` is `none`, so the entity field without the column does **not** prevent startup — it fails `42703` per request instead, which is harder to notice. This is what gates the merge. §5.1 row 1, §8.1. |
+| `putaway_config_audit` and `client.defaultputawaylocation_id` both created in `V2.2.13` | **Yes** | One migration (D16), one gated merge — **there is no gate-free half any more**. A table no entity maps is harmless in either direction; the *column* is what gates. |
+| `DEFAULT_PUTAWAY_LOCATION` seeded `''` | **Yes** | Blank = not configured ⇒ tier 3 never wins until someone sets it. An absent row behaves identically, so a tenant that has not yet had `V2.2.13` applied is also unaffected. |
 | `SystemPropertyController` rejects one syskey; `DELETE` on it is audited (D12) | **Yes** | Every other syskey behaves exactly as today. The delete still succeeds and still removes the row; it merely writes an audit row as well, and the Operation Options control stays available so the tier can be re-set. §3.9.1, §3.11.2. |
 | Resolver at the receiving call-sites | **Yes** | With no tier-2/3 config and post-backfill NULL tier-1, `resolve` returns `STANDARD_PUTAWAY_LANE` — the same `Location` the old ternary produced for 100 % of `wh01_hydra_v2`'s SKUs. |
 | P1 hoisted before the loop | **Yes, strictly better** | Same predicate, same fail-open branch, evaluated earlier. A receipt that succeeded before still succeeds; one that failed still fails, now before any unit load exists and with a message naming the remedy. |
-| `UnitloadBusinessService.java:191` message replaced with the **neutral** key | **Behaviour yes, text no** | Any consumer string-matching `"not allowed on location"` breaks. Known consumers: `UnitloadBusinessServiceUnitTest:193, 208` (updated). Grep found no production string-match. The 21 non-receiving call sites get a message with no putaway remedy clause, which is the point (§3.6.1). |
+| `UnitloadBusinessService.java:235` message replaced with the **neutral** key | **Behaviour yes, text no** | Any consumer string-matching `"not allowed on location"` breaks. Known consumers: `UnitloadBusinessServiceUnitTest:193, 208` (updated). Grep found no production string-match. The 21 non-receiving call sites get a message with no putaway remedy clause, which is the point (§3.6.1). |
 | `ItemDataController` `allEntries=true` → 2-key evict | **Yes, strictly better** | Narrower eviction. Worst case a stale entry survives up to 5 min in a cache that was previously being flushed wholesale for every tenant. |
 | `ReceivingController:314` literals → constants | **Yes** | Same three values, resolved from the constants they should always have used. |
 | New endpoint + new table + new counters | **Yes** | Purely additive. |
-| Direct placement to a non-lane destination | **Yes, but visible** | Not a new mechanism (§2.1). Consequence: scanning a directly-placed unit load in mobile putaway throws the pre-existing **`unitloadNotInInboundArea`** from `MobilePutAwayService.java:113-117` — **not** `unitLoadNotInPutAwayLane`, which is at `:119-126` and is never reached for a unit load sitting in a storage or pick area. Pre-existing guard, newly reachable. Correction path is mobile "Move Unit Load" (`MobileMoveUnitloadService`) or the web Transfer Stock screen. Manual rows **M13**/**M13a** + operator note. §3.7.4. |
+| Direct placement to a non-lane destination | **Yes, but visible** | Not a new mechanism (§2.1). Consequence: scanning a directly-placed unit load in mobile putaway throws the pre-existing **`unitloadNotInInboundArea`** from `MobilePutAwayService.java:113-117` — **not** `unitLoadNotInPutAwayLane`, which is at `:121-128` and is never reached for a unit load sitting in a storage or pick area. Pre-existing guard, newly reachable. Correction path is mobile "Move Unit Load" (`MobileMoveUnitloadService`) or the web Transfer Stock screen. Manual rows **M13**/**M13a** + operator note. §3.7.4. |
 
 ### What Does NOT Change
 
@@ -2522,7 +3176,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 - `receiveGoods`' transaction shape: still one `@Transactional(value="tenantTransactionManager", …)` at `:302`; resolution still hoisted above the loop; a bad destination still rolls the whole receipt back.
 - `config/CacheConfig.java` — no new cache, so no change in either profile.
 - Label printing (`sharedService.createCaseLabel`), the `WAREHOUSE_NAME` read at `:429-431`, `INBOUND_UPDATE_STOCK_IMMEDIATELY` (`:518`), and the over-delivery pessimistic lock at `:344-345`.
-- `MobilePutAwayService` — no code change at all, including both guards at `:113-117` and `:119-126`, `calculatePutAwayList` (`:212-283`), and `storePalletBackOnPutawayLane` (`:190-206`) with its SBDEV-2102 "pallet must be on the current user's location" guard.
+- `MobilePutAwayService` — no code change at all, including both guards at `:113-117` and `:121-128`, `calculatePutAwayList` (`:217-305`), and `storePalletBackOnPutawayLane` (`:190-206`) with its SBDEV-2102 "pallet must be on the current user's location" guard.
 - `FileImportController.java:355-359`'s SBDEV-2037 lane-presence guard (kept, repurposed).
 - Any OMS notification, outbox message, printer configuration, or Keycloak artefact.
 - Mobile UI (`wms2-mobile-ui`) — not in D4's phasing.
@@ -2538,7 +3192,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 - `mvn test` **MUTATES the tracked `archunit_store`** — `git checkout` it before committing.
 - `-Dtest='Outer#method'` **silently no-ops for `@Nested` tests** (false green). Most of these suites use `@Nested` ⇒ run whole classes.
 - A new `@Service` bean needs `mvn clean compile` **plus a context-load test** — unit tests and incremental compile both miss DI wiring drift.
-- **`V2.2.11` is invisible to the IT harness** (it scans `db/v1-to-v2-onboarding/schema`, not `db/migration/`) ⇒ no automated test can prove the DDL. It is proven by the §7.3 SQL rows and the scratch-DB double-apply only.
+- **`V2.2.13` is invisible to the IT harness** (it scans `db/v1-to-v2-onboarding/schema`, not `db/migration/`) ⇒ no automated test can prove the DDL. It is proven by the §7.3 SQL rows and the scratch-DB double-apply only.
 - `mvn`/`java` need the SDKMAN PATH export.
 
 ### 7.1 Unit lane
@@ -2574,7 +3228,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | | `skuWritePermitsPickFaceDestination` (**new**) | The positive half of the relaxation: an FLA-free pick face is **accepted** at SKU scope. **Fixture must be an FLA-free pick face** (the real shape: wineco's club locations — `useforpicking` true, zero FLA rows). Without this, nothing pins that the reject was actually dropped. |
 | | `merchantWritePermitsStagingLane` | P2.7(a): `staginglane` / `crossdockinglane` are **permitted** at merchant/warehouse scope — guards against re-introducing the "a lane can never work" over-reject. Verify: `T-stagingok` |
 | | **`skuWriteRejectsFlowbinAssignedToAnotherSku`** | **ADDED 2026-08-09 — P2.7 rule (f).** Tier 1 naming a flowbin whose FLA belongs to a different SKU ⇒ **422**. Without this the config saves and then fails at *every* putaway (`scannedLocationHasDifferentFixedAssignment`), with nothing naming the cause. **1,344 of 2,068 flowbins on `wms2-wineco-dev` are already FLA-bound**, so this is the common case, not the edge. |
-| | **`skuWriteRejectsWhenSkuAlreadyOwnsADifferentPickFace`** | **ADDED 2026-08-09 — rule (f), other direction.** Mirrors `verifyScannedLocation:428-437` / `StockunitService:186-190`. `UNIQUE(itemdata_id)` makes it a single-row test. |
+| | **`skuWriteRejectsWhenSkuAlreadyOwnsADifferentPickFace`** | **ADDED 2026-08-09 — rule (f), other direction.** Mirrors `verifyScannedLocation:437-445` / `StockunitService:186-190`. `UNIQUE(itemdata_id)` makes it a single-row test. |
 | | **`skuWritePermitsItsOwnFixAssignedPickFace`** | **ADDED 2026-08-09.** The positive half — pointing a SKU at the flowbin **it already owns** must still be accepted; that is the intent rule (e)'s tier-1 exemption exists for. **All three are needed**: without this one, an implementation that bans every fix-assigned flowbin at tier 1 would pass. |
 | | **`p1IsSkippedOnlyForFlowbinDestinations`** | **ADDED 2026-08-09 — the corrected §3.4b predicate.** P1 is skipped for `sltname == 'flowbin'` and **still applied** to `overstock box` / `overstock pallet` / `cases and pallets`. **This test is the whole point of the correction** — the superseded `useforpicking OR flowbin` form relocates SBDEV-2731's error to putaway, where `transferUnitLoadToLocation` re-runs P1 at `UnitloadBusinessService:187-200`. Fixture must be a non-flowbin type **inside a `useforpicking` area** (12 `overstock box` + 3 `overstock pallet` exist on `wms2-hydra-dev2`; 69 `cases and pallets` on `wms2-wineco-dev`). |
 | | **`p1IsNotSkippedAtReceiveTime`** | **ADDED 2026-08-09.** `requireCompatible` contains **no skip branch**; the step-15 gate runs *before* it and retargets to the lane. Guards against a skip that would also fire for staging / cross-dock destinations, which are **not** diverted and where P1 is the only compatibility check. |
@@ -2602,7 +3256,7 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | `ReceivingControllerUnitTest` | `getPutawayDestinationShape` | all 7 fields; `source` is the enum name |
 | | `businessExceptionSurfacesMessage` | not the generic "contact support" string |
 | `ItemDataControllerUnitTest` | `:111-153` extended | the live write path validates + audits; no `allEntries` eviction |
-| `SkuRestControllerUnitTest`, `FileImportControllerUnitTest` | extended | created SKUs have `putawaylocationId == null`; the lane-presence guard still reports a missing lane |
+| `SkuRestControllerUnitTest`, `FileImportControllerUnitTest` | extended | created SKUs have `putawaylocationId == null`. **The lane-presence guard clause is `FileImportController`'s only** (clarified 2026-08-09): §0.1 rows 8/9, §3.2 and §5.3 all delete `SkuRestController`'s `findByName(PutAwayLane)` lookup — it existed solely to seed the id — and `S1-neg2` enforces the deletion. `S3-pos1`/`S3-pos2` pin the surviving SBDEV-2037 guard in `FileImportController`. Nothing is left unguarded: a missing lane fails at the resolver's tier-4 lookup, which names the tier |
 | `EntityUnitTest`, `ItemdataRepositoryTest`, `TestDataFactory`, 3 H2 tests | updated | field no longer required |
 
 ### 7.2 Integration / context-load lane
@@ -2612,15 +3266,15 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | `PutawayResolverContextLoadTest` (**new**, `smoke/`) | `@Disabled` `TODO(SBDEV-2217)` | Autowires `PutawayDestinationResolver`, `PutawayDestinationQueryService`, `PutawayConfigService`, `PutawayDestinationValidator`, `PutawayResolutionMetrics`, `PutawayConfigRepositoryEventHandler`, `PutawayConfigController` (plus `PutawayConfigAuditService` from 1b) and asserts non-null. **Seven new beans is exactly the DI-drift risk unit tests cannot see.** Modelled on `smoke/ReplenishReassignContextLoadTest.java`. Run with `RUN_MVN=1` once the harness is restored. |
 | `SkuRestControllerAtomicityIntegrationTest` | stays `@Disabled` | would otherwise prove the no-seed change end to end |
 | `ReplenishorderRepositoryIntegrationTest:66`, `CustomerorderBatchServiceParallelStreamRegressionIT:187` | fixtures updated, stay `@Disabled` | |
-| **`V2.2.11` themselves** | **no automated coverage** | harness scans a different directory (§2.9). Covered by §7.3 SQL rows plus the scratch-DB double-apply in Steps 3 and 20 only. **State this in both PR bodies.** |
+| **`V2.2.13` themselves** | **no automated coverage** | harness scans a different directory (§2.9). Covered by §7.3 SQL rows plus the scratch-DB double-apply in Steps 3 and 20 only. **State this in both PR bodies.** |
 
 ### 7.3 Manual Test Plan (mandatory)
 
-Every row assumes: **the migration its phase carries has been applied to the tenant first** — `V2.2.11` (§5.1 row 1). Cache note: after any config write, re-read **in the same browser session** — a 5-min Caffeine TTL means another replica may serve a stale value, so **do not** validate a config change by loading the screen on a different replica.
+Every row assumes: **the migration its phase carries has been applied to the tenant first** — `V2.2.13` (§5.1 row 1). Cache note: after any config write, re-read **in the same browser session** — a 5-min Caffeine TTL means another replica may serve a stale value, so **do not** validate a config change by loading the screen on a different replica.
 
 | # | Scenario | Environment | Steps | Expected Result | Pass/Fail |
 |---|---|---|---|---|---|
-| M1 | No config ⇒ no behaviour change | DEV `wh01_hydra_v2t` | Apply `V2.2.11` (one migration; the old "+ one more for the 1b run" reflected the superseded two-phase split). Receive a case of any SKU, no carrier. | Unit load lands on `PutAwayLane` exactly as before; `wms2.putaway.resolution{source="STANDARD_PUTAWAY_LANE"}` +1 | |
+| M1 | No config ⇒ no behaviour change | DEV `wh01_hydra_v2t` | Apply `V2.2.13` (one migration; the old "+ one more for the 1b run" reflected the superseded two-phase split). Receive a case of any SKU, no carrier. | Unit load lands on `PutAwayLane` exactly as before; `wms2.putaway.resolution{source="STANDARD_PUTAWAY_LANE"}` +1 | |
 | M2 | Backfill correctness and pre-image capture | DEV DB | `SELECT count(*) FROM itemdata WHERE putawaylocation_id IS NULL` and `... IS NOT NULL` before/after; then the `captured` / `nulled` query in §5.1 | NULL count == pre-migration lane-id count; NOT NULL count unchanged; `captured == nulled` and both **non-zero** | |
 | M3 | Warehouse default honored | DEV | Admin → Parameters → Configuration → Operation Options → set `DEFAULT_PUTAWAY_LOCATION` to a compatible storage location. Receive, no carrier. | Stock lands at that location; `source="WAREHOUSE_DEFAULT"` | |
 | M4 | Merchant beats warehouse | DEV | Set a different compatible location on one merchant (Admin → Shippers). Receive for that merchant, then for another. | Merchant's location for the first; warehouse default for the second; sources `MERCHANT_OVERRIDE` / `WAREHOUSE_DEFAULT` | |
@@ -2673,7 +3327,7 @@ M3 → M5 → M6 → M17 executed in one browser session against DEV constitute 
 | 5 | **Request affinity** | assume a follow-up request lands on the same replica? | **No — BY DESIGN, re-verify post-implementation** | `getPutawayDestination` is stateless and re-resolves from the DB. |
 | 6 | **Retry / idempotency** | rely on single-execution semantics? | **No — BY DESIGN, re-verify post-implementation** | Config writes are idempotent last-writer-wins on a single column, protected by the entity `@Version`. `/v3/receiving/receive` is outside `IdempotencyFilter` (which guards `/rest/**`) — unchanged by this plan, not made worse. The audit table may gain a duplicate row if a client retries a config write; duplicate audit rows are harmless and, in fact, the correct record of two requests. |
 | 7 | **Tenant context** | use `TenantContext` across an async boundary? | **No — BY DESIGN, re-verify post-implementation** | Everything runs on the request thread. `PutawayConfigAuditService` reads `TenantContext.getCurrentTenant()` synchronously. No `@Async`, no `CompletableFuture`. |
-| 8 | **Distributed lock correctness** | add or rely on cross-replica locking? | **YES — accepted risk with named mitigations** | The resolver itself takes no lock and cannot open `REQUIRES_NEW` (`MANDATORY`). It does not follow that no transaction exists: §3.1.5's read facade opens a `readOnly = true` tenant transaction and §3.9.6's `auditAndEvict` opens a read-write one; `MANDATORY` means the resolver *joins* a transaction. **The real exposure is a lock-order inversion that this change makes newly reachable.** `transferUnitLoadToLocation` takes `findByIdForUpdate` on the **destination** Location at `:150` *before* touching Unitload/Stockunit at `:293-294` — Location→UL, **inverting the SBDEV-2232 canonical SU→UL→Location order**. That is harmless today only because receiving's destination is *always* the inbound `PutAwayLane`, a row only receiving and mobile putaway touch. Once tiers 1–3 can point at a live storage or pick location, a receipt holds `FOR UPDATE` on that row for the **whole multi-case receipt**, including across per-case `createCaseLabel` rendering (`ReceivingService.java:491-498`, both inside the loop), while picking, replenishment and transfer lock in SU→UL→Location order. There is **no deadlock-retry infrastructure** in this codebase (SBDEV-1762: "up-front lane-Location lock is an anti-pattern (cross-caller 40P01)"). **Four requirements, all specified elsewhere in this plan:** (i) the deferred "stock-move deadlock-retry hardening" ticket is a prerequisite before any tenant points tier 2 or tier 3 at a live storage location — and an absolute prerequisite before Q9 widens P2.4 to admit pick locations; (ii) the location picker is **tiered** — `useforgoodsin` by default, `useforstorage` behind an explicit "advanced" toggle carrying this lock warning (§3.11.2, Step 26); (iii) manual row **M13b** exercises a multi-case receipt into a location concurrently being picked or replenished; (iv) the **40P01 / `DeadlockLoserDataAccessException` detector** on `/receiving/receive` is budgeted as §5.1 row 8 item (c) — it must be log/exception-based, because that endpoint returns **200-with-`errors`**, never a 5xx, so an HTTP-status alert misses it entirely (the same trap as pre-mortem P3). |
+| 8 | **Distributed lock correctness** | add or rely on cross-replica locking? | **YES — accepted risk with named mitigations** | The resolver itself takes no lock and cannot open `REQUIRES_NEW` (`MANDATORY`). It does not follow that no transaction exists: §3.1.5's read facade opens a `readOnly = true` tenant transaction and §3.9.6's `auditAndEvict` opens a read-write one; `MANDATORY` means the resolver *joins* a transaction. **The real exposure is a lock-order inversion that this change makes newly reachable.** `transferUnitLoadToLocation` takes `findByIdForUpdate` on the **destination** Location at `:150` *before* touching Unitload/Stockunit at `:293-294` — Location→UL, **inverting the SBDEV-2232 canonical SU→UL→Location order**. That is harmless today only because receiving's destination is *always* the inbound `PutAwayLane`, a row only receiving and mobile putaway touch. Once tiers 1–3 can point at a live storage or pick location, a receipt holds `FOR UPDATE` on that row for the **whole multi-case receipt**, including across per-case `createCaseLabel` rendering (`ReceivingService.java:491-498`, both inside the loop), while picking, replenishment and transfer lock in SU→UL→Location order. There is **no deadlock-retry infrastructure** in this codebase (SBDEV-1762: "up-front lane-Location lock is an anti-pattern (cross-caller 40P01)"). **Four requirements, all specified elsewhere in this plan:** (i) the deferred "stock-move deadlock-retry hardening" ticket is a prerequisite before any tenant points tier 2 or tier 3 at a live storage location — and an absolute prerequisite before Q9 widens P2.4 to admit pick locations; (ii) the location picker is **tiered** — `useforgoodsin` by default, `useforstorage` behind an explicit "advanced" toggle carrying this lock warning (§3.11.5, Step 19 — *r-next: was "§3.11.2, Step 26"; there is no Step 26*); (iii) manual row **M13b** exercises a multi-case receipt into a location concurrently being picked or replenished; (iv) the **40P01 / `DeadlockLoserDataAccessException` detector** on `/receiving/receive` is budgeted as §5.1 row 8 item (c) — it must be log/exception-based, because that endpoint returns **200-with-`errors`**, never a 5xx, so an HTTP-status alert misses it entirely (the same trap as pre-mortem P3). |
 | 9 | **Cache invalidation** | write to a cached entity? | **Yes — three of them; BY DESIGN, re-verify post-implementation** | `itemdata` (2 keys, reusing the correct expressions at `ItemdataService.java:62-67`), `clients` (2 keys, §3.3), `sysprops` (1 key, defensive). Under the **Redis** profile eviction propagates across replicas; under **Caffeine** it does not, so another replica can serve a stale config for up to its TTL. **Accepted**, because (a) the *receiving* path reads all three tiers uncached (§3.10), so no receipt is ever misrouted by a stale cache, and (b) the exposure is admin-screen display only. §7.3's cache note encodes it. HAL writes reach the same evictions because the event handler delegates to `PutawayConfigService`. |
 | 10 | **External notifications** | send HTTP/message to an external system inside a transaction? | **No — BY DESIGN, re-verify post-implementation** | No OMS notification, no outbox message, no printer call. Label printing at `ReceivingService.java:498` is unchanged and already outside the failure path. |
 
@@ -2685,7 +3339,7 @@ M3 → M5 → M6 → M17 executed in one browser session against DEV constitute 
 | 9 | eviction key expressions copied verbatim from the existing correct implementation, not re-derived | `ItemdataService.java:59-67`; `ClientService.java:53, 100` |
 | 9 | receiving path is uncached on the three **tier value** reads, but **not** entirely cache-free | `ReceivingService.java:357` (`itemdataRepository.findById`), `:369-370` (`clientRepository.findById`), `SyspropRepository.java:35-36` (`findBySyskeyAndClientIdAndWorkstation`, a derived query, not `@Cacheable`). Tier 3 additionally dereferences `clientService.getSystemClient()`, which **is** `@Cacheable(value="clients", key=…+':SYSTEM')` (`ClientService.java:100`) — harmless, since the system client's identity does not change, and safe under `readOnly` (a cache read inside a read-only tx is fine). `ClientService.java:101-109` returns `null` when no `cl_nr='System'` row exists, so tier 3 `orElseThrow`s a `BusinessException` rather than dereferencing it (§3.4a): an NPE there would be a bare `RuntimeException`, the class §3.6.2 forbids, and `ReceivingController:298-300` would swallow it into "contact support". |
 | 9 | `CacheConfig` needs no change ⇒ the two-profile sync trap is avoided entirely | `CacheConfig.java:31-42, 49-69`; guarded by `unit/config/CacheConfigTest.java` |
-| 8 | `Propagation.MANDATORY` chosen specifically to make `REQUIRES_NEW` unrepresentable | §3.1; `UnitloadBusinessService.java:214-215` |
+| 8 | `Propagation.MANDATORY` chosen specifically to make `REQUIRES_NEW` unrepresentable | §3.1; `UnitloadBusinessService.java:259-260` |
 
 ### 7.7 v2-only constraint checklist (8 rows, explicit verdict each)
 
@@ -2696,9 +3350,9 @@ M3 → M5 → M6 → M17 executed in one browser session against DEV constitute 
 | 3 | OSIV is disabled ⇒ load entities inside the transaction or return ids/DTOs | **BY DESIGN — re-verify post-implementation** | All eight entities involved use manual `Long` FK ids with **no JPA associations**; `Resolution` holds a fully-loaded `Location` obtained inside the caller's transaction. |
 | 4 | Cache evictions cover every write path, in **both** profiles | **BY DESIGN — re-verify post-implementation** | §3.10; no new cache ⇒ nothing to duplicate. HAL writes delegate to `PutawayConfigService` so they share the evictions. |
 | 5 | Jakarta namespace only (`jakarta.*`) | **BY DESIGN — re-verify post-implementation** | Nothing is ported from v1 (SBDEV-2642 shipped no code). New entity mirrors `CustomerorderCancellationLog`'s `jakarta.persistence.*` imports. |
-| 6 | H2-safe SQL in anything a non-Testcontainers test exercises | **BY DESIGN — re-verify post-implementation** | No new `@Query`. The only native SQL is `readCommittedDestination`'s three per-scope statements; the SKU and MERCHANT forms are H2-compatible, and the WAREHOUSE form's `nullif(trim(sysvalue),'')::bigint` is **Postgres-specific** — if any H2 test exercises it, use `CAST(... AS BIGINT)` instead. `V2.2.11` is Postgres-only but runs in no test (§7.2). |
-| 7 | New/changed endpoints need a `BaseControllerTest` subclass | **BY DESIGN — re-verify post-implementation** | `getPutawayDestination` covered in `ReceivingControllerUnitTest`; `PutawayConfigController` in `PutawayConfigControllerUnitTest`; `SystemPropertyController`'s guards in `SystemPropertyControllerUnitTest`; the HAL PATCH guard needs its own controller test (M9 is its manual twin). |
-| 8 | Entity/DDL drift ⇒ entity and DDL land together | **BY DESIGN — re-verify post-implementation**, with the §5.1 row-1 blocker | `Client.defaultputawaylocationId` and `PutawayConfigAudit` both land in the single Phase 1-API commit alongside `V2.2.11`. **`ddl-auto` is `none`, so drift does not fail startup — it fails `42703` per request.** `develop` merge ⇒ DEV auto-deploy; the runtime migrator applies `V2.2.11` at boot on tenants that have Flyway history, but **skips the history-less Hydra DEV copy**, which is why §5.1 row 1 requires repairing that copy and pre-applying. Still the single most likely way this plan ships broken (pre-mortem P1). |
+| 6 | H2-safe SQL in anything a non-Testcontainers test exercises | **BY DESIGN — re-verify post-implementation** | No new `@Query`. The only native SQL is `readCommittedDestination`'s three per-scope statements; the SKU and MERCHANT forms are H2-compatible, and the WAREHOUSE form's `nullif(trim(sysvalue),'')::bigint` is **Postgres-specific** — if any H2 test exercises it, use `CAST(... AS BIGINT)` instead. `V2.2.13` is Postgres-only but runs in no test (§7.2). |
+| 7 | New/changed endpoints need a `BaseControllerUnitTest` subclass | **BY DESIGN — re-verify post-implementation** | `getPutawayDestination` covered in `ReceivingControllerUnitTest`; `PutawayConfigController` in `PutawayConfigControllerUnitTest`; `SystemPropertyController`'s guards in `SystemPropertyControllerUnitTest`; the HAL PATCH guard needs its own controller test (M9 is its manual twin). |
+| 8 | Entity/DDL drift ⇒ entity and DDL land together | **BY DESIGN — re-verify post-implementation**, with the §5.1 row-1 blocker | `Client.defaultputawaylocationId` and `PutawayConfigAudit` both land in the single Phase 1-API commit alongside `V2.2.13`. **`ddl-auto` is `none`, so drift does not fail startup — it fails `42703` per request.** `develop` merge ⇒ DEV auto-deploy; the runtime migrator applies `V2.2.13` at boot on tenants that have Flyway history, but **skips the history-less Hydra DEV copy**, which is why §5.1 row 1 requires repairing that copy and pre-applying. Still the single most likely way this plan ships broken (pre-mortem P1). |
 
 > **Verdict semantics.** Every verdict in §7.6 and §7.7 describes *design intent about code that does not
 > exist yet*, which is why none of them reads PASS. **The verify script and the post-implementation gate
@@ -2727,7 +3381,7 @@ that invariant true; if it is ever deleted, rows 2 and 5 become write-in-readOnl
 
 | What | Why |
 |---|---|
-| Automated test for `V2.2.11` | The IT harness scans `db/v1-to-v2-onboarding/schema`, not `db/migration/` (§2.9). Covered by M2 + the scratch-DB double-apply in Steps 3 and 20. |
+| Automated test for `V2.2.13` | The IT harness scans `db/v1-to-v2-onboarding/schema`, not `db/migration/` (§2.9). Covered by M2 + the scratch-DB double-apply in Steps 3 and 20. |
 | Automated e2e | No e2e harness exists for `wms2-web-ui`; building one is out of scope. Covered by §7.4's manual path. |
 | `AdviceService.acceptHubAndSpokeAdvice` (§0.1 row 25) | No `Itemdata`, no receipt destination decision. §10 Q4. |
 | Mobile UI (`storePallet.vue`) | Not in D4's phasing. §8.4. |
@@ -2742,7 +3396,7 @@ that invariant true; if it is ever deleted, rows 2 and 5 become write-in-readOnl
 
 **One migration, one gated merge.** Earlier revisions split this into two migrations across four
 merges so an ungated slice could ship first. D12 removed that: the ungated slice is now **SBDEV-2731 PR1**,
-which is not this plan's merge at all. What remains is a single `V2.2.11` that adds
+which is not this plan's merge at all. What remains is a single `V2.2.13` that adds
 `client.defaultputawaylocation_id` — a column `Client` maps — so **merge 1's operator gate is absolute.**
 
 **Q7 is CLOSED (D12).** The earlier blocker here read "confirm nobody is mid-flight on an overlapping
@@ -2753,23 +3407,23 @@ precedence contract, and **Q7 no longer blocks the TDD gate.**
 | # | Merge | Operator gate | Verify on DEV after |
 |---|---|---|---|
 | **0** | ~~**SBDEV-2731 PR1** → `develop`~~ **MERGED 2026-08-07** — api `6bc709a`, ui `4ce39a1`. Prerequisite 0 satisfied. *(external prerequisite, D12)* | none | 2731's own verify script; **then close SBDEV-2731 on PR1 — and say explicitly in the ticket that the reported 1,000-unit ICE PACK receipt is NOT yet fixed** (it is a tier-1 override into a pick face). *(2026-08-04: F3 itself is answered — SBDEV-2796 chose (c), so that receipt is now **permitted** to succeed and over-fill the bin. What still gates it is no longer the product question but **C2b, Q1, Q4** and the new **Q11**, and the Fix B work those gate now lands in this plan — §5.2, §10.4.)* |
-| **0b** | ~~**SBDEV-2854 (PR #132) → `develop`**~~ **MERGED 2026-08-07** (`68274b0`). **STILL OPEN: `V2.2.10` applied to every tenant this plan's `V2.2.11` will reach** *(external prerequisite, added 2026-08-06)* | `V2.2.10` | **Ordering is load-bearing and runs the other way from what you would guess.** 2854 renumbered *down* from `V2.2.11` to `V2.2.10` to keep the sequence contiguous, so this plan moved to `V2.2.11`. If `V2.2.11` is applied **first**, `V2.2.10` arrives out-of-order: `outOfOrder=false` skips it and `validateOnMigrate=true` then throws *"Detected resolved migration not applied to database: 2.2.10"* on every subsequent boot — caught by `StartupFlywayMigrator.java:150`, logged, and **swallowed**, so the tenant silently stops receiving that and every later migration. This is the exact failure the renumber was performed to avoid, with the roles reversed. Verify with `SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 3;` before applying `V2.2.11` anywhere. |
-| **1** | **1-API** → `develop` (DEV auto-deploys) | **`V2.2.11` applied to every DEV tenant FIRST** (operator, Flyway runbook `--env dev`). Absolute: the merge adds `Client.defaultputawaylocationId`. `ddl-auto` is **`none`**, so the context starts anyway and instead throws **`42703`** on every `client` read — DEV looks healthy while receiving and the client screens error per request (pre-mortem P1). **Repair the history-less Hydra DEV copy with `db/backfill-flyway-history.sh` first**, or the boot-time migrator skips it and `V2.2.11` never applies there. The Hydra dev copy has **no `flyway_schema_history`**, so verify via `information_schema.columns` + a `los_sysprop` query, never Flyway history. Per-tenant precheck first: `SELECT count(*) FROM location WHERE name='PutAwayLane';` must be exactly 1 (verified on `wh01_hydra_v2` and `wh01_hydra_v2t`; **the other three v2 tenants are unverified**). | `PHASE=1` verify 0-fail; M1, M2 (backfill counts **and** `captured == nulled`); M9 (all three HAL PATCHes ⇒ **422**); M10; M12 |
+| **0b** | ~~**SBDEV-2854 (PR #132) → `develop`**~~ **MERGED 2026-08-07** (`68274b0`). **STILL OPEN: `V2.2.10` applied to every tenant this plan's `V2.2.13` will reach** *(external prerequisite, added 2026-08-06)* | `V2.2.10` | **Ordering is load-bearing and runs the other way from what you would guess.** 2854 renumbered *down* from `V2.2.13` to `V2.2.10` to keep the sequence contiguous, so this plan moved to `V2.2.13`. If `V2.2.13` is applied **first**, `V2.2.10` arrives out-of-order: `outOfOrder=false` skips it and `validateOnMigrate=true` then throws *"Detected resolved migration not applied to database: 2.2.10"* on every subsequent boot — caught by `StartupFlywayMigrator.java:150`, logged, and **swallowed**, so the tenant silently stops receiving that and every later migration. This is the exact failure the renumber was performed to avoid, with the roles reversed. Verify with `SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 3;` before applying `V2.2.13` anywhere. |
+| **1** | **1-API** → `develop` (DEV auto-deploys) | **`V2.2.13` applied to every DEV tenant FIRST** (operator, Flyway runbook `--env dev`). Absolute: the merge adds `Client.defaultputawaylocationId`. `ddl-auto` is **`none`**, so the context starts anyway and instead throws **`42703`** on every `client` read — DEV looks healthy while receiving and the client screens error per request (pre-mortem P1). **Repair the history-less Hydra DEV copy with `db/backfill-flyway-history.sh` first**, or the boot-time migrator skips it and `V2.2.13` never applies there. The Hydra dev copy has **no `flyway_schema_history`**, so verify via `information_schema.columns` + a `los_sysprop` query, never Flyway history. Per-tenant precheck first: `SELECT count(*) FROM location WHERE name='PutAwayLane';` must be exactly 1 (verified on `wh01_hydra_v2` and `wh01_hydra_v2t`; **the other three v2 tenants are unverified**). | `PHASE=1` verify 0-fail; M1, M2 (backfill counts **and** `captured == nulled`); M9 (all three HAL PATCHes ⇒ **422**); M10; M12 |
 | **2** | **2-UI** → `develop` | none | M3, M5–M7, M11, M13, M13a, M13b, M14, M16, M17, M18 — **then close SBDEV-2732** |
 
 **Why the Phase 1-API gate is absolute.** DEV auto-deploys on push. The app *does* run Flyway at boot
 (SBDEV-2801) — but it **skips a tenant DB with no `flyway_schema_history`**, and the Hydra DEV copy is one,
-so there `V2.2.11` never applies. And because `ddl-auto` is **`none`**, the app does not refuse to start:
+so there `V2.2.13` never applies. And because `ddl-auto` is **`none`**, the app does not refuse to start:
 it boots green and fails `42703 column client.defaultputawaylocation_id does not exist` on every read.
 So merging Phase 1-API before the operator has migrated **takes DEV down** — the ordinary merge workflow is
 itself the failure path (pre-mortem P1). Verification there is unusual: the Hydra dev copy has **no
 `flyway_schema_history` table**, so "check Flyway history" is invalid — confirm via
 `information_schema.columns` and a `los_sysprop` query instead.
 
-**Per-tenant precondition, and it binds the single Phase 1-API merge.** The preflight guard lives in `V2.2.11`
+**Per-tenant precondition, and it binds the single Phase 1-API merge.** The preflight guard lives in `V2.2.13`
 and aborts unless exactly one location is named `PutAwayLane`. Verified = 1 on `wh01_hydra_v2` and
 `wh01_hydra_v2t`; **the other three v2 tenants are unverified.** Run
-`SELECT count(*) FROM location WHERE name='PutAwayLane';` on each before scheduling `V2.2.11` — a zero is
+`SELECT count(*) FROM location WHERE name='PutAwayLane';` on each before scheduling `V2.2.13` — a zero is
 tolerated by today's code (`FileImportController:355-359` exists precisely because a tenant can lack the
 lane) but will abort this migration.
 
@@ -2778,14 +3432,14 @@ lane) but will abort this migration.
 1. **Close SBDEV-2731** as delivered — its display half is 1a-UI, its honor half is §3.7. It must not be
    worked independently (D8/D9).
 2. **Unblock SBDEV-2643.** Its backend already exists and is now validated and audited. But §10 Q3: it is
-   materially bigger than "add a field" — `skuData.vue:107-131` has its create/edit block commented out,
+   materially bigger than "add a field" — `skuData.vue:100-123` has its create/edit block commented out,
    so it needs a SKU edit form built from scratch. Estimate accordingly.
 3. **Do not declare the feature delivered on green tests.** Gate on adoption:
    `wms2.putaway.resolution{source="MERCHANT_OVERRIDE"|"WAREHOUSE_DEFAULT"} > 0` (§7.5). This is the only
    detector for pre-mortem P2 — the plan's most likely failure, in which everything ships, every test is
    green, and no operator ever sets a tier-2/3 value.
 
-**UAT** — apply `V2.2.11` **first** (UAT `wsl` trails; confirm its Flyway head), then
+**UAT** — apply `V2.2.13` **first** (UAT `wsl` trails; confirm its Flyway head), then
 deploy, then M1/M3/M4/M5. **Production** — apply both **first** to the single v2 prod tenant, then deploy.
 Ship with all three tiers unconfigured and enable per merchant on request, so the blast radius at cutover
 is zero by construction.
@@ -2800,7 +3454,7 @@ is zero by construction.
 
 ### 8.3 Rollback
 
-Code: revert the PRs for the phases being rolled back. Data: `V2.2.11` is **forward-only** and needs no down-migration to make the previous app version work — see M19. Restoring `NOT NULL` requires the §5.1 one-statement replay from `putaway_config_audit` first (falling back to `UPDATE itemdata SET putawaylocation_id = <laneId> WHERE putawaylocation_id IS NULL` if the pre-image is missing); the `client` column and the audit table can be left in place harmlessly (the reverted app never reads them, and with `ddl-auto=none` nothing inspects the schema at startup — extra columns and tables are inert). **Do not drop `client.defaultputawaylocation_id` or `putaway_config_audit` on a rollback** — a re-roll-forward would then need a second migration version, and dropping the audit table destroys the only record of what the backfill discarded.
+Code: revert the PRs for the phases being rolled back. Data: `V2.2.13` is **forward-only** and needs no down-migration to make the previous app version work — see M19. Restoring `NOT NULL` requires the §5.1 one-statement replay from `putaway_config_audit` first (falling back to `UPDATE itemdata SET putawaylocation_id = <laneId> WHERE putawaylocation_id IS NULL` if the pre-image is missing); the `client` column and the audit table can be left in place harmlessly (the reverted app never reads them, and with `ddl-auto=none` nothing inspects the schema at startup — extra columns and tables are inert). **Do not drop `client.defaultputawaylocation_id` or `putaway_config_audit` on a rollback** — a re-roll-forward would then need a second migration version, and dropping the audit table destroys the only record of what the backfill discarded.
 
 ### 8.4 Explicit follow-ups (not in this plan)
 
@@ -2810,7 +3464,7 @@ Code: revert the PRs for the phases being rolled back. Data: `V2.2.11` is **forw
   > placement, so **Fix B, C2b, F1, F4, F5, the receipt-correction-guard decision and the three `Flowbin*`
   > message keys are all OUT OF SCOPE THERE** — none of them is being built by anyone. 2821 instead routes at
   > putaway: the container receives, and the SKU's configured location is consumed by `MobilePutAwayService`,
-  > whose `storeBoxOnLocation:471-489` already performs flowbin classification, FLA auto-creation and
+  > whose `storeBoxOnLocation:497-514` already performs flowbin classification, FLA auto-creation and
   > resident-UL merging. **C2b becomes unreachable** rather than deferred, because `Goodsreceiptposition` is
   > never repointed. 2731's **Q1** is closed (label prints; no code) and **Q4** is closed (option (iii)).
   >
@@ -2846,7 +3500,7 @@ Code: revert the PRs for the phases being rolled back. Data: `V2.2.11` is **forw
   >   full four-tier `Resolution`. Without it, merchant- and warehouse-scope pick-face defaults are diverted
   >   by step 15 and then never offered.
   > - **Degraded, not broken, if the order is violated:** the operator can still *manually scan* the
-  >   destination (`MobilePutAwayService.verifyScannedLocation:403-447` accepts it), so shipping this plan
+  >   destination (`MobilePutAwayService.verifyScannedLocation:412-456` accepts it), so shipping this plan
   >   first makes the destination undiscoverable rather than unreachable — a UX regression against the
   >   ticket's intent, not data loss.
   >
@@ -2931,7 +3585,7 @@ D8's presumed mechanism; would let the open-receiving *list* show the destinatio
 | D6 | **Validate at config-write time (primary) + hard-fail at receive time (backstop).** Never silently reroute. The empty-constraint-list fail-open branch is mandatory. The raw-ID message at `:191` is replaced. | §3.4b, §3.4c, §3.6 |
 | D7 | **One `@RepositoryEventHandler`** routing HAL writes through the same validator + audit writer. | §3.9. **Extended to `Sysprop`** — see 10.3 A1. |
 | D8 | **One plan; 2732 owns the receiving-display contract; 2731 closes as a subset.** | §8.1. **Mechanism reduced:** no `receiving_dto_view` change is needed (§3.8) — see 10.3 A2. |
-| D9 | **SUPERSEDED 2026-08-04 — two merges, one migration.** Originally four phases (1a-API / 1a-UI / 1b-API / 1b-UI) split on tier reachability, with the migration split in two and only the second carrying the operator gate. §5.2 collapsed the API phases into **Phase 1-API**, and D16 collapsed the migration into a single **`V2.2.11`** — which adds a mapped column, so **the one migration carries the gate**. Current shape: **Phase 1-API → Phase 2-UI**. Residual `1a`/`1b` labels in §0 and §4 are stale. | §5.2, §8.1, D16 |
+| D9 | **SUPERSEDED 2026-08-04 — two merges, one migration.** Originally four phases (1a-API / 1a-UI / 1b-API / 1b-UI) split on tier reachability, with the migration split in two and only the second carrying the operator gate. §5.2 collapsed the API phases into **Phase 1-API**, and D16 collapsed the migration into a single **`V2.2.13`** — which adds a mapped column, so **the one migration carries the gate**. Current shape: **Phase 1-API → Phase 2-UI**. Residual `1a`/`1b` labels in §0 and §4 are stale. | §5.2, §8.1, D16 |
 | D10 | **A carrier receipt is never aborted by a putaway-config error.** The resolver runs on both branches, but `requireCompatible` is called only when `carrier == null`; on the carrier path an incompatibility is a WARN plus a `compatible="false"` metric tag, because the resolved destination is never applied there. | §3.7.1, §3.7.2 |
 | D11 | **Count-and-confirm at merchant and warehouse scope, not an absolute reject.** Above zero incompatible SKUs the write returns 409 with the count; the caller re-issues with `confirmIncompatibleSkus=<n>`, which the writer **recomputes** and compares. 100 % incompatible, locked, fix-assigned and lane destinations are unconditional 422s. SKU scope stays an absolute reject. | §3.4c, §3.5a |
 | D12 | **`DELETE` of the `DEFAULT_PUTAWAY_LOCATION` sysprop is accepted, not refused** — an absent row and a blank row are the same state to the resolver, so the delete can only move tier 3 in the safe direction. It is **audited** (`@HandleBeforeDelete` reads the previous value, `@HandleAfterDelete` records the clear), and §3.11.2 renders the control unconditionally so a delete cannot lock the tier out of the UI. | §3.9.1, §3.11.2 |
@@ -2955,7 +3609,7 @@ D8's presumed mechanism; would let the open-receiving *list* show the destinatio
 | A1 | **D7 extended to `Sysprop`**, not just `Itemdata` + `Client`. | The warehouse tier has the largest blast radius (§8.2) and `PUT /sysprop/{id}` is exactly what the existing generic admin dialog calls (`store/admin/configuration.js:73-93`). Guarding two of three holes leaves the worst one open. D7's own rationale already names `PATCH /v3/sysprop/{id}`. |
 | A2 | **No `receiving_dto_view` / `ReceivingDtoView` change**, contrary to D8's presumed mechanism. | The view already projects `defaultputawaylocationname` (`V2.2.00...sql:4663, 4676` → `ReceivingDtoView.java:47, 173`). Precedence + compatibility are not expressible in that SQL, and a projected view column would couple the two forever (runtime read failure, not `ddl-auto=validate` — `ddl-auto` is `none`). D8's *substance* (2732 owns the display contract; 2731 not worked independently) is fully honored. §3.8, §9 A7. |
 | A3 | **Receive-time validation is P1 only**, not the full suitability predicate. | Applying P2 at receive time would be *stricter* than `transferUnitLoadToLocation` and would reject receipts that work today — `PutAwayLane` itself sits in an area with `useforstorage = false`. §3.1.2. |
-| A4 | **New `LocationConstraintService` method uses the existing list query**, not a new `existsBy...`. | Reproducing `UnitloadBusinessService.java:180-193` byte-for-byte is the point; an `exists` formulation needs two round-trips to express the same fail-open rule and invites drift. §3.4b. Excludes analysis-bundle site 29. |
+| A4 | **New `LocationConstraintService` method uses the existing list query**, not a new `existsBy...`. | Reproducing `UnitloadBusinessService.java:188-237` byte-for-byte is the point; an `exists` formulation needs two round-trips to express the same fail-open rule and invites drift. §3.4b. Excludes analysis-bundle site 29. |
 | A5 | **Carrier path surfaces rather than forces** the resolved destination. | §9 A5. Flagged for business confirmation in Q1. |
 
 ### 10.4 Open questions
@@ -2963,15 +3617,15 @@ D8's presumed mechanism; would let the open-receiving *list* show the destinatio
 | # | Question | Blocking? | Recommendation |
 |---|---|---|---|
 | Q1 | On a **carrier** receipt with a non-tier-4 destination configured, should WMS surface-and-warn (this plan, D10) or hard-block the carrier receipt? | **No** — surface-and-warn is strictly less disruptive and can be tightened later. | Confirm with David Oppenheim during Phase 1 review. A hard block is a one-line change in §3.7.1 (drop the `carrier == null` guard around `requireCompatible`) if the business wants it. |
-| Q2 | Location count per facility — does a preloaded, client-side-filtered picker scale, or is a server-search endpoint needed? | **No** — Phase 2-UI only. | `SELECT count(*) FROM location` per tenant before Step 26. If any tenant exceeds ~2,000, add a search parameter to `/location/detailView`. |
-| Q3 | SBDEV-2643 scope: `skuData.vue:107-131` has its create/edit block **commented out**, so 2643 needs a SKU edit form built from scratch, not "add a field". | **No** — different ticket. | Re-estimate 2643 after Phase 1 lands; its backend is already done and now validated. |
+| ~~Q2~~ | Location count per facility — does a preloaded, client-side-filtered picker scale? | **CLOSED 2026-08-11 (r-next), and it splits by scope.** | **Measured, SELECT-only (§3.11.5a): `wms2-wineco-dev` 2,739 locations → 2,554 eligible at SKU scope but only **516** at merchant/warehouse; `wms2-hydra-dev2` 666 → 602 / **112**. So **this plan's two pickers do NOT cross the ~2,000 threshold** and need no search endpoint. **SKU scope does** — the remedy is handed to SBDEV-2643 Phase B2 as a paging/search parameter on **`/putawayConfig/eligibleLocations`**, NOT on `/location/detailView` (which would re-open §3.11 defect 1). Recorded as an explicit hand-off, not a silent cap. |
+| Q3 | SBDEV-2643 scope: `skuData.vue:100-123` has its create/edit block **commented out**, so 2643 needs a SKU edit form built from scratch, not "add a field". | **No** — different ticket. | Re-estimate 2643 after Phase 1 lands; its backend is already done and now validated. |
 | Q4 | Does `AdviceService.acceptHubAndSpokeAdvice` (`:145`) need the resolver? It materialises `Unitload` + `CustomerorderBatch` + `Customerorder` **without** going through `receiveGoods`. | **No** — excluded in §0.1 row 25. | Review after Phase 1 with a real hub-and-spoke advice on DEV. |
 | Q5 | `ItemDataController.java:81` is a `@GetMapping` that mutates state. | **No** | Left as-is — the web UI calls it and changing the verb is a breaking API change. §8.4. |
 | ~~Q7~~ | ~~**SBDEV-2731 is `in development` with no plan doc on disk.**~~ **CLOSED 2026-08-02 by D12/D14.** The 2731 plan exists and was inspected; ownership of `ReceivingService` destination resolution is now formally this plan's, and 2731 closes on its PR1 (display + neutral message). | **No longer blocking.** | See §10.2 D12/D14 and `SBDEV-2731-…md` §6. Superseded — do not re-investigate. |
 | **Q10** | **Pick-face capacity (F3 / SBDEV-2731 Q5).** Should receiving deposit a full receipt into a pick face whose `upperbound` is 84? Nothing checks `FixLocationAssignment` bounds before `transferStockToUnitLoad`. D13 exempts tier 1, which is exactly the reported ICE PACK case (1,000 units). | **ANSWERED 2026-08-04 — no longer blocking, and the path it gated is DEFERRED (D15).** | **[SBDEV-2796](https://app.clickup.com/t/868kk4rmv): the B/A chose (c) — "valid, and bounds are advisory for receiving."** Not the recommendation (d). No capacity gate is built; the over-bound bin is an accepted, documented state; the tier-1 direct-placement block is lifted. **But (c) did not close two of that ticket's own ACs:** replenishment behaviour against a permanently over-bound bin is still undefined and awaiting a B/A answer (**new Q11**, owned by [SBDEV-2821](https://app.clickup.com/t/868km8j9z)), and **C2b** is neither resolved nor ruled out — it is now the binding gate on the surviving Fix B work (§5.2, §6). See the revision banner at the top and the §3.4c D13 note. |
-| **Q12** | **May a tier-2/3 default target a *club* assembly lane?** D13 rule (a) permits `staginglane` wholesale and the ticket names "Club assembly lane" as a tier-2 scenario — but `getAvailableStagingLanes` (`LocationRepository:37-47`) allocates lanes to club batches **with no stock predicate**, so a receipt sitting on that lane can be shipped or cleared with the next batch (§6 **N-23**, verified 2026-08-04). Separately, lane stock is unconditionally invisible to replenishment sourcing (`StockunitRepository:198/:216`). | **YES — blocks the P2.7(a) wording and the Phase 2 location picker.** Does not block the resolver, tiers 1/4, or a cross-dock-only reading of rule (a). | **OPEN — needs the B/A, and RE-FRAMED 2026-08-06 by measurement: this question was asked about the wrong predicate.** Q12 assumes club lanes are reached through rule (a) (`staginglane` permitted wholesale). **On the real data they are not.** Verified SELECT-only on `wsl-wineco-uat`: `Club01`–`Club08` (ids 225748+) have **`staginglane = FALSE`** and every other lane flag FALSE; they sit in area 51553 *Storage and Picking* with **`useforpicking = TRUE`**, and `Club01` holds **114 unit loads / 27 distinct SKUs / 973 bottles**. They are **live multi-SKU pick faces**, not staging lanes. **Consequence: the ticket's named tier-2 use case — "Club assembly lane", "sending fast-turn club inventory directly to a designated club lane" — is, on this data, a request to point a merchant default at a PICK FACE. That is exactly what P2.7(c) forbids at all three scopes, and exactly what D15 defers to SBDEV-2821 for tier 1.** So the previously-proposed "safe answer" (narrow rule (a) to `crossdockinglane` + non-club staging) does not address wineco's clubs at all — they never passed through rule (a) — and with P2.7(c) now implementable they are blocked by rule (c) instead. **The real question is therefore: does this plan ship the club use case at all?** Three coherent answers: **(i)** no — P2.7(c) stands, the ticket's club scenario is out of scope for tiers 2/3 and belongs with SBDEV-2821's pick-face work; **(ii)** yes for clubs specifically — which needs the same resident-UL/Fix B machinery D15 deferred, i.e. it pulls SBDEV-2821 back into this plan; **(iii)** yes, but only onto *empty* club lanes (`Club08` is empty today), which needs a stock predicate that `getAvailableStagingLanes` does not have. **✅ ANSWERED 2026-08-08 — option (iv-b), split.** A fourth option emerged from SBDEV-2821's decision. **Configuration is widened at every tier — a pick face, club lane included, is a legal destination. Placement is split:** a **pick-face** destination is *not* placed at receipt (the receipt goes to the standard lane and putaway routes it, where `MobilePutAwayService.storeBoxOnLocation:471-489` already handles pick faces correctly); **every other** destination — staging, goods-in, cross-dock — is still placed directly at receipt, preserving the ticket's fast-turn intent that uniform (iv-a) would have dropped. **The club use case ships, no stock lands on a live pick face at receipt, and C2b stays unreachable.** Consequences: §5.2 **step 15 gains the `useforpicking` gate**; **step 17 survives, restricted to non-pick-face destinations**; P2.5 / P2.7(c) relaxed at all scopes; D13 re-framed from a configuration rule to a placement rule. §7.1's two conflicting tests resolve as: `merchantWritePermitsStagingLane` **passes**, `skuWriteRejectsPickFaceDestination` is **replaced** by `pickFaceDestinationIsNotPlacedAtReceipt` — the config is legal, the *placement* is what is refused. *Provenance: chosen by the ticket owner; put to the B/A on the ticket 2026-08-08, no reply recorded yet. If either objects, Q12 reopens — (i)–(iii) and (iv-a) remain on the table.* |
-| **Q11** | **Replenishment against a permanently over-bound bin.** SBDEV-2796's answer (c) makes bounds advisory *for receiving* and makes over-bound bins reachable **and permanent** — but replenishment keys off those same bounds (`recalculateForItem` maintains orders from them). What should replenishment do when on-hand is ~12× `upperbound`? | **NO for this plan — DEFERRED with the tier-1 path (D15).** It is SBDEV-2796 AC *"Replenishment behaviour against an over-bound bin is defined, or over-bound bins are made unreachable"*, and (c) removed the second branch. **Why it cannot arise here — and note the reason is P2.5/P2.7(c), NOT the absence of placement code:** `ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally, so nothing at receive time would stop an over-bound bin. What stops it is that **the configuration cannot be written** — P2.5 and P2.7(c) reject a pick-face or fix-assigned tier-1 destination at write time. If either predicate is ever relaxed without also answering this question, over-bound bins become reachable immediately. **⚠ BOTH PREDICATES WERE RELAXED 2026-08-08 (Q12 → iv-b) — the precondition held: the question was answered first, on 2026-08-06 ("advisory for replenishment"), so relaxing them is safe in the order it actually happened. Note also that under (iv-b) receiving no longer places onto a pick face at any tier, so the over-bound bin can now only be created by putaway, where `storeBoxOnLocation:471-489` merges into the resident UL — which is exactly what the "Caveat that travels to SBDEV-2821" requires.** ~~Blocks the tier-1 follow-up, not this plan.~~ | **ANSWERED 2026-08-06: "advisory for replenishment" too. Owned by [SBDEV-2821](https://app.clickup.com/t/868km8j9z).** Verified against the code, this costs **nothing to implement** — the bounds are never asserted as invariants, only used as comparison predicates: `FixLocationAssignmentRepository.getRefillFixedLocations:45` / `getRefillFixedLocationIds:72` gate on `stockunit.amount < fla.lowerbound`, so at 1,000 vs 36 **no replenishment order is ever created**; `ReplenishorderRepository.getIdsToCancelReplenishOrders:149` / `...Page:156-162` select `stockUnit.amount >= fixAssignment.upperbound`, so any open order is **cancelled** on the next sweep; `recalculateForItem` (`ReplenishmentOrderMaintenanceService.java:112`) iterates only `PROCESSABLE` orders and is a no-op for the SKU. **Caveat that travels to SBDEV-2821:** both cancel queries join `fixAssignment.assignedunitload_id = stockUnit.unitload_id` and so read the **resident** unit load only — if direct placement creates a *second* UL on the location, refill keeps firing and cancel never does, and the system replenishes a bin already holding 1,000 units. "Advisory" is correct **only if Fix B's resident-UL resolution is correct**. |
-| Q8 | Has the history-less Hydra DEV copy been repaired, and `V2.2.11` applied to **every** DEV tenant, before the Phase 1-API merge? | **YES — blocks the Phase 1-API merge**, not the work, and not the Phase 2-UI merge. | §5.1 row 1, §8.1. DEV auto-deploys on push; the runtime migrator self-heals tenants that have Flyway history but **skips** those that do not, and `ddl-auto=none` means the failure is a per-request `42703`, not a failed boot. Pre-mortem P1. |
+| **Q12** | **May a tier-2/3 default target a *club* assembly lane?** D13 rule (a) permits `staginglane` wholesale and the ticket names "Club assembly lane" as a tier-2 scenario — but `getAvailableStagingLanes` (`LocationRepository:37-47`) allocates lanes to club batches **with no stock predicate**, so a receipt sitting on that lane can be shipped or cleared with the next batch (§6 **N-23**, verified 2026-08-04). Separately, lane stock is unconditionally invisible to replenishment sourcing (`StockunitRepository:198/:216`). | ~~**YES** — blocks the P2.7(a) wording and the Phase 2 location picker~~ **→ NO. CLOSED 2026-08-09 on the ticket owner's decision; nothing is blocked on it.** | **OPEN — needs the B/A, and RE-FRAMED 2026-08-06 by measurement: this question was asked about the wrong predicate.** Q12 assumes club lanes are reached through rule (a) (`staginglane` permitted wholesale). **On the real data they are not.** Verified SELECT-only on `wsl-wineco-uat`: `Club01`–`Club08` (ids 225748+) have **`staginglane = FALSE`** and every other lane flag FALSE; they sit in area 51553 *Storage and Picking* with **`useforpicking = TRUE`**, and `Club01` holds **114 unit loads / 27 distinct SKUs / 973 bottles**. They are **live multi-SKU pick faces**, not staging lanes. **Consequence: the ticket's named tier-2 use case — "Club assembly lane", "sending fast-turn club inventory directly to a designated club lane" — is, on this data, a request to point a merchant default at a PICK FACE. That is exactly what P2.7(c) forbids at all three scopes, and exactly what D15 defers to SBDEV-2821 for tier 1.** So the previously-proposed "safe answer" (narrow rule (a) to `crossdockinglane` + non-club staging) does not address wineco's clubs at all — they never passed through rule (a) — and with P2.7(c) now implementable they are blocked by rule (c) instead. **The real question is therefore: does this plan ship the club use case at all?** Three coherent answers: **(i)** no — P2.7(c) stands, the ticket's club scenario is out of scope for tiers 2/3 and belongs with SBDEV-2821's pick-face work; **(ii)** yes for clubs specifically — which needs the same resident-UL/Fix B machinery D15 deferred, i.e. it pulls SBDEV-2821 back into this plan; **(iii)** yes, but only onto *empty* club lanes (`Club08` is empty today), which needs a stock predicate that `getAvailableStagingLanes` does not have. **✅ ANSWERED 2026-08-08 — option (iv-b), split.** A fourth option emerged from SBDEV-2821's decision. **Configuration is widened at every tier — a pick face, club lane included, is a legal destination. Placement is split:** a **pick-face** destination is *not* placed at receipt (the receipt goes to the standard lane and putaway routes it, where `MobilePutAwayService.storeBoxOnLocation:497-514` already handles pick faces correctly); **every other** destination — staging, goods-in, cross-dock — is still placed directly at receipt, preserving the ticket's fast-turn intent that uniform (iv-a) would have dropped. **The club use case ships, no stock lands on a live pick face at receipt, and C2b stays unreachable.** Consequences: §5.2 **step 15 gains the `useforpicking` gate**; **step 17 survives, restricted to non-pick-face destinations**; P2.5 / P2.7(c) relaxed at all scopes; D13 re-framed from a configuration rule to a placement rule. §7.1's two conflicting tests resolve as: `merchantWritePermitsStagingLane` **passes**, `skuWriteRejectsPickFaceDestination` is **replaced** by `pickFaceDestinationIsNotPlacedAtReceipt` — the config is legal, the *placement* is what is refused. *Provenance: chosen by the ticket owner 2026-08-08 and **reaffirmed 2026-08-09 — Q12 is CLOSED, not pending.** It was put to the B/A on the ticket 2026-08-08 with no reply recorded; that is an outstanding **notification**, not an outstanding approval, and it does not gate the TDD gate or the implementation. Same pattern as SBDEV-2821's Q4, which was adopted on David Oppenheim's endorsement plus the ticket owner's direction — Brent Campbell never replied to that hand-off — and which shipped and merged 2026-08-09. If either objects later, Q12 reopens and (i)–(iii)/(iv-a) return to the table.* |
+| **Q11** | **Replenishment against a permanently over-bound bin.** SBDEV-2796's answer (c) makes bounds advisory *for receiving* and makes over-bound bins reachable **and permanent** — but replenishment keys off those same bounds (`recalculateForItem` maintains orders from them). What should replenishment do when on-hand is ~12× `upperbound`? | **NO for this plan — DEFERRED with the tier-1 path (D15).** It is SBDEV-2796 AC *"Replenishment behaviour against an over-bound bin is defined, or over-bound bins are made unreachable"*, and (c) removed the second branch. **Why it cannot arise here — and note the reason is P2.5/P2.7(c), NOT the absence of placement code:** `ReceivingService.java:454-457 → :491` already places tier-1 destinations unconditionally, so nothing at receive time would stop an over-bound bin. What stops it is that **the configuration cannot be written** — P2.5 and P2.7(c) reject a pick-face or fix-assigned tier-1 destination at write time. If either predicate is ever relaxed without also answering this question, over-bound bins become reachable immediately. **⚠ BOTH PREDICATES WERE RELAXED 2026-08-08 (Q12 → iv-b) — the precondition held: the question was answered first, on 2026-08-06 ("advisory for replenishment"), so relaxing them is safe in the order it actually happened. Note also that under (iv-b) receiving no longer places onto a pick face at any tier, so the over-bound bin can now only be created by putaway, where `storeBoxOnLocation:497-514` merges into the resident UL — which is exactly what the "Caveat that travels to SBDEV-2821" requires.** ~~Blocks the tier-1 follow-up, not this plan.~~ | **ANSWERED 2026-08-06: "advisory for replenishment" too. Owned by [SBDEV-2821](https://app.clickup.com/t/868km8j9z).** Verified against the code, this costs **nothing to implement** — the bounds are never asserted as invariants, only used as comparison predicates: `FixLocationAssignmentRepository.getRefillFixedLocations:45` / `getRefillFixedLocationIds:72` gate on `stockunit.amount < fla.lowerbound`, so at 1,000 vs 36 **no replenishment order is ever created**; `ReplenishorderRepository.getIdsToCancelReplenishOrders:149` / `...Page:156-162` select `stockUnit.amount >= fixAssignment.upperbound`, so any open order is **cancelled** on the next sweep; `recalculateForItem` (`ReplenishmentOrderMaintenanceService.java:112`) iterates only `PROCESSABLE` orders and is a no-op for the SKU. **Caveat that travels to SBDEV-2821:** both cancel queries join `fixAssignment.assignedunitload_id = stockUnit.unitload_id` and so read the **resident** unit load only — if direct placement creates a *second* UL on the location, refill keeps firing and cancel never does, and the system replenishes a bin already holding 1,000 units. "Advisory" is correct **only if Fix B's resident-UL resolution is correct**. |
+| Q8 | Has the history-less Hydra DEV copy been repaired, and `V2.2.13` applied to **every** DEV tenant, before the Phase 1-API merge? | **YES — blocks the Phase 1-API merge**, not the work, and not the Phase 2-UI merge. | §5.1 row 1, §8.1. DEV auto-deploys on push; the runtime migrator self-heals tenants that have Flyway history but **skips** those that do not, and `ddl-auto=none` means the failure is a per-request `42703`, not a failed boot. Pre-mortem P1. |
 | Q9 | Should P2.4 admit a **pick-only** area (`useforpicking` with neither `useforgoodsin` nor `useforstorage`)? As written it does not, so a pick location can never be configured as a putaway destination and the picker does not offer one. | **No** — the narrow reading ships safely and can be widened later. | Keep P2.4 as written for Phase 1. Confirm with David Oppenheim whether receiving-direct-to-pick is a wanted workflow; if it is, widening P2.4 is a one-clause change **but §7.6 row 8's deadlock-retry prerequisite becomes hard**, because picking locks the same rows in the opposite order far more often than replenishment does. |
 
 ### 10.5 Closed questions (answered by the analysis lanes — do not re-investigate)
@@ -2982,21 +3636,21 @@ D8's presumed mechanism; would let the open-receiving *list* show the destinatio
 | Unique index on `los_sysprop(client_id, syskey, workstation)`? | **Yes** — `uk8tcoe23qui9q3ancbhx662iqb`, `V2.2.00...sql:3600-3603`. |
 | Can a sysprop row carry facility scope? | It does not need to — one DB per facility. §2.4. |
 | Does the receiving screen's "source of setting" need a new API field? | **Yes**, derived server-side. The sentinel/precedence logic is far too subtle to re-implement in Vue. §3.8. |
-| What constitutes a "putaway task" in v2, and what gets suppressed? | **Nothing.** There is no task entity; `MobilePutAwayService.calculatePutAwayList` (`:212-283`) derives suggestions on the fly from unit loads on the lane, so a directly-placed unit load simply never appears. §2.1. |
+| What constitutes a "putaway task" in v2, and what gets suppressed? | **Nothing.** There is no task entity; `MobilePutAwayService.calculatePutAwayList` (`:217-305`) derives suggestions on the fly from unit loads on the lane, so a directly-placed unit load simply never appears. §2.1. |
 | Where does the invalid Ice Pack config come from? | `ItemDataController.java:88-90` raw `save()` with zero validation, and/or `PATCH /v3/itemdata/{id}`. `ItemdataService.setPutAwayLocation` has zero production callers and would not have validated anyway. §1. |
 | (Q6) Does the `@HandleBeforeSave` previous-value read need `FlushModeType.COMMIT`? | **No.** With OSIV off the merged entity is **detached**, so there is no persistence context to auto-flush and the flush mode changes nothing. The plain native query returns the committed value. Do not set a flush mode and do not document one. §3.9.5. |
 
 ### 10.6 Pre-mortem — three ways this ships and still fails
 
 **P1 — It ships and the application will not start (or SKU creation 23502s).**
-`V2.2.11` is merged but not applied on some tenant. Because `ddl-auto` is **`none`**, the context starts normally — then every Hibernate read of `client` fails **`42703 column ... does not exist`**, per request, while liveness and readiness stay green. Or the stop-seeding code reaches a tenant where `V2.2.11` has not run and a new SKU insert hits `NOT NULL` on `putawaylocation_id`. **DEV auto-deploys on push, and although the app now runs Flyway at boot (SBDEV-2801) it SKIPS any tenant DB without `flyway_schema_history` — the Hydra DEV copy is exactly that** — so the ordinary merge workflow *is* still the failure path. **The original detector in this plan ("the app will not start") never fires; it was written against `ddl-auto=validate`, which this codebase does not use.** Detect instead with a per-tenant `information_schema.columns` check (§8.1) plus an alert on `42703` in the logs.
+`V2.2.13` is merged but not applied on some tenant. Because `ddl-auto` is **`none`**, the context starts normally — then every Hibernate read of `client` fails **`42703 column ... does not exist`**, per request, while liveness and readiness stay green. Or the stop-seeding code reaches a tenant where `V2.2.13` has not run and a new SKU insert hits `NOT NULL` on `putawaylocation_id`. **DEV auto-deploys on push, and although the app now runs Flyway at boot (SBDEV-2801) it SKIPS any tenant DB without `flyway_schema_history` — the Hydra DEV copy is exactly that** — so the ordinary merge workflow *is* still the failure path. **The original detector in this plan ("the app will not start") never fires; it was written against `ddl-auto=validate`, which this codebase does not use.** Detect instead with a per-tenant `information_schema.columns` check (§8.1) plus an alert on `42703` in the logs.
 *Leading indicator:* startup `SchemaManagementException` naming `client.defaultputawaylocation_id`, or `POST /rest/sku` / CSV import returning `null value in column "putawaylocation_id" violates not-null constraint`.
-*Mitigation:* §5.1 row 1 is a **hard blocker on merge 1, not on the work** — apply `V2.2.11` to every DEV tenant first, verified by reading `flyway_schema_history` (note: the Hydra dev copy has **no** `flyway_schema_history`; verify there by querying `los_sysprop` for the new key and `information_schema.columns` for the new column). §8.1 orders it explicitly. For the `23502` half, O3 keeps stop-seeding and `V2.2.11` in one commit and §8.1 merge 1 requires the operator to apply `V2.2.11` promptly after that merge. M1 + M2 are the first post-deploy checks.
+*Mitigation:* §5.1 row 1 is a **hard blocker on merge 1, not on the work** — apply `V2.2.13` to every DEV tenant first, verified by reading `flyway_schema_history` (note: the Hydra dev copy has **no** `flyway_schema_history`; verify there by querying `los_sysprop` for the new key and `information_schema.columns` for the new column). §8.1 orders it explicitly. For the `23502` half, O3 keeps stop-seeding and `V2.2.13` in one commit and §8.1 merge 1 requires the operator to apply `V2.2.13` promptly after that merge. M1 + M2 are the first post-deploy checks.
 
 **P2 — It ships completely and does nothing.**
 Every tier-1 value still points at `PutAwayLane` (backfill skipped, or run blanket-and-reverted), or Phase 2 never lands so no operator can set a tier-2/3 value, or the sysprop stays `''` forever. Receiving behaves exactly as before, the code is all present, every test is green, and the two urgent siblings get closed against a feature nobody is using. **This is the most likely failure**, because every automated signal is green in this state.
 *Leading indicator:* `wms2.putaway.resolution{source="STANDARD_PUTAWAY_LANE"}` ≈ 100 % of receipts two weeks after Phase 2, with `MERCHANT_OVERRIDE` + `WAREHOUSE_DEFAULT` still at **zero**. Corroborate in SQL: `SELECT count(*) FROM itemdata WHERE putawaylocation_id IS NULL` == 0, `SELECT count(*) FROM client WHERE defaultputawaylocation_id IS NOT NULL` == 0, `SELECT sysvalue FROM los_sysprop WHERE syskey='DEFAULT_PUTAWAY_LOCATION'` == `''`.
-*Mitigation:* the scoped backfill ships **inside** `V2.2.11`, in Phase 1, so it cannot be forgotten separately and tiers 1/3/4 are genuinely live at the first merge; §3.13's `source` tag exists specifically to make inertness visible (there is no other way to see it); §8.1's third post-merge gate makes non-zero tier-2/3 usage a **condition for closing 2731 and 2643**, so the tickets cannot be closed against an inert feature.
+*Mitigation:* the scoped backfill ships **inside** `V2.2.13`, in Phase 1, so it cannot be forgotten separately and tiers 1/3/4 are genuinely live at the first merge; §3.13's `source` tag exists specifically to make inertness visible (there is no other way to see it); §8.1's third post-merge gate makes non-zero tier-2/3 usage a **condition for closing 2731 and 2643**, so the tickets cannot be closed against an inert feature.
 
 **P3 — A single warehouse-tier write halts receiving for every merchant.**
 An operator sets `DEFAULT_PUTAWAY_LOCATION` to a location incompatible with a common unit-load type, and write validation does not stop it — because the `@RepositoryEventHandler` was never actually registered (a `@Component` + `@RepositoryEventHandler` that Spring Data REST fails to pick up is **silent**; nothing logs, nothing throws), or because the write arrived on a path the handler cannot see: `POST /v3/systemProperty/create`, `POST /v3/systemProperty/updateValue`, or a `DELETE` (§3.9.1). Then §3.1.3's hard-fail backstop fires on **every** receipt for **every** merchant, and D6's "never silently reroute" turns a config typo into a warehouse-wide stoppage.
@@ -3017,7 +3671,7 @@ PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-api \
   bash sbdocs/9-System/scripts/verify-SBDEV-2732-configurable-default-putaway-location-hierarchy.sh
 ```
 
-Checks are grouped by phase so the output reads in rollout order. One POSITIVE check per §3 sub-section; a NEGATIVE check wherever new code replaces old — including all four seeding sites and the raw-concat throw at `UnitloadBusinessService.java:191`. `mvn_test_passes` rows cover the touched test classes (whole classes, never `Outer#method` — that silently no-ops on `@Nested`).
+Checks are grouped by phase so the output reads in rollout order. One POSITIVE check per §3 sub-section; a NEGATIVE check wherever new code replaces old — including all four seeding sites and the raw-concat throw at `UnitloadBusinessService.java:235`. `mvn_test_passes` rows cover the touched test classes (whole classes, never `Outer#method` — that silently no-ops on `@Nested`).
 
 **Two template defects are fixed in this script, and both matter here:**
 
@@ -3052,6 +3706,21 @@ implementation: `V-fixloc` / `V-fixabs` demanded P2.5's absolute reject exist, a
 demanded SKU- and merchant-scope writes *reject* a fix-assigned location. **Under (iv-b) all four assert the
 opposite of the intent.** A gate encoding the old design is worse than no gate — it blocks the change it is
 meant to guard. The pass count is unchanged at **15**, which is the signal that nothing went vacuous.
+
+**Re-measured 2026-08-09 during Phase 1-API implementation** — base `fd90487` (post-SBDEV-2821 merge),
+after the three unsatisfiable rows recorded in §12 were replaced:
+
+| Run | Unmodified `fd90487` | Implemented (this branch) |
+|---|---|---|
+| `PHASE=1` | `12 pass, 164 fail, 1 skip, 9 filtered` | **`176 pass, 0 fail, 1 skip, 9 filtered`** |
+
+The negative control was taken from a **detached worktree at `origin/develop`**, not from `git stash` —
+stash only reverts the uncommitted delta, and by this point most of the work was already committed, so a
+stashed run would have graded the implementation against itself and reported a meaningless near-green.
+
+The 12 baseline passes are all *preservation* rows (`UBS-key`/`UBS-neg1`/`UBS-neg2` shipped with 2731 PR1;
+`S3-pos1`/`S3-pos2`, `W-2102`, `W-onetx`, `E-col`, `E-lane` assert things that must not change), so the
+count being >8 is expected here rather than a vacuity signal.
 
 **Arithmetic self-check:** 174 + 18 = 192 = 183 + 9. **The overlap constant is now 9, not 11** — the 8
 `phase all` preservation checks plus the **1** remaining SKIP. It was 11 when three checks were skipped;
@@ -3144,10 +3813,58 @@ that is unavoidable for a "never wire X into Y" check and is why it is counted a
 `@PreAuthorize` appears in `PutawayConfigService.java` and **not** in
 `PutawayConfigRepositoryEventHandler.java`, and an assertion that `putawayDestinationNotPermitted` appears
 in `PutawayDestinationResolver.java` and **not** in `UnitloadBusinessService.java`.
-**STATUS 2026-08-06: all of these are now IN the script**, and the last one is the conjoined `UBS-neg4`
-(the script had previously shipped only its "not in UBS" half, which is what made the check vacuous).
+~~**STATUS 2026-08-06: all of these are now IN the script**~~ — **FALSE, and it cost this plan three
+unbuilt sites. Corrected 2026-08-09 by the Phase-3a conformance lane.** `grep -c` for the three
+`check_N1_*` functions returned **0**: they were never added. Because nothing checked
+`SystemPropertyController`, that file never entered the diff, and both of its direct-`save()` endpoints
+were still writing tier 3 unvalidated and unaudited on a **176 pass, 0 fail** run. A status line
+asserting coverage that does not exist is worse than an acknowledged gap — it stops anyone looking.
+The three rows now exist (`N1-create`, `N1-update`, `N1-del`), plus `N1-d12` for D12's re-create
+obligation. The conjoined `UBS-neg4` half of this claim was true.
 The baseline table above has been re-recorded from measured runs; the pre-implementation pass count is
 **7**, not 8. Re-run the negative control and re-record again after SBDEV-2731 PR1 merges.
+
+### 11.1a Acceptance rows r-next adds — MANDATORY, and every one must be negative-controlled
+
+> **STATUS 2026-08-11.** Seven rows were written and negative-controlled: `P2-eligible-endpoint`, `P2-eligible-scope`, `P2-eligible-lane`, `P2-eligible-neg-lbl`, `P2-eligible-h2` (all RED — deliverable 3 not built) and **`P2-br-7`, `P2-br-map` (GREEN)**. Both green rows were tightened after code review: the first form grepped bare constant names, which the fix's own javadoc spells out as prose, so documentation partially satisfied the row that verifies the code. They now anchor to the enum body and to `case "<key>":`, and were re-tested both ways.
+>
+> **Four rows deliberately still do not exist** — `P2-rules-pure`, `P2-validator-facade`, `P2-validator-tests-intact`, `P2-eligible-bulk` — because they gate the held deliverables. ⚠ **`P2-eligible-bulk`'s absence means nothing automated would catch a per-row `validate()` loop**, which is exactly why deliverable 3 was stopped by judgement rather than by a red row. The script names all four in a comment block rather than omitting them silently.
+
+The rows below do not exist in the script yet. **`origin/develop` is the unimplemented tree, so it is the
+negative control**: write each row, run it against `develop`, and confirm it FAILS before implementing.
+Three failure modes have bitten this repo's verify scripts and all three apply here:
+
+1. **`perl -0777 -ne` helpers fail OPEN on a missing file** (exit 0), so every multi-line assertion about a
+   NEW file (`PutawayDestinationRules.java`, `LocationPicker.vue`) false-greens. Add `[ -f "$2" ] || return 1`
+   to every helper.
+2. **A row naming an undefined shell function records bash's 127 as a plain FAIL**, indistinguishable from
+   unimplemented work. Audit for undefined / unwired / duplicate check functions.
+3. **A "N pass, 0 fail" means nothing until the pre-fix tree is replayed and the rows go red.**
+
+| id | Asserts |
+|---|---|
+| *(step C)* `P2-rules-pure` | ⚠ **and add an ArchUnit rule — a textual grep for absent imports cannot enforce purity, an ArchUnit rule can, and this repo already runs them.** `service/PutawayDestinationRules.java` exists and imports **no** repository and **no** Spring stereotype — the evaluator is pure (§3.11.0.1) |
+| `P2-validator-facade` | `PutawayDestinationValidator` calls `PutawayDestinationRules.evaluate(` and no longer inlines the predicate chain |
+| `P2-validator-tests-intact` | ⚠ **UNWRITABLE AS SPECIFIED — corrected 2026-08-11.** This row claimed `PutawayDestinationValidatorUnitTest` is *"byte-identical to `889298d`"*. **That file has never existed in any commit on any branch** (`git log --all --diff-filter=A` returns nothing), so there is no baseline to hold it against, and the plan named it as the extraction's guard in three places. Real coverage of the validator today is INDIRECT — `PutawayConfigServiceUnitTest` constructs a real validator over mocked repositories — and measured against the predicate chain it reaches **4 of 8 keys**: `putawayDestinationLocked`, `putawayDestinationAreaNotUsable`, the three `rejectIfTrue` lane flags and the P2.6 flowbin skip are all unexercised. **Replacement obligation: WRITE that test against the merged validator and merge it BEFORE deliverable 1**, covering all 8 keys plus multi-failure precedence, asserting `getKey()` AND `getMessage()` (only the latter would catch a dropped message argument). Then re-anchor this row to that commit. Also add an existence guard to the helper (`[ -f "$2" ]` then `return 1`) — the template's `perl -0777` form fails OPEN on a missing file, so as written this row would have gone GREEN while asserting nothing. |
+| *(step A — REWRITE)* `P2-eligible-endpoint` | ⚠ **the five `P2-eligible-*` rows describe the SUPERSEDED unpaginated, controller-hosted endpoint and must be rewritten for §3.11.0.1**: the read lives on `PutawayDestinationQueryService`, takes a `Pageable`, and returns `Page<EligibleLocation>`. As written they would fail a correct step-A implementation. **New rows step A needs:** the read is on the query service not the controller; it accepts `Pageable`; ineligible rows are returned rather than filtered; the ordering clause is present. |
+| ~~`P2-eligible-bulk`~~ | ⚠ **RETIRED 2026-08-11 — this row asserted the OPPOSITE of the resequenced design.** Under step A, per-row `validate()` over a bounded page is correct and deliberate (§3.11.0.1), so a row forbidding `validate(` in that path would fail a correct implementation. What step D needs instead is a **counted query-budget assertion** (§3.11.0.3) — a textual row cannot express "one constraint query instead of 8,800". |
+| `P2-eligible-lane-excluded` | the tier-4 exclusion compares `WmsConstants.STORAGE_LOCATION_PUTAWAY_LANE`, never a hard-coded id and never the display label |
+| `P2-eligible-h2` | **negative** — no `::bigint`, no `nullif(` in the new queries; JPQL with plain joins only (§7.7 row 6) |
+| `P2-br-7` | `BlockingReason` has 7 values including `BOUND_TO_ANOTHER_SKU`, `AREA_NOT_USABLE`, `FLOWBIN_SCOPE`, `TYPE_INCOMPATIBLE` |
+| `P2-br-map` | all six validator throw keys are mapped in `blockingReasonFor`; no **known** key falls to the `default: return null` arm (§3.11.0a) |
+| `U-picker-source` | the picker's `items` come from a store action calling `/putawayConfig/eligibleLocations` |
+| `U-neg-detailview` | **negative** — no picker, dialog or putaway store action references `/location/detailView` (§3.11 defect 1) |
+| `U-neg-flags-in-js` | **negative** — no `.vue` or store file tests `useforgoodsin` / `useforstorage` / `staginglane` / `entity_lock` / `sltname`; predicates stay server-side (D3) |
+| `U-picker-tier` | the two-tier split is driven by the server's `tier` field (`'ADVANCED'`), not a client-side flag test |
+| `U-tristate` | **preservation** — `receivingForm.vue` still tests `=== false` (`:24`) and `isPutawayOverride` still ANDs on `=== true`. SBDEV-2731's `A10` / `T24` / `T25` stay green |
+| `U-diverted` | `receivingForm.vue` consumes **both** `divertedTo` and `divertedReason`, on a line distinct from `putawayStaging` (§3.11.1). ⚠ Corrected 2026-08-11 — this row read "renders both", which the implementation does not and should not do: `divertedReason` is the sentence an operator reads, while `divertedTo` **gates** the block (`v-if="putawayDivertedTo && …"`) and is never printed. Naming the location twice in one alert is noise, and the copy already contains it via `%2$s`. The row asserts both are wired, not both are displayed. |
+| `U-degraded` | on a FAILED destination read `receivingForm.vue` renders `#idPutawayUnconfirmed` instead of the `(SKU override)` qualifier, resets the flag before the `advicepositionid` guard, and does **not** set it on the empty-envelope path (review F3, 2026-08-12) |
+| `U-degraded` (extended) | …and the destination read claims a `putawayRequestSeq` stamp, re-checked after **both** awaits, so a straggling response cannot repaint state (F3 review M1, 2026-08-12) |
+| `P2-diverted-argorder` | the two args of `putawayDestinationDivertedToLane` are passed **lane-first, configured-second** at the `ReceivingController` call site, and `ReceivingControllerUnitTest` captures the real `Object[]` to pin it (wms2-api PR #148). ⚠ Added 2026-08-11 because a conformance lane **transposed those args and all 4927 API tests stayed green** — `ExceptionMessageService` is mocked with `anyString(), any(Object[].class)` and the only assertion was `divertedReason` non-empty. A transposition inverts the sentence: it tells the operator the stock was received to the pick face and will move to the lane. This row and that test are the only two things standing between that inversion and production. |
+| `U-warehouse-typed` | the `DEFAULT_PUTAWAY_LOCATION` branch dispatches the **new typed** action; **negative** — it does not reuse `editParamAndConfig` / `addParamAndConfig` / the sysprop `$delete` |
+| `U-neg-shipper-patch` | **negative** — `defaultputawaylocationId` never appears in `store/admin/shippers.js`'s `$patch` payload (§3.11.3) |
+| `U-merchant-inherited` | the three-state control binds the envelope's `inherited` boolean; **negative** — no Vue-side comparison against `'MERCHANT_OVERRIDE'` |
+| `U-persist` | the putaway config keys are in `persistedState.client.js`'s reducer exclusion (`:24`) |
 
 ### 11.2 Recommended OMC composition
 
@@ -3159,7 +3876,7 @@ The baseline table above has been re-recorded from measured runs; the pre-implem
 | **Implementation shape** | **`ralph`**, exit condition = `PHASE=<phase>` 0 fail from the verify script, **never whole-plan 0 fail** (O4) | 29 steps across four phases with ordering constraints (O1–O5) that a single `executor` pass will not respect |
 | **Verification step** | verify script **+ `verifier`** (mandatory) | plus the §11.1 negative control, per phase |
 | **Code-review step** | **`code-reviewer`**, fix every High/Medium | seven new beans, one Spring Data REST event handler, one new exception mapping |
-| **Commit step** | **`git-master`** | Phase 1 is at least five logical commits, and the **first one is atomic by requirement**: `V2.2.11` + stop-seeding + fixtures together (O3). Then resolver + predicate + message keys, config service + controller + direct-save guards, event handler, receiving wiring + display endpoint |
+| **Commit step** | **`git-master`** | Phase 1 is at least five logical commits, and the **first one is atomic by requirement**: `V2.2.13` + stop-seeding + fixtures together (O3). Then resolver + predicate + message keys, config service + controller + direct-save guards, event handler, receiving wiring + display endpoint |
 
 ---
 
@@ -3168,6 +3885,1072 @@ The baseline table above has been re-recorded from measured runs; the pre-implem
 Substantive design changes since the initial draft, in the order they were settled. Everything above this
 section states the **current** design directly; this is the only place the superseded alternatives are
 recorded.
+
+- **2026-08-11 — §3.11.0 RESEQUENCED after an independent design-review lane on the held deliverables. The
+  extraction is no longer a prerequisite of the read, and the reason it appeared to be was a response-shape
+  choice this plan never examined.** Two lanes, both opus: critic **SOUND-WITH-CHANGES** (extraction is right,
+  wrong order, incomplete `Ctx`), architect **change the packaging and the sequence**. Neither disputed that a
+  shared predicate is the correct seam — a narrow SQL restatement cannot express
+  `isUnitloadTypePermitted`'s fail-open (the only reason club lanes pass) or the `sltname`-not-`useforpicking`
+  keying, and `LocationRepository.getPutAwayCandidateLocations` is the in-repo proof, its own javadoc admitting
+  it is *"deliberately STRICTER than the Java gate"* and merely *"agrees on today's data"*.
+  - **ROOT CAUSE: the unpaginated contract.** "Return every location in the tenant" made per-row `validate()`
+    expensive → made the extraction a prerequisite → put a read-only feature behind a rewrite of the write
+    path. At page size 50 per-row `validate()` is ~50 calls, cheaper than the `GET /preview` already shipping.
+    `api.paging.max-size=5000` and 12 controllers already take `Pageable`; the unpaginated `List` was the
+    anomaly. **New order: A (paginated read, no live-code change) → B (write the guard) → C (extract) → D
+    (fix `summariseScope`).**
+  - ⚠ **`PutawayDestinationValidatorUnitTest` HAS NEVER EXISTED in any commit on any branch**, and this plan
+    named it as step C's behaviour-preservation guard three times, including a verify row asserting
+    byte-identity to `889298d`. Actual coverage is indirect and reaches **4 of 8 keys**: `locked`,
+    `areaNotUsable`, all three `rejectIfTrue` lane flags, `crossdockinglane`, P2.7(e) at WAREHOUSE, the
+    rule-(f) `isFlowbin` gate, the **P2.6 flowbin skip** (the ICE PACK case) and multi-failure precedence are
+    all unexercised. Compounding: the row would have **failed OPEN** on the missing file. Step B now owns it.
+  - ⚠ **`Ctx` was incomplete**: no `defaultUnitloadTypeId`, so the facade could not supply P2.6's second
+    message argument; `String.format` raises, `BusinessException` **catches**, and the live 422 `detail`
+    silently degrades. `getKey()` is unaffected — which is why every existing test, all of which assert
+    `getKey()` deliberately, would have missed it. Now a 4th `evaluate` parameter. P2.1 stays in the facade.
+  - ⚠ **The evaluation ORDER is the contract and was unstated.** Live order is not the P2.x numbering
+    ((e) → (4) → (f) → (6), P2.6 last). **1,345 of 2,068 flowbins fail two or more predicates**, so which key
+    wins is the majority path at SKU scope and is wire-visible through `blockingReason`. Now written down,
+    with the chain to be modelled as an ordered predicate list so `evaluateAll` is addable later.
+  - **Packaging changed:** `@Service` bean not `static` (ArchUnit pins purity better, and
+    `PutawayDestinationResolver:59-65` already establishes the injected-metric pattern `static` would
+    forbid); transaction boundary on `PutawayDestinationQueryService` not the controller (which is already
+    the repo's only `@Transactional`-bearing controller, and `ClientController:64` still claims otherwise);
+    `Verdict.args` as `List<Object>` not `Object[]` (array-identity `equals` would fail a correct impl —
+    the third gate this plan would have written to fail correct code).
+  - **Arithmetic corrected three ways:** "four lookups" understated, "6 lookups ≈ 16,400 queries"
+    overstated; true max is **five** and the L1-corrected naive figure is **~8,200**. Same pattern as the
+    six-vs-seven key miscount.
+  - **New: the divergence rule** (§3.11.0.5) — *the shared evaluator may make the read more permissive than
+    the write, never stricter*. A stricter reader hides a legal destination, which is a silent failure and is
+    the direction the existing SQL restatement already got wrong.
+  - **Acceptance changed:** `P2-eligible-bulk` **retired** (it asserted the opposite of step A, and would
+    fail a correct implementation); the five `P2-eligible-*` rows must be **rewritten** for the paginated,
+    query-service-hosted shape; step D's gate is a **counted query-budget assertion**, since no textual row
+    can express "one constraint query instead of 8,800".
+
+- **2026-08-11 — step C DONE (PR #145, `e9a8e7b`): the extraction, and mutation testing earned its
+  keep.** Step B's 50 assertions passed untouched, which is the claim the refactor rests on — but
+  **two mutations survived it**: removing the P2.6 flowbin skip (the ICE PACK case) and rule (f)
+  direction 1's `isFlowbin` gate. Cause: the extraction put each behaviour behind TWO guards (the
+  facade short-circuits `unitloadTypePermitted` for a flowbin, and only LOADS
+  `flaItemdataIdForLocation` for one), so a facade-built `Ctx` can never exercise the rules-level
+  check. **Behaviour was preserved; the new seam was untested, and "50/50 still pass" would have
+  looked like proof.** Closed by a direct evaluator suite (13 tests, no mocks). Lesson worth
+  keeping: a refactor that adds a seam needs tests AT the seam, and only mutation testing shows it.
+  - The facade's laziness is load-bearing: eager `Ctx` construction would 500 on a null `area_id`
+    under the lane exemption, and would re-add the two FLA queries per call that **step D had just
+    removed**. An extraction that silently undoes the previous step is the failure mode here.
+  - The redesigned key derivation caught **dead code the refactor left behind** — an orphaned
+    `rejectIfTrue` with 0 callers still holding a literal key.
+  - ⚠ **Fourth prose-vs-code trap in the verify script:** `P2C-pure` false-FAILED correct code
+    because the class's own javadoc says "no `@Transactional`". Any row asserting the ABSENCE of a
+    symbol must strip comments — now standard via `code_only`.
+  - ⚠⚠ **AND THE STEP WAS REPORTED GREEN WHEN IT WAS NOT.** The commit message, PR #145's body and the
+    ClickUp comment all recorded `PHASE=1 220 pass / 0 fail`. The actual line read **220 pass, 6
+    fail** — and the six were **misattributed to the `U-*` UI rows, which `PHASE=1` filters out**, so
+    the number was rationalised instead of read. The failures were real but were the script's fault,
+    not the code's: `V-goodsin`, `V-storage`, `V-lanes`, `V-noflowbin23`, `V-lock` and `V-p1skip` all
+    grepped `$VALIDATOR` for predicates step C had just moved into `$RULES`. **A refactor that moves
+    code between files invalidates every verify row pinned to the old file, and those rows go red in
+    the same run that proves the refactor worked** — which is exactly when a "behaviour-preserving"
+    framing makes them easy to dismiss. Fixed 2026-08-11: five rows now search the whole chain
+    (facade OR evaluator, via new `chain_contains` helpers), and `V-lanes` is pinned to `$RULES`
+    deliberately, because `getStaginglane` is the one predicate legitimately in BOTH files (the facade
+    reads it to decide whether to load the area) so a chain-level check could not detect its removal
+    from the evaluator. `V-lanes` also now asserts **all four** lane flags; the old proximity regex
+    named only two and its `{0,400}` window silently encoded "these sit in one block" — an assumption
+    step C ended. Merged develop: **`PHASE=1` 226 pass / 0 fail**.
+- **2026-08-12 — INDEPENDENT REVIEW OF PR #50 (two lanes again). Both PASS, no High, no Medium.**
+  Follow-ups in wms2-web-ui PR #51 (`01e8d8a`), **MERGED 2026-08-12 (merge `488102c`)**. The value this round was almost entirely in the GATES, not the code.
+  - **My suspected token hole was real mechanically and unreachable in production.** I flagged that the
+    stamp was claimed BELOW the `positionId` guard, so a call returning at that guard never bumped the
+    counter and an in-flight earlier read could repaint. The reviewer proved the mechanism with a probe
+    (shadowing the `itemToReceive` computed) and then proved it unreachable: `itemToReceive` has exactly
+    **one** writer, `openNoticeTable.vue:274`, which commits BEFORE the `:276` route push while the form
+    is unmounted; there is no `<keep-alive>` anywhere; and the `setItemToReceive, null` that would empty
+    it in place is commented out at `:267`. Hoisted the claim above the guard anyway — one line, closes
+    the shape, and makes the data-block comment's claim ("closes that door") actually true.
+  - **A diagnosability regression I introduced.** The token guard was placed ABOVE the `console.error`,
+    so a stale failed read was logged **nowhere** — someone investigating intermittently wrong
+    destinations would open the console and find nothing, because the read that failed was the stale one.
+    Only the STATE is stale; the failure is always real. Log first, then guard. No test constrained it.
+  - **`U-degraded` was defeated 4 MORE ways** after the trailing-comment fix: a `://`-form comment, JS
+    string literals, a template literal, and a hidden `<template>` text node. I closed the comment channel
+    (`(?<!\w:)` — and note the lane's suggested `(?<![:\w])` does NOT close it, since `:` is exactly what
+    that lookbehind skips; measured both). The two STRING channels remain open and **no comment-stripper
+    can ever close them**, so `vue_code_only`'s header now says plainly that the row's teeth come from
+    Jest and these regexes are a cheap cross-check only. That is the honest fix; a tenth clever regex
+    would not have been.
+  - Also fixed in the row: the empty-envelope negative was `[^\n]`, i.e. **same-line only**, so the
+    braced multi-line form a developer would actually write passed it; the stamp clause allowed 600 chars
+    between the two rechecks against an actual 467, so ~130 characters of added code would have turned it
+    red on a correct implementation (the stale-row trap this plan already records); and `vue_code_only`'s
+    block-comment strip false-FAILed correct code if any string contained an unbalanced `/*`
+    (`globPattern: '/*'` deleted ~180 lines) — now guarded, and verified to stay PASS.
+  - **The wrong-test citation had a FIFTH site** — the verify script's own `U-degraded` header, the file
+    that grades the fix. Corrected. And the correction to it in the plan carried an off-by-two on the very
+    line it nominates as the tightest anchor.
+  - **D11 is the only coverage of the WARNING block's tri-state**, incidentally, because it omits
+    `noContainer`. Its name says nothing about that, so tidying its setup would silently delete the last
+    gate on that state — the same hole the unconfirmed block had until D31. Comment added telling future
+    editors not to.
+  - The copy's advice half ("if it keeps happening, report it") was asserted by **nothing** — deleting it
+    left 44/44 green. Now pinned in D24.
+  - Both lanes independently re-measured every falsifiable claim in this plan's §12 and confirmed them
+    exactly, including "passed ALL 40 tests" (they rolled the component back to `e702a42` to check) and
+    "fails 6, D23 among them" (exactly 6: D6, D7, D8, D10, D14, D23).
+  - **Post-merge verification on `origin/develop`**, fresh detached checkouts of both repos: Jest
+    **250 passed / 250** across 26 green suites, verify **287 pass / 0 fail / 1 skip**, ancestry confirmed.
+    Four regressions replayed against the SHIPPED code, each caught by its own test: notice gate
+    `=== true` → **D31**, catch-path staleness guard removed → **D33**, success-path guard removed →
+    **D34**, the copy's advice half deleted → **D24** (uncovered before #51). Also confirmed the L1 hoist
+    is present: the stamp claim is at `:641`, the `positionId` guard at `:643-644`.
+  - ⚠ **`test/NuxtLogo.spec.js` is red and always has been.** It imports `components/NuxtLogo.vue`, which
+    has **never existed** (0 commits, ever); the spec dates from `3462148 initial check in the code`
+    (2024-07-16). Every "26 suites" figure in this plan was taken with `--testPathIgnorePatterns=NuxtLogo`
+    and read as "all suites". It is 26 green of **27**. Unrelated to this ticket, and now filed as
+    **SBDEV-2931** — it makes every unfiltered `yarn test` in this repo exit non-zero, which trains
+    everyone to filter and to read a red suite as normal. That habit is exactly how a real failure hides.
+- **2026-08-12 — INDEPENDENT REVIEW OF PR #49 (two lanes, conformance + code review). Verdict PASS with
+  2 Medium; follow-ups in wms2-web-ui PR #50.** Nothing shipped was wrong; the gaps were in what the
+  gates could SEE.
+  - ⚠ **My own race finding was WRONG in its harmful half, and the correction matters.** I reported that
+    a straggling response could paint a PREVIOUS position's destination onto the current line. It cannot:
+    selecting a line is a route change (`openNoticeTable.vue:274-276` →
+    `pages/receiving/openNotice/receive.vue:14`), so the form REMOUNTS and `advicepositionid` cannot
+    change under a live instance. My test proved a race by calling the method twice on one instance,
+    which production reaches only WITHIN one position.
+  - **M1 (Medium) — the same-mount overlap is real.** `mounted()` does not await `updateQuantities()`,
+    and every `receive()` re-runs it, so two reads overlap; the flag was cleared only at call entry and
+    never set false on success. A straggling FAILURE therefore landed on a newer SUCCESS and rendered
+    `#idPutawayUnconfirmed` **beside a live `#idPutawayDiverted`** — "any putaway re-route could not be
+    checked" next to a re-route notice proving one was. Two contradictory warnings, and the rational
+    operator distrusts the load-bearing one. Both orderings over-warn (the entry reset precedes the
+    await, so a failure can never be masked), which is why it is Medium not High. Fixed with a
+    `putawayRequestSeq` stamp re-checked after BOTH awaits — D33/D34.
+  - **M2 (Medium) — the new notice's `null` tri-state had no test, and the gap was exploitable.**
+    Substituting its gate `!== false` → `=== true` **passed all 40 tests**; the identical substitution on
+    the diversion block fails 6, including D23 which exists for exactly this. On a non-mandating tenant
+    first paint is `applied === null`, so a later "tidy" would have silently removed the notice from the
+    most common operator view — the very tri-state mistake the template comment warns about. I verified
+    both halves of that asymmetry myself before fixing. D31 is the D23 analogue.
+  - **`U-degraded` was prose-satisfiable, in a way `vue_code_only` was built to prevent.** It stripped
+    whole-line comments only, so a TRAILING `//` note on a code line survived: the pre-fix file plus six
+    `const X = 1 // <token>` lines scored the row GREEN with zero F3 code. The **ninth** instance of this
+    trap in this script and the first to defeat the mitigation written for the eighth. `vue_code_only`
+    now strips trailing comments too, with a `(?<!:)` lookbehind so it does not eat `https://`. Replayed
+    the exploit after the fix: variants A/B/C all FAIL, the real file PASSes.
+  - The row's ordering clause was also **adjacency, not order** — `advicepositionid` occurs 5× and the
+    regex only proved the reset sat next to one of them. Now anchored on the method with both landmarks
+    in sequence, and the request token is pinned too.
+  - **L1 — the "would flip T24/T25" rationale named the wrong tests in four places** (component
+    docblock, D29's title and body, plan §12), and the spec contradicted itself: its item-2 header said
+    correctly that T24/T25 stay green, 167 lines above a comment asserting the opposite. Measured: the
+    mutation breaks **T19 + T22 + D29**; T22 (`receivingForm.spec.js:221`,
+    `toBe('ICE PACK (SKU override)')`) is the real anchor — `:219` is that test's `mountForm(...)` call, an
+    off-by-two the PR #50 review caught **in the correction itself**, on the one citation nominated as
+    "the tightest anchor". The constraint was always real — the citation
+    a reader would check to confirm it was not. On a change whose point is that the screen stops
+    asserting what it cannot support, that is the same defect class one level up.
+  - **L2** — two comments still described `putawaySource === null` as "the DEGRADED path", which F3's own
+    guard had just excluded; narrowed to "seeded/in-flight (and the empty envelope)". **L4** — D26 claimed
+    a discriminating pair but asserted only the benign half; the failed-read-no-seed half was
+    *unreachable* through `mountForm`, whose DTO mock always seeded a value. Added a `seed` parameter and
+    D32. **L3** — the copy now says "if it keeps happening, report it", because
+    `describeForAdvicePosition` can fail permanently (`orElseThrow(entityNotFoundForId)`), against which
+    retrying is futile.
+  - Both lanes independently confirmed the DESIGN. The code reviewer added an argument I had not made:
+    blanking the field would not withhold an answer, it would **manufacture** one, because
+    `putawayDisplay` maps a blank to "Put Away Lane" — indistinguishable from a successful tier-4 read,
+    and the one answer an operator is least likely to double-check.
+  - Suite **250 passed / 250, 26 green suites of 27**; verify **287 pass / 0 fail / 1 skip**. Four new mutations, each
+    caught by exactly the one test written for it — notice-gate→**D31**, catch-recheck→**D33**, success-recheck→**D34**, seed-suppression→**D32**. ⚠ These were labelled M2/M11/M12/M13 until the PR #50 review pointed out that **M11/M12/M13 collide with §5.1's manual DEV rows** of the same names in this very document, and that the F3 numbers were never defined anywhere — a reader could not check the mapping as written. Named by what they mutate instead.
+  - **MERGED 2026-08-12 as wms2-web-ui PR #50 (`b62f5ba`, merge `4a8a0e0`).** Re-verified on merged
+    `origin/develop` from fresh detached checkouts of both repos: Jest 250/250 across 26 GREEN suites (27 total — see the NuxtLogo note), verify
+    287 pass / 0 fail / 1 skip, ancestry confirmed. The two Medium mutations were **replayed against the
+    shipped code**, not only against the branch: `=== true` on the notice gate is caught by D31, and
+    removing the stale-failure guard by D33. A green suite proves the tests pass; replaying the
+    mutation on `develop` is what proves the gap is actually closed where it matters.
+- **2026-08-12 — REVIEW F3 RESOLVED. Nam chose the recommended option (keep the value, strip the
+  certainty) over both a toast and blanking the field.** wms2-web-ui PR #49 (`f6c4ad9`), **MERGED 2026-08-12 (merge `e702a42`)**.
+  - `D19` **inverted**. It asserted that the degraded path correctly labels the value a SKU override,
+    reasoning that the seed is tier 1 by construction — which is TRUE and insufficient. Being right about
+    the TIER is not being right about the DESTINATION: the same failed read also cost the (iv-b)
+    diversion check. Its old justification cited T24/T25, but those never reach the catch — their mock
+    falls through to `Promise.resolve(null)`, the empty-envelope early return. `D29` now pins that
+    boundary and T24/T25 stayed green untouched.
+  - Added `D24`–`D30` and the `U-degraded` verify row. 7 mutations, each caught by a distinct test:
+    flag never set (D19/D24/D27/D28), guard removed (D19), notice never renders (D24/D28), tri-state gate
+    dropped (D27), flag not reset between positions (D28), empty envelope treated as failure (D29),
+    resets moved back below the guard (D30). Verify row separately negative-tested on 6 mutations.
+  - ⚠ **Found while writing D30: a THIRD early-return path leaked state.** The resets sat below the
+    `advicepositionid` guard, so selecting a position without one kept the previous line's diversion
+    notice on screen. D14/D15 were written for the reject and empty-envelope returns and named them
+    explicitly; nobody enumerated the guard above them. Fixed by making the reset unconditional.
+  - ⚠ **Two test-harness traps cost two false results before the suite went green.** VTU's `setData`
+    deep-MERGES plain objects, so re-setting `noticePosition` to an equal-but-new object never changes the
+    reference and the non-deep watcher does not fire — the position switch silently did not happen. And
+    `itemToReceive` is read through a computed over the NON-reactive mock store, so mutating
+    `$store.state...itemToReceive` mid-test cannot change `positionId`. D10's idiom (`$axios.$get
+    .mockImplementation` + calling `loadPutawayDestination()` directly) is the only reliable lever, and
+    both rewritten tests now use it.
+  - Suite **246 passed / 246 total, 26 suites**; verify **287 pass / 0 fail / 1 skip**.
+  - **Re-verified on merged `origin/develop`** from fresh detached checkouts of BOTH repos (not the
+    implementation worktree): Jest 246/246 across 26 suites, verify 287 pass / 0 fail / 1 skip,
+    `merge-base --is-ancestor e702a42 origin/develop` confirmed.
+- **2026-08-11 — THE REVIEW LANE ON PR #47 FOUND A COPY DEFECT NO GATE COULD SEE, AND IT IS THE ONLY
+  FINDING IN THIS TICKET THAT WOULD HAVE HARMED AN OPERATOR SILENTLY.** Closed by wms2-api PR #148
+  (`049d15b`), **MERGED (merge `bcfdc47`)**.
+  - The lane **transposed the two args of `putawayDestinationDivertedToLane` and the whole API suite
+    stayed green — 4927 tests, zero failures.** Transposed, the sentence reads *"Received to ICE PACK.
+    Putaway will move it to Put Away Lane — the stock is not on Put Away Lane until then"*: it names the
+    pick face as where the stock IS and the lane as where it is GOING, the exact inversion of the truth,
+    on the one screen this ticket exists to make truthful. Same defect class as SBDEV-2731.
+  - **Why two good tests both missed it.** `ReceivingControllerUnitTest` mocks `ExceptionMessageService`
+    with `anyString(), any(Object[].class)` and asserted only `divertedReason` non-empty;
+    `DiversionCopyUnitTest` asserts the BUNDLE, not the controller, because the ResourceBundle parent
+    chain makes child-file deletion invisible to any other approach. Each is correct alone. **The gap
+    was the join between them, and no verify row covered it either** — so the fix is both an
+    `ArgumentCaptor<Object[]>` assertion and the new `P2-diverted-argorder` row.
+  - Row negative-tested against five mutations: controller args transposed **FAIL**, test expectation
+    transposed **FAIL**, `laneLabel()` bypassed so raw `PutAwayLane` leaks **FAIL**, assertion weakened
+    back to `isNotEmpty()` (the original gap) **FAIL**, captor local renamed consistently **PASS**.
+  - ⚠ **Ninth prose-satisfiable-grep trap in this script.** The call site now carries a comment reading
+    *"%1$s is where the stock LANDS, %2$s is what was CONFIGURED"* — a comment-blind grep is satisfied
+    by that prose with the code transposed underneath. The row uses `code_contains_ml`. A first draft
+    also matched `\bargs\.capture\(\)` and would have gone red on a correct variable rename; the row is
+    now name-independent, since the load-bearing assertion is the expectation ORDER.
+  - ⚠ **Shadow-root recipe correction.** `wms-plan-executor` describes a monorepo symlink tree, but
+    **this script takes `PROJECT_ROOT` as the wms2-api repo root itself** (`:117`) plus a separate
+    `UI_ROOT` (`:118`). Pointing it at a monorepo shadow scored **4 pass / 282 fail** — a result that
+    looks like catastrophic regression and is purely harness misconfiguration.
+  - Also removed a dead ternary arm at `ReceivingController:139`: `r.location() == null ? "the
+    configured destination" : …` is unreachable because `PutawayDisplay.diverted()` already requires a
+    resolved configured location. It read as a defensive guard while being a second, silent copy variant
+    no test could reach.
+  - **Post-merge verification on `origin/develop` for BOTH repos** (fresh detached checkouts, not my
+    worktrees): verify **286 pass / 0 fail / 1 skip** (`PHASE=all`, was 285/0 — this row is the +1);
+    web-ui Jest **239 passed / 239 total, 26 suites**; API `ReceivingControllerUnitTest` +
+    `DiversionCopyUnitTest` green. Merge ancestry confirmed with `merge-base --is-ancestor` in both.
+- **2026-08-12 — POST-MERGE REVIEW OF STEP 19a FOUND 2 HIGH DEFECTS, both mine, both the same mistake:
+  the step widened what a field MEANS and left consumers encoding the old meaning.** Fixed in
+  wms2-web-ui PR #48 (`c46823a`), **MERGED 2026-08-11 (merge `2884085`)**.
+  - ⚠ **F1 — `(SKU override)` rendered for tiers 2 AND 3.** `isPutawayOverride` was "name set AND name
+    != PutAwayLane AND applied", which **was** sound while `putawayStaging` came from
+    `receiving_dto_view.defaultputawaylocationname` — a TIER-1-ONLY column, so a non-lane name was a SKU
+    override by construction. Step 19a re-sourced the field from the FOUR-tier resolver and left the
+    qualifier untouched. Reproduced: **"BULK-01 (SKU override) Warehouse default"**, and
+    **"ICE PACK (SKU override) SKU override"** with the tier stated twice. The line self-contradicts and
+    answers "why is this SKU going here" with the wrong tier.
+    **This is the "re-source, don't re-shape" hazard §3.11.1 warned about, landing on a CONSUMER rather
+    than on the assignment — the warning was read as being about the assignment only.** It was also,
+    strictly, the Vue-side precedence derivation item 2 forbids: a location-NAME comparison standing in
+    for the source tier. `D5` missed it because it grepped for quoted enum names and this derivation
+    contains none.
+  - ⚠ **F2 — the diversion contradicted "(not used — receiving to container)".** The destination is
+    honoured IFF the operator opted out of a container, but the diversion was gated only on
+    `divertedTo`, so on the container path both rendered — and both halves of the diversion sentence are
+    false there. **On a tenant with `REQUIRE_RECEIVING_TO_CONTAINER=true` the tri-state is `false` for
+    EVERY receipt, so the contradiction is permanent, not transient.** `warning` had the identical gap.
+    Gated on `!== false`, never a truthy test, because `null` means "not chosen yet" and the destination
+    may still apply — the same tri-state mistake SBDEV-2731's review round already fixed once.
+  - ⚠ **F3 (MEDIUM) is NOT fixed and needs a product decision:** the silent catch leaves the configured
+    pick face on screen with no diversion line and no tier label — **byte-identical to the pre-SBDEV-2731
+    lie, on the one screen this ticket exists to make truthful.** `console.error` is invisible in a
+    warehouse, so a per-tenant outage is indefinite and silent. "Degraded, not blank" is the right
+    instinct; the flaw is that the degraded state ASSERTS something it could not verify. `D3` pins the
+    current behaviour deliberately.
+  - **My suspicion about an out-of-order response race was WRONG, and the lane's reasoning is better than
+    mine:** `itemToReceive` is committed in exactly one place, immediately followed by a route change, so
+    the component is destroyed rather than reused and the two calls that can overlap carry identical
+    ids. Real as a mechanism, unreachable on this screen — and live the moment anyone adds in-place
+    position navigation.
+  - **Three more of my own tests were weaker than they read:** the fixture reused the location name as
+    the SKU's item number, so `wrapper.text()` matched it from the CARD TITLE — defeating scoping for
+    the whole file, which the preserved SBDEV-2731 spec's own header explicitly warns about; `D5` was
+    quote-form dependent; `D8`'s "distinct element" claim was narrower than it reads. Fixed.
+
+- **2026-08-11 — STEP 19a MERGED, in the required order: wms2-api #147 (merge `509be61`) then
+  wms2-web-ui #47 (merge `83c6e97`).** The API first, because the wording resolves server-side.
+  Verified on merged develop rather than on the branches: the key is present in BOTH bundle files, the
+  old hardcoded literal is gone (0 occurrences), `loadPutawayDestination` / `idPutawayDiverted` /
+  `putawaySourceLabel` are all live, and **SBDEV-2731's `isPutawayDestinationApplied === false`
+  survived** — the preservation §3.11.1 demanded. Web suite 231 passed / 0 failed; API targeted 47 / 0.
+  Two DEV deploys fired.
+  - **`verify PHASE=all` — 285 pass, 0 fail, 0 stderr, against merged develop in both repos.** Every
+    row this plan ever specified is now green, including the eight §11.1a rows that had existed only in
+    the acceptance table.
+
+- **2026-08-11 — STEP 19a IS BUILT, and the copy blocker was dissolved rather than waited on.**
+  wms2-web-ui PR #47 (`eed9e2a`) + wms2-api PR #147 (`6cc86d5`); **#147 merges first.**
+  - **The blocker was the WORDING, not the code** — and the API half was already merged and verified
+    (`sourceLabel:106`, `divertedTo:117`, `divertedReason:118`, `warning:123`), so nothing server-side
+    was outstanding. Copy is **variant A, chosen by Nam**: *"Received to %1$s. Putaway will move it to
+    %2$s — the stock is not on %2$s until then."* It satisfies both halves SBDEV-2643 D1 requires:
+    routed VIA PUTAWAY rather than placed, and the CONSEQUENCE.
+  - ⚠ **AN UNREVIEWED OPERATOR-FACING SENTENCE WAS ALREADY SHIPPING.** `ReceivingController:118`
+    carried a hardcoded literal — *"configured destination is a pick face; putaway will route it"* —
+    on merged develop and deployed to DEV. Had step 19a rendered `divertedReason` verbatim, that
+    developer-written sentence would silently have BECOME the operator-facing copy. It was also the
+    only operator-facing string this ticket added that was NOT a message key, so it could not be
+    localised and every wording tweak needed a Java change and a deploy. Now
+    `putawayDestinationDivertedToLane` in both bundle files, resolved through the existing
+    `ExceptionMessageService`. **Generalisable: "needs product sign-off" is not a reason to leave the
+    string in Java — move it to the bundle FIRST and the decision stops blocking the build.**
+  - A first draft also added a `divertedToLabel` envelope field mirroring `source`/`sourceLabel`.
+    **Removed before merge**: the resolved sentence already contains the label and the only consumer
+    gates on `divertedTo`, so it was envelope surface with no reader.
+  - ⚠ **Mutation testing found a gap two of my own tests structurally could not reach.** Deleting the
+    per-position reset SURVIVED, because on the normal path the assignments at the end of
+    `loadPutawayDestination()` clear the fields anyway. The reset only matters on the EARLY-RETURN
+    paths — a rejected request or an empty envelope — and that is the worse case: the operator is still
+    told the stock is going elsewhere, about a position we could not even read. `D14`/`D15` drive it.
+  - **`verify PHASE=all` is 285 pass / 0 fail — the entire script green for the first time**, including
+    `U-diverted`, which §11.1a named and which existed nowhere in the script until today.
+
+- **2026-08-11 — checked whether wms2-mobile-ui needed the same fixes. MOSTLY NO, and the one that
+  applied exposed a gap in my own web fix.**
+  - **Not applicable to mobile:** no putaway-config surface at all (zero references to
+    `defaultputawaylocation` / `DEFAULT_PUTAWAY_LOCATION` / `LocationPicker` / `eligibleLocations` /
+    `putawayConfig`), no `admin` store module, and although the façade exposes `hasResourceRole`
+    **nothing calls it** — so the non-reactive-gate defect, H2, M1-M4 and config health cannot exist
+    there. Steps 19-22 are admin screens; mobile is scanning workflows.
+  - **Applicable: the logout blob-clear** — wms2-mobile-ui PR #31 (`5439c49`), MERGED, merge `2e5a995`. `vuex-mobile`
+    appeared in exactly ONE place in that repo — where it is created — and was never removed.
+  - ⚠ **The rationale differs, and that is the interesting part.** Mobile's blob holds NO credentials
+    (no `admin` module), so it is not a secrets problem there; the exposure is OPERATIONAL, and worse
+    on that app because handhelds are SHARED BETWEEN SHIFTS. Every workflow module persists a
+    `process` step marker plus its working set, and **five of ten workflow pages reset nothing on
+    entry** (cancellation, cycle-count, move-stock, move-unitload, transfer-order). `putaway.vue`
+    already carries a `created()` reset with a comment about stale persisted state breaking a
+    sub-screen — the same bug, patched one page at a time. **Filed as SBDEV-2930**, not folded in: it
+    needs five workflow screens touched.
+  - ⚠⚠ **AND CHECKING MOBILE EXPOSED A THIRD EXIT MY WEB FIX HAD MISSED.** Mobile has the same
+    `onAuthLogout` handler — Keycloak reporting the session ended without going through our own logout
+    (an SSO logout in another tab, or a back-channel logout). It cleared the token and left the blob.
+    I had covered the two exits I happened to look at, **which is exactly the failure mode that fix's
+    own commit message warns about.** Corrected in wms2-web-ui #46 (`5953925`, L8 added) as well as in
+    mobile. It is reached WITHOUT the user touching the app, so it is the longest-lived of the three
+    cases, not the most obscure. **Generalisable: "I covered both exits" is a countable claim — go
+    count them, in every app that shares the pattern.**
+
+- **2026-08-11 — the two review follow-ups are now FIXED, not just filed.**
+  - **`vuex-web` is cleared on logout** — wms2-web-ui PR #46 (`469715e` + `5953925`), MERGED, merge `aac55d4`. Logout removed only
+    `kcToken`, so the whole persisted root state survived for the next user of a shared warehouse
+    browser profile — and that blob carried `CUPS_SERVER_ADDRESS_PASSWORD` in plaintext until step 22
+    excluded the sub-tree. An exclusion stops new writes; it cannot evict a blob a browser already
+    holds. **Two exits** now clear via one helper: the façade's `logout()` (both menu components) and
+    the plugin's internal auto-logout on token-refresh failure — the exit a user does not choose.
+    7 tests, 5/5 mutations caught. **Mutation testing again caught a false claim in my own comment:**
+    making only the façade clear SURVIVED the first suite, which falsified the spec's own statement
+    that both exits were covered.
+  - **The stale gate-era javadoc is corrected** — wms2-api PR #146 (`7c941e4`), MERGED, merge `0517c94`. It described
+    `eligibleLocations` as a signature-only stub no controller reached; step A had filled the body and
+    added the mapping in the same commit, so anyone auditing whether the picker's read works would
+    have concluded it does not.
+  - ⚠ **AND THE SAME STALE EXPECTATION HAD A WORSE SECOND HOME.** Five shape checks in
+    `PutawayConfigControllerUnitTest.EligibleLocationsEndpoint` were `@Disabled` "until the endpoint
+    exists", with a notice saying *"TO RE-ARM: delete this `@Disabled`"* — and **following that
+    literally would have damaged the code.** Three of the five encoded the design the gate
+    ANTICIPATED: one asserted the CONTROLLER carries `@Transactional` (step A deliberately put the
+    boundary on the service; `P2A-ctl-no-tx` forbids it on the controller, and the test's own failure
+    message said so while asserting the opposite), one asserted a `List` return where the read returns
+    `Page`, and one pinned the parameters before `Pageable` existed. Deleting the annotation and
+    "fixing" the failures would have added `@Transactional` to a controller that must not have it and
+    un-paginated the read. All five now assert the shipped design; **5 skipped tests are live again.**
+    **Generalisable: a "re-arm me later" note is a claim about a future that may not arrive as
+    predicted — re-arming means re-deriving the assertion, not just deleting the annotation.**
+  - The old javadoc wording is **paraphrased, not quoted**, in the correction, so a future audit
+    grepping those phrases does not match the fix and re-raise a closed finding.
+
+- **2026-08-11 — ALL FOUR PHASE-2 UI PRs MERGED TO DEVELOP**, base-first, each retargeted to `develop`
+  as its predecessor landed: #42 → `9edb743`, #43 → `ec01dd7`, #44 → `536ac2b`, #45 → `bb6fd22`. Every
+  branch verified an ancestor of `develop` after its own merge — no orphans (the failure mode that
+  produced the #51 orphan on an earlier stack).
+  - **The redistribution paid off at the second merge.** The reactive gate and all four Mediums were on
+    `develop` the moment #43 landed, verified by grepping merged `develop` rather than trusting the
+    branch: `return this.isSbAdmin` present, `hasResourceRole` gone. Had the fixes still been on the
+    tip, DEV would have carried the disabled-gate defect through three deploys.
+  - Merged `develop` re-verified independently: **208 Jest tests / 0 failures** (only the pre-existing
+    `NuxtLogo` suite fails to run, as it does on clean develop), **`PHASE=1` 226/0**, **`PHASE=2` 65/1**,
+    **`PHASE=all` 283 pass / 1 fail** — the single fail is `U-source`, step 19a. ESLint: 2 errors on the
+    touched files, both pre-existing (`prefer-const`, `vue/no-mutating-props`).
+  - Four `Docker Image CI` runs fired on the four pushes to `develop`, so this is deploying to DEV.
+
+- **2026-08-11 — the review fixes were REDISTRIBUTED onto their owning branches**, so each PR is
+  independently sound rather than depending on the tip. Step 20 `1f2e4a1`, step 21 `fa7a256`, step 22
+  `74164cd`. Every tip passes on its own: **96 / 159 / 188 / 208** tests.
+  - **The ownership rule used: the branch that makes a defect REACHABLE owns its fix.** That is not the
+    same as the branch that introduced the file. H2 lives in step 20's component, but all three call
+    sites there are `scope="WAREHOUSE"` with no `subjectId`, so the subject cannot change and the
+    defect is unreachable — it belongs to step 21, which introduces MERCHANT scope and a changing
+    subject. Likewise the merchant writer's error handling and the `editShipper` watcher coupling are
+    step 21's; the persisted-credential exclusion is step 22's.
+  - **Two tests had to MOVE between spec files**, because a test belongs with the branch that can
+    exhibit the defect: the M2/M3/M4 regressions were written into step 22's config-health spec but
+    pin step 20 behaviour, so they moved to step 20's spec. `S16` (the merchant-writer message) moved
+    the other way, into step 21.
+  - **Verified by comparing code-line multisets, not by eyeballing the diff.** All **11 production
+    files are byte-equivalent** to the monolithic fix; the only differences are in two spec files
+    (deliberately relocated tests) and comment wording. That check earned its keep: it found **one
+    dropped assertion** — the rewritten M2 test had lost `not.toHaveBeenCalledWith` on the bare
+    write, which is the exact thing that used to 409. Restored.
+  - ⚠ **A parse error in a spec file reads as a healthy suite.** A bad splice left a stray `})`, and
+    the run reported **169 passed** while that whole file silently contributed zero tests. Same trap as
+    a mutation harness that judges by parsing a summary line instead of the exit code: `Tests:` counts
+    only what actually ran. Check `Test Suites:` too.
+
+- **2026-08-11 — INDEPENDENT REVIEW ROUND on PRs #42-#45 (conformance + code review + security, three
+  lanes). Conformance PASS, but 2 High and 4 Medium defects in SHIPPED BEHAVIOUR, all fixed.** 207
+  tests, 16/16 review-round mutations caught, 10 new `RV-*` verify rows each negative-tested,
+  `PHASE=2` 65 pass / 1 fail (the 1 is step 19a).
+  - ⚠ **H1 — THE PERMISSION GATE LOCKED OUT REAL ADMINS. Both lanes found it independently.**
+    `canEdit()` was a **computed over `$kc`** — a plain injected object whose getters read a closure
+    variable that is `null` until the *fire-and-forget* `initKeycloak()` resolves. A computed with
+    **zero reactive dependencies** evaluates once and caches, so first paint cached `false` and never
+    recovered. **Step 22 is what made it an everyday path:** the Operation Options tab index is
+    persisted, so F5 restores it and the unconditional control mounts in the very first paint. Fixed
+    by resolving the role in `mounted()` after `await $kc.ready`, into reactive data.
+  - ⚠ **H1b — and the gate was NARROWER THAN THE BACKEND.** `hasResourceRole(role, clientId)` reads one
+    client's roles; `JwtAccessTokenCustomizer.extractRoles` harvests **every** `resource_access` client
+    **plus** the `groups` claim. The clientId passed was `process.env.KEYCLOAK_CLIENT` — build-wide —
+    while the token comes from the **per-tenant** client. Now mirrored in `util/keycloakRoles.js`, which
+    names the Java method as source of truth so the two cannot drift. See §3.12.
+  - ⚠ **H2 — one shipper's unsaved selection was WRITTEN AGAINST THE NEXT SHIPPER.** The wrapper is
+    never destroyed between shippers (`v-if="shipper"` stays true; Vuetify's overlay renders its slot
+    regardless) and the `value` watcher synced `selectedId` only. **When both shippers inherit, `value`
+    is `null` for both, so the watcher never fires** — Save wrote A's location against B's clientId
+    with A's confirmed count. Fixed with a `subjectId`/`scope` watcher resetting selection, row,
+    preview and dialog.
+  - **M1 — `ComUtil.getErrorMessage` never existed**, so the ternary guarding it was permanently dead
+    and every 409/422 became "network or server issue" — discarding the actionable half of D11.
+  - **M2 — zeroing the count after a successful write** hid a warning that was still true, and made a
+    second Save send no confirmation → the writer recomputed the same count and 409'd.
+  - **M3 — Vuetify 2's `VBtn` derives `disabled` from the `disabled` prop ONLY; `:loading` does not
+    disable it.** Two clicks on "Save anyway" wrote twice.
+  - **M4 — a mid-pagination failure returned an empty set**, and the panel then stated "0 of 0 locations
+    can be used as a putaway destination" — an affirmative claim contradicting the toast beside it.
+  - ⚠ **A PLAINTEXT CREDENTIAL, one identifier away in the destructure step 22 was already editing.**
+    `admin.configuration.systemSettings` carries `CUPS_SERVER_ADDRESS_PASSWORD` in plaintext (confirmed
+    against wineco-dev) and was persisted to `localStorage`; nothing clears `vuex-web` on logout, so on
+    a shared warehouse workstation it survived for the next user. Exclusion widened to the whole
+    sub-tree. **Clearing `vuex-web` on logout is NOT fixed here** — broader than this ticket, filed as
+    a follow-up rather than smuggled in.
+  - Confirmed sound by the security lane: the gate is **correctly non-load-bearing** (no write reachable
+    with `canEdit === false`), URL construction has **no injection**, and the HAL `PATCH /client/{id}`
+    hole is closed by `PutawayConfigRepositoryEventHandler.onBeforeSave` → `validateOnly`, **not** by
+    the UI strip. Latent trap recorded: that strip is safe *because this is PATCH* — SDR merges, so an
+    absent field is an empty delta; switching to `$put` makes it a silent tier-2 **clear**.
+  - ⚠ **Six of my own tests would have passed against broken code:** `toContain('2')` subsumed by
+    `toContain('2739')`; `toContain('7')` satisfied by the `2739` already on screen; a PATCH-payload
+    assertion whose fixture never carried the field; three that set `selectedId` directly and never
+    exercised `onSelect`; three asserting `wrapper.vm.saveDisabled` while `v-btn` was stubbed, leaving
+    the real binding unverified. **And every `$kc` mock was synchronously-ready — which is exactly why
+    H1 was invisible to 205 passing tests.** A shared façade double now mirrors the real one, including
+    a not-yet-initialised variant.
+  - ⚠ **Verify-script findings from a lane that broke 17 rows:** a **live shell bug** (backticks in a
+    double-quoted description made bash execute `inherited`); `U-neg-flags-in-js` checked **one file and
+    3 of the 5 symbols** §11.1a names — `staginglane`, `sltname`, `entity_lock` were checked **nowhere**,
+    and two of those are the scope-*inverting* predicates, so the lane's client-side flag tests were
+    green on **both** gates; `U19-warn` was satisfiable by prose inside an **HTML comment** (seventh
+    prose-vs-code trap — `code_only` is line-oriented, hence the new `vue_code_only`); `U20-uncond`
+    missed `v-if="items.length > 0"`, *the exact defect it exists to block*, and my first re-tightening
+    then **false-FAILED correct code** because a regex cannot distinguish a preceding element from an
+    enclosing one; `U22-allrows` went **red on a behaviour-preserving reorder**. Nine further rows miss
+    a defect in their own requirement but are covered by Jest.
+  - ⚠ **I stated that `PHASE=2` filters to UI rows only. That is false** — 12 rows flip on
+    `PROJECT_ROOT` alone, and against a stale API checkout the same command reads **43/13**, not 55/1.
+    My figures were produced against a detached worktree at `origin/develop` and the lane reproduced
+    them, so the numbers were honest and the explanation was not.
+  - **Follow-ups filed, not smuggled in:** clear `vuex-web` on logout; and
+    `PutawayDestinationQueryService.java:169-181` on merged `develop` still says "SIGNATURE ONLY — NOT
+    IMPLEMENTED" and "NOT REACHABLE", both false, so anyone auditing whether the UI's read works will
+    conclude it does not.
+
+- **2026-08-11 — step 22 DONE (wms2-web-ui PR #45, `0e88b1c`, stacked on #44): config health + the
+  persistedState exclusion.** 18 tests, 15/15 mutations caught, full suite 169 passed / 0 failed.
+  **`PHASE=2` is now 55 pass / 1 fail, and the 1 is step 19a** — the only Phase 2 item left, and it is
+  blocked on product sign-off for its copy, not on code.
+  - **The config-health gap was created by step 19, deliberately and correctly.** §3.11.5 forbids
+    offering an ineligible row, and step 19's `T17` pins that even for the saved value. So an invalid
+    configuration rendered as an EMPTY field — **indistinguishable from unset, while the two behave
+    differently at receipt time**: unset falls through to the next tier, whereas invalid-but-set is
+    still stored and receiving's (iv-b) gate diverts those receipts to the standard lane, silently, per
+    SKU. Worth generalising: **a rule that hides invalid data has to be paired with a rule that
+    announces it**, or the correct filter becomes a silent failure. Step 19's own `T17` comment had
+    already deferred this here, which is the only reason it was not lost.
+  - A location stops being usable **without anyone touching this config** — its area flags change, it
+    is locked, it becomes a lane, its `location_type` stops permitting the SKU's unit-load type, or
+    another SKU claims it as a fix-assigned pick face. None of those edits happen on this screen, so
+    there is no natural moment at which an operator would find out.
+  - ⚠ **§3.11.4's instruction was not directly implementable either.** It says "add the putaway config
+    keys to the exclusion", but `persistedState.client.js`'s reducer is a **single top-level
+    destructure** and the target is nested at `admin.configuration.operationOptions`. Reshaped to a
+    nested exclusion that REBUILDS `admin.configuration` — a `delete` would mutate the live state the
+    reducer runs against and empty the table the operator is looking at (pinned by `P4`).
+  - ⚠ **Mutation testing found a guard nothing else covered:** without `allRows.length === 0`, a valid
+    live configuration is announced as broken for as long as the read takes. Every other test awaited
+    the read first, so **first paint was untested** — the state an operator on a slow tenant actually
+    sees. `H11` now drives a deliberately-unresolved promise.
+  - Three negative tests on the new rows first read as "asserts nothing" and were **invalid mutations**
+    rather than vacuous rows: each renamed a DEFINITION and left the call site, so the grep still
+    matched while the code was broken. Verified by running Jest under all three (5, 9 and 4 tests red)
+    instead of accepting the verdict — **a "vacuous" verdict on a row is itself a claim that needs
+    checking.**
+
+- **2026-08-11 — step 21 DONE (wms2-web-ui PR #44, `f5f3e44`, stacked on #43): the merchant tier.**
+  20 tests, 15/15 mutations caught, full suite 151 passed / 0 failed. Closes the LAST TWO §11.1a UI
+  rows that had never existed (`U-neg-shipper-patch`, `U-merchant-inherited`) — all seven now exist.
+  - ⚠ **§3.11.3 NAMED THE WRONG READ SOURCE, and it is the SAME defect §3.11 defect 1 already caught
+    once in this plan.** It said the field is read from `/client/detailView`; that payload has eight
+    hand-built keys and `defaultputawaylocationId` is not among them. Implemented against
+    `GET /client/{id}/effectivePutawayDestination` and **§3.11.3 has been corrected in place**. Worth
+    generalising: **this plan has now twice assumed a `detailView` endpoint carries a column it does
+    not.** Any future step that says "read X from a detailView" should be checked against the DTO
+    builder, not against the entity.
+  - The invisible defect the step had to avoid: `editShipper` is `$patch('/client/{id}')` — the HAL
+    path — and `save()` sends the WHOLE shipper object. Once `defaultputawaylocationId` is on that
+    object, **changing a printer silently overwrites the putaway destination through a path with no
+    validation, no audit and no cache eviction.** Stripped by destructuring, not `delete`, which would
+    mutate the live form object and blank the operator's control. Both halves pinned and both
+    mutations red.
+  - ⚠ **Two of my own tests were wrong in ways only mutation exposed.** `C7` guarded its file read on
+    `EditShipper.__file`, which vue-jest does not set — so it read `''` and asserted nothing; the
+    mutation that exposed it was *behaviour-preserving* (`inherited !== false` →
+    `source !== 'MERCHANT_OVERRIDE'`), which is exactly the kind a purely behavioural suite cannot
+    see. And the wrapper's RENDERING of `inheritedFrom` was untested, because `C5` only checks that
+    the parent passes the prop and `shallowMount` never renders the child.
+  - ⚠ **The perl-delimiter trap again, twice in one batch.** `file_contains_multiline` runs
+    `perl -0777 -ne "exit(/$1/s ? 0 : 1)"`, so the unescaped `/` in `client/...` and
+    `putawayConfig/merchant` terminated the match delimiter and both rows failed against correct code.
+    Earlier rows had dodged it only by accident, writing `putawayConfig.warehouse` with a dot.
+    **URL-shaped patterns belong in `grep -E`, which has no delimiter.**
+
+- **2026-08-11 — step 20 DONE (wms2-web-ui PR #43, `cf2ced2`, stacked on #42): the warehouse tier is
+  settable from the UI.** 33 tests, 16/16 mutations caught, full suite 129 passed / 0 failed, no new
+  ESLint errors. The typed write surface is used and the three generic sysprop actions are untouched
+  for the other ~145 syskeys (pinned by `S11`, `D3`, `D5` rather than asserted in prose).
+  - ⚠ **§11.1a NAMED SEVEN UI ROWS THAT DID NOT EXIST IN THE VERIFY SCRIPT AT ALL** —
+    `U-picker-source`, `U-neg-detailview`, `U-neg-flags-in-js`, `U-picker-tier`, `U-warehouse-typed`,
+    `U-neg-shipper-patch`, `U-merchant-inherited`. The script had `U-picker`, `U-negq`, `U-param`,
+    `U-shipper`, `U-persist` instead. **An acceptance criterion with no row is not a criterion**, and
+    a row whose id the plan never mentions is invisible to anyone reading the plan. Steps 19/20 close
+    five; `U-neg-shipper-patch` and `U-merchant-inherited` are step 21's.
+  - ⚠ **AND ONE OF THEM CANNOT EVER PASS AS WORDED.** `U-neg-flags-in-js` asks that no `.vue` or
+    store file reference `useforgoodsin` / `useforstorage` / `staginglane` / `entity_lock` /
+    `sltname`. **Eight existing files do** — `functionalArea.vue`, `storageLocation.vue`,
+    `locationType.vue` and others — and they are correct: they **display** those columns on
+    master-data grids. Displaying a column is not testing a predicate. Implemented scoped to the
+    putaway surfaces; the literal repo-wide form would fail forever against correct code, which is
+    worse than a missing row. **§11.1a's wording is the defect, not the code.**
+  - ⚠ **SIXTH prose-vs-code trap, and the first where the comment shipped in the SAME change as the
+    row.** `U20-preview` asserted `saveDisabled()[\s\S]{0,200}blockingReason` via
+    `file_contains_multiline`, which reads the RAW file — and the javadoc above `saveDisabled`
+    explains why a non-null `blockingReason` must disable Save. Deleting the actual guard left the row
+    green. Added a `code_contains_ml` helper. **The tightened form still passed**, because the
+    `{0,200}` window bled into `blockingReasonText()` ~130 chars later — identical to `P2A-svc-tx`'s
+    `{0,400}` matching another method's annotation. Now anchored to the exact expression
+    `blockingReason != null`, which needs no window. **Two independent trap classes on one row.**
+  - ⚠ **`U-param` asserted that an identifier EXISTS, not that the template branches on it.**
+    `isDefaultPutawayLocation` also appears in the computed and in the submit guard, so replacing the
+    template's `v-if` with `v-if="false"` — a dead branch where the picker never renders — left the
+    row green. It now greps the template attribute itself.
+  - The control renders **unconditionally**, which §3.11.2 requires and which is easy to mistake for
+    styling: an unseeded tenant or a D12 delete leaves no row, and because
+    `POST /systemProperty/create` rejects this syskey, a list-driven control would leave the
+    warehouse tier permanently unreachable with no way to re-create the row.
+
+- **2026-08-11 — step 19 DONE (wms2-web-ui PR #42, `91d500e`): the tiered `LocationPicker`.** 17 tests,
+  12/12 mutations caught, ESLint clean, full suite 96 passed / 0 failed (`test/NuxtLogo.spec.js` fails
+  to run on clean `develop` too). Ships inert — nothing renders it until steps 20/21.
+  - **A test found a requirement the plan did not state: the currently-selected row must bypass the
+    tier gate.** §3.11.5 specifies a two-tier filter on `tier`, and a literal reading of it drops an
+    already-saved `ADVANCED` destination out of `items` — so `v-autocomplete` renders an **empty
+    field** and an operator is told nothing is configured when something is. The gate exists to stop a
+    storage location being *chosen* without the lock warning, not to hide one already in effect.
+    `eligible` stays absolute, so an invalid saved destination is still not silently re-offered; step
+    22 owns surfacing it. **Written into §3.11.5 so steps 20/21 and SBDEV-2643's picker inherit it.**
+  - Two calls made beyond the plan's letter, both conservative: an **unrecognised `tier` fails
+    CLOSED** (promoting it to the visible tier is the one way a storage location reaches an operator
+    without the §7.6-row-8 warning), and the picker **drops `eligible === false` rows itself** rather
+    than trusting the caller, which §3.11.5 assigns to the caller.
+  - ⚠ **Both of the picker's pre-existing verify rows asserted nothing.** `U-picker` was
+    `file_exists`; `U-negq` was a bare `file_not_contains` on a symbol nobody would type. **`touch
+    components/common/LocationPicker.vue` turned both green** — the exact shape §11 warns about, and
+    it survived every earlier review of this plan because a filename-level row *looks* like coverage.
+    Strengthened, plus 9 `U19-*` rows; all 11 negative-tested.
+  - ⚠ **Fifth prose-vs-code trap, and this time in a file I wrote in the same change:** the
+    component's header comment explains why it must *not* read `useforgoodsin`, and cites the
+    server's `area.useforgoodsin ? DEFAULT : ADVANCED` rule — so the raw negative false-FAILED the
+    correct implementation. Every negative now pipes through `code_only`. Two more script traps in the
+    same batch: a `{0,400}` proximity window shorter than the `v-alert` block it spanned (the same
+    class as the `V-lanes` window step C broke), and `emitted('select')` used as an **ERE**, where the
+    parens are grouping metacharacters and the pattern matches `emitted'select'`.
+  - ⚠ **And two of my own MUTATIONS were invalid, each briefly reporting a real row as vacuous.** One
+    was paren-unbalanced, so the suite failed to *run* — printing `Tests: 0 total`, which a
+    summary-line parser reads as **zero failures** and reports as SURVIVED. Verdicts now come from
+    jest's exit code. The other replaced only lowercase `deadlock` while the spec also contains
+    `DEADLOCK` and the row greps case-insensitively. **A mutation harness needs its own negative
+    control: a uniform verdict across many rows means the harness broke, not the script.**
+
+  - ⚠ **The first negative-test pass of those repointed rows was itself invalid** and said all ten
+    "ASSERT NOTHING": the mutations suffixed the token (`getUseforgoodsin` → `getUseforgoodsinXX`),
+    which **still matches the regex as a substring**. Only an infix mutation (`getUseforXXgoodsin`)
+    actually breaks it. Re-run that way, 9 of 10 went correctly red — and the tenth was a genuine
+    vacuity: `V-p1skip`'s alternation matched the `Ctx` **accessor** in the evaluator, so it passed
+    with the facade's `isUnitloadTypePermitted` service call deleted. It now pins both halves
+    separately, all four mutations red.
+
+- **2026-08-11 — step D SHIPPED (PR #144, `a10bc08`) and it did NOT need step C.** The ~8,800-query N+1
+  on the ungated `GET /preview?scope=WAREHOUSE` is fixed by evaluating once per distinct
+  `defultypeId` rather than once per SKU. **Measured: 8,804 SKUs, exactly 1 distinct
+  `defultype_id` on `wms2-wineco-dev` → 8,804 evaluations collapse to 1.**
+  - **Equivalence, not approximation:** at tiers 2/3 the only per-SKU input is `defultypeId` —
+    rule (f) is the sole per-SKU predicate and runs only inside `if (scope == SKU)`
+    (`PutawayDestinationValidator:133`), so `subjectItemdataId` is passed but unread. **Pinned by
+    step B's merged `ruleFDoesNotRunAtMerchantScope`** — if that assumption ever breaks, that test
+    goes red and the grouping must be revisited in the same commit.
+  - **The step-C dependency this section asserted was an artefact of the proposed mechanism**, not
+    of the defect. Same shape of error as step A's unpaginated contract. Two for two.
+  - 3 of the 7 new tests failed pre-fix; 4 are preservation guards that pass on both sides,
+    including that `exampleIncompatibleSku` stays the first failure in ITERATION order rather than
+    the first SKU of the first failing type group.
+  - ⚠ **Two of the 4 new verify rows were wrong on first write:** one used a `{0,200}` proximity
+    window against a real gap of **542** characters (false-FAIL on correct code), the other called
+    **`multiline_not_contains`, a helper this script does not define** — that name belongs to the
+    SBDEV-2643 script — so bash returned 127 and the row read as an honest FAIL. Both fixed and
+    negative-tested; the undefined-function audit was re-run across the whole script.
+
+- **2026-08-11 — MERGED TO DEVELOP: steps 4, A and B, in that dependency order.** #143 first (merge
+  `a8129c7`) because a characterization guard landing after the refactor is worthless; then #141
+  (`913f017`); then #142 (`41c8257`), whose base had to be **retargeted from #141's branch to
+  `develop`** before it could merge — merging it as-authored would have merged into an
+  already-merged feature branch rather than develop.
+  - **Verified against merged develop rather than trusting the PR pages:** the three touched test
+    classes 88 run / 0 fail, `PHASE=1` **214/0**, `PHASE=all` **228 pass / 6 fail** — all six
+    remaining failures are `U-*` rows for the web-UI steps 19-22.
+  - ⚠ **Merging deployed to DEV.** `docker-image-develop.yml` triggers on `push: [develop]` and its
+    `pull_request` trigger is commented out — which is also why **no CI ran on any of the three
+    PRs** (`checks=0` on all of them) and **none had a human review** (`reviewDecision` empty). The
+    evidence base for all three was the author's own test runs plus three subagent review lanes.
+    Recorded because it is the honest description of what gated this work: nothing automated did.
+
+- **2026-08-11 — step B DONE (PR #143, `29fa719`): the guard this plan claimed already existed now
+  exists, and it is mutation-proven.** 50 tests characterizing the merged `PutawayDestinationValidator`.
+  - **Deliberately NOT a TDD gate.** It characterizes already-merged behaviour, so it is green on the
+    first run — and `wms-tdd-gate`'s rule 2 forbids writing tests that pass immediately, so the skill
+    was not invoked. Forcing step B into gate shape would have been a category error. A red test here
+    would have been a bug report against merged code; none were.
+  - **Mutate-then-check replaced "fails for the right reason": 14 mutations, all 14 caught**, then
+    reverted (validator byte-identical to `889298d` in the commit). Notably caught: the P2.6 flowbin
+    skip removal (the ICE PACK case), a dropped message argument, an **argument transposition**, and
+    moving P2.6 ahead of rule (f).
+  - **The 4-of-8 coverage gap is closed**: P2.2 locked, P2.4 areaNotUsable (which had never fired),
+    all three `rejectIfTrue` flags, `crossdockinglane`, P2.7(e) at WAREHOUSE, the rule-(f) `isFlowbin`
+    gate, the P2.6 flowbin skip, and multi-failure precedence.
+  - **Two things pinned that `getKey()` cannot see**: message ARGUMENTS (presence *and relative
+    order* — a transposition is invisible to a presence-only assertion, and
+    `skuAlreadyBoundToAnotherPickFace` takes `(sku, name)` where every sibling takes `(name, …)`),
+    and predicate ORDER, which is not the P2.x numbering.
+  - `P2-validator-tests-intact`'s byte-identity claim is still NOT wired, on purpose: it can only be
+    anchored to this commit, and that row belongs to whoever starts step C rather than freezing an
+    unreviewed file. Coverage rows (`P2B-*`) are wired instead and were negative-tested.
+
+- **2026-08-11 — step 18a IMPLEMENTED IN PART: deliverable 4 only, in PR #141 (`5e4aacc`).** `BlockingReason` went
+  from 3 values to 7 and `blockingReasonFor` now maps every rejection key. **The plan undercounted: there are 7
+  rejection keys, not six** — the validator has 9 throw sites carrying 8 distinct keys, and §3.11.0a merges
+  `putawayDestinationLocked` and `putawayDestinationIsALane` into one table row. The 8th, `entityNotFoundForId`, is a
+  not-found error, unreachable only because `preview()` pre-resolves the location outside its `try` — **that
+  pre-resolve is now pinned by a test**, because a plausible "unify the error handling" refactor would otherwise
+  reinstate the defect with every test and both verify rows green.
+  - **Wire-visible:** both rule-(f) keys now emit `BOUND_TO_ANOTHER_SKU` instead of `FIX_ASSIGNED` on an endpoint
+    already on `develop`. Zero consumers across `wms2-api`, `wms2-web-ui` and `wms2-mobile-ui`. `FIX_ASSIGNED` is
+    retained but unreachable — a consumer switching on it would silently stop matching, not fail.
+  - **Reviewed in three lanes** (verifier PASS/0 blockers, code review, scoped re-review): 0 critical, 0 high;
+    7 medium findings, all fixed. Every new guard proven by mutate-then-check rather than asserted.
+  - **Deliverables 1+2 held, 3 blocked** — see the step-18a row. Steps 19-22 stay blocked behind them.
+
+- **2026-08-11 — SBDEV-2643's remaining citation findings C1, C5, C6, C8, C9 raised and fixed. Three of
+  them were overtaken by events, and the *corrections* had gone stale too**, so every coordinate below
+  was re-derived against `origin/develop` rather than taken from the filing:
+  - **C1** — the path half stands (`SecurityConfiguration.java` is at `net/aim_ai/wms/`, there is no
+    `config/` variant), but the line has MOVED: the `/v3/**` rule is now **`:143`**, not `:136`, and
+    Phase 1-API *widened its matcher* to `"/v3/**", "/putawayConfig/**"`. SBDEV-2643 cited `:136` in
+    six places; all six corrected there.
+  - **C5** — active `@PreAuthorize` sites are now `:80, 108, 121, 134, 143, 155, 176, 200` (8) with
+    `:190, 261, 285, 315` commented. **C5's own list was also stale.** And its premise — *"every one of
+    those 8 sites is broken"* — died with SBDEV-2863 on 2026-08-07.
+  - **C6** — `BaseControllerTest` does not exist (`BaseControllerUnitTest:33`; the sibling is
+    `BaseControllerIntegrationTest`). **It appeared 3 times here, not the 1 C6 documented**, and the
+    same wrong name was in `sbdocs/9-System/templates/wms-plan-template.md:123` — fixed, which is the
+    highest-leverage of the five since that template seeds every future plan.
+  - **C8** — `:104-118`, and the stockunit sibling moved to `:183-190` because SBDEV-2821 inserted
+    `getPutAwayCandidateLocations` between them. C8's verdict (do not use this query for the picker) is
+    now stated by the code itself: its javadoc says HAL-exported consumers only, no longer drives putaway.
+  - **C9** — method `:73-82`, `@Caching` block `:66-72` above it.
+  - **Pattern worth noting:** every finding checked so far under-counted its occurrences (C4: 4 not 3,
+    C6: 3 not 1, **C9: 2 not 1** — §1's problem statement carried the stale `:68-76` too, and was caught
+    only by a post-edit sweep for residuals). Grep the whole file for a bad citation; do not fix only
+    the row that reported it.
+
+- **2026-08-11 — SBDEV-2643's finding C4 accepted and fixed: the `skuData.vue` citation was wrong in
+  both path and range, in FOUR places** — §0.2 row 45, §6, §8.1's "unblock 2643" note, and §10.4 Q3
+  (C4 itself documented three). Verified against `origin/develop`: the real path is
+  `components/masterData/material/skuData/skuData.vue` — two segments were missing — and the
+  commented create/edit block is **`:100-123`**. `:142` was correct. Raised on the ticket for the
+  record, since Phase 2's UI steps are read against these coordinates. **Two adjacent facts verified
+  at the same time, both of which change the shape of the 2643 UI work:** an actions column
+  **already exists** at `:95-99` and already ships a live eye button, so that work is "add a second
+  button to an existing column", not "create a column"; and the line that makes a newly-added
+  payload key render as a stray raw row is **`:130`**'s `exclude-fields`, not `:142`.
+
+- **2026-08-11 (r-next) — §3.11 REWRITTEN against merged `889298d` / `4ce39a1`; Phase 2 gains API work.**
+  Phase 2 had never been re-derived after Q12 → (iv-b) or after Phase 1-API merged, and **Step 19 was
+  unimplementable as written.** Five defects, verified `file:line`:
+  - **(1) FATAL — the mandated client-side filter cannot exist.** `getLocationView()`
+    (`ViewDtoService.java:806-832`) emits eight keys and carries **no `entity_lock`, no lane flags, no
+    area `useforgoodsin`/`useforstorage`** — four of five predicates are not evaluable in Vue. **Fix:**
+    §3.11.0's `GET /putawayConfig/eligibleLocations`, which makes Phase 2 **not UI-only** (new step 18a).
+  - **(2) The mandated filter was the wrong filter.** "Exactly P2.4" both over- and under-offers; the
+    merged validator's predicate set is **scope-dependent in five places** (§3.11.5a) and has no
+    P2.7(c)/P2.5 at all. The old "P2.7-eligible areas (D13)" phrasing no longer denotes anything —
+    since (iv-b), D13 is a *placement* rule.
+  - **(3) §3.11.1 was ~70% already shipped by SBDEV-2731 PR1**, and the part that was missing did not
+    exist when it was written: the **diversion** rendering (`divertedTo` / `divertedReason`). Without it
+    the screen shows `ICE PACK` while stock lands on `PutAwayLane` — SBDEV-2731's own defect class.
+    Narrowed, and given the step it never had (19a).
+  - **(4) The `createBol.vue:109-125` precedent was wrong on all three counts** (SBDEV-2643 §10.3 C7):
+    that range is plain `v-text-field`s, the only `v-autocomplete` is `:68-76`, and no "Lookup" button
+    exists anywhere in the file. **(5) `persistedState` is a single top-level reducer at `:22-25`.**
+  - **Two decisions taken, both to avoid a second copy of P2** (the hazard
+    `PutawayConfigController.java:104-106` names): the predicates are **extracted** into a pure
+    `PutawayDestinationRules.evaluate(...)` that both the throwing validator and the bulk read call, and
+    the bulk read is **5 queries, not 2,739 × `validate()`** — `isUnitloadTypePermitted` is keyed on
+    `location.type_id` (8 distinct values), not location id.
+  - **`BlockingReason` extension accepted as THIS plan's work** (§3.11.0a): 3 of 6 throw keys mapped to
+    `null`, and the enum could not name the commonest SKU-scope rejection — **1,345 of 2,068 flowbins on
+    `wms2-wineco-dev` are already FLA-bound.** SBDEV-2643 MUST-4 forbids 2643 doing it.
+  - **Q2 closed** (splits by scope, §3.11.5a). **SBDEV-2643's `Q6`/row 0b and `D12`/row 0d are both
+    satisfied**, which deletes 2643's fallback Phase A3.
+  - ⚠ **Unrelated but found while verifying, and it is live:** `wh01_hydra_v2` (Hydra DEV) still has **no
+    `flyway_schema_history`**, so `V2.2.13` never applied there — `client.defaultputawaylocation_id` is
+    absent, `itemdata.putawaylocation_id` is still `NOT NULL`, `putaway_config_audit` does not exist.
+    §8.1's merge-1 gate (Q8) was **not** satisfied, and with `ddl-auto=none` that tenant boots green and
+    throws `42703` on every `client` read — pre-mortem **P1**, exactly as predicted. Operator action:
+    `db/backfill-flyway-history.sh`, then migrate. Not a Phase 2 blocker, but it blocks testing on that
+    tenant. `wms2-wineco-dev` is correct (`V2.2.13` applied 2026-08-11 13:50).
+
+- **2026-08-11 — the PR #139 review round. Three findings, all accepted; two of them found holes this
+  plan had reasoned itself into.**
+  - **P1 — the HAL `DELETE` had no authorization at all.** D12 (§3.9.1) settled that deleting the
+    `DEFAULT_PUTAWAY_LOCATION` row is *accepted*, since an absent row and a blank row are the same
+    state to the resolver. What D12 did not say, and what the implementation then assumed, is who may
+    cause it: **"the resulting state is legal" is not "any caller may produce it."** Every other write
+    to tier 3 reaches an `sb_admin` gate — the typed `PUT /putawayConfig/warehouse`, and both HAL
+    create and HAL save through `validateOnly` — but a delete carries no destination to validate, so
+    it passed through `onBeforeDelete` to the audit capture and nothing else. `SecurityConfiguration`
+    block C, whose comment reads *"Admin-Only WMS Endpoints"*, grants `/v3/sysprop/**` to
+    **`wms_user`**, so any warehouse operator could clear the warehouse-wide destination and reroute
+    every later receipt to the fallback lane. Fixed with
+    `PutawayConfigService.requireWarehouseConfigWriteAuthority()` — authorization and nothing else, on
+    the reliably-proxied `@Service` per §3.9.4, called **before** the carrier is touched so a 403
+    strands no entry on a pooled thread. **`validateOnly` deliberately cannot serve as this gate:** it
+    would extract the row's OLD value and validate *that*, making a rotted config (locked location,
+    lane) undeletable — §3.9.3's validate-the-state trap in its worst form.
+  - **P2a — the HAL channel never ran P2.6 at tiers 2/3, so D11's absolute reject was typed-only.** At
+    merchant and warehouse scope the validator is necessarily called with no SKU and no unit-load type
+    (there is no single SKU at those scopes), which is correct for the scope-level rules and silently
+    skips the one per-SKU rule. The typed endpoint refuses a destination no SKU in scope can use
+    (422 `putawayDestinationIncompatibleForEverySku`); HAL accepted it, and then every later
+    non-carrier receipt in that scope fails. Reachable, not theoretical — `store/admin/shippers.js:47`
+    PATCHes `/v3/client/{id}`, so **HAL is the live shipper screen's channel for tier 2**, the same
+    fact §3.9.3 relies on for the edit-lock argument. Only the **absolute** half is enforced there:
+    the partial case is count-and-confirm, and Spring Data REST discards unknown query parameters, so
+    `confirmIncompatibleSkus` can never reach a `@HandleBefore*` handler (the same constraint that put
+    D11 in a typed controller in the first place, §3.5a). Rejecting partial incompatibility on HAL
+    would make the shipper screen unable to save a default the typed endpoint accepts with
+    confirmation — trading an edit lock on a live screen for a guard that channel structurally cannot
+    implement. The scan runs only on a real destination **delta**, which is what keeps it off the
+    shipper screen's ordinary save path and preserves §3.9.5's "a MERCHANT read must never touch
+    `itemdata`".
+  - **P2b — `requireConfirmation` and the write ran in separate transactions.** D11's whole rationale
+    is that the preview's count is stale by the time the admin acts, so the writer recomputes; but the
+    recompute committed in its own read-only transaction and the write opened another, leaving a
+    second, smaller window in which a concurrent SKU create makes the just-passed check wrong. Both
+    typed writers now carry `@Transactional(value = "tenantTransactionManager", rollbackFor =
+    Exception.class)`. **`rollbackFor` is load-bearing, not decoration:** the service writers declare
+    `rollbackFor = BusinessException.class`, so a rejection marks the now-shared transaction
+    rollback-only, and under the default rules (unchecked only) this outer boundary would then attempt
+    to *commit* it — `AbstractPlatformTransactionManager` answers that with
+    `UnexpectedRollbackException`, turning **every 422 and 409 in the class into a 500**. Both
+    exceptions on this path are checked, so the broad rule is the correct one.
+  - **The verify script was inert for this round too, and its own new rows were wrong twice.** Nine
+    rows added (`H-delauth`, `CFG-delgate`, `H-delorder`, `H-delneg`, `CFG-halabs`, `CFG-halnew`,
+    `CFG-halpart`, `CTL-tx`, `T-review`), each negative-controlled by reverting its fix. Two were
+    initially written as `[\s\S]{0,N}` windows and **both were wrong about their own N** — one failed
+    a correct implementation, the other passed only by luck. They are now scoped to the actual method
+    body via a new `method_body` helper. `H-delneg` then failed a *second* time because the comment
+    explaining why the delete must not call `validateOnly` contains the string `validateOnly`; hence
+    `code_only`, and the rule that every body-scoped negative is paired with a positive on the same
+    extraction so an empty extraction cannot pass vacuously. **Fifth and sixth distinct ways a check
+    in this file has been wrong about its own syntax.**
+
+- **2026-08-10 — the migration is now `V2.2.13`. Third renumbering, and the one that produced a
+  tool.** `V2.2.11` was claimed by **PR #138** the same day, and a third branch already held
+  `V2.2.12`. Flyway versions are append-only and never reused, so two files at one version wedge the
+  chain on every database that already applied either.
+  - **Confirmed free by sweeping ALL remote branches**, not by `ls db/migration/`. That listing shows
+    a stale head *by construction* — unmerged branches hold versions nothing local can see, which is
+    precisely how this happened three times (`V2.2.08` → `V2.2.10` → `V2.2.11` → `V2.2.13`).
+  - **Renamed with `git mv`** (history preserved) plus every in-repo reference: the migration's own
+    header, `WmsConstants`, `Itemdata`, `Client`, `PutawayConfigService`, `MobilePutAwayService` and
+    its test. Outside the repo: this plan, its verify script, **SBDEV-2643**'s plan and verify script
+    (its AC4/AC9 are blocked on this file *by name*), **SBDEV-2821**'s plan, the plan README, and
+    SBDEV-2854's dependency note.
+  - **⚠ The blanket find-and-replace rewrote this plan's own history, and had to be repaired.** The
+    2026-08-06 renumbering banner in §0 records a PAST event — it said "renumbered to `V2.2.11`" and
+    "SBDEV-2854 originally took `V2.2.11`" — and the sweep silently turned both into `V2.2.13`,
+    leaving the banner self-contradictory ("originally took V2.2.13… now takes V2.2.13"). Repaired
+    2026-08-10: the banner states the numbers *as they were on the day*, carries a pointer to this
+    entry, and D16 now lists all three renumberings. **SBDEV-2854's plan §824 documents this exact
+    trap from its own version move; the warning was there and was not heeded.** A version rename is
+    not a global replace — dated statements, superseded banners and changelog entries must keep the
+    numbers they had.
+  - **The sweep is now a script.** `db/check-migration-version-collision.sh` (**SBDEV-2916**, PR #140)
+    does what was done by hand here, and the same ticket enables `app.flyway.out-of-order` so a lower
+    version merging late no longer stops that database migrating at all — measured behaviour, not
+    assumed: without it `migrate()` throws `FlywayValidateException` and `StartupFlywayMigrator`
+    swallows the failure per tenant, so the symptom is a database quietly stuck on an old schema.
+
+- **2026-08-10 — PHASE 3b REVIEW (code + security): 5 High, 10 Medium fixed; §3.8 had a gap that
+  re-created the parent bug.** Two independent lanes, run in parallel after 3a passed.
+  - **§3.8's display envelope never mentioned the (iv-b) divert — H3.** The endpoint returned the
+    CONFIGURED destination while receiving diverts a pick face to the lane, so the operator was shown
+    `Ice Pack` and the stock landed on `PutAwayLane`. **That is SBDEV-2731's own failure mode,
+    re-created by the change that fixes it**, and under (iv-b) it is the common case rather than an
+    edge. **Resolved 2026-08-10 by the ticket owner as option (b):** the envelope carries BOTH —
+    `locationName`/`source` stay the configured destination, and a new `divertedTo` (plus
+    `divertedReason`) names the actual placement, absent when they agree. `compatible` becomes P1's
+    verdict against the PLACEMENT. §3.8's field list is superseded by this entry; Phase 2's Vue work
+    must consume the 9-field envelope.
+  - **Authorization: `/putawayConfig` is not under `/v3`.** `SecurityConfiguration` gates `/v3/**` at
+    `wms_user`; everything else falls through to `anyRequest().authenticated()`. The ungated preview
+    was therefore reachable by any principal holding a valid tenant-realm JWT with **zero app
+    authorities**. §3.5a's "reveals no more than the location picker already shows" is true of the
+    INFORMATION and false of the AUDIENCE, because the picker is served from `/v3`. Added to the
+    `wms_user` matcher, which also gives the three writers a URL-level backstop.
+  - **`POST /v3/sysprop` was an unguarded tier-3 write** — `Sysprop` had `@HandleBeforeSave` and
+    `@HandleBeforeDelete` but no `@HandleBeforeCreate`, so a HAL create set the warehouse default
+    with no validation, no authority check and no audit row. Newly reachable *because* of this plan:
+    D12 accepts deleting the row and §3.9.1 closed `SystemPropertyController.create` against
+    re-creating it, leaving the SDR create as the way in.
+  - **`PutawayConfigValidationException` shipped without its `@ExceptionHandler`** (§0.1b N7a
+    specified both halves), so every HAL rejection was a bare 500 while the type's own javadoc
+    promised "the intended 422". The handler's unit test asserted the exception TYPE propagates —
+    true either way. Another assertion that could not fail.
+  - **`auditAndEvict` evicted nothing**, leaving the shipper screen's cache stale for the full TTL on
+    every save; and both evict key sets were wrong — the `sysprops` key omitted the tenant prefix
+    every other key in the codebase carries, and the `clients` keys used an `':id:'` form copied from
+    the `itemdata` cache that `ClientService` does not have.
+  - **`updateClient` is the third direct-save path** (§3.9.1 names only create/updateValue/delete).
+    Re-pointing the guarded row's `client_id` moves it off the SYSTEM client, silently reverting
+    tier 3 to "not configured" with no audit row. Guarded 2026-08-10 on the ticket owner's decision.
+  - **Two defects I introduced while fixing the review, both caught before landing.** (a) A first cut
+    at the ThreadLocal fix parked the taken value on an INSTANCE FIELD of a singleton handler — a
+    data race across concurrent requests, worse than the leak it replaced. (b) The new create
+    handlers called `validateOnly` unconditionally, and that method carries
+    `@PreAuthorize(IS_SB_ADMIN)`, so every HAL `POST /v3/itemdata` and `/v3/client` began demanding
+    `sb_admin` where `wms_user` sufficed — a functional regression on the SKU and shipper creation
+    screens.
+  - **`M6`/`SEC-M2` — the unbounded WAREHOUSE-scope scan behind `/preview` (a `findAll()` plus one
+    constraint query per SKU; ~8,800 on `wms2-wineco-dev`) is DEFERRED to Phase 2** on the ticket
+    owner's decision. The audience is now `wms_user` rather than any authenticated principal, which
+    removes the amplification vector; the scan itself remains.
+  - **Still open, and it is the same blind spot throughout:** nothing tests the HAL authorization
+    path. The handler's test mocks `PutawayConfigService`, so it cannot observe `@PreAuthorize`, and
+    `PutawayResolverContextLoadTest` cannot run under SBDEV-2217. The "registration is SILENT when it
+    fails" risk §3.9.4 names has no evidence against it. Only a real HAL request closes that.
+
+- **2026-08-09 — PHASE 3a CONFORMANCE LANE: five in-scope items were unbuilt behind a green gate, two
+  of them throwing stubs.** An independent verifier re-ran every command and found that
+  `PHASE=1 → 176 pass, 0 fail` was **not** evidence of a complete Phase 1-API. What it missed:
+  - **`PutawayDestinationQueryService` shipped as `throw new UnsupportedOperationException` (×2)**, so
+    `GET /receiving/getPutawayDestination/{advicePositionId}` returned **HTTP 500 on every call** —
+    the entire SBDEV-2731 display contract, the reason the parent ticket exists. The four
+    `GetPutawayDestination` gate tests **stub the facade**, so nothing in a 4,786-test suite ever
+    reached the method; `PutawayResolverContextLoadTest` would have autowired the real bean but is
+    correctly deferred under SBDEV-2217. A stubbed collaborator plus a deferred integration lane can
+    hide an unimplemented service completely.
+  - **`PutawayConfigController.preview` (N10)** — same, a throwing stub.
+  - **`GET /client/{id}/effectivePutawayDestination` (N9)** — zero occurrences in `src/`. It had **no
+    verify row at all**, which is why it was never built.
+  - **`SystemPropertyController` (§3.9.1, rows 31a–31c)** — never touched; both direct-`save()`
+    endpoints still wrote tier 3 unvalidated and unaudited. Root cause is the false §11.1 status line
+    corrected above.
+  - **Step 17a** — putaway candidate surfacing never extended past tier 1.
+  **Why the gate was blind:** every covering row was an EXISTENCE grep a throwing stub satisfies —
+  `check_W_endpoint` is `file_contains 'getPutawayDestination'`, `check_CTL_preview` is
+  `file_contains '/preview'`, `check_N2_readonly_facade` checks the file, an annotation and a string
+  and never a method body. **Eleven rows added** that fail on a stub, led by `NOSTUB` (no putaway
+  class may contain `throw new UnsupportedOperationException`), which alone catches two of the five.
+  All eleven negative-tested against a detached worktree at `origin/develop`: 11/11 red there,
+  green here. `N9-nores` was conjoined after it passed **vacuously** on the base.
+  - **D12 was a trap as implemented.** `setWarehouseDestination` threw when the sysprop row was
+    absent, while the new `create` guard refuses that syskey — so one click on the configuration
+    screen's delete button would have made tier 3 unreachable from the UI until someone ran SQL.
+    §3.9.1 calls for the writer to re-create the row; it now does, mirroring `V2.2.13`'s seed exactly.
+  - **A real ArchUnit violation was hiding behind a pre-existing red.** `OptionalSafetyArchTest` fails
+    on `develop`, so "2 failures, same as baseline" looked clean — but the baseline is **8**
+    violations and the run showed **12**, the four new ones all in rule (f). Matching the failure
+    COUNT says nothing about the contents. Rewritten to `.map(...).orElse(null)`.
+  - **Script defect:** `VERIFY_COMPLETED=1` was set only in the `PHASE=all` branch, so every
+    phase-scoped run printed the "ABORTED before completion" banner after finishing cleanly — noise
+    in the only mode §11.2 gates on, and it trains the reader to ignore the banner that exists to be
+    loud. Fixed.
+
+- **2026-08-09 — IMPLEMENTATION (Phase 1-API): three more verify-script rows could not pass a
+  conformant tree, and one plan sentence contradicted §0.** Found by driving `PHASE=1` to zero. All
+  three are the class the 2026-08-09 script audit was run to eliminate (`V-nofixabs`,
+  `check_V_no_pickface_reject`, `check_V_rule_e_not_area_flag`) — a check that fails correct code is
+  worse than no check, because the only way past it is to decorate the code.
+  - **`H-split` could never pass on ANY tree — a Perl sigil bug.** The multi-line helpers run the
+    pattern through `perl -0777 -ne`, where an unescaped `@name` inside a regex **interpolates as an
+    array**. `'@HandleBeforeCreate\s+@HandleBeforeSave'` therefore collapsed to `/\s+/`, which matches
+    any file containing whitespace — so this NEGATIVE was a permanent FAIL regardless of the handler's
+    shape. Three sibling patterns in the same script escape the sigil (`\@NotNull`, `\@Column`); two did
+    not. Both fixed. The second, `check_N2_readonly_facade`'s `@Transactional\(...readOnly`, failed
+    *open* rather than closed — it was silently matching any `(...readOnly = true`, which is why nothing
+    flagged it.
+  - **`R-nogsv` and `R-tier3-read-path` were mutually unsatisfiable.** `R-nogsv` forbade the substring
+    `getSysvalue` anywhere in the resolver; `R-tier3-read-path` **requires**
+    `findBySyskeyAndClientIdAndWorkstation`, which returns a `Sysprop` entity whose value can only be
+    read with `getSysvalue()`. What landmines A3/A4 actually forbid is `SyspropService.getSysvalue` (the
+    client-blind `order by client_id LIMIT 1` helper with the clientId-less cache key), which is how
+    §3.4a states it. Narrowed to the service call.
+  - **`W-gatenear` was jointly unsatisfiable with `W-gateord`.** It demanded `getUseforpicking` within
+    400 chars of `transferUnitLoadToLocation(`, but §3.7.1 mandates the gate **above** the per-case loop
+    and §3.7.2 puts the placement **inside** it — ~3,000 chars apart, and necessarily so, since
+    `W-gateord` independently forces the gate above `requireCompatible`, itself above the loop. The only
+    ways to satisfy both were a comment naming the token or a redundant second guard at the placement.
+    Replaced with the property the row was named for: the gate **retargets** the destination variable
+    and the placement **uses** the retargeted value. An implementation that computes the gate and then
+    places the original destination anyway — SBDEV-2731's reported bug — fails the second clause.
+    Negative-tested both ways.
+  - **§7.1's "the lane-presence guard still reports a missing lane" applies to `FileImportController`
+    only.** §0.1 rows 8/9, §3.2's site table and §5.3 all say to **delete** `SkuRestController`'s
+    `findByName(PutAwayLane)` lookup, and `S1-neg2` enforces the deletion; the guard survives in
+    `FileImportController` (SBDEV-2037), where `S3-pos1`/`S3-pos2` pin it. Deleting it leaves nothing
+    unguarded: the resolver's tier-4 lookup fails a missing lane at receipt and names the tier.
+  - **Two implementation refinements against §3 as written.** (a) `PutawayResolutionMetrics.resolved`
+    takes the `carrier` flag as a third argument, matching §3.7.1's own snippet — the two-argument form
+    could not express §3.7.2's "surfaced but not applied" case. (b) `readCommittedDestination` reads the
+    **WAREHOUSE** tier by `syskey` when `subjectId` is null and by row id otherwise: §3.9.5's snippet is
+    id-keyed only, but the typed writer passes null, so an id-only read would have audited
+    `previous = NULL` on every typed warehouse write.
+
+- **2026-08-09 — SECOND REVIEW PASS: the sections D18 left unreviewed. Verdict sound-with-changes; four
+  defects fixed.** Covers the resolver (§3.1), the audit table (§3.14), `V2.2.13` (§5.1), and D11/P2.6.
+  - **F-1 — every pre-2731 `UnitloadBusinessService` citation was stale, and two had teeth.** 2731 PR1
+    added 47 lines / removed 2 to that file; anchors taken before it were never re-measured (offsets
+    **+8** before the message block, **+45** after). `:182`, cited as the empty-constraint **fail-open**
+    that step 5 orders the implementer to replicate, is the `WRONG_ITEMDATA_FIXASSIGNMENT` throw — *a
+    reject with the opposite polarity*; the fail-open is `:190`. `:191`, cited by step 6 and §3.6.1 as
+    2731's neutral-key throw with "do not re-specify `:191`", is `boolean foundPermittingConstraint =
+    false;`; the throw is `:235`. Also re-anchored: `:170-175`→`:178-184` (the SKU-mismatch rule, not the
+    carrier check), `:180-193`→`:188-237`, `:214-215`→`:259-260` (the SBDEV-2232 lock warning),
+    `:150`→`:158`, `:156-158`→`:163-165`, `:161-177`→`:169-184`, `:162-167`→`:173-176`. **41 citation
+    replacements in total.** Every claim's *substance* verified correct — this was a pointer defect, not
+    a design defect. ⚠ Note the defect propagated into shipped code: `UnitloadBusinessService:199-201`
+    carries a comment repeating "the NEUTRAL key at `:191`", copied from this plan. Fixing that comment
+    belongs to a wms2-api change, not here.
+  - **F-2 — the `MobilePutAwayService` citations went stale the day SBDEV-2821 merged.** They were
+    **correct at `6bc709a`**; 2821 added 34 lines on 2026-08-09 and the same-day edit that marked gate 3
+    "CLEARED" did not re-take them. `storeBoxOnLocation:471-489` — the citation behind *"putaway already
+    handles pick faces correctly"*, the load-bearing premise of Q12 → (iv-b) and quoted in the review
+    brief given to the Decision-1 reviewer — is now 2821's new area gate; the FLA auto-create is `:505`,
+    the virtual-UL resolve `:508`, the merge `:513`. Re-anchored to `:497-514`, with `:479-482`→`:499-506`,
+    `:479-487`→`:499-513`, `calculatePutAwayList :212-283`→`:217-305`, and the `verifyScannedLocation`
+    family `:403-447`→`:412-456`, `:418`→`:427`, `:428-437`→`:437-445`, `:430-444`→`:447-453`,
+    `:437`→`:444`. Also normalised `:119-126`→`:121-128`, an internal inconsistency for the same guard.
+  - **F-3 — D11's SKU-scope "absolute reject" contradicted the (iv-b) P1 skip.** Read literally it
+    re-blocks `ICE PACK` (`Case` → flowbin), the exact configuration SBDEV-2731 exists to make savable
+    and which SBDEV-2643 r3/r5 depends on being legal. Fixed with an explicit ordering box: **the
+    `sltname == 'flowbin'` skip runs BEFORE P2.6/D11**, and `skuWritePermitsPickFaceDestination` is the
+    test that pins it.
+  - **F-4 — P2.6's input column was still unspecified**, by the plan's own 2026-08-09 warning box.
+    **Resolved: P2.6 enumerates `itemdata.defultype_id` and is declared a HEURISTIC PRE-CHECK**, with the
+    runtime check authoritative — because a configuration has no advice positions to enumerate, and the
+    rejected alternative ("every type an advice could carry") rejects nearly every pick-face
+    configuration and re-creates SBDEV-2731 at config time. The box's misattribution of `defultype_id` to
+    the *location* `ICE PACK` is corrected in place.
+  - **F-6 — §3.1.5's "only three matches" is now six**, all still comments; the MANDATORY-facade
+    conclusion is unaffected.
+  - **Process note:** the "re-check the previous Critic pass's 12 findings" gate is **retired as
+    undischargeable** — see the banner. The findings are enumerated nowhere and predate this repo's
+    history for the file.
+
+- **2026-08-09 — verify script: `V-nofixabs` CONTRADICTED rule (f) and is replaced; rule (f) had no
+  coverage at all.** Found during implementation, when a conformant validator failed the check.
+  - **The contradiction.** `check_V_no_fixloc_absolute` was a proximity negative —
+    *no `reject|throw|BusinessException|FIX_ASSIGNED` within 400 chars of `findByAssignedlocationId`* —
+    written on 2026-08-08 to prove P2.5's absolute reject was gone. **P2.7 rule (f), added 2026-08-09
+    by review, requires exactly that throw**: a flowbin bound to a *different* SKU must be rejected.
+    A correct implementation of rule (f) cannot pass it.
+  - **It is the third instance of a defect that script's own audit was run to remove.** The same
+    2026-08-09 audit deleted two sibling proximity negatives (`check_V_no_pickface_reject`,
+    `check_V_rule_e_not_area_flag`) with the note *"the regex cannot tell WHY something throws… they
+    would have blocked the implementation"* — and missed this one, which is the identical shape.
+  - **Replaced the way the audit replaced the other two: with the positive property.** P2.5 rejected on
+    the mere *presence* of a `FixLocationAssignment`, with no `itemdataId` comparison — that absence
+    *was* the D15 mechanism. Rule (f) rejects only on *mismatch*, which cannot work without the
+    comparison. So the new row **`V-fixmismatch`** asserts `findByAssignedlocationId … getItemdataId`.
+    Negative-tested: passes the mismatch-scoped validator, fails a synthetic absolute-reject one, and
+    fails on a missing file (guarded twice — `file_exists` plus the helper's `[ -f ]`).
+  - **Coverage gap closed.** The script had **zero** checks for rule (f). Three rows added for the test
+    names §7.1 already mandates — `T-fFgn`, `T-fOwn`, `T-fOwnOk`. All three are required: the two
+    rejects alone would pass an implementation that bans *every* fix-assigned flowbin at tier 1, which
+    is the over-reject (iv-b) exists to prevent.
+
+- **2026-08-09 — Q12 CLOSED on the ticket owner's decision; the "B/A sign-off" gate is removed.**
+  (iv-b) was chosen by the owner on 2026-08-08 and reaffirmed on 2026-08-09. The plan had been carrying
+  it as a **blocking gate awaiting a B/A reply**, which mis-stated who owns the call: the outstanding
+  item is a **notification** to @David Oppenheim / @Brent Campbell, not an approval the work waits on.
+  Precedent in the same family and the same week — SBDEV-2821's Q4 was adopted on David's endorsement
+  plus owner direction, Brent never replied to the hand-off, and it shipped and merged 2026-08-09.
+  **Effect: the gates before `wms-tdd-gate` drop from two to one** — end-to-end review and flipping off
+  `draft`. §7.1 can be written against (iv-b) today. If either objects later, Q12 reopens and
+  (i)–(iii)/(iv-a) are preserved in §10.4.
+
+- **2026-08-09 — `Authority.IS_SB_ADMIN` was a latent 500 for all six admin-gated writes; SBDEV-2863
+  fixed it before this plan shipped.** Found by a status sweep, not a review: `origin/develop` had moved
+  two merges past the checkout this plan was written against (`6bc709a` → `fd90487`).
+  - **The defect.** From `ded4d644` (2025-10-29) to 2026-08-07 the constant was `"isSbAdmin()"`, naming a
+    SpEL method on no expression root. Every `@PreAuthorize` using it threw `EL1004E` **inside** the
+    authorization check and returned **HTTP 500 to every caller, `sb_admin` included**. This plan writes
+    that annotation at six sites (§3.5 `:905, 917, 925`, §3.9 `:1491`, §3.5a `:972, 978, 985`), so
+    merging before 2026-08-07 would have shipped a security boundary that failed open-to-nobody — and
+    M16/M16a would have read as "endpoint broken", not "authorization broken".
+  - **The fix.** [SBDEV-2863](https://app.clickup.com/t/868knmx18), PR #134 (`675b4a1` + `d8e0137`, merge
+    `7d9d38e`), merged 2026-08-07. `Authority.java:44` now renders `hasAuthority('sb_admin')`, plus a
+    `@Nested AuthorityExpressionsResolve` test evaluating the constant through the real handler.
+  - **Effect here: no design change and no edit to the annotations.** §3.12 gains a warning box, §5.1
+    row 7 records the dependency. **Keep `Authority.IS_SB_ADMIN`** — swapping it to
+    `getExpForRole(SB_ADMIN_ROLE)` is now a no-op that 2863's own test would still pass, so it is churn.
+  - **SBDEV-2643's blocking prerequisite on this plan is discharged.** Its row 0e (*"2732 must not merge
+    carrying `Authority.IS_SB_ADMIN`"*) is void, and its verify probe `X-2732-authz` — which asserted the
+    **absence** of the annotation, and **would have failed this plan's correct implementation** — has
+    been deleted and replaced by a regression guard on `Authority.java`.
+
+- **2026-08-09 — Flyway: `V2.2.13` re-confirmed free, and the banner's "head is `V2.2.09`" is stale.**
+  SBDEV-2854 **merged 2026-08-07** (PR #132, `68274b0`), so `V2.2.10` is on `origin/develop` and the head
+  is **`V2.2.10`**, not `V2.2.09`-with-an-open-PR as the top banner states. A fresh sweep of **every**
+  remote branch on 2026-08-09 found no version above `V2.2.10`, so **`V2.2.13` remains correct for this
+  plan.** The D16 instruction stands: re-sweep all remotes immediately before the PR, because unmerged
+  branches hold invisible versions. **Unchanged and still binding:** `V2.2.10` must be **applied** per
+  tenant before `V2.2.13` (§8.1 merge 0b) — merged is not applied.
 
 - **2026-08-09 — FIRST INDEPENDENT REVIEW of the three (iv-b) decisions; three corrections landed.** The
   decisions were reviewed against the merged code at `6bc709a` and re-measured on `wms2-wineco-dev` and
@@ -3261,7 +5044,7 @@ recorded.
     magnitude beyond the ~70 clubs inferred from SBDEV-2854's plan. **The measurement that missed it was taken
     on `wh01_hydra_v2t`, the one tenant that structurally cannot exhibit it** (no picking area there is also
     storage or goods-in). Re-run every P2 measurement against a migrated tenant, not only fresh-seed.
-  - **Merge order 0b added.** The renumber to `V2.2.11` only protects tenants if SBDEV-2854's `V2.2.10`
+  - **Merge order 0b added.** The renumber to `V2.2.13` only protects tenants if SBDEV-2854's `V2.2.10`
     merges and applies **first**; the reverse order reproduces the exact silent-wedge the renumber avoids.
     Neither §5.1 row 1 nor the §8.1 table carried that constraint.
   - **"35 callers" was wrong in 11 places.** Measured: `transferUnitLoadToLocation` **24** call sites
@@ -3284,7 +5067,7 @@ recorded.
   placement **deferred** to a follow-up; this plan ships direct placement for tiers 2/3 only, which sends
   Fix B, C2b, Q1, Q4, F1, F4, F5 and Q11 out of scope and leaves the plan waiting on nothing unowned.
   Superseded: the post-(c) reading that this plan must absorb Fix B. **D16:** **one** migration,
-  `V2.2.11__putaway_destination_hierarchy.sql` — supersedes §2.9's two reserved versions (both written as
+  `V2.2.13__putaway_destination_hierarchy.sql` — supersedes §2.9's two reserved versions (both written as
   `V2.2.08`) and the `V2.2.08` number itself, taken by SBDEV-2801 on 2026-08-04. **D17:** the §6
   receipt-correction guard **stays**; correction is documented unavailable for directly-placed receipts —
   supersedes "decide whether to relax it", and required even under D15 because D13 rule (d) puts tiers 2/3
@@ -3315,11 +5098,13 @@ recorded.
 - **The handler validates in `Before` and audits in `After`, and throws an unchecked `PutawayConfigValidationException`** — a single `@Transactional validateAndAudit` in `Before` would commit an audit row before SDR's save, letting the record outlive a failed write; and a checked `BusinessException` is swallowed into a 500 by SDR's reflective invoker (§3.9.6, §3.9.7).
 - **`FlushModeType.COMMIT` was dropped from the previous-value read** — with OSIV off the merged entity is detached, so there is nothing to flush and the flush mode changes nothing (§3.9.5, closed Q6).
 - **The backfill preflight guard, statement ordering and dropped `client_id` filter** — a scalar subquery aborts mid-migration on a duplicate lane name, the pre-image must precede the backfill or it silently records zero rows, and any client filter could diverge from tier 4's `findByName` (§5.1).
-- **The migration split into `V2.2.11` (Phase 1) and `V2.2.11` (Phase 1)** — the phase boundary is tier *reachability*, not "does it need Flyway": leaving the `DROP NOT NULL` and backfill in 1b would have shipped a one-tier resolver that passed `PHASE=1` 0-fail. Only **b** adds a column an entity maps, so only **b** carries the operator-before-merge gate (D9, §5.2, §8.1).
+- **The migration split into `V2.2.13` (Phase 1) and `V2.2.13` (Phase 1)** — the phase boundary is tier *reachability*, not "does it need Flyway": leaving the `DROP NOT NULL` and backfill in 1b would have shipped a one-tier resolver that passed `PHASE=1` 0-fail. Only **b** adds a column an entity maps, so only **b** carries the operator-before-merge gate (D9, §5.2, §8.1).
 - **`PutawayConfigController` added as the typed write surface** — without it the three writers had no callers, and D11's confirmation parameter has nowhere to live, since Spring Data REST discards unknown query parameters (§3.5a).
 - **`SystemPropertyController`'s two direct-save endpoints were closed and the sysprop `DELETE` was brought under audit** — `@RepositoryEventHandler` fires only on Spring Data REST's own events, so a direct `repository.save()` bypasses the D7 guard entirely; delete is accepted because absent == not configured, paired with an unconditional Operation Options control so it cannot lock the tier out of the UI (§3.9.1, D12).
 - **Authorization moved from the event-handler methods onto `PutawayConfigService`** — Spring Data REST may capture the raw handler target rather than the security proxy, in which case `@PreAuthorize` on a handler method is silently inert (§3.12, §3.9.4).
 - **The mobile-putaway back-compat note now names `unitloadNotInInboundArea`** — `MobilePutAwayService:113-117` runs before the lane check, so a directly-placed unit load never reaches `unitLoadNotInPutAwayLane`; the recovery path (mobile Move Unit Load / web Transfer Stock) is named alongside it (§3.7.4, §6, M13/M13a).
+- **The degraded path no longer presents an unverified destination as confirmed (review F3, wms2-web-ui PR #49 — merge `e702a42`, 2026-08-12)** — `loadPutawayDestination`'s catch left the seeded tier-1 value on screen, labelled `(SKU override)`, with no diversion notice. Each half was defensible and together they lied. **Silence stopped being neutral the moment this ticket gave the screen a vocabulary for diversions:** their absence now reads as *"not diverted, walk to the pick face"*. And the fallback is not tier-agnostic — the seed comes from `receiving_dto_view.defaultputawaylocationname`, a **tier-1-only** column, and tier 1 is exactly where SBDEV-2643 puts pick faces, which under (iv-b) are **always** diverted to the lane. So the degraded screen displayed the one tier most likely to have been re-routed, while suppressing the notice that says so. Resolved by keeping the value (it is correct whenever the default is not a pick face, so blanking discards usually-right information) and removing the certainty: the qualifier is suppressed and `#idPutawayUnconfirmed` explains what could not be checked and how to retry. **Rejected: a toast.** The existing comment's reasoning holds — this fires on every position change, so a toast turns an outage from degraded into unusable. Two boundaries were load-bearing: the flag is set in the **catch only**, because a 200 with no body is unreachable in production but *is* what SBDEV-2731's spec returns (`receivingForm.spec.js:45`), and treating it as failure would flip **T19/T22** (corrected 2026-08-12 — it said T24/T25, which the F3 review measured and disproved: those assert the ABSENCE of the qualifier, so suppressing it cannot flip them); and the resets moved **above** the `advicepositionid` guard, closing a third early-return path that let a previous position's diversion persist — the same bleed D14/D15 exist to prevent, through a door neither reached.
+- **The diversion copy's argument ORDER is now pinned by a test and a verify row (wms2-api PR #148, 2026-08-11)** — the review lane on PR #47 transposed the two args of `putawayDestinationDivertedToLane` and **all 4927 API tests stayed green**. Two tests bracket that copy and neither owned the join: `ReceivingControllerUnitTest` mocks `ExceptionMessageService` with `anyString(), any(Object[].class)` and asserted only that `divertedReason` was non-empty, while `DiversionCopyUnitTest` deliberately asserts the *bundle* rather than the controller (the ResourceBundle parent chain makes child deletion invisible otherwise). Both choices are right in isolation; the gap was between them. A transposition is not cosmetic — it tells the operator the stock was received to the **pick face** and will move to the **lane**, the exact inversion of what happened, on the screen this ticket exists to make truthful, and the same defect class as SBDEV-2731. Closed with an `ArgumentCaptor<Object[]>` assertion (`containsExactly("Put Away Lane", "ICE PACK")`) plus the `P2-diverted-argorder` row. Also removed a dead ternary arm at `ReceivingController:139` — `r.location() == null ? "the configured destination" : …` was unreachable, since `PutawayDisplay.diverted()` already requires a resolved configured location, so it read as a guard while actually being a second silent copy variant no test could reach.
 - **The location picker became tiered, with a lock warning on the advanced tier** — pointing a default at a live storage or pick location moves a `FOR UPDATE` onto a row picking and replenishment lock in the opposite order, in a codebase with no deadlock-retry infrastructure (§3.11.2, §7.6 row 8).
 
 ---

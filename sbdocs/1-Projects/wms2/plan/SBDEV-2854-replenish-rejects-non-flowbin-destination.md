@@ -16,7 +16,7 @@ depends_on: []   # none blocking. SBDEV-2801 is referenced only as version histo
                  # via origin/* refs. Recorded 2026-08-06 so the empty list reads as a decision.
 depended_on_by:
   # REVERSE dependency — the direction that can wedge tenants, so it is recorded here too.
-  - {ticket: SBDEV-2732, note: "this plan's V2.2.10 must merge AND apply BEFORE 2732's V2.2.11.
+  - {ticket: SBDEV-2732, note: "this plan's V2.2.10 must merge AND apply BEFORE 2732's V2.2.13.
       Reverse order leaves V2.2.10 out-of-order: outOfOrder=false skips it, validateOnMigrate=true
       then fails every boot, and StartupFlywayMigrator swallows it. See 2732 §8.1 merge 0b."}
 related:

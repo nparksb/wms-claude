@@ -5,13 +5,64 @@
 # against expires silently, which is how SBDEV-2732 ended up instructing operators
 # that >8 passes meant a vacuous check while its script returned 9 every run.
 #
-#   Measured: 5 pass, 32 fail, 51 skip
-#   Against : v2/wms2-api develop 6bc709a, v2/wms2-web-ui develop 4ce39a1
-#   State   : PRE-SBDEV-2732-Phase-1. The 51 skips are checks explicitly blocked on
-#             2732's Phase 1-API / Phase 2-UI; they become live when those merge.
+#   Measured: 31 pass, 62 fail, 0 SKIP   <-- CURRENT, after PR 1 (B1-pre) + PR 2 (A1), 2026-08-12
+#   Against : the PER-TICKET WORKTREES  .claude/worktrees/wms2-api/SBDEV-2643
+#                                       .claude/worktrees/wms2-web-ui/SBDEV-2643
+#   Unimplemented baseline: 23 pass, 70 fail, 0 SKIP against the main checkouts
+#                           (v2/wms2-api develop bcfdc47, v2/wms2-web-ui develop 488102c)
 #
-# This baseline expires on the SBDEV-2732 Phase-1 merge — re-record it then.
-# Do not trust these numbers after that merge; re-measure.
+# ⚠ ALWAYS SAY WHICH ROOT A `Result:` LINE CAME FROM. The two differ by design, and quoting the
+# main-checkout number while describing worktree work is how a phase gets reported as unstarted.
+#
+# ⚠ `0 fail` IS NOT REACHABLE UNTIL PR 6, and that is correct — see plan §8.0a. Each of the six PRs
+# carries only its own phase's tests, so rows for parked phases are legitimately red. The per-PR
+# criterion is three-part: (1) this phase's rows green, (2) NO already-merged phase's row regressed
+# (this is the real signal), (3) every remaining red attributable to an unshipped phase.
+# Phases green as of PR 1 + PR 2: all eight A1-* rows, plus B1-exclude.
+#   Note    : 63 -> 70 fails is the 7 NEW Phase A4 rows (§3.5a, the `name` search parameter added when
+#             Q4 was answered as option (ii)). Pass count did NOT move, which is the correct signal:
+#             new unimplemented scope must add FAILs only.
+#   State   : SBDEV-2732 FULLY MERGED (both phases). ZERO skips — every 2732 gate has resolved, so
+#             every remaining FAIL is 2643's own unimplemented work. There is no longer any
+#             "blocked on 2732" hiding place in this script.
+#
+#   Superseded baselines, kept so a stale number is recognisable rather than trusted:
+#     11 pass / 38 fail / 34 skip   — r6, 2026-08-11, 2732 Phase 1-API only
+#      5 pass / 32 fail / 51 skip   — pre-2732, api 6bc709a / web 4ce39a1
+#     72 pass / 0 fail              — ⚠ NEVER VALID. Measured against a stale local checkout; it is
+#                                     recorded here only because it was once quoted as real.
+#
+# r7 EMPIRICAL AUDIT (2026-08-12) — every row changed or added in r7 was tested both ways against a
+# synthetic conformant implementation in a throwaway git worktree, not merely eyeballed:
+#   - each rewritten/new row PASSES on the conformant tree and FAILS on unimplemented develop;
+#   - 24 / 24 targeted mutations were CAUGHT (17 on the rewritten rows + 7 on the new A4 rows), one per
+#     row, each breaking only that row's property;
+#   - the `multiline_contains` / `multiline_not_contains` slash bug was found BY that audit — two r7
+#     rows were red against a correct implementation until the helpers were fixed.
+#
+# THREE MORE TRAPS THE A4 ROUND HIT, all found by running the rows rather than reading them:
+#   1. ⚠ AN UNDEFINED FUNCTION IN AN `if` GUARD DELETES ROWS SILENTLY. The A4 block was first wrapped in
+#      `if phase_selected 2 || phase_selected 1; then` — `phase_selected` exists in SBDEV-2732's script,
+#      not this one. Bash returned 127, the guard was false, and all 7 rows VANISHED: the total stayed
+#      23/63 and the run looked unchanged, not broken. `bash -n` accepts it, and an audit that checks
+#      only `run` targets never looks at guards. This is strictly worse than the known "undefined fn
+#      reads as an honest FAIL" trap. AUDIT GUARDS TOO.
+#   2. ⚠ A NEGATIVE THAT PASSES BEFORE THE WORK STARTS. `A4-neg-native` was green on an untouched tree,
+#      because with no `name` parameter there is nothing for `nativeQuery=true` to sit near. It was the
+#      only green among seven new rows, which is what gave it away. Now conjoined with the positive.
+#   0. ⚠⚠ `[ -d "$root/.git" ]` DISABLES A CHECK IN EVERY WORKTREE RUN. In a git worktree `.git` is a
+#      FILE (`gitdir: …`), not a directory — so `origin_develop_resolvable` returned false for every
+#      worktree and the SKIP→FAIL staleness escalation went silently inert, printing "⚠ STALENESS
+#      UNCHECKED" and continuing. Worst possible placement: `wms-plan-executor` REQUIRES worktree runs,
+#      so the primary intended mode was the one mode where the escalation could not fire. Use `-e`, and
+#      prefer `git -C "$root"` over `cd`. Found 2026-08-12 by the Phase-3a lane during PR 1/PR 2.
+#      ⚠ Any other verify script guarding on `.git` being a directory has the same hole.
+#   3. ⚠ TWO REGEX FLAVOURS IN ONE FILE. `file_contains` / `file_not_contains` are ERE (`grep -qE`);
+#      `multiline_contains` / `multiline_not_contains` are perl. A PCRE `(?i)` handed to the ERE helper
+#      is matched LITERALLY, so `A4-t-empty` was red against a conformant test. Check which helper you
+#      are calling before using `(?i)`, lookahead, or non-greedy quantifiers.
+# Re-record this baseline after any implementation pass. A rising pass count with no implementation
+# behind it means a check went vacuous.
 #
 # The 5 passes must all be preservation assertions about code that already exists.
 # If that count rises without a corresponding implementation step, a check has gone
@@ -97,11 +148,29 @@
 #    `git log origin/develop --grep=SBDEV-2732` finds a merge. A merged-then-
 #    renamed facade must not SKIP every 2732-blocked check forever while reporting "blocked";
 #    that is contract drift (plan §11.1 PM1), not a blocked phase.
-# 3. A0's CONSTANT SWAP IS OUT OF 2643's SCOPE. A 2643 PR must not revert a
-#    security annotation that 2732 deliberately writes in 2732's own file.
-#      - DELETED  A0-swap, A0-swap-neg  (they asserted 2643 edits 2732's file)
-#      - ADDED    X-2732-authz    a PREREQUISITE PROBE, not a 2643 deliverable
-#      - ADDED    A2-neg-badconst 2643's own new file never uses the constant
+# 3. PHASE A0 IS RETIRED — SBDEV-2863 SHIPPED BOTH HALVES (2026-08-07, PR #134,
+#    commits 675b4a1 + d8e0137, merge 7d9d38e). Authority.java:44 now reads
+#    IS_SB_ADMIN = "hasAuthority('" + SB_ADMIN_ROLE + "')", and the SAME commit
+#    added the @Nested AuthorityExpressionsResolve class to
+#    CustomMethodSecurityExpressionRootUnitTest — a strict superset of the
+#    detector A0 was going to build (resolves-without-exception; TRUE for an
+#    sb_admin; FALSE for a non-admin; agrees with isAimAdmin(); prefix-independent;
+#    plus a harness self-test). There is nothing left for 2643 to add here.
+#      - DELETED  A0-spel, A0-root, A0-bare, A0-ctx1, A0-ctx2, A0-test
+#      - RETIRED  X-2732-authz  -> replaced by X-authz-constant (see below)
+#      - KEPT     A2-neg-badconst, on a NEW rationale (see its comment)
+#    Two of those rows were already reporting falsely against origin/develop when
+#    this edit was made (measured 2026-08-09):
+#      - A0-ctx1 asserted the constant STILL reads "isSbAdmin()". 2863 changed it,
+#        so the row was PERMANENTLY RED and indistinguishable from unfinished work.
+#      - A0-spel required parseExpression(Authority.<CONST>) literally; the shipped
+#        test binds the constant to a local first, so it read FAIL against a test
+#        that does exactly what A0 specified.
+#    X-2732-authz was worse than stale: it asserted PutawayConfigService does NOT
+#    carry @PreAuthorize(Authority.IS_SB_ADMIN) — the line SBDEV-2732 §3.12
+#    deliberately writes, and which is now CORRECT. It would have gone red against
+#    a correct SBDEV-2732 and blocked it. Replaced by a guard on the constant
+#    itself, which is what AC12 actually depends on and needs no 2732 file.
 # 4. describeForSku MOVED to a 2643-OWNED service/SkuPutawayQueryService.java.
 #      - A2-facade / A2-tx / A2-fsvc now target that file
 #      - ADDED    A2-neg-2732file  it did NOT land in 2732's facade
@@ -147,19 +216,29 @@ F_CFG_CTL="$API/controller/PutawayConfigController.java"             # 2732 crea
 F_CFG_SVC="$API/service/PutawayConfigService.java"                   # 2732 creates this
 F_SKU_QUERY_SVC="$API/service/SkuPutawayQueryService.java"           # r2: 2643 OWNS this one
 F_ITEMDATA_MODEL="$API/model/Itemdata.java"
+F_LOC_REPO="$API/repo/jpa/LocationRepository.java"                   # A4: where the search predicate lives
 
 T_EXPR_ROOT="$APITEST/unit/CustomMethodSecurityExpressionRootUnitTest.java"
 T_ITEMDATA_SVC="$APITEST/unit/service/ItemdataServiceUnitTest.java"
 T_ITEMDATA_CTL="$APITEST/unit/controller/ItemDataControllerUnitTest.java"
 T_SKU_QUERY_SVC="$APITEST/unit/service/SkuPutawayQueryServiceUnitTest.java"
 T_CFG_CTL="$APITEST/unit/controller/PutawayConfigControllerUnitTest.java"
+T_QUERY_SVC="$APITEST/unit/service/PutawayDestinationQueryServiceUnitTest.java"  # A4's behavioural rows
 
 V_SKUDATA="$UI/components/masterData/material/skuData/skuData.vue"
 V_DIALOG="$UI/components/masterData/material/skuData/editSkuPutawayDialog.vue"
 V_WORDING="$UI/components/masterData/material/skuData/putawayWording.js"
 V_RECV_FORM="$UI/components/receiving/open/receive/receivingForm.vue"
 V_FULLDETAILS="$UI/components/common/fullDetails.vue"
-V_PICKER="$UI/components/common/LocationPicker.vue"                  # 2732 creates this
+V_PICKER="$UI/components/common/LocationPicker.vue"                  # 2732 SHIPPED this (merged)
+# --- r7 (2026-08-12) — three constructs 2732 SHIPPED that 2643 now consumes rather than rebuilds.
+# V_FIELD is the load-bearing one: it already owns the preview gate, D11's count-and-confirm, the
+# 7-value blockingReason message map, the paginated accumulate, clear-omits-locationId and the
+# sb_admin gate, and its `scope` prop is documented "'MERCHANT' / 'SKU' when steps 21 and SBDEV-2643
+# reuse this". B2 extends it; it does not clone it.
+V_FIELD="$UI/components/admin/parametersAndConfiguration/defaultPutawayLocationField.vue"
+V_KCROLES="$UI/util/keycloakRoles.js"                                # 2732 SHIPPED this
+S_CONFIG="$UI/store/admin/configuration.js"                          # 2732 SHIPPED this
 S_SKUDATA="$UI/store/masterData/skuData.js"
 S_STORAGE_LOC="$UI/store/masterData/storageLocation.js"
 S_PERSIST="$UI/plugins/persistedState.client.js"
@@ -215,15 +294,37 @@ file_contains_n_times() {
 # multiline_contains <perl-regex> <file>
 # Replaces the template's `perl -0777 -ne` helper, which EXITS 0 ON AN UNOPENABLE
 # FILE. The explicit -f test in front is the whole point.
+# ⚠ FIXED r7 (2026-08-12) — A SLASH IN THE PATTERN USED TO BE A PERL SYNTAX ERROR.
+# The old body was:  perl -0777 -ne "exit(/$1/s ? 0 : 1)" "$2"
+# The shell interpolated the pattern into the perl SOURCE, where `/` is the regex delimiter. So a
+# pattern like  SKU:\s*'admin/configuration/setSkuPutawayDestination'  closed the regex at the first
+# slash and perl died with `Unknown regexp modifier "/f"` — exit 255, recorded as an ordinary FAIL.
+# `@` and `$` were interpolated as perl variables for the same reason, so `'@/util/keycloakRoles'`
+# could never match either.
+#
+# It fails CLOSED, so it never produced a false green — but it makes any slash-bearing assertion
+# UNSATISFIABLE, which is the recorded failure mode "a permanently-red row is indistinguishable from
+# unimplemented work". Two r7 rows (B1-cfg, B2-sku-write) hit it, and both were red against a
+# synthetic CONFORMANT implementation, which is how it was caught.
+#
+# Only one pre-existing call carried a slash and it escaped them (`\/\/`), so no historical result
+# changes; an escaped `\/` is still just `/` under the new form.
+#
+# The pattern now travels in the ENVIRONMENT and is compiled at runtime, so the shell never sees it as
+# perl source. Delimiters, `@`, `$` and `'` are all literal.
 multiline_contains() {
     [ -f "$2" ] || return 1
-    perl -0777 -ne "exit(/$1/s ? 0 : 1)" "$2"
+    MLC_PAT="$1" perl -0777 -ne 'exit($_ =~ /$ENV{MLC_PAT}/s ? 0 : 1)' "$2"
 }
 
 # multiline_not_contains <perl-regex> <file>
+# Same fix as multiline_contains — and here the old form was WORSE than fail-closed. A perl syntax error
+# exits 255, which this helper's caller reads as "pattern not found" = the NEGATIVE PASSES. So a
+# slash-bearing negative assertion was a genuine FALSE GREEN: it reported "the forbidden construct is
+# absent" without ever having looked. No such call existed, but the trap was one keystroke away.
 multiline_not_contains() {
     [ -f "$2" ] || return 1
-    perl -0777 -ne "exit(/$1/s ? 1 : 0)" "$2"
+    MLC_PAT="$1" perl -0777 -ne 'exit($_ =~ /$ENV{MLC_PAT}/s ? 1 : 0)' "$2"
 }
 
 # file_exists <file>  — for NEW files, so their absence is a FAIL not a PASS
@@ -288,7 +389,14 @@ phase_2732_ui_present() {
 # SEGMENT, case-insensitively, and keep only the `from <owner>/<branch>` anchor —
 # that anchor is what makes it branch-qualified rather than a body grep.
 git_has_2732_merge() {   # $1 = repo root
-    [ -d "$1/.git" ] || return 1
+    # ⚠ SAME `.git`-is-a-file BUG AS origin_develop_resolvable, FIXED 2026-08-12 — and this instance was
+    # the more damaging of the two. It gates `contract_drift`, i.e. the CONTRACT DRIFT / pre-mortem-PM1
+    # detector. With `-d` this returned false for every worktree, so in the invocation mode
+    # `wms-plan-executor` mandates, PM1 could not be detected AT ALL: a 2732 merge on origin/develop
+    # whose constructs were absent locally would have reported rows as "SKIP — blocked on 2732" instead
+    # of FAIL. Found only because the first instance was fixed and the file was then swept for others —
+    # the first fix alone would have left this one silently dead.
+    [ -e "$1/.git" ] || return 1
     # NO -N WINDOW (Critic F-3). The first cut read `-50`, which made the probe
     # SILENTLY EXPIRE: once 50 merges land after 2732's, it stops matching and every
     # downstream row reverts to "SKIP (blocked on SBDEV-2732)" — the exact fail-quiet
@@ -299,9 +407,21 @@ git_has_2732_merge() {   # $1 = repo root
     (cd "$1" && git log origin/develop --merges --format=%s 2>/dev/null) \
         | grep -qiE 'from [^ ]*/[^ ]*sbdev-2732'
 }
+# ⚠ FIXED 2026-08-12 — `[ -d "$1/.git" ]` DISABLED THIS CHECK IN EVERY WORKTREE RUN.
+# In a git worktree, `.git` is a FILE containing `gitdir: /path/to/.git/worktrees/<name>`, not a
+# directory. So the old guard returned 1 for any worktree, `origin_develop_resolvable` reported false,
+# and the SKIP→FAIL staleness escalation went silently inert — printing "⚠ STALENESS UNCHECKED" and
+# moving on.
+#
+# That is the worst possible place for it to fail: `wms-plan-executor` REQUIRES the script to be run
+# against per-ticket worktrees (never the main checkout), so the primary intended invocation mode was
+# the one mode in which the escalation could not fire. Found by the Phase-3a conformance lane, which
+# noticed the warning and observed that its own `git diff origin/develop` resolved fine.
+#
+# `-e` covers both shapes; the rev-parse is the real test anyway.
 origin_develop_resolvable() {   # $1 = repo root
-    [ -d "$1/.git" ] || return 1
-    (cd "$1" && git rev-parse --verify --quiet origin/develop >/dev/null 2>&1)
+    [ -e "$1/.git" ] || return 1
+    git -C "$1" rev-parse --verify --quiet origin/develop >/dev/null 2>&1
 }
 contract_drift() {
     if ! phase_2732_present && git_has_2732_merge "$PROJECT_ROOT"; then return 0; fi
@@ -318,53 +438,54 @@ blocked() {
         skip "$1" "$2" "$3"
     fi
 }
-# V2.2.11 is 2732's migration. 2643 ships ZERO migrations, so this is a
+# V2.2.13 is 2732's migration. 2643 ships ZERO migrations, so this is a
 # dependency probe only — never an assertion about 2643's own work.
-migration_2211_present() {
-    ls "$PROJECT_ROOT/src/main/resources/db/migration/" 2>/dev/null | grep -q '^V2\.2\.11__'
+# ⚠ FIXED 2026-08-11: this greppped '^V2\.2\.11__' while every comment and message
+# around it said V2.2.13. 2732 renumbered V2.2.11 -> V2.2.13 on 2026-08-10 (V2.2.11
+# was claimed by PR #138), so the probe could never match and the dependency line
+# below reported "ABSENT -> AC4 / AC9 unreachable" even against a tree that HAS the
+# migration. A dependency probe that is wired to a version nobody ships is a
+# permanently-red row, indistinguishable from an honest blocker.
+migration_2213_present() {
+    ls "$PROJECT_ROOT/src/main/resources/db/migration/" 2>/dev/null | grep -q '^V2\.2\.13__'
 }
 
-# === A0 — repair the authorization expression (§3.1, D2) ======================
-
-# POSITIVE: the detector test EVALUATES a SpEL string against a real expression
-# root. A direct isAimAdmin() call cannot catch this class of defect — which is
-# exactly why F1 survived 9 broken endpoints with a green test suite.
-check_A0_spel_evaluated() {
-    multiline_contains 'SpelExpressionParser.*?parseExpression\s*\(\s*Authority\.' "$T_EXPR_ROOT"
-}
-check_A0_evaluates_against_real_root() {
-    multiline_contains 'new\s+CustomMethodSecurityExpressionRoot\s*\(.*?parseExpression' "$T_EXPR_ROOT" \
-      || multiline_contains 'parseExpression.*?StandardEvaluationContext' "$T_EXPR_ROOT"
-}
-# POSITIVE: the bare-authority form is asserted, consistent with
-# CustomMethodSecurityExpressionHandler.java:19 setDefaultRolePrefix(null).
-check_A0_bare_authority_asserted() {
-    file_contains "hasAuthority\('sb_admin'\)" "$T_EXPR_ROOT"
-}
-# CONTEXT (must stay true): the broken constant is still present and untouched.
-# 2643 does NOT repair Authority.java — SBDEV-2863 owns that. If this FAILS,
-# someone silently changed shared security wiring; go read §3.1 before merging.
-check_A0_authority_constant_untouched() {
-    file_contains 'IS_SB_ADMIN\s*=\s*"isSbAdmin\(\)"' "$F_AUTHORITY"
-}
-# CONTEXT: isAimAdmin() is still the only admin predicate on the root — i.e. no
-# one "fixed" F1 by aliasing isSbAdmin() onto shared wiring (rejected option (a)).
-check_A0_no_alias_added_to_root() {
-    file_not_contains 'boolean\s+isSbAdmin\s*\(' "$F_EXPR_ROOT"
-}
-# r2: check_A0_writers_use_fixed_expression / check_A0_writers_drop_broken_constant
-# were DELETED. They asserted that 2643 REMOVES @PreAuthorize(Authority.IS_SB_ADMIN)
-# from PutawayConfigService.java — a line SBDEV-2732 §3.5/§3.9/§3.12 deliberately
-# WRITES (2732 :905, :917, :925, :1491, and :972/:978/:985 on the controller). A
-# 2643 PR reverting a 2732 security annotation in 2732's own file, days after 2732's
-# review approved it, is the wrong home for that change.
+# === A0 — RETIRED 2026-08-09; delivered in full by SBDEV-2863 =================
 #
-# What replaces them:
-#   - X-2732-authz    (cross-cutting) a PREREQUISITE PROBE. It fails if 2732's file
-#                     lands still carrying the broken constant — the finding is
-#                     preserved, the ownership is not claimed. Plan §5.1 row 0e.
-#   - A2-neg-badconst 2643's OWN new file must never use the constant.
-# The detector test above remains 2643's, and is the high-value half.
+# All five A0 rows and the A0-test row are DELETED, not skipped. SBDEV-2863
+# (PR #134, merged 2026-08-07, commits 675b4a1 + d8e0137) repaired the constant
+# AND added the SpEL-evaluation detector in the same commit, so every property A0
+# asserted is now either true-by-construction or covered by a test on develop:
+#
+#   A0-spel / A0-root / A0-bare  ->  @Nested AuthorityExpressionsResolve in
+#                                    CustomMethodSecurityExpressionRootUnitTest,
+#                                    which parses and evaluates the constant
+#                                    against a root built through the real
+#                                    CustomMethodSecurityExpressionHandler.
+#   A0-ctx1                      ->  INVERTED by the fix. Asserting the broken
+#                                    spelling survives is now asserting a defect.
+#                                    Replaced by X-authz-constant below.
+#   A0-ctx2                      ->  still true (no isSbAdmin() alias was added;
+#                                    2863 took fix option (1), not (3)) but it is
+#                                    2863's invariant to hold, not 2643's.
+#
+# Deleting beats skipping here: a permanently-skipped row implies work someone
+# still owes, and nobody owes this.
+
+# CROSS-CUTTING PREREQUISITE — the one property AC12 genuinely depends on.
+# Not a 2643 deliverable and not a 2732 deliverable: it guards against a
+# REGRESSION of SBDEV-2863 underneath both of them. If Authority.IS_SB_ADMIN ever
+# goes back to naming a method on the expression root, every @PreAuthorize that
+# uses it — including all six of 2732 §3.12's — returns HTTP 500 to every caller,
+# sb_admin included, and AC12 becomes unmeetable again for both tickets.
+#
+# Runs today: it reads Authority.java only, so it needs no 2732 file and is never
+# blocked. Asserting the WORKING form (rather than the absence of the broken one)
+# is deliberate — an absence check would also pass if someone deleted the constant.
+check_X_authz_constant_repaired() {
+    file_contains "IS_SB_ADMIN\s*=\s*\"hasAuthority\('\"\s*\+\s*SB_ADMIN_ROLE" "$F_AUTHORITY" \
+      || file_contains "IS_SB_ADMIN\s*=\s*\"hasAuthority\('sb_admin'\)\"" "$F_AUTHORITY"
+}
 
 # === A1 — putawayLocationId in the details payload (§3.3, D-C) ================
 
@@ -405,9 +526,26 @@ check_A1_no_resolver_in_itemdata_service() {
 check_A1_test_asserts_id_present() {
     file_contains 'putawayLocationId' "$T_ITEMDATA_SVC"
 }
+# ⚠ WIDENED 2026-08-12 during execution, and the direction of the fix matters.
+# This demanded the literal `containsKey("putawayLocationId")`. The shipped test asserts
+# `containsEntry("putawayLocationId", 999L)` — which proves everything containsKey proves, PLUS the
+# value. So the row was red against an implementation that is STRICTLY STRONGER than the row required.
+#
+# The Phase-3a conformance lane caught it and made the right call: **add or widen, never swap
+# containsEntry for containsKey.** Trading value coverage for a green light is the failure this script
+# exists to prevent — a verify row must never dictate a weaker assertion than the test already makes
+# (§14 principle 5: a green signal must be EARNABLE, not weakenable).
+#
+# Root cause worth recording: the row was written against §3.3's prose, which prescribed editing the
+# EXISTING test at :498 with containsKey. §8.0a later endorsed a new @Nested PutawayLocationIdInDetails
+# class instead, and §3.3's table was never reconciled — so the row encoded a phrasing the plan had
+# already superseded. It was red at the TDD-gate baseline too, not introduced by the implementation.
+#
+# Still non-vacuous: it requires an id-present assertion ADJACENT to the name-absent one, which is the
+# actual AC8 distinguishability signal. Negative-tested after widening — see below.
 check_A1_test_asserts_dangling_fk_signal() {
-    multiline_contains 'containsKey\("putawayLocationId"\).*?doesNotContainKey\("putawayLocation"\)' "$T_ITEMDATA_SVC" \
-      || multiline_contains 'doesNotContainKey\("putawayLocation"\).*?containsKey\("putawayLocationId"\)' "$T_ITEMDATA_SVC"
+    multiline_contains 'contains(?:Key|Entry)\("putawayLocationId"[\s\S]{0,400}?doesNotContainKey\("putawayLocation"\)' "$T_ITEMDATA_SVC" \
+      || multiline_contains 'doesNotContainKey\("putawayLocation"\)[\s\S]{0,400}?contains(?:Key|Entry)\("putawayLocationId"' "$T_ITEMDATA_SVC"
 }
 check_A1_test_asserts_null_id_omits_both() {
     multiline_contains 'doesNotContainKey\("putawayLocationId"\)' "$T_ITEMDATA_SVC"
@@ -420,9 +558,25 @@ check_A1_test_asserts_null_id_omits_both() {
 # Propagation.MANDATORY rule needs *a* transactional bean between controller and
 # resolver, not *2732's* bean, and owning the file turns a three-way merge into a
 # compile error.
+# ⚠ UPDATED 2026-08-12 for the §3.4 option-(a) decision. This required
+# `Resolution describeForSku(Long`, i.e. the ORIGINAL bare-Resolution return type. That return type WAS
+# the defect: reporting the configured resolution's P1 verdict made `compatible` disagree with both the
+# writer (which exempts flowbins from P1) and receiving (which reports the verdict against the PLACEMENT,
+# after divertPickFaceToLane). See §3.4's decision box.
+#
+# So the row now pins the DECISION rather than the old shape: the facade must return the two-resolution
+# `PutawayDisplay`, and must NOT return a bare `Resolution` — reverting to that reintroduces the defect.
+# The negative is the load-bearing half; without it the row would go green again on a revert that merely
+# renamed things.
 check_A2_facade_method() {
-    file_contains 'Resolution\s+describeForSku\s*\(\s*Long' "$F_SKU_QUERY_SVC"
+    multiline_contains 'PutawayDisplay\s+describeForSku\s*\(\s*Long' "$F_SKU_QUERY_SVC" \
+      && multiline_not_contains 'Resolution\s+describeForSku\s*\(' "$F_SKU_QUERY_SVC" \
+      && multiline_contains 'putawayDestinationResolver\.divertPickFaceToLane\s*\(' "$F_SKU_QUERY_SVC"
 }
+# ⚠ that third clause was `file_contains 'divertPickFaceToLane'` — a bare token that occurs THREE times
+# in the file, twice in javadoc. Deleting the actual call and keeping the prose left the row green. Caught
+# in scoped re-review, and it is the same vacuity class this very commit had just fixed on A2-enum and
+# A2-fsvc2 — introduced in the row rewritten to "pin the DECISION". Now requires the receiver + the call.
 check_A2_facade_txmgr_and_readonly() {
     multiline_contains 'Transactional\(\s*value\s*=\s*"tenantTransactionManager"\s*,\s*readOnly\s*=\s*true\s*\)\s*(?:public\s+)?[^;{]*describeForSku' \
         "$F_SKU_QUERY_SVC"
@@ -442,22 +596,24 @@ check_A2_neg_not_in_2732_facade() {
     file_contains 'describeForSku' "$F_SKU_QUERY_SVC" \
       && file_not_contains 'describeForSku' "$F_QUERY_SVC"
 }
-# r2 (MUST-5): 2643's OWN new file must never adopt the broken constant. This is the
-# half of the F1 finding 2643 legitimately owns — it constrains 2643's code, not 2732's.
-# The effective-destination read is deliberately NOT admin-gated at all (plan §3.4),
-# so the constant has no business appearing here under any spelling.
+# 2643's OWN new file must not be admin-gated — RATIONALE REPLACED 2026-08-09.
+#
+# This row was written when Authority.IS_SB_ADMIN was broken, and it read as "do not
+# adopt the broken constant". SBDEV-2863 repaired the constant, so that reason is void
+# and the row now stands on the reason that actually survives: the effective-destination
+# read is deliberately NOT admin-gated (plan §3.4) — the ticket requires read-only users
+# to see the value. An admin gate here would be a functional defect, not a security one.
+# The row is unchanged in code and unchanged in verdict; only its justification moved.
 check_A2_neg_no_bad_constant() {
     file_not_contains 'Authority\.IS_SB_ADMIN' "$F_SKU_QUERY_SVC"
 }
-# r2 (MUST-5): PREREQUISITE PROBE, not a 2643 deliverable. Plan §5.1 row 0e says 2732
-# must not merge carrying @PreAuthorize(Authority.IS_SB_ADMIN) — the constant names a
-# SpEL method that does not exist (F1), so every admin-gated 2732 write would return
-# 500 for everyone, sb_admin included. 2643 does NOT fix this (wrong home: it is 2732's
-# own file). It DETECTS it, so the finding cannot be lost. A FAIL here is a message to
-# 2732's reviewer / SBDEV-2863, not a defect in 2643.
-check_X_2732_not_merged_with_broken_constant() {
-    file_not_contains 'PreAuthorize\(Authority\.IS_SB_ADMIN\)' "$F_CFG_SVC"
-}
+# check_X_2732_not_merged_with_broken_constant was DELETED 2026-08-09.
+#
+# It asserted PutawayConfigService does NOT carry @PreAuthorize(Authority.IS_SB_ADMIN).
+# That was correct only while the constant was broken. SBDEV-2863 fixed it, so the line
+# 2732 §3.12 deliberately writes is now the RIGHT line — and this row would have gone
+# red against a correct SBDEV-2732 and read as "2732 must not merge". Replaced by
+# check_X_authz_constant_repaired, which guards the property that actually matters.
 # POSITIVE: the endpoint exists at the right path on the right controller.
 check_A2_endpoint_mapping() {
     file_contains 'GetMapping\(path\s*=\s*"/\{id\}/effectivePutawayDestination"' "$F_ITEMDATA_CTL"
@@ -478,9 +634,28 @@ check_A2_neg_resolver_absent_from_controller() {
     file_contains 'skuPutawayQueryService' "$F_ITEMDATA_CTL" \
       && file_not_contains 'putawayDestinationResolver' "$F_ITEMDATA_CTL"
 }
+# ⚠ NARROWED 2026-08-12 during A2's implementation — the original asserted the TYPE NAME
+# `PutawayDestinationResolver` is absent from ItemDataController, and that FAILS ANY CORRECT
+# IMPLEMENTATION of §3.4's envelope.
+#
+# §3.4 puts the `Resolution` -> JSON mapping in the controller. Mapping a record necessarily names its
+# type, in the method signature if nowhere else, and an import does not help — the import line contains
+# the string too. So the row demanded a mapping that cannot be written.
+#
+# The decisive evidence is 2732's own precedent: `ReceivingController` names
+# `PutawayDestinationResolver` FOUR times doing exactly this mapping, and it is merged, reviewed and
+# correct. A 2643 row forbidding what 2732 shipped is the row being wrong, not the code.
+#
+# What the D-F invariant actually protects is that the controller must never INVOKE the resolver:
+# `resolve(...)` is `Propagation.MANDATORY` and there is zero @Transactional under controller/, so a
+# call from there raises IllegalTransactionStateException — an unchecked exception, hence a 500 on every
+# request. The bean-reference half is already covered by `A2-neg-res` (lowercase
+# `putawayDestinationResolver`, i.e. no field and no injection). This row now covers the CALL, which is
+# the distinct and genuinely dangerous half.
 check_A2_neg_resolver_type_absent_from_controller() {
     file_contains 'skuPutawayQueryService' "$F_ITEMDATA_CTL" \
-      && file_not_contains 'PutawayDestinationResolver' "$F_ITEMDATA_CTL"
+      && file_not_contains '[Rr]esolver\s*\.\s*resolve\s*\(' "$F_ITEMDATA_CTL" \
+      && file_not_contains 'divertPickFaceToLane' "$F_ITEMDATA_CTL"
 }
 # NEGATIVE: a putaway-config read must never touch the OMS notification path.
 # Scoped to the new handler's body, because ItemDataController legitimately holds
@@ -510,12 +685,41 @@ check_A2_envelope_seven_fields() {
 check_A2_new_nested_test_class() {
     file_contains 'class\s+EffectivePutawayDestination' "$T_ITEMDATA_CTL"
 }
+# ⚠ TIGHTENED 2026-08-12 — was `file_contains 'SKU_OVERRIDE'`, which the test FIXTURE satisfies
+# (`Source.SKU_OVERRIDE` when building the stub) even if nothing ever asserts `$.source`. Row name said
+# "asserts", check said "mentions". Now requires the assertion shape.
 check_A2_asserts_source_is_enum_name() {
-    file_contains 'SKU_OVERRIDE' "$T_ITEMDATA_CTL"
+    multiline_contains 'jsonPath\("\$\.source"\)[\s\S]{0,40}?\.value\("SKU_OVERRIDE"\)' "$T_ITEMDATA_CTL"
 }
 check_A2_facade_unit_test_exists() { file_exists "$T_SKU_QUERY_SVC"; }
+
+# MEDIUM (code review, 2026-08-12) — `sourceLabel` is DUPLICATED in ItemDataController and 2732's
+# ReceivingController by deliberate choice (§14 principle 1 forbids editing 2732's enum for this). The
+# Javadoc claims compile-time safety, and that is true for an ADDED Source — a switch expression must be
+# exhaustive. It is NOT true for the likely failure: a one-sided RENAME. Change "Merchant default" in one
+# file and the two screens label the same tier differently, with nothing red anywhere.
+# This row pins all four literals in BOTH files, so a one-sided rename fails.
+check_A2_source_labels_agree_across_both_controllers() {
+    local f
+    for f in "$F_ITEMDATA_CTL" "$API/controller/ReceivingController.java"; do
+        [ -f "$f" ] || return 1
+        file_contains '"SKU override"'           "$f" || return 1
+        file_contains '"Merchant default"'       "$f" || return 1
+        file_contains '"Warehouse default"'      "$f" || return 1
+        file_contains '"Standard putaway lane"'  "$f" || return 1
+        # ⚠ The SECOND cross-controller literal duplicate, added by A2's diversion mapping
+        # (ItemDataController's inline lane label vs ReceivingController.laneLabel). It has NO
+        # compile-time backstop — it is a ternary on a string constant, not an exhaustive switch — so a
+        # one-sided rename to e.g. "Putaway Lane" would make the receiving screen and the SKU screen
+        # narrate the SAME diversion with different wording, silently. This is the only guard.
+        file_contains '"Put Away Lane"'          "$f" || return 1
+    done
+    return 0
+}
+# ⚠ TIGHTENED 2026-08-12 — was a bare `describeForSku` grep, matched by the class Javadoc. Vacuous.
+# Now requires an actual CALL on the service under test.
 check_A2_facade_test_covers_sku() {
-    file_contains 'describeForSku' "$T_SKU_QUERY_SVC"
+    multiline_contains 'service\.describeForSku\s*\(' "$T_SKU_QUERY_SVC"
 }
 # CONTEXT: SecurityConfiguration must NOT be widened for the new endpoint.
 check_A2_security_config_unwidened() {
@@ -547,10 +751,12 @@ check_A3_endpoint_mapping() {
 check_A3_scope_param() {
     file_contains 'PutawayScope\s+scope' "$F_CFG_CTL"
 }
-check_A3_readonly_tenant_tx() {
-    multiline_contains 'Transactional\(\s*value\s*=\s*"tenantTransactionManager"\s*,\s*readOnly\s*=\s*true\s*\)[\s\S]{0,400}?eligibleLocations' \
-        "$F_CFG_CTL"
-}
+# ⚠ check_A3_readonly_tenant_tx DELETED r7. It demanded a controller-level readOnly tenant transaction
+# around eligibleLocations. 2732 shipped NO controller transaction on purpose (the boundary is on
+# PutawayDestinationQueryService; zero @Transactional exists under controller/) and pins the absence
+# with its own row `P2A-ctl-no-tx`. The two scripts asserted opposite things about one method. Deleted
+# rather than left dead so nobody re-wires it from an older revision — see the retirement note at the
+# A3 row block.
 # NEGATIVE — D1 (r2): no 2643-specific classification was bolted onto 2732's type.
 # `advisory` and PICK_FACE existed only to carry the reversed D1.
 check_A3_neg_no_advisory_class() {
@@ -559,9 +765,10 @@ check_A3_neg_no_advisory_class() {
 # --- CONSUMER rows: 2643's own files, asserted whoever owns the producer -------
 # The picker's items come from the eligibility endpoint, not from a client-side
 # filter over some other payload.
+# REPOINTED r7 — the read is 2732's `getEligiblePutawayLocations` in store/admin/configuration.js, which
+# the shared wrapper dispatches. 2643 consumes it through the wrapper rather than fetching its own page.
 check_A3_consumer_sources_from_endpoint() {
-    file_contains 'putawayConfig/eligibleLocations' "$S_SKUDATA" \
-      || file_contains 'putawayConfig/eligibleLocations' "$V_DIALOG"
+    file_contains 'putawayConfig/eligibleLocations' "$S_CONFIG"
 }
 # NEGATIVE — D3 / §14 principle 2, and NON-VACUOUS: it first requires the dialog to
 # exist, then asserts it names no predicate. A bare "no predicate names present"
@@ -584,21 +791,15 @@ check_A3_neg_locationview_unwidened() {
 check_A3_neg_not_backed_by_storage_query() {
     file_not_contains 'getStorageLocationsForPutAwayItemData' "$F_CFG_CTL"
 }
-# POSITIVE: the tier-4 lane is excluded, compared against the MACHINE NAME
-# constant (never the spaced display label) — Q3/D8.
-check_A3_excludes_tier4_lane() {
-    file_contains 'STORAGE_LOCATION_PUTAWAY_LANE' "$F_CFG_CTL"
-}
-# r3 (Critic F-9): was a bare substring grep for `eligibleLocations` under the label
-# "controller test covers eligibleLocations" — satisfied by the string appearing
-# anywhere, including an import or a comment. §13 claims the CONTRACT-side rows
-# "assert properties any correct implementation must have", and a substring is not
-# one. Now requires the named §7.1 test method, so the row means what its label says.
-# (If D12's hand-over to 2732 holds, A3 never runs and this is a fallback-only row —
-# but a fallback row that cannot fail is still worthless.)
-check_A3_test_two_classes() {
-    file_contains 'eligibleLocationsSkuScopeTwoClasses' "$T_CFG_CTL"
-}
+# ⚠ check_A3_excludes_tier4_lane DELETED r7. It grepped the CONTROLLER for
+# STORAGE_LOCATION_PUTAWAY_LANE; the exclusion is real but lives in 2732's rules/query layer, where
+# 2732 asserts it as `P2A-lane-name`.
+#
+# ⚠ check_A3_test_two_classes DELETED r7. It required the test method name
+# `eligibleLocationsSkuScopeTwoClasses`, invented by 2643 for a phase it no longer ships and never used
+# by 2732. It could only ever be red. (Its r3 hardening was correct in principle — a bare substring
+# grep is worthless — but hardening a row that asserts someone else's test naming just made the wrong
+# row sharper.)
 check_A3_test_fix_assigned_stays_blocked() {
     file_contains 'FIX_ASSIGNED' "$T_CFG_CTL"
 }
@@ -649,24 +850,79 @@ check_B1_neg_corpse_deleted() {
       && file_not_contains 'mdi-dots-vertical' "$V_SKUDATA" \
       && file_not_contains 'Something 2' "$V_SKUDATA"
 }
-# POSITIVE: the permission gate exists, consumes nuxt.config.js:167's
-# appAdminGroup for the FIRST time, and is applied as :disabled — never v-if.
-check_B1_permission_computed() {
-    file_contains 'isPutawayConfigAdmin' "$V_SKUDATA"
+# POSITIVE: the permission gate exists, reads the `sb_admin` RESOURCE role, and is
+# applied as :disabled — never v-if.
+#
+# ⚠ REWRITTEN 2026-08-11 (plan r6). This row used to assert `appAdminGroup`, which
+# WMS V2 DOES NOT USE ANY MORE — nothing in wms2-web-ui reads it, so the old
+# assertion demanded dead config and would have gone green on a gate that can never
+# grant anyone access (`nuxt.config.js:167`'s vestigial default vs. a real group
+# path). The backend boundary is `@PreAuthorize(Authority.IS_SB_ADMIN)` and
+# authorities come from `resource_access.om1-api.roles` with the prefix stripped
+# (SecurityConfiguration.java:85-86), so the UI must mirror it with
+# hasResourceRole('sb_admin', <clientId>) — hasRealmRole is silently false.
+# ⚠ REWRITTEN r7 (2026-08-12). This asserted an `isPutawayConfigAdmin` COMPUTED, and a computed is
+# precisely the defect SBDEV-2732's review round found and fixed as a High: `$kc` is a plain injected
+# object whose getters read a closure variable that is null until the fire-and-forget `initKeycloak()`
+# resolves, so a computed over it has ZERO reactive dependencies — Vue 2 evaluates it once, caches
+# `false`, and never re-evaluates. The observed symptom was a real sb_admin getting a permanently
+# disabled control. The row as written would have ENFORCED that defect on 2643.
+# The gate must be reactive DATA assigned from the awaited resolver.
+check_B1_permission_reactive_data() {
+    # ⚠ The third conjunct USED to forbid `isPutawayConfigAdmin() { ... $kc ... }` — the r6 computed. Once
+    # r7 renamed the gate, that assertion became permanently, silently TRUE: it forbade an identifier that
+    # no longer exists anywhere, so the row's whole "not a computed" half stopped asserting anything while
+    # still reporting PASS. Retargeted at the CURRENT name, which is the form that could actually regress:
+    # someone "tidying" the reactive data + async mounted() into a one-line computed over $kc.
+    file_contains 'isSbAdmin' "$V_SKUDATA" \
+      && multiline_contains 'await\s+resolveSbAdmin\s*\(' "$V_SKUDATA" \
+      && multiline_contains 'isSbAdmin\s*:\s*false' "$V_SKUDATA" \
+      && multiline_not_contains 'isSbAdmin\s*\(\s*\)\s*\{' "$V_SKUDATA"
 }
-check_B1_consumes_app_admin_group() {
-    file_contains 'appAdminGroup' "$V_SKUDATA"
+# ⚠ REWRITTEN r7 (2026-08-12) — the r6 form asserted `hasResourceRole('sb_admin', clientId)`, which
+# SBDEV-2732 then PROVED returns false for 100% of real sb_admins, permanently, on every tenant:
+#   (a) `sb_admin` is carried in the JWT via the Keycloak GROUP, i.e. the `groups` claim, and group
+#       membership does not appear under `resource_access` at all; and
+#   (b) keycloak-js resolves ONE client's roles, while `$config.keycloak.clientId` is the build-wide
+#       KEYCLOAK_CLIENT and the token is issued by the PER-TENANT client from tenant discovery — two
+#       independent sources on one deployment serving every tenant hostname.
+# 2732 shipped the fix as `util/keycloakRoles.js`, which MIRRORS the API's own
+# `JwtAccessTokenCustomizer.extractRoles` (every client under resource_access, PLUS every `groups`
+# entry). 2643 imports that helper; it does not write a third role reader.
+check_B1_gate_uses_shared_role_helper() {
+    [ -f "$V_KCROLES" ] || return 1
+    multiline_contains "resolveSbAdmin[\\s\\S]{0,80}?from\\s+'@/util/keycloakRoles'" "$V_SKUDATA"
 }
+# NEGATIVE, non-vacuous — same guard idiom as B1-neg-vif. A bare "appAdminGroup is
+# absent" passes trivially today (the computed does not exist at all), so REQUIRE the
+# computed first, then assert the dead config and the wrong Keycloak helper are absent.
+# REWRITTEN r7 — now guards all THREE dead/narrower forms, not two. `hasResourceRole` joins the list
+# because r6 specified it and 2732 disproved it; a reader who remembers r6 is the likeliest person to
+# re-add it. Conjoined with a presence assertion so the row cannot pass vacuously on an absent file.
+check_B1_neg_dead_gate_forms() {
+    file_contains 'isSbAdmin' "$V_SKUDATA" \
+      && file_not_contains 'appAdminGroup' "$V_SKUDATA" \
+      && file_not_contains 'hasRealmRole' "$V_SKUDATA" \
+      && file_not_contains 'hasResourceRole' "$V_SKUDATA"
+}
+# ⚠ RENAMED r7 — `isPutawayConfigAdmin` -> `isSbAdmin`, AND THREE ROWS WERE MISSED WHEN IT HAPPENED.
+# r7 replaced r6's computed `isPutawayConfigAdmin()` with reactive data `isSbAdmin` (§3.11) and updated
+# B1-perm / B1-cfg / B1-neg-cfg to match — but B1-disabled, B1-neg-vif and B1-jest2 kept the DEAD name, so
+# all three would have stayed RED against a fully correct r7 implementation. A permanently-red row is
+# indistinguishable from unimplemented work (the recorded landmine), and here three of them sat in the
+# phase whose gate has already been specified wrong twice. Caught 2026-08-12 by reading the rows BEFORE
+# writing the code rather than after. Same class as the A4-inquery repoint: a rename lands in the code and
+# in the plan, and the script keeps asserting the identifier that no longer exists.
 check_B1_gate_is_disabled_not_vif() {
-    multiline_contains ':disabled="!\s*isPutawayConfigAdmin' "$V_SKUDATA"
+    multiline_contains ':disabled="!\s*isSbAdmin' "$V_SKUDATA"
 }
-# NEGATIVE, non-vacuous. A bare "v-if=isPutawayConfigAdmin is absent" passes
-# trivially while the computed does not exist at all — it would have reported PASS
-# before B1 was written. So the check first REQUIRES the computed to exist, then
-# asserts it is not used as a v-if. D10: read-only users may VIEW.
+# NEGATIVE, non-vacuous. A bare "v-if=isSbAdmin is absent" passes trivially while the
+# gate does not exist at all — it would have reported PASS before B1 was written. So the
+# check first REQUIRES the gate to exist, then asserts it is not used as a v-if.
+# D10: read-only users may VIEW.
 check_B1_neg_gate_not_vif() {
-    file_contains 'isPutawayConfigAdmin' "$V_SKUDATA" \
-      && file_not_contains 'v-if="!?\s*isPutawayConfigAdmin' "$V_SKUDATA"
+    file_contains 'isSbAdmin' "$V_SKUDATA" \
+      && file_not_contains 'v-if="!?\s*isSbAdmin' "$V_SKUDATA"
 }
 # POSITIVE — §3.7: the 2731 wording constants were EXTRACTED to a shared module
 # rather than copy-pasted a third time, and receivingForm.vue now imports them.
@@ -675,8 +931,16 @@ check_B1_wording_module_has_both_constants() {
     file_contains "DEFAULT_PUTAWAY_LANE_NAME\s*=\s*'PutAwayLane'" "$V_WORDING" \
       && file_contains "DEFAULT_PUTAWAY_LANE_LABEL\s*=\s*'Put Away Lane'" "$V_WORDING"
 }
+# ⚠ WAS line-based ERE (`file_contains`), which cannot see a MULTI-LINE import — and a two-constant
+# import from a long '@/components/masterData/material/skuData/putawayWording' path is exactly the shape
+# prettier breaks across lines. The row was red against a correct import purely because of where the
+# newlines fell. `multiline_contains` (perl, /s) judges the contract instead of the formatting; the
+# tempered gap keeps the match inside ONE import statement so it cannot span two unrelated ones.
 check_B1_recv_form_imports_shared() {
-    file_contains 'import\s*\{[^}]*DEFAULT_PUTAWAY_LANE_NAME' "$V_RECV_FORM"
+    # BOTH gaps tempered against `from`, so the whole match must stay inside ONE import statement. With the
+    # second gap left as `[\s\S]*?` the row could be satisfied by "NAME imported from the WRONG module,
+    # plus some later unrelated import from putawayWording" — the recorded unbounded-lazy-gap failure mode.
+    multiline_contains 'import\s*\{(?:(?!\bfrom\b)[\s\S])*?DEFAULT_PUTAWAY_LANE_NAME(?:(?!\bfrom\b)[\s\S])*?from\s*.@/components/masterData/material/skuData/putawayWording' "$V_RECV_FORM"
 }
 # NEGATIVE: receivingForm.vue no longer DECLARES the constants (no third copy).
 check_B1_neg_recv_form_no_local_const() {
@@ -688,8 +952,21 @@ check_B1_persistedstate_untouched() {
     file_not_contains 'skuData' "$S_PERSIST"
 }
 # CONTEXT — D5: no table column was added.
+# ⚠ WAS a label-only negative, and a review lane PROVED it toothless: it forbade a header whose TEXT is
+# "Default Putaway Location", so the actual D5 violation — moving the pencil into its own column headed
+# "Edit" — sailed straight through, as did `B1-pencil` (not column-aware) and the jest region test (which
+# was false-greening for its own reason). D5 had NO enforcement anywhere in the gate.
+# Now counts the header entries, which is what "no new column" actually means. The label negative is kept
+# as the second conjunct: it is cheap and it catches the other spelling of the same mistake.
 check_B1_neg_no_table_column() {
-    multiline_not_contains "headers[\s\S]{0,600}?Default Putaway Location" "$V_SKUDATA"
+    [ -f "$V_SKUDATA" ] || return 1
+    perl -0777 -ne '
+        my ($h) = /headers:\s*\[(.*?)\],\s*$/ms;
+        exit 1 unless defined $h;
+        my $n = () = $h =~ /value:/g;
+        exit($n == 9 ? 0 : 1);
+    ' "$V_SKUDATA" \
+      && multiline_not_contains "headers[\s\S]{0,600}?Default Putaway Location" "$V_SKUDATA"
 }
 check_B1_jest_spec_exists() { file_exists "$J_SKUDATA"; }
 # r2: this row used to be `file_contains 'disabled'`, which ANY Vuetify spec
@@ -701,30 +978,271 @@ check_B1_jest_spec_exists() { file_exists "$J_SKUDATA"; }
 #   (b) prove PRESENCE with .exists()  — this is the "not hidden" half, and it is
 #       the half D10 turns on: read-only users may VIEW,
 #   (c) read the real attribute/prop rather than matching rendered text.
+# ⚠ (a) RENAMED r7 to isSbAdmin with the two rows above — this was the third missed one.
+# ⚠ (b) The (b)+(c) halves are what forced the spec to MOUNT and inspect the rendered pencil rather than
+#       stopping at `wrapper.vm.isSbAdmin`. The gate tests as parked asserted the FLAG plus the template
+#       source text, which cannot show that the button is present-and-disabled rather than absent — and
+#       "present, disabled" IS D10. So the spec gained a mounted assertion instead of this row being
+#       relaxed to match it: the row was right and the test was the thing that was thin.
 check_B1_jest_asserts_disabled_not_hidden() {
-    file_contains 'isPutawayConfigAdmin' "$J_SKUDATA" \
+    file_contains 'isSbAdmin' "$J_SKUDATA" \
       && file_contains '\.exists\(\)' "$J_SKUDATA" \
       && file_contains "\.(attributes|props)\(\s*['\"]disabled['\"]" "$J_SKUDATA"
 }
 
 # === B2 — the edit dialog and the write (§3.8.2, §3.8.3) ====================
 
+# === A4 — the `name` search parameter on eligibleLocations (§3.5a, NEW r7) ==========
+# Q4 was answered (ii): 2643 ships the server-side search that SBDEV-2732's own Q2 close assigned to it
+# ("SBDEV-2643 Phase B2 as a parameter on eligibleLocations"). Measured driver: 2,564 candidate locations
+# on wms2-wineco-dev = 13 sequential round-trips at size 200 before the operator can type.
+check_A4_controller_name_param() {
+    multiline_contains 'eligibleLocations\([\s\S]{0,400}?RequestParam\([^)]*required\s*=\s*false[^)]*\)\s*String\s+name' "$F_CFG_CTL"
+}
+check_A4_service_name_param() {
+    multiline_contains 'eligibleLocations\(\s*PutawayScope\s+scope\s*,\s*Long\s+subjectId\s*,\s*String\s+name' "$F_QUERY_SVC"
+}
+# POSITIVE: case-insensitive contains, and it must be IN the query. A post-filter would page over 2,564
+# rows to return 3 -- the round-trips this phase exists to remove.
+#
+# ⚠ REPOINTED r7 (2026-08-12) FROM $F_QUERY_SVC TO $F_LOC_REPO, and this is the third time a row in this
+# script has gone stale by naming the wrong FILE rather than the wrong pattern. As written it asked the
+# SERVICE for a LOWER(...) that A4 correctly put in the REPOSITORY, so it was red against a conformant
+# implementation -- and the temptation on a red row is to "fix" the code toward the row, which here would
+# have meant filtering in the service: precisely the 2,564-row post-filter the row exists to forbid.
+# A row that names a file is a claim about layering, and layering is what changes during implementation.
+#
+# ⚠ HARDENED after a review lane found it GREEN on a broken query (2026-08-12). The single-pattern version
+# could not tell the `value` query from the `countQuery`: mutating ONLY the value query to a case-sensitive
+# prefix match — i.e. breaking the query that decides WHICH ROWS COME BACK, while leaving the count correct —
+# left this row PASS, because the untouched countQuery satisfied the regex on its own. Only the unit test
+# caught it, since that reads `q.value()` specifically. A row that accepts "the pattern appears SOMEWHERE in
+# this annotation" is satisfied by the least important half of it.
+# Now asserted per-query, each with a tempered gap so neither half can borrow the other's correctness.
+check_A4_filter_in_query() {
+    # Both sides lower-cased, contains-not-prefix, term bound as a parameter (never concatenated) -- in the
+    # VALUE query, tempered so the match cannot run past `countQuery` and satisfy itself there.
+    multiline_contains '(?i)@Query\(\s*value\s*=\s*(?:(?!countQuery)[\s\S])*?lower\s*\(\s*l\.name\s*\)\s*like\s*lower\s*\(\s*concat\s*\(\s*.%.\s*,\s*:nameFilter\s*,\s*.%.\s*\)' "$F_LOC_REPO" \
+      && multiline_contains '(?i)countQuery\s*=\s*(?:(?!@Query)[\s\S])*?lower\s*\(\s*l\.name\s*\)\s*like\s*lower\s*\(\s*concat\s*\(\s*.%.\s*,\s*:nameFilter\s*,\s*.%.\s*\)' "$F_LOC_REPO"
+}
+# ⚠⚠ THE R11 ROW, AND THE ONE THIS PHASE ACTUALLY TURNS ON. A4 adds a SECOND repository query rather than
+# parameterising the existing one, so that an unsearched read -- what SBDEV-2732's two SHIPPED pickers do --
+# executes the same SQL string it executed before this phase, byte for byte. This row asserts the split held:
+# the original query must still carry NO name predicate. If it ever does, the WAREHOUSE and MERCHANT
+# pickers are running SQL that was never measured on any tenant, and their failure mode is silent -- a
+# missing legal destination with no toast, no 4xx and no log line.
+#
+# ⚠⚠ THIS ROW'S FIRST VERSION DID NOT WORK, AND IT WAS THE MOST IMPORTANT ROW IN THE PHASE. Negative-tested
+# 2026-08-12 by actually inserting `AND (:nameFilter IS NULL OR LOWER(l.name) LIKE ...)` into the shared
+# query — the precise R11 defect — and the row stayed GREEN. Its negative demanded `nameFilter` appear
+# somewhere AFTER a `countQuery` and before the 2-arg declaration, but the mutation lands in the `value`
+# query, which comes FIRST. So the row asserted a real property of a place the defect does not occur.
+# `PutawayDestinationQueryServiceUnitTest` caught the same mutation on its own; had the row been trusted as
+# the gate, this phase would have shipped with its headline guarantee unverified.
+#
+# Now written as a POSITIVE with a tempered-greedy gap: there must EXIST a @Query block that reaches the
+# 2-argument declaration without passing through `nameFilter` — or through another `@Query`, which is what
+# stops the match from starting at some earlier, unrelated query in this 300-line repository and skipping
+# over the mutated one. Re-negative-tested after rewriting: MUT-1 now turns it red.
+check_A4_r11_query_split() {
+    check_A4_filter_in_query \
+      && multiline_contains 'Page<Location>\s+findPutawayCandidatesByName\s*\(' "$F_LOC_REPO" \
+      && multiline_contains '@Query\((?:(?!@Query)(?!nameFilter)[\s\S])*?Page<Location>\s+findPutawayCandidates\s*\(' "$F_LOC_REPO"
+}
+# POSITIVE: the SERVICE branches on a blank term instead of passing a wildcard. §3.5a rules out LIKE '%%'
+# explicitly -- a match-everything wildcard changes the plan the database picks and can reorder an
+# unsorted page. The branch is what makes the byte-identical guarantee reachable from the caller.
+check_A4_service_branches_on_blank() {
+    multiline_contains 'isEmpty\(\)[\s\S]{0,200}?findPutawayCandidates\s*\([\s\S]{0,200}?findPutawayCandidatesByName\s*\(' "$F_QUERY_SVC" \
+      && multiline_not_contains "LIKE\\s*'%%'" "$F_QUERY_SVC"
+}
+# NEGATIVE and LOAD-BEARING: JPQL, not native SQL -- the H2 test lane, same constraint 2732 pinned as P2A-h2.
+# ⚠ CONJOINED, because the bare negative PASSED VACUOUSLY. Before A4 is written there is no `name`
+# parameter at all, so "no nativeQuery near eligibleLocations" is trivially true and the row reported
+# PASS on an untouched tree -- the exact failure the file header warns about ("if that count rises
+# without a corresponding implementation step, a check has gone vacuous"). It was caught by reading the
+# first run of the new rows, where it was the ONLY green among seven.
+# Now it requires the parameter to EXIST first, so it can only be green once there is something to judge.
+# ⚠ ALSO REPOINTED r7 to $F_LOC_REPO with A4-inquery — `nativeQuery` is a @Query attribute, so it could
+# only ever have appeared in the repository. Against the service file this row was asserting the absence of
+# something that could not be present there: vacuous for a second reason, on top of the one below.
+check_A4_neg_not_native() {
+    check_A4_service_name_param \
+      && multiline_not_contains 'nativeQuery\s*=\s*true[\s\S]{0,400}?findPutawayCandidatesByName' "$F_LOC_REPO"
+}
+# NEGATIVE: the banner must NOT read its counts from a search-narrowed page. With `name` applied,
+# totalElements counts MATCHES, so "{eligibleCount} of this warehouse's {totalCount}" silently becomes
+# "of this search" -- confidently wrong, per keystroke (§14 principle 4).
+# ⚠ MADE FAIL-CLOSED. As written this row was GREEN FOR ABSENCE-OF-WORK REASONS: it forbade a search term
+# near a `totalCount =` assignment, and the dialog has no such assignment at all — so it passed before the
+# search box existed and would have read to a reviewer as protection that had been earned. That is the
+# "negative that passes before the work starts" trap this script's own header documents (the A4-neg-native
+# lesson), and it is most dangerous in the follow-up PR, where someone will see it already green.
+#
+# Now it requires the search wiring to EXIST before judging it, so today it reports RED — honestly, as
+# "not yet built" — and only turns green when the debounced term is wired AND the banner is not recomputed
+# from a searched read. Expect this row and A4-debounce to be the two reds at PR 6.
+#
+# ⚠ The banner's capture-once guard DOES now have executable coverage regardless of this row:
+# editSkuPutawayDialog.spec.js's `capturesTheBannerCountsOnceAndRearmsOnReopen` emits twice with different
+# counts and asserts the first survives, then asserts a reopen re-arms it.
+# ⚠ TWICE CORRECTED. Fail-closed was right but the first attempt got both halves wrong:
+#   (a) it accepted a bare COMMENT — inserting `<!-- TODO A4: debounce -->` turned it green (seventh
+#       instance of comment-vs-code on this ticket), so the debounce conjunct now requires a CALL;
+#   (b) it looked in $V_DIALOG, where the debounce must NOT live: B2-neg-raw forbids the dialog from
+#       mounting the picker and B2-one-elig forbids a second reader, so the term gets wired in the shared
+#       FIELD or the PICKER. As written it could only go green by putting the debounce exactly where B2's
+#       architecture forbids — pressuring the follow-up author to relax the row instead of satisfying it.
+# ⚠ And its third conjunct cannot catch the recompute hazard IN THE DIALOG at all: the dialog never assigns
+# `totalCount`, it assigns `this.counts = payload`. That invariant is carried EXECUTABLY by
+# editSkuPutawayDialog.spec.js's `capturesTheBannerCountsOnceAndRearmsOnReopen`, which emits twice with
+# different counts and asserts the first survives — this row guards the wiring, that test guards the rule.
+check_A4_neg_banner_from_search() {
+    file_exists "$V_DIALOG" \
+      && { multiline_contains '(debounce|setTimeout)\s*\(' "$V_FIELD" \
+           || multiline_contains '(debounce|setTimeout)\s*\(' "$V_PICKER"; } \
+      && multiline_not_contains '(?i)(searchTerm|search|query)[\s\S]{0,200}?(totalCount|counts)\s*=' "$V_DIALOG"
+}
+# POSITIVE: the caller debounces. A search firing per keystroke re-introduces the cost A4 removes.
+#
+# ⚠ THIS ROW AND A4-neg-banner ARE UI ROWS AND THEY MOVED TO THE B2 BLOCK in r7. A4's PR is API-ONLY
+# (§3.5a): it ships the parameter, and the search box that sends it ships with B2, which is the only
+# consumer. Left under the A4 heading they were two permanently-red rows in A4's own PR gate, which is how
+# a real regression gets waved through as "one of the expected reds". Under B2 they gate the phase that
+# actually creates the file they inspect.
+# ⚠ Requires a CALL, not the word: the bare form went green on a comment. And repointed to where the term
+# is actually wired — see check_A4_neg_banner_from_search for why it cannot be the dialog.
+check_A4_debounced() {
+    multiline_contains '(debounce|setTimeout)\s*\(' "$V_FIELD" \
+      || multiline_contains '(debounce|setTimeout)\s*\(' "$V_PICKER"
+}
+# POSITIVE: the empty-search identity contract is TESTED, not merely asserted in prose. Tiers 2 and 3
+# call this endpoint with no `name`, so a predicate bug that narrows the unfiltered set silently shrinks
+# the WAREHOUSE and MERCHANT pickers -- with no error shown to the operator.
+# ⚠ Uses multiline_contains (perl), NOT file_contains (grep -E). `(?i)` is a PCRE construct and is NOT
+# valid ERE — under `grep -qE` it is matched literally, so the row was red against a conformant test
+# named `eligibleLocationsBlankNameIsIdenticalToNoNameFilter`. Mixing the two regex flavours across
+# these helpers is a standing trap: file_contains/file_not_contains are ERE, multiline_* are perl.
+# ⚠ REPOINTED r7 from $T_CFG_CTL to $T_QUERY_SVC. The identity contract is BEHAVIOURAL — it is about which
+# query runs — so it belongs where the method body is exercised, not where the controller's signature is
+# reflected over. And a name-only match is not enough for the one row this phase most needs to be honest:
+# the test must show the filtered query is NEVER REACHED on a blank term, because a test that merely
+# compares row lists would also pass if a blank term ran a match-everything wildcard.
+check_A4_test_empty_search_identity() {
+    multiline_contains '(?i)(emptySearch|blankName|nameNull|withoutName|noNameFilter)' "$T_QUERY_SVC" \
+      && multiline_contains 'never\(\)\s*\)\s*\.\s*findPutawayCandidatesByName' "$T_QUERY_SVC"
+}
+
 check_B2_dialog_exists() { file_exists "$V_DIALOG"; }
-# POSITIVE: the dialog reuses 2732's picker rather than rolling a second one (D6).
-check_B2_dialog_uses_shared_picker() {
-    file_contains '(LocationPicker|location-picker)' "$V_DIALOG"
+# ============================================================================
+# ⚠ B2 RESHAPED r7 (2026-08-12) — 2732 ALREADY BUILT MOST OF THIS. READ THIS FIRST.
+# ============================================================================
+# `defaultPutawayLocationField.vue` (2732 step 20, merged `ec01dd7`) already owns the preview gate,
+# D11's count-and-confirm, the full 7-value blockingReason message map, the paginated accumulate, the
+# clear-omits-locationId rule, the 422/409 surfacing, the Vuetify double-submit re-entry guard, and the
+# sb_admin gate via `resolveSbAdmin`. Its own props document `scope` as "'MERCHANT' / 'SKU' when steps
+# 21 and SBDEV-2643 reuse this", `subjectId` as "Required at SKU scope", and its `write()` has a SKU
+# branch that deliberately bails with "This scope cannot be saved from this screen" and the comment
+# "SKU scope belongs to SBDEV-2732's sibling ticket (SBDEV-2643 B2) and has its own endpoint".
+#
+# So B2 EXTENDS that component; it does not clone it. The rows below therefore moved from "the dialog
+# implements X" to "the dialog delegates X, and X is wired for SKU scope". A second copy of the preview
+# gate is now a DEFECT this script must catch, not the deliverable it used to assert.
+#
+# ⚠ THIS CROSSES THE §14-PRINCIPLE-1 BOUNDARY ON PURPOSE, and r7 amends the principle rather than
+# quietly breaching it. D13's "2643 writes into ZERO 2732-owned files" was a TEMPORAL guard against
+# two in-flight PRs colliding — §11.0 said so at the time ("the residue is temporal, not
+# architectural"). 2732 is merged and ready to archive, so the collision risk is gone and the cost has
+# inverted: keeping the boundary now means shipping a second confirmation gate, which §3.11.2 names as
+# exactly how one of them ends up without it.
+check_B2_dialog_reuses_2732_field() {
+    file_contains '(DefaultPutawayLocationField|default-putaway-location-field)' "$V_DIALOG" \
+      && multiline_contains "scope\\s*=\\s*[\"']SKU[\"']" "$V_DIALOG"
 }
-# r2 (D1 reversal): replaces the deleted check_B2_advisory_banner_names_ticket.
-# r1 warned per-row on pick faces; r2 removes those rows entirely, so the failure
-# mode inverts — an operator types "ICE", gets nothing, and concludes the search is
-# broken. Plan §3.8.2a makes the ALWAYS-VISIBLE scope banner a deliverable and
-# requires it to name BOTH the unblocking ticket and the design decision, so the
-# restriction is traceable rather than folklore.
-check_B2_scope_banner_names_unblocking_ticket() {
-    file_contains 'SBDEV-2821' "$V_DIALOG"
+# NEGATIVE: the dialog must NOT mount the raw picker. LocationPicker is presentational — it renders the
+# tiers the server decided and emits a selection. Mounting it directly bypasses the preview gate, the
+# blockingReason map and the typed write, which is the whole reason the wrapper exists.
+check_B2_neg_dialog_bypasses_wrapper() {
+    file_exists "$V_DIALOG" \
+      && file_not_contains '(LocationPicker|location-picker)' "$V_DIALOG"
 }
-check_B2_scope_banner_names_design_decision() {
-    file_contains '(SBDEV-2732|2732 Q9)' "$V_DIALOG"
+# NEGATIVE: no second copy of the preview gate / confirm recount in 2643's dialog.
+check_B2_neg_no_duplicate_preview_gate() {
+    file_exists "$V_DIALOG" \
+      && file_not_contains '(previewPutawayConfig|incompatibleSkuCount|confirmIncompatibleSkus)' "$V_DIALOG"
+}
+# POSITIVE: the wrapper's scope→writer map gains SKU, so the shared Save path can actually write tier 1
+# instead of erroring "This scope cannot be saved from this screen."
+check_B2_field_writer_handles_sku() {
+    multiline_contains "SKU:\\s*'admin/configuration/setSkuPutawayDestination'" "$V_FIELD"
+}
+# NEGATIVE and load-bearing: the SKU write must NOT send confirmIncompatibleSkus. The endpoint does not
+# take it — `PutawayConfigController.setSku` is `(@PathVariable Long itemdataId, @RequestParam(required
+# = false) Long locationId)` and its javadoc is explicit: "SKU scope writes straight through: the blast
+# radius is one SKU, so D11's count-and-confirm does not apply and there is no confirmIncompatibleSkus
+# parameter to honour." At SKU scope `preview`'s counts are degenerate (0-or-1 of 1), so a shared
+# `incompatibleSkuCount > 0` test would raise a confirm dialog in front of a write that cannot honour
+# the answer — a confirmation the operator cannot actually give.
+check_B2_neg_sku_write_sends_no_confirm() {
+    # ⚠ Gap TEMPERED against `async ` rather than a {0,600} budget, which covered barely half of an action
+    # that runs ~1,100 chars to its handler. ⚠ CORRECTION: an earlier version of this comment claimed the
+    # old form went green on a param injected into the catch. Re-review could not reproduce that — the old
+    # form failed too, but only by accident: `setSkuPutawayDestination` appears a SECOND time inside the
+    # catch's console.error string, exactly 600 chars from the first anchor, so a one-word edit to that log
+    # message would have flipped it. The row was saved by coincidence, which is reason enough to temper it.
+    # The tempered form was verified properly: red on a catch injection, red on a success-path injection,
+    # green when the param appears in the NEIGHBOURING action. Same repair as B2-body, one row away.
+    multiline_not_contains 'setSkuPutawayDestination(?:(?!async )[\s\S])*?confirmIncompatibleSkus' "$S_CONFIG"
+}
+# POSITIVE: the SKU path skips D11's confirm rather than inheriting it by accident.
+check_B2_sku_skips_d11_confirm() {
+    multiline_contains "scope\\s*===\\s*'SKU'" "$V_FIELD"
+}
+# ============================================================================
+# ⚠ BANNER ROWS REWRITTEN r7 (2026-08-12) — THEIR PREMISE EXPIRED TWICE.
+# ============================================================================
+# These asserted that the banner names SBDEV-2821 as "the ticket that will make pick faces selectable"
+# and 2732 Q9 as "the design decision behind the current restriction". BOTH halves are now false:
+#
+#   1. D1 was RE-REVERSED in r3. The SKU picker DOES offer pick faces, including flowbins — tier 1 is
+#      exempt from 2732's P2.7 rule (e). §3.8.2a was never reconciled to that; it still carries r2's
+#      "Pick faces (flowbins) are not yet selectable as a SKU default" text, which contradicts the D1
+#      row three sections earlier. r4 claimed to reconcile the body to r3 and missed this.
+#   2. SBDEV-2821 MERGED on 2026-08-09 (PR #135, merge fd90487, ClickUp `on dev`). A banner telling an
+#      operator to wait for a ticket that already shipped is confidently wrong — the §14-principle-4
+#      inversion this banner block was written to prevent.
+#
+# Measured confirmation that pick faces are offered: 2732 reports SKU scope returning 2,554 eligible
+# rows on wms2-wineco-dev against 516 at merchant/warehouse scope. The gap IS the pick faces.
+#
+# What the banner must say instead is r3's D1 text: a pick-face destination is ROUTED VIA PUTAWAY, not
+# placed directly at receipt — and the operational consequence, that the stock is not on the pick face
+# when the receipt closes; it arrives when someone puts it away. That is the SBDEV-2731 defect class
+# (the screen showing ICE PACK while stock lands on PutAwayLane), so it is not optional copy.
+#
+# The banner lives on 2643's dialog, not on the wrapper: the wrapper serves three scopes and this
+# statement is true only at SKU scope.
+# ⚠ ANCHORED TO THE BANNER ELEMENT. The old pattern matched `(routed|diverted)…putaway` ANYWHERE in the
+# file, and after the banner was rewritten to mirror 2732's approved copy it matched only the PRE-EXISTING
+# `effective.divertedTo` line — so the row would have stayed green with the banner deleted outright, while
+# its own comment block says that copy "is not optional". Tempered against `</v-alert>` so the phrase must
+# sit inside the banner it is supposed to be gating.
+check_B2_banner_states_routed_via_putaway() {
+    file_exists "$V_DIALOG" \
+      && multiline_contains '<v-alert(?:(?!</v-alert>)[\s\S])*?(?i:putaway will move|routed via putaway)(?:(?!</v-alert>)[\s\S])*?</v-alert>' "$V_DIALOG"
+}
+# The operational consequence, not just the mechanism. "Routed via putaway" means nothing to an
+# operator who does not already know it implies a delay before the stock is on the face.
+check_B2_banner_states_consequence() {
+    file_exists "$V_DIALOG" \
+      && multiline_contains '(not on the pick face|arrives when|until someone puts|after putaway)' "$V_DIALOG"
+}
+# NEGATIVE: the expired framing must not survive. Either string means the banner is telling operators
+# to wait for shipped work, or that a destination they can in fact select is unselectable.
+check_B2_neg_banner_expired_framing() {
+    file_exists "$V_DIALOG" \
+      && file_not_contains 'SBDEV-2821' "$V_DIALOG" \
+      && file_not_contains 'not yet selectable' "$V_DIALOG"
 }
 # r2 (Critic F-1, BLOCKING): the banner must state the eligible count, and §3.8.2a
 # requires it COMPUTED from the eligibleLocations response — never a literal. 92 and
@@ -736,10 +1254,11 @@ check_B2_scope_banner_names_design_decision() {
 check_B2_banner_count_not_hardcoded() {
     file_not_contains '\b(92|666)\b' "$V_DIALOG"
 }
-# POSITIVE: hand-rolled validated() + $toast, per the editPackagingDialog idiom.
-check_B2_dialog_handrolled_validation() {
-    file_contains 'validated\s*\(' "$V_DIALOG" && file_contains '\$toast\.error' "$V_DIALOG"
-}
+# ⚠ check_B2_dialog_handrolled_validation DELETED r7. It required `validated()` + `$toast.error` IN THE
+# DIALOG, copied from the editPackagingDialog idiom. Under reuse the dialog validates nothing — the
+# wrapper owns Save-gating (`saveDisabled` = !canEdit || saving || blockingReason != null) and the
+# toasts. Keeping the row would have forced a hand-rolled validator whose only job was to duplicate a
+# gate that already exists, and duplicating that gate is the defect B2-neg-dup now catches.
 # NEGATIVE: no v-form/rules and no Vuelidate — the repo has no such idiom here.
 check_B2_neg_no_vform_rules() {
     file_not_contains '(<v-form|:rules=|vuelidate|validations\s*:)' "$V_DIALOG"
@@ -753,52 +1272,91 @@ check_B2_neg_no_advisory_state() {
 check_B2_clear_affordance() {
     file_contains '(Clear|Use default)' "$V_DIALOG"
 }
-# POSITIVE: the write action targets 2732's validated endpoint.
+# POSITIVE: the write action targets 2732's validated endpoint. REPOINTED r7 from the skuData store to
+# `store/admin/configuration.js`, where `setWarehousePutawayDestination` and
+# `setMerchantPutawayDestination` already live and where the wrapper dispatches from. Tier 1 sitting in
+# a different store module than tiers 2 and 3 is how the three drift apart.
 check_B2_store_targets_putawayconfig() {
-    file_contains '\$put\(`?/putawayConfig/sku/' "$S_SKUDATA"
+    file_contains '\$put\(`?/putawayConfig/sku/' "$S_CONFIG"
 }
 # NEGATIVE — the headline UI check. The legacy GET is unvalidated, unaudited,
 # the wrong verb, and its @CacheEvict(allEntries=true) flushes EVERY tenant.
+# r7: checked in BOTH stores, since the write moved to admin/configuration.js and the skuData store
+# must not keep a second path to the same field.
 check_B2_neg_no_legacy_endpoint() {
-    file_not_contains 'setPutAwayLocation' "$S_SKUDATA"
+    file_not_contains 'setPutAwayLocation' "$S_CONFIG" \
+      && file_not_contains 'setPutAwayLocation' "$S_SKUDATA"
 }
 check_B2_neg_no_legacy_in_dialog() {
     file_not_contains 'setPutAwayLocation' "$V_DIALOG"
 }
 # POSITIVE: Clear OMITS the query parameter entirely (2732 §3.5a: omitted => clear).
-# Sending ?locationId= or ?locationId=null would not clear.
+# Sending ?locationId= or ?locationId=null would not clear — `locationId` is a `required = false Long`,
+# so the literal string "null" is a 400, not a clear. REPOINTED r7 to admin/configuration.js.
 check_B2_clear_omits_param() {
-    multiline_contains 'locationId\s*==\s*null\s*\?\s*'"''"'\s*:' "$S_SKUDATA"
+    multiline_contains 'setSkuPutawayDestination[\s\S]{0,700}?locationId[\s\S]{0,120}?(!=\s*null|==\s*null|append\()' "$S_CONFIG"
 }
 check_B2_neg_no_null_in_querystring() {
-    file_not_contains 'locationId=\$\{?(null|data\.locationId\s*\|\|)' "$S_SKUDATA"
+    file_not_contains 'locationId=\$\{?(null|data\.locationId\s*\|\|)' "$S_CONFIG"
 }
 # POSITIVE: 422/409 bodies reach the operator. A bare "network or server issue"
-# toast hides every validation message the ticket asks to be actionable.
+# toast hides every validation message the ticket asks to be actionable. REPOINTED r7.
+# ⚠ This is the row the 2732 review round proved matters: "every 409/422 message was discarded" was one
+# of its six defects, in this exact component family.
+# ⚠ RESHAPED — the original asserted `response.data` within 900 chars of the action name, which the correct
+# implementation does NOT contain and a COMMENT easily does. Both sibling writers surface the body through
+# the shared `putawayWriteError` helper; inlining the expression to satisfy a regex would have duplicated
+# that helper, and mentioning it in prose would have satisfied the row from a comment (caught before
+# shipping, 2026-08-12 — the fifth instance of the comment-vs-code trap on this ticket).
+# Now pins the real mechanism in two halves: the action routes its failure through the helper, AND the
+# helper reads the response body. Neither half is satisfiable by prose in the action.
 check_B2_surfaces_response_body() {
-    file_contains 'response(\?)?\.data' "$S_SKUDATA"
+    # Gap TEMPERED against `async `, not a character budget: the original `{0,900}` was too small for a
+    # documented action (measured 1,126 chars to the handler), so a correct implementation failed on
+    # comment length. `async ` begins the next action, which bounds the match to this one's own extent —
+    # the containment the window was reaching for, without a number that must grow with every comment.
+    multiline_contains 'setSkuPutawayDestination(?:(?!async )[\s\S])*?putawayWriteError\s*\(\s*error\s*\)' "$S_CONFIG" \
+      && multiline_contains 'function\s+putawayWriteError[\s\S]{0,300}?error\.response\.data' "$S_CONFIG"
 }
 # POSITIVE: read-after-write refetches THIS SKU, not the whole table.
+# ⚠ REPOINTED from $S_SKUDATA to $V_SKUDATA. The row asked the skuData STORE to dispatch `getSkuDetail`,
+# which would mean a store action dispatching a sibling action in its own module purely to satisfy a grep.
+# The requirement is behavioural — "after a write, THIS SKU's detail is re-read, and the table is not
+# re-paged" — and it is the SCREEN that owns it: the dialog emits `saved`, skuData.vue re-reads the one
+# row. Fourth row on this ticket that named the wrong file rather than the wrong property.
+# The re-paging half is unaffected and still guarded by B2-neg-page against the config store.
 check_B2_refetches_detail() {
-    file_contains "dispatch\('getSkuDetail'" "$S_SKUDATA"
+    # ⚠ The old second conjunct (`getSkuDetail` appears in $V_SKUDATA) was VACUOUS: showDetails already
+    # used it on develop, so that half passed pre-B2 and detected nothing. Replaced with the property that
+    # is actually B2's — the saved handler is WIRED to the dialog — so both conjuncts are B2-gated.
+    multiline_contains 'onPutawaySaved[\s\S]{0,400}?showDetails\s*\(' "$V_SKUDATA" \
+      && multiline_contains '@saved\s*=\s*"onPutawaySaved"' "$V_SKUDATA"
 }
 check_B2_neg_does_not_repage_table() {
-    multiline_not_contains "setSkuPutawayLocation[\s\S]{0,900}?dispatch\('searchSkuData'" "$S_SKUDATA"
+    multiline_not_contains "setSkuPutawayDestination[\s\S]{0,900}?dispatch\('searchSkuData'" "$S_CONFIG"
 }
-# POSITIVE: the effective-destination read action exists and hits the new endpoint.
+# POSITIVE: the effective-destination read action exists and hits 2643's SKU-scope endpoint.
+# ⚠ TIGHTENED r7. The bare `effectivePutawayDestination` grep now passes on 2732's merged
+# `getEffectivePutawayDestination`, which reads `/client/{id}/effectivePutawayDestination` — the
+# MERCHANT tier. A row that goes green on someone else's endpoint for a different tier is not a check.
+# 2643's A2 read is the itemData path, and the path is what distinguishes them.
 check_B2_effective_read_action() {
-    file_contains 'effectivePutawayDestination' "$S_SKUDATA"
+    file_contains 'itemData/\$\{[^}]+\}/effectivePutawayDestination' "$S_CONFIG" \
+      || file_contains 'itemData/\$\{[^}]+\}/effectivePutawayDestination' "$S_SKUDATA"
 }
 # CONTEXT — D3: the picker did NOT go back to /location/detailView client-side.
 check_B2_neg_not_detailview_backed() {
     file_not_contains 'location/detailView' "$V_DIALOG"
 }
-# CONTEXT — D3: storageLocation store untouched.
-check_B2_storage_store_untouched() {
-    # CONJOINED 2026-08-08 — 'eligibleLocations' exists in zero files, so "absent from the existing
-    # storageLocation store" was trivially true. The real property is that the NEW skuData store owns
-    # it and the pre-existing store is left alone: assert presence in one, absence in the other.
-    file_contains 'eligibleLocations' "$S_SKUDATA" \
+# CONTEXT — D3 / §14 principle 2: exactly ONE eligibleLocations reader in the UI, and it is 2732's.
+# ⚠ REWRITTEN r7 — the 2026-08-08 form demanded `eligibleLocations` be PRESENT in the skuData store.
+# That was right when 2643 expected to ship the reader itself (Phase A3). A3 is deleted and 2732 shipped
+# `getEligiblePutawayLocations` in store/admin/configuration.js, so the old row now forces 2643 to add a
+# SECOND reader for the same endpoint — it would go green on precisely the duplication D3 forbids.
+# Inverted: the shared store has it, and neither 2643-adjacent module re-implements it.
+check_B2_single_eligible_reader() {
+    file_contains 'eligibleLocations' "$S_CONFIG" \
+      && file_not_contains 'eligibleLocations' "$S_SKUDATA" \
       && file_not_contains 'eligibleLocations' "$S_STORAGE_LOC"
 }
 check_B2_jest_dialog_spec_exists() { file_exists "$J_DIALOG"; }
@@ -831,12 +1389,26 @@ check_B2_jest_store_asserts_no_legacy() {
 # === CROSS-CUTTING — invariants that must hold in every phase ================
 
 # 2643 ships ZERO migrations. If a V2.2.* file appeared that is not 2732's
-# V2.2.11, someone added SQL to this ticket.
+# V2.2.13, someone added SQL to this ticket.
+# ⚠ REWRITTEN r7 (2026-08-12) — the version-range form below was a FALSE FAIL, and it went red the
+# moment OTHER tickets shipped migrations. It counted `V2.2.1[2-9]` etc. in the migration directory and
+# demanded zero; by 2026-08-12 develop carries V2.2.12 (PR #137, transaction-detail UL picks) and
+# V2.2.13 (SBDEV-2732), so the row failed because someone else's work exists. That is the recorded
+# failure mode "a permanently-red row is indistinguishable from unimplemented work".
+#
+# The property this row actually wants is DIFFERENTIAL: 2643 adds no migration OF ITS OWN. Compare
+# against the merge-base with develop, not against an absolute version window — that stays correct no
+# matter how far the version head advances.
+# ⚠ FAILS CLOSED. If the merge-base cannot be resolved (no git, no origin/develop, detached shadow
+# root) this row goes RED rather than green. An unresolvable baseline means the question "did 2643 add
+# a migration?" was not answered, and principle 5 says an unanswered question is not a pass.
 check_X_no_new_migration() {
-    local extra
-    extra=$(ls "$PROJECT_ROOT/src/main/resources/db/migration/" 2>/dev/null \
-        | grep -E '^V2\.2\.(1[2-9]|[2-9][0-9])__' | wc -l)
-    [ "$extra" -eq 0 ]
+    local base added
+    base=$(git -C "$PROJECT_ROOT" merge-base HEAD origin/develop 2>/dev/null) || return 1
+    [ -n "$base" ] || return 1
+    added=$(git -C "$PROJECT_ROOT" diff --name-only --diff-filter=A "$base" HEAD \
+        -- src/main/resources/db/migration/ 2>/dev/null | wc -l) || return 1
+    [ "$added" -eq 0 ]
 }
 # The @NotNull on Itemdata is 2732's to remove, not 2643's.
 check_X_notnull_not_touched_by_2643() {
@@ -851,18 +1423,15 @@ check_X_legacy_endpoint_still_present() {
 check_X_archunit_store_clean() {
     (cd "$PROJECT_ROOT" && git diff --quiet -- src/test/resources/archunit_store/ 2>/dev/null)
 }
-# PREREQUISITE PROBE — NOT a 2643 deliverable. Plan §5.1 row 0e.
+# CROSS-CUTTING GUARD — NOT a 2643 deliverable, and no longer 2732-gated.
 #
-# Authority.IS_SB_ADMIN names a SpEL method that exists nowhere in src/, so any
-# @PreAuthorize using it returns HTTP 500 for EVERY caller, a genuine sb_admin
-# included (9 endpoints are dead today; SBDEV-2863 owns them). SBDEV-2732 writes
-# that constant onto its own writers. If it merges that way, every putaway-config
-# write 500s and 2643's AC12 is unmeetable — but the FIX is 2732's review's or
-# SBDEV-2863's, never a 2643 PR reverting a 2732 security annotation in 2732's own
-# file. This row preserves the FINDING without claiming the OWNERSHIP: it is
-# labelled a prerequisite in the output, and it only runs once 2732's file exists.
-# (the probe itself is check_X_2732_not_merged_with_broken_constant, defined above
-#  beside the A2 negative it pairs with)
+# SUPERSEDED 2026-08-09. This block used to explain why the script probed 2732's
+# file for the broken constant. SBDEV-2863 (PR #134) repaired Authority.java:44 to
+# hasAuthority('sb_admin'), which makes 2732 §3.12's six @PreAuthorize sites correct
+# as written and voids the whole premise. What remains worth guarding is that the
+# repair does not regress underneath either ticket — that is
+# check_X_authz_constant_repaired, defined above beside the A2 negative it pairs
+# with. It reads Authority.java only, so unlike its predecessor it runs today.
 
 # === Wire into the runner ====================================================
 
@@ -891,19 +1460,16 @@ elif ! origin_develop_resolvable "$PROJECT_ROOT" || ! origin_develop_resolvable 
     echo "  ⚠ STALENESS UNCHECKED  : origin/develop is not resolvable in one or both repos, so SKIP could not be"
     echo "                           escalated to FAIL. Run 'git fetch origin --prune' in both and re-run."
 fi
-if migration_2211_present; then
-    echo "  V2.2.11 (2732's)       : PRESENT -> AC4 / AC9 reachable"
+if migration_2213_present; then
+    echo "  V2.2.13 (2732's)       : PRESENT -> AC4 / AC9 reachable"
 else
-    echo "  V2.2.11 (2732's)       : ABSENT  -> AC4 (clear) and AC9 (audit) unreachable"
+    echo "  V2.2.13 (2732's)       : ABSENT  -> AC4 (clear) and AC9 (audit) unreachable"
 fi
 echo
 
-echo "--- Phase A0 — the SpEL detector (test-only; runnable today, in full) ---"
-run A0-spel      "A0 — detector test EVALUATES a SpEL Authority string"        check_A0_spel_evaluated
-run A0-root      "A0 — evaluated against a real expression root"              check_A0_evaluates_against_real_root
-run A0-bare      "A0 — asserts bare hasAuthority('sb_admin'), no ROLE_ prefix" check_A0_bare_authority_asserted
-run A0-ctx1      "A0 — Authority.IS_SB_ADMIN left untouched (SBDEV-2863 owns)" check_A0_authority_constant_untouched
-run A0-ctx2      "A0 — no isSbAdmin() alias added to shared wiring"           check_A0_no_alias_added_to_root
+# Phase A0 is RETIRED — SBDEV-2863 (PR #134, 2026-08-07) shipped the constant fix and
+# the SpEL detector together. Its five rows are deleted, not skipped; see the block at
+# the head of this file. The surviving cross-cutting guard runs with the other X- rows.
 echo
 
 echo "--- Phase A1 — putawayLocationId in the details payload (runnable today) ---"
@@ -930,6 +1496,7 @@ if phase_2732_present; then
     run A2-neg-typ   "A2 — resolver TYPE absent from ItemDataController"          check_A2_neg_resolver_type_absent_from_controller
     run A2-neg-oms   "A2 — new handler does not touch httpRestService (no OMS)"   check_A2_neg_no_oms_in_handler
     run A2-env       "A2 — ALL SEVEN Resolution envelope fields mapped"           check_A2_envelope_seven_fields
+    run A2-labels    "A2 — the four sourceLabel literals agree in BOTH controllers" check_A2_source_labels_agree_across_both_controllers
     run A2-nested    "A2 — tests in a NEW nested class (avoids 2732 Step 9)"      check_A2_new_nested_test_class
     run A2-enum      "A2 — asserts source is the ENUM NAME (SKU_OVERRIDE)"        check_A2_asserts_source_is_enum_name
     run A2-fsvc      "A2 — SkuPutawayQueryServiceUnitTest exists"                 check_A2_facade_unit_test_exists
@@ -968,33 +1535,51 @@ echo "--- Phase A3 — eligible-locations read (D-D: SPECIFIED HERE, OWNED BY 27
 # asserting the shape of constructs 2643 may never write. They assert properties any
 # correct implementation must have, and they run once the endpoint EXISTS, whoever
 # shipped it.
+# ============================================================================
+# ⚠ THREE ROWS RETIRED HERE IN r7 (2026-08-12). READ BEFORE RE-ADDING ANY OF THEM.
+# ============================================================================
+# SBDEV-2732 shipped `eligibleLocations` on 2026-08-11 (PR #142, merge 41c8257), and these three rows
+# then went RED against a CORRECT implementation. They are the recorded failure mode "verify rows go
+# stale when a refactor moves code between files", in its worst form: 2643 asserting the internal shape
+# of a construct another ticket owns.
+#
+#   A3-tx    — asserted `@Transactional(tenantTransactionManager, readOnly=true)` on
+#              PutawayConfigController.eligibleLocations. 2732 deliberately shipped NO controller
+#              transaction — the boundary lives on PutawayDestinationQueryService, and there is zero
+#              @Transactional under controller/ by design — and 2732 PINS THAT with its own verify row
+#              `P2A-ctl-no-tx` ("NEG: controller exposes it but owns NO transaction").
+#              ⚠ TWO SCRIPTS IN ONE FEATURE FAMILY ASSERTED OPPOSITE THINGS ABOUT THE SAME METHOD.
+#              2643's was the wrong one. Whichever implementation satisfied one would fail the other.
+#   A3-lane  — grepped the CONTROLLER for STORAGE_LOCATION_PUTAWAY_LANE. The exclusion is real but
+#              lives in the rules/query layer; 2732 asserts it correctly via `P2A-lane-name`.
+#   A3-t1    — grepped for the test method name `eligibleLocationsSkuScopeTwoClasses`, which 2643
+#              invented for a phase it no longer ships. 2732's tests never used that name, so the row
+#              could only ever be red.
+#
+# The property all three were reaching for — "the endpoint 2643 consumes is correctly built" — is
+# 2732's to assert, and 2732 asserts it. 2643's accountability starts at the CONSUMER rows below.
+# Do not re-add these by copying an older revision of this script.
 if dd_endpoint_present; then
     run A3-map       "A3 — GET /eligibleLocations mapped"                         check_A3_endpoint_mapping
     run A3-scope     "A3 — carries a PutawayScope parameter"                      check_A3_scope_param
-    run A3-tx        "A3 — readOnly tenant transaction"                           check_A3_readonly_tenant_tx
     run A3-neg-advis "A3 — no advisory field / PICK_FACE reason (D1 reversed)"    check_A3_neg_no_advisory_class
-    run A3-lane      "A3 — tier-4 lane excluded via the NAME constant (D8)"       check_A3_excludes_tier4_lane
     run A3-neg-stor  "A3 — NOT backed by getStorageLocationsForPutAwayItemData"   check_A3_neg_not_backed_by_storage_query
-    run A3-t1        "A3 — controller test covers eligibleLocations"              check_A3_test_two_classes
     run A3-t2        "A3 — test proves FIX_ASSIGNED stays BLOCKED (P2.5 absolute)" check_A3_test_fix_assigned_stays_blocked
 else
     blocked A3-map      "A3 — GET /eligibleLocations mapped"                         "D-D not shipped — 2732 owns it (D12); A3 is the fallback"
     blocked A3-scope    "A3 — carries a PutawayScope parameter"                      "D-D not shipped — 2732 owns it (D12)"
-    blocked A3-tx       "A3 — readOnly tenant transaction"                           "D-D not shipped — 2732 owns it (D12)"
     blocked A3-neg-advis "A3 — no advisory field / PICK_FACE reason (D1 reversed)"   "D-D not shipped — 2732 owns it (D12)"
-    blocked A3-lane     "A3 — tier-4 lane excluded via the NAME constant (D8)"       "D-D not shipped — 2732 owns it (D12)"
     blocked A3-neg-stor "A3 — NOT backed by getStorageLocationsForPutAwayItemData"   "D-D not shipped — 2732 owns it (D12)"
-    blocked A3-t1       "A3 — controller test covers eligibleLocations"              "D-D not shipped — 2732 owns it (D12)"
     blocked A3-t2       "A3 — test proves FIX_ASSIGNED stays BLOCKED"                "D-D not shipped — 2732 owns it (D12)"
 fi
 # CONSUMER rows — 2643's OWN files. THESE are what 2643 is accountable for whoever
 # ships the producer. They need the dialog, so they follow B2's gate.
 if phase_2732_present && phase_2732_ui_present; then
     run A3-consume   "A3 — picker items come from /putawayConfig/eligibleLocations" check_A3_consumer_sources_from_endpoint
-    run A3-neg-pred  "A3 — dialog re-implements NO predicate client-side (D3)"      check_A3_neg_no_client_side_predicates
+    run B2-neg-pred  "B2 — dialog re-implements NO predicate client-side (D3; was mis-ID'd A3-neg-pred)"      check_A3_neg_no_client_side_predicates
 else
-    blocked A3-consume  "A3 — picker items come from /putawayConfig/eligibleLocations" "blocked on SBDEV-2732 Phase 1-API + Phase 2-UI"
-    blocked A3-neg-pred "A3 — dialog re-implements NO predicate client-side (D3)"      "blocked on SBDEV-2732 Phase 1-API + Phase 2-UI"
+    blocked A3-consume  "A3 — picker items come from /putawayConfig/eligibleLocations" "needs 2732 step 18a (eligibleLocations) + this plan's B2 dialog"
+    blocked B2-neg-pred "B2 — dialog re-implements NO predicate client-side (D3)"      "needs 2732 step 18a (eligibleLocations) + this plan's B2 dialog"
 fi
 # D3 is 2643's OWN decision and is assertable today: getLocationView() must not
 # be widened whether or not 2732 has landed.
@@ -1009,8 +1594,9 @@ run B1-pencil    "B1 — pencil added to the EXISTING actions column"          c
 run B1-slot      "B1 — uses fullDetails' #actions slot"                      check_B1_uses_fulldetails_actions_slot
 run B1-fd        "B1 — fullDetails.vue itself untouched"                     check_B1_fulldetails_untouched
 run B1-neg-corpse "B1 — commented pencil/trash/menu corpse deleted"          check_B1_neg_corpse_deleted
-run B1-perm      "B1 — isPutawayConfigAdmin computed exists"                 check_B1_permission_computed
-run B1-cfg       "B1 — consumes nuxt.config appAdminGroup (first ever read)" check_B1_consumes_app_admin_group
+run B1-perm      "B1 — gate is REACTIVE DATA, not a \$kc computed (r7)"       check_B1_permission_reactive_data
+run B1-cfg       "B1 — gate imports 2732's shared role helper (r7)"          check_B1_gate_uses_shared_role_helper
+run B1-neg-cfg   "B1 — no appAdminGroup / hasRealmRole / hasResourceRole (r7)" check_B1_neg_dead_gate_forms
 run B1-disabled  "B1 — gate applied as :disabled (D10)"                      check_B1_gate_is_disabled_not_vif
 run B1-neg-vif   "B1 — gate is NOT v-if (read-only users may view)"          check_B1_neg_gate_not_vif
 run B1-word      "B1 — shared putawayWording.js exists"                      check_B1_wording_module_exists
@@ -1023,28 +1609,55 @@ run B1-jest      "B1 — skuData.spec.js exists"                               c
 run B1-jest2     "B1 — spec asserts disabled-not-hidden"                     check_B1_jest_asserts_disabled_not_hidden
 echo
 
+echo "--- Phase A4 — the name search parameter (§3.5a, NEW r7: Q4 -> (ii)) ---"
+# ⚠ NO GUARD, DELIBERATELY. The first draft of this block wrapped these seven rows in
+# `if phase_selected 2 || phase_selected 1; then` — and `phase_selected` DOES NOT EXIST in this script
+# (it was borrowed from SBDEV-2732's). Bash returned 127, the `if` evaluated false, and ALL SEVEN ROWS
+# SILENTLY DISAPPEARED: the total stayed at 23 pass / 63 fail, so the run looked unchanged rather than
+# broken. `bash -n` passes an undefined function, and an audit that checks only `run` targets does not
+# look at guards. This is a NEW variant of the recorded "undefined fn reads as an honest FAIL" trap —
+# in a guard it is worse than a false FAIL, because the rows do not appear at all.
+# Every other phase block here is unguarded; these follow suit.
+run A4-ctl       "A4 — controller takes an optional String name"           check_A4_controller_name_param
+run A4-svc       "A4 — query service takes the name parameter"            check_A4_service_name_param
+run A4-inquery   "A4 — case-insensitive filter applied IN the query"      check_A4_filter_in_query
+run A4-split     "A4 — R11: the UNSEARCHED query is untouched (split, not parameterised)" check_A4_r11_query_split
+run A4-branch    "A4 — service BRANCHES on a blank term, no LIKE '%%'"    check_A4_service_branches_on_blank
+run A4-neg-native "A4 — JPQL not native SQL (H2 lane, cf 2732 P2A-h2)"    check_A4_neg_not_native
+run A4-t-empty   "A4 — empty-search identity is TESTED (tiers 2/3 safety)" check_A4_test_empty_search_identity
+# A4-neg-banner and A4-debounce moved to the B2 block — they inspect $V_DIALOG, which B2 creates. See
+# check_A4_debounced for why leaving them here was worse than a coverage gap.
+echo
+
 echo "--- Phase B2 — edit dialog and the write ---"
 if phase_2732_present && phase_2732_ui_present; then
     run B2-dialog    "B2 — editSkuPutawayDialog.vue exists"                      check_B2_dialog_exists
-    run B2-picker    "B2 — reuses 2732's LocationPicker (D6)"                     check_B2_dialog_uses_shared_picker
-    run B2-valid     "B2 — hand-rolled validated() + \$toast idiom"               check_B2_dialog_handrolled_validation
+    run B2-field     "B2 — REUSES 2732's defaultPutawayLocationField at SKU scope (r7)" check_B2_dialog_reuses_2732_field
+    run B2-neg-raw   "B2 — does NOT mount LocationPicker directly (r7)"          check_B2_neg_dialog_bypasses_wrapper
+    run B2-neg-dup   "B2 — no second copy of the preview gate (r7)"              check_B2_neg_no_duplicate_preview_gate
+    run B2-sku-write "B2 — wrapper's scope→writer map gains SKU (r7)"            check_B2_field_writer_handles_sku
+    run B2-neg-conf  "B2 — SKU write sends NO confirmIncompatibleSkus (r7)"      check_B2_neg_sku_write_sends_no_confirm
+    run B2-skip-d11  "B2 — SKU path skips D11's confirm (r7)"                    check_B2_sku_skips_d11_confirm
     run B2-neg-form  "B2 — no v-form/rules/Vuelidate"                            check_B2_neg_no_vform_rules
-    run B2-banner    "B2 — scope banner NAMES SBDEV-2821 (D1, §3.8.2a)"           check_B2_scope_banner_names_unblocking_ticket
-    run B2-banner2   "B2 — scope banner NAMES 2732 Q9 as the reason (§3.8.2a)"    check_B2_scope_banner_names_design_decision
+    run B2-banner    "B2 — banner says pick faces are ROUTED VIA PUTAWAY (r7)"   check_B2_banner_states_routed_via_putaway
+    run B2-banner2   "B2 — banner states the operational consequence (r7)"       check_B2_banner_states_consequence
+    run B2-neg-bann  "B2 — expired 'SBDEV-2821 / not yet selectable' framing gone (r7)" check_B2_neg_banner_expired_framing
     run B2-banner3   "B2 — banner counts COMPUTED, not hard-coded tenant numbers" check_B2_banner_count_not_hardcoded
     run B2-neg-advis "B2 — no per-row advisory / PICK_FACE state (D1 reversed)"   check_B2_neg_no_advisory_state
     run B2-clear     "B2 — Clear / Use default affordance present"                check_B2_clear_affordance
     run B2-endpoint  "B2 — store action targets PUT /putawayConfig/sku/"          check_B2_store_targets_putawayconfig
-    run B2-neg-leg   "B2 — legacy setPutAwayLocation NOT in the store"            check_B2_neg_no_legacy_endpoint
+    run B2-neg-leg   "B2 — legacy setPutAwayLocation NOT in either store"        check_B2_neg_no_legacy_endpoint
     run B2-neg-leg2  "B2 — legacy setPutAwayLocation NOT in the dialog"           check_B2_neg_no_legacy_in_dialog
     run B2-clearq    "B2 — Clear OMITS locationId entirely"                       check_B2_clear_omits_param
     run B2-neg-null  "B2 — never sends locationId=null in the query string"       check_B2_neg_no_null_in_querystring
     run B2-body      "B2 — surfaces response.data so 422s reach the operator"     check_B2_surfaces_response_body
     run B2-refetch   "B2 — re-dispatches getSkuDetail after a write"              check_B2_refetches_detail
     run B2-neg-page  "B2 — does NOT re-dispatch searchSkuData (keeps the page)"   check_B2_neg_does_not_repage_table
-    run B2-eff       "B2 — effective-destination read action present"             check_B2_effective_read_action
+    run B2-eff       "B2 — effective-destination read hits the itemData path (r7)" check_B2_effective_read_action
     run B2-neg-dv    "B2 — dialog not backed by /location/detailView (D3)"        check_B2_neg_not_detailview_backed
-    run B2-store-ok  "B2 — storageLocation store untouched"                       check_B2_storage_store_untouched
+    run B2-one-elig  "B2 — exactly ONE eligibleLocations reader, and it is 2732's (r7)" check_B2_single_eligible_reader
+    run A4-neg-banner "B2 — banner counts NOT taken from a search-narrowed page (A4's consumer)" check_A4_neg_banner_from_search
+    run A4-debounce  "B2 — the A4 search box is debounced"                        check_A4_debounced
     run B2-jest1     "B2 — editSkuPutawayDialog.spec.js exists"                   check_B2_jest_dialog_spec_exists
     run B2-jest2     "B2 — store spec exists"                                     check_B2_jest_store_spec_exists
     run B2-jest3     "B2 — store spec asserts the putawayConfig endpoint"         check_B2_jest_store_asserts_endpoint
@@ -1052,30 +1665,35 @@ if phase_2732_present && phase_2732_ui_present; then
 else
     for c in \
       "B2-dialog|editSkuPutawayDialog.vue exists" \
-      "B2-picker|reuses 2732's LocationPicker (D6)" \
-      "B2-valid|hand-rolled validated() + toast idiom" \
+      "B2-field|REUSES 2732's defaultPutawayLocationField at SKU scope (r7)" \
+      "B2-neg-raw|does NOT mount LocationPicker directly (r7)" \
+      "B2-neg-dup|no second copy of the preview gate (r7)" \
+      "B2-sku-write|wrapper's scope→writer map gains SKU (r7)" \
+      "B2-neg-conf|SKU write sends NO confirmIncompatibleSkus (r7)" \
+      "B2-skip-d11|SKU path skips D11's confirm (r7)" \
       "B2-neg-form|no v-form/rules/Vuelidate" \
-      "B2-banner|scope banner NAMES SBDEV-2821 (D1)" \
-      "B2-banner2|scope banner NAMES 2732 Q9 as the reason" \
+      "B2-banner|banner says pick faces are ROUTED VIA PUTAWAY (r7)" \
+      "B2-banner2|banner states the operational consequence (r7)" \
+      "B2-neg-bann|expired 'SBDEV-2821 / not yet selectable' framing gone (r7)" \
       "B2-banner3|banner counts COMPUTED, not hard-coded tenant numbers" \
       "B2-neg-advis|no per-row advisory / PICK_FACE state (D1 reversed)" \
       "B2-clear|Clear / Use default affordance present" \
       "B2-endpoint|store action targets PUT /putawayConfig/sku/" \
-      "B2-neg-leg|legacy setPutAwayLocation NOT in the store" \
+      "B2-neg-leg|legacy setPutAwayLocation NOT in either store" \
       "B2-neg-leg2|legacy setPutAwayLocation NOT in the dialog" \
       "B2-clearq|Clear OMITS locationId entirely" \
       "B2-neg-null|never sends locationId=null in the query string" \
       "B2-body|surfaces response.data so 422s reach the operator" \
       "B2-refetch|re-dispatches getSkuDetail after a write" \
       "B2-neg-page|does NOT re-dispatch searchSkuData" \
-      "B2-eff|effective-destination read action present" \
+      "B2-eff|effective-destination read hits the itemData path (r7)" \
       "B2-neg-dv|dialog not backed by /location/detailView (D3)" \
-      "B2-store-ok|storageLocation store untouched" \
+      "B2-one-elig|exactly ONE eligibleLocations reader, and it is 2732's (r7)" \
       "B2-jest1|editSkuPutawayDialog.spec.js exists" \
       "B2-jest2|store spec exists" \
       "B2-jest3|store spec asserts the putawayConfig endpoint" \
       "B2-jest4|store spec asserts the legacy GET is never called" ; do
-        blocked "${c%%|*}" "B2 — ${c#*|}" "blocked on SBDEV-2732 Phase 1-API + Phase 2-UI"
+        blocked "${c%%|*}" "B2 — ${c#*|}" "needs this plan's B2 (2732 Phase 2 is MERGED as of 2026-08-11)"
     done
 fi
 echo
@@ -1085,14 +1703,9 @@ run X-nomig      "X — 2643 ships ZERO migrations"                            c
 run X-notnull    "X — Itemdata.putawaylocationId untouched by 2643"          check_X_notnull_not_touched_by_2643
 run X-legacy     "X — legacy write endpoint still present (2732 Q5)"         check_X_legacy_endpoint_still_present
 run X-archunit   "X — archunit_store is clean (mvn test mutates it)"         check_X_archunit_store_clean
-# PREREQUISITE PROBE (plan §5.1 row 0e) — reports on SBDEV-2732, not on 2643. Skipped
-# while 2732 is absent; once its file lands, a FAIL means 2732 merged with the broken
-# constant and AC12 cannot be met by anyone until 2732/SBDEV-2863 repairs it.
-if phase_2732_present; then
-    run     X-2732-authz "X — PREREQ(2732/2863): 2732 did NOT merge with the broken IS_SB_ADMIN (0e)"  check_X_2732_not_merged_with_broken_constant
-else
-    blocked X-2732-authz "X — PREREQ(2732/2863): 2732 did NOT merge with the broken IS_SB_ADMIN (0e)"  "blocked on SBDEV-2732 Phase 1-API"
-fi
+# CROSS-CUTTING GUARD — runs today, never blocked. A FAIL means SBDEV-2863's repair
+# regressed, which silently 500s every admin-gated endpoint in BOTH tickets.
+run X-authz-constant "X — SBDEV-2863's IS_SB_ADMIN repair still in place (AC12)"  check_X_authz_constant_repaired
 echo
 
 # === Optional: targeted JUnit / Jest runs =====================================
@@ -1104,7 +1717,8 @@ echo
 #
 if [ "${RUN_TESTS:-0}" = "1" ]; then
     echo "--- Targeted test runs (RUN_TESTS=1) ---"
-    run A0-test  "A0 — CustomMethodSecurityExpressionRootUnitTest passes" mvn_test_passes CustomMethodSecurityExpressionRootUnitTest
+    # A0-test retired with phase A0 — CustomMethodSecurityExpressionRootUnitTest is
+    # SBDEV-2863's file now, green on develop, and not 2643's to gate on.
     run A1-test  "A1 — ItemdataServiceUnitTest passes"                    mvn_test_passes ItemdataServiceUnitTest
     if phase_2732_present; then
         run A2-test  "A2 — ItemDataControllerUnitTest passes"              mvn_test_passes ItemDataControllerUnitTest
@@ -1145,7 +1759,9 @@ fi
 echo "Result: $PASS pass, $FAIL fail, $SKIP skip"
 if [ "$SKIP" -gt 0 ]; then
     echo
-    echo "  ⚠ $SKIP check(s) SKIPPED — blocked on SBDEV-2732 (plan status: draft, nothing merged)."
+    echo "  ⚠ $SKIP check(s) SKIPPED — blocked on SBDEV-2732 PHASE 2 (web UI + step 18a),"
+    echo "    which is NOT STARTED. Phase 1-API merged 2026-08-11 (889298d), so anything blocked"
+    echo "    on Phase 1-API now FAILs as contract drift rather than skipping."
     echo "    A green run with SKIPs is NOT 'done'. The plan's §8.4 requires 0 fail AND 0 skip."
 fi
 

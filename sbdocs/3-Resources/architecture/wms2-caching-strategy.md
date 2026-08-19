@@ -109,9 +109,24 @@ All key expressions use the null-safe operator on `getCurrentTenant()`. If tenan
 | `SyspropService` | `@Cacheable` | `getSysvalue(String key)` | `<facilityCode>:<key>` | Cache-on-read |
 | `SystemPropertyController` | `@CacheEvict` | `updateValue(reqMap, principal)` | `<facilityCode>:<reqMap['key']>` | `POST /v3/systemProperty/updateValue` |
 
+| `PutawayConfigService` | `@CacheEvict` | `setWarehouseDestination(locationId)` · `auditAndEvictWarehouse(...)` | `<facilityCode>:DEFAULT_PUTAWAY_LOCATION` | SBDEV-2732 tier 3 write (typed + HAL). **PR #139 open, not merged** |
+
+⚠ **SBDEV-2732 shipped this key as a bare literal `'DEFAULT_PUTAWAY_LOCATION'`** with no
+`<facilityCode>:` prefix, so it matched nothing and evicted nothing — caught in review. It was harmless
+only because the resolver deliberately bypasses `SyspropService` (it reads the row with
+`findBySyskeyAndClientIdAndWorkstation`, per landmines A3/A4), so nothing cached that key. **The moment
+any reader goes through `SyspropService.getByKey` for it, both a stale read and a cross-tenant key
+collision go live.** The prefix is not decoration; it is the tenant isolation boundary described in §3.
+
 **Gap:** `SystemPropertyController.createSystemProperty` (`POST /v3/systemProperty/create`) delegates to `SyspropService.createSystemProperty` which carries `@CacheEvict`. The eviction fires correctly on create. However, if a sysprop is created via a path that bypasses `SyspropService.createSystemProperty` (e.g., direct DB insert or Flyway migration), no cache eviction occurs.
 
 ### `clients` cache
+
+SBDEV-2732 (PR #139, open) adds evictions on both `clients` entries when a merchant's default putaway
+destination changes — `<facilityCode>:<clNr>` **and** `<facilityCode>:SYSTEM`. Its first cut used
+`<facilityCode>:id:<id>`, a key shape copied from the `itemdata` cache that `ClientService` does not
+have, so it matched nothing. Reviewer-caught. The lesson generalises: **read the `@Cacheable` you are
+evicting, do not pattern-match a neighbouring cache.**
 
 | Location | Annotation | Method | Key | Trigger |
 |----------|-----------|--------|-----|---------|

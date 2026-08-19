@@ -6,7 +6,7 @@ version: v2
 scope: state-machines
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-05-08
+updated: 2026-08-14
 last_verified: 2026-05-08
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
@@ -51,7 +51,7 @@ Defined at `net/aim_ai/wms/service/WmsConstants.java:14-179`. Numeric values are
 | Constant | Value | Meaning |
 |---|---|---|
 | `RAW` | 0 | Initial / unprocessed |
-| `CLIENT_HAS_NO_SECTION` | 45 | Blocked — tenant has no section configured |
+| `CLIENT_HAS_NO_SECTION` | 45 | Blocked — the **order's client** (`co.client_id`) has no Section configured, so no `Pickingorder` can be created. **Writer:** `OrderReleaseJob.processOrderGroup` → `ReleaseOrderJobService.markClientHasNoSection` (SBDEV-2961, 2026-08-14). ⚠ Before that ticket this state had **no writer at all** and was structurally unreachable, so any doc, diagram or code branch predating it that treats 45 as a live state was describing an intent, not behaviour |
 | `RAW_ON_HOLD` | 50 | Temp hold during allocation |
 | `RAW_ON_HOLD_NOT_ENOUGH_STOCK_ON_LOCATION` | 55 | Hold sub-reason |
 | `RAW_ON_HOLD_NO_FIXED_ASSIGNED_LOCATION` | 56 | Hold sub-reason |
@@ -104,7 +104,7 @@ Not every state transitions to every other. The numeric values encode this DAG:
                 │        RAW_ON_HOLD(50) ──┬─► 55/56/57/58        │  release
                 │          ▲               │                      │  job
                 ▼          └───────────────┘                      │
-            CLIENT_HAS_NO_SECTION(45) ◄──── stuck                 │
+            CLIENT_HAS_NO_SECTION(45) ◄──── no Section on client  │
                 │                                                 │
                 ▼                                                 │
             ASSIGNED(200) ──► PROCESSABLE(300) ──► RESERVED(400) ─┤
@@ -433,5 +433,7 @@ Outside these paths, there is no safe way to "fix" a stuck state — direct SQL 
 | 2026-08-03 | §4.8 `Adviceposition` write sites: added `ReturnAdviceAutoReceiveService.markFinished` (SBDEV-2778) + the RETURN-reaches-FINISHED-without-a-dock-scan note | Only §4.7/§4.8 re-verified; the ~160-site inventory elsewhere was **not** re-counted, so `last_verified` stays at 2026-05-08 | Code read (SBDEV-2778 diff) |
 
 | 2026-08-06 | **§5 cross-entity cascade anchors + §4.7 reopen endpoint.** Cadence sweep prompted by SBDEV-2731 (which touches none of this surface — its diff contains zero `setState`/`AdviceState`). **Most §5 anchors were wrong**, including three where the documented *method name* no longer resolves at all. | Corrected against `origin/develop` (`169065c`): §5.1 `cancelOrder` 300→**655** (child writes :724/:729/:754; `handleRapidPickingForCancelledOrder` no longer exists — now inline, and the old :645 cite now lands on unrelated club-run code); §5.2 `pack()`→**`packageOrder()` :506**, guard :382→**:415**; §5.3 `palletizeOrders()`→**`palletise()` :103 / `palletiseAndTruckLoad()` :235** — the code uses the **British spelling**, which is why the old name read as deleted; §4.7 `reopen` :648→**:732**. §5.4 `finishClubRun` **exists in neither v1 nor v2** and is flagged UNRESOLVED in place. **Anchors only — the ~160-site write inventory and every behavioural claim were NOT re-derived, so `last_verified` stays at 2026-05-08.** | Code read (grep-based, SBDEV-2731 doc sweep) |
+
+| 2026-08-14 | **`CLIENT_HAS_NO_SECTION (45)` acquired its first writer** (SBDEV-2961, branch `feature/SBDEV-2961-order-release-silent-section-exclusion`). Corrected §2's table row and the §3 diagram, both of which described 45 as a live "stuck" state. It was not: `git log -S CLIENT_HAS_NO_SECTION` returns only the initial check-in (constant, **no writer**) and SBDEV-1656 `d6f28cbf`, which *added two reads* of a structurally unreachable state — so that half of SBDEV-1656 has been dead code since 2025-10-28 and is reachable for the first time now. New writer: `OrderReleaseJob.processOrderGroup` → `ReleaseOrderJobService.markClientHasNoSection` (a `@Modifying` CAS in a `REQUIRES_NEW` tx; the allow-list `state IN (RAW, FUTURE_PICKING_DATE)` means 45 can overwrite only those two, deliberately **not** hold states 50/55-58). Also note `OrderReleaseJob:188`'s pre-round gate now excludes 45. **Scoped touch only** — §2 row, §3 diagram and this entry were verified against the branch; the ~160-site write inventory and every other behavioural claim were **NOT** re-derived, so `last_verified` deliberately stays at 2026-05-08. | §2 state row + §3 diagram corrected against the SBDEV-2961 branch | Code read + `git log -S` archaeology |
 
 **Re-verify every 60 days** — state surface drifts quickly. Next due: 2026-07-07. 🔴 **30 days overdue as of 2026-08-06, and the 2026-08-06 anchor sweep found §5 substantially rotted** — three of five cascade methods had names that no longer resolve. Treat a full re-derivation of §5 and the ~160-site inventory as owed work, not optional; the two scoped touches since 2026-05-08 do not substitute for it.

@@ -450,7 +450,9 @@ check_F_migration_uses_sequence() {
 }
 
 check_F_no_duplicate_version() {
-    # Exactly one V2.2.11 migration — a second one silently breaks Flyway.
+    # Exactly one V2.2.10 migration — a second one silently breaks Flyway.
+    # (Label corrected 2026-08-10: this said V2.2.11, left over from this plan's own version move
+    # documented in its §824. The check below always targeted V2.2.10; only the comment was wrong.)
     local count
     count=$(ls "$MIGDIR" 2>/dev/null | grep -c '^V2\.2\.10__' || echo 0)
     [ "$count" -eq 1 ]
@@ -542,7 +544,7 @@ run E1  "guard compares assigned location id"             check_E_guard_compares
 echo
 
 echo "Fix F — Flyway seed migration"
-run F1  "V2.2.11 migration file exists"                   check_F_migration_exists
+run F1  "V2.2.10 migration file exists"                   check_F_migration_exists
 run F2  "migration seeds the sysprop key"                 check_F_migration_seeds_key
 run F3  "ships default-off (flowbin only)"                check_F_migration_default_flowbin_only
 run F4  "migration is idempotent"                         check_F_migration_idempotent
