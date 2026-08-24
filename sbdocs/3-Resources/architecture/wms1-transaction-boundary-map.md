@@ -73,7 +73,37 @@ There is no `OptimisticLockRetry` utility. `@Version` is present on 45 entity fi
 
 | Fact | Value | Source |
 |---|---|---|
-| OSIV | **enabled** (Spring Boot 2.x default — never explicitly disabled) | `application.properties` (no `spring.jpa.open-in-view=false`) |
+| OSIV | **not pinned in this repo — see the correction below** | `application.properties` (no `spring.jpa.open-in-view` either way) |
+
+> **CORRECTED 2026-08-20 (SBDEV-3003).** This doc asserts in ~8 places that OSIV is *enabled* in v1,
+> inferred from the absence of `spring.jpa.open-in-view=false` in `application.properties`. The
+> inference is sound about the repo and **wrong about the deployed environments**: the product owner
+> confirms OSIV is **OFF on UAT and Production**, while **DEV may not be** (i.e. DEV can be running
+> Boot's default, on). It is set outside the repo (environment / external Spring config), never in a
+> tracked file, so the guarantee is per-environment and invisible from the source tree.
+> Meanwhile `.claude/skills/wms-bugfix-plan/SKILL.md` states OSIV is "disabled in both
+> versions (`spring.jpa.open-in-view=false`)", which is true of v2
+> (`v2/wms2-api/src/main/resources/application.properties:55`) but is **not** pinned for v1. Two
+> repo documents therefore disagreed, and neither matched reality.
+>
+> **Accurate statement:** v1 does not pin OSIV in-repo. **UAT and Production run with it off. DEV
+> may not** — nor does a bare local or CI JVM started without the external setting, both of which
+> get Spring Boot 2.x's default, **on**. So v1 persistence semantics differ by environment:
+>
+> | | OSIV off (production) | OSIV on (bare local run) |
+> |---|---|---|
+> | Caller entity passed into a `@Transactional` service | **detached** — a re-fetch is a real DB read | **managed** — a re-fetch may be an L1 hit returning the same object |
+> | `findById` / JPQL `findByIdForUpdate` inside the tx | fresh row, fresh version | possibly the cached instance, unrefreshed |
+> | A read-modify-write bug's failure mode | silent lost update (stale value, fresh version) | `OptimisticLockException`, then a retry that can launder the stale value |
+>
+> **Consequence for any v1 concurrency work:** do not reason about detached-vs-managed from this doc
+> alone, and do not treat a local reproduction as faithful to production without confirming the
+> setting on the box you reproduced on. On SBDEV-3003 the DEV reproduction showed an orphaned
+> `nextval('seqentities')` label (`UL317407`) between two committed transactions — the signature of a
+> rolled-back attempt, i.e. the OSIV-**on** column — while production runs the left-hand column.
+> The defect existed under both, by different routes. Pinning `spring.jpa.open-in-view=false` in
+> `v1/wms-api/src/main/resources/application.properties` would remove this whole class of ambiguity;
+> it is not done as of 2026-08-20.
 | Transaction manager | Single `HibernateTransactionManager` / `JpaTransactionManager` (Spring Boot auto-config) | Spring Boot autoconfiguration |
 | Multi-tenancy | None — single DB per deployment, tenant identified by `tenant_name` + `facility_code` HTTP headers (routing is application-logic, not datasource-routing) | `AbstractRestController`, `SecurityContextUtils` |
 | Sequence number retry | Inline 100-attempt loop in `BasicService.getNextSequenceNumber()` via `SequenceTransactionService.getNextSequenceNumber()` (`REQUIRES_NEW`) | `BasicService.java` |
@@ -264,7 +294,31 @@ v1 has 45 `@Version` fields spread across individual entity classes (no shared b
 Notable `@Version` entities:
 `Advice`, `Unitload`, `FixLocationAssignment`, `Message`, `Client`, `LocationArea`, `LocationRack`, `Boxtype`, `MywmsGroup`, `Queryrepository` (plus ~35 others).
 
-Notably **missing** `@Version` (no shared base, must check each entity manually): `Stockunit`, `Pickingorder`, `Customerorder`, `CustomerorderBatch`, `Billoflading`, `Replenishorder` — these high-contention entities rely on pessimistic locks or application-level coordination, not optimistic versioning.
+> **CORRECTED 2026-08-20 (SBDEV-3003).** This paragraph previously claimed `Stockunit`,
+> `Pickingorder`, `Customerorder`, `CustomerorderBatch`, `Billoflading` and `Replenishorder` were
+> "notably **missing** `@Version`" and therefore relied on pessimistic locks instead of optimistic
+> versioning. **All six have `@Version`** — verified by grep over
+> `v1/wms-api/src/main/java/net/aim_ai/wms/model/`: `Stockunit.java:43-44`, plus `Unitload`,
+> `Pickingorder`, `Customerorder`, `CustomerorderBatch`, `Billoflading`, `Replenishorder`,
+> `Location` and `Itemdata`. 45 of 67 model classes declare one.
+>
+> The error was load-bearing, not cosmetic: it is the sentence that pushes a reader toward adding a
+> pessimistic lock to a high-contention path, on the false premise that optimistic locking is not
+> available there. On SBDEV-3003 it nearly produced exactly that — a `findByIdForUpdate` added
+> across 23 call sites of `StockunitBusinessService.transferStockToUnitLoad` (including two batch
+> loops) when the actual defect was that the *value* and the *version* were read from different
+> snapshots. `@Version` was present and working; it was being bypassed, not missing.
+
+High-contention entities **do** carry `@Version`. Where they additionally use pessimistic locks
+(§8.2) it is to serialize check-then-act sequences, not to substitute for optimistic versioning.
+
+**Caveat that makes `@Version` easy to defeat.** A version check only protects the row state you
+overwrite — never the values you computed. Re-fetching an entity to obtain a current version and
+then assigning it an absolute value derived from an *earlier* snapshot produces an
+`UPDATE … SET amount=?, version=N+1 WHERE id=? AND version=N` that matches and commits cleanly.
+The lost update is silent and the audit trail still reconciles. See
+`StockunitBusinessService.java:269-270` and `1-Projects/wms1/plan/SBDEV-3003-move-stock-lost-update-inventory-inflation.md`.
+When fixing a read-modify-write, the operand and the persisted instance must be the same object.
 
 ### 8.2 Pessimistic — `@Lock(PESSIMISTIC_WRITE)` repository methods
 

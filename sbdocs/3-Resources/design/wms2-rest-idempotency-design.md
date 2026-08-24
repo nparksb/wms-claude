@@ -2,9 +2,9 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-05-20
-verified_by: Claude (analysis — IdempotencyFilter.java + RestIdempotencyService.java)
-tags: [wms2, idempotency, rest, oms-integration, deduplication, sbdev-2222]
+last_verified: 2026-08-21
+verified_by: Claude (analysis — IdempotencyFilter.java + RestIdempotencyService.java; re-verified against SBDEV-3003 Slice 2)
+tags: [wms2, idempotency, rest, oms-integration, deduplication, sbdev-2222, sbdev-3003]
 related:
   - ../architecture/wms2-oms-integration-map.md
   - ../architecture/wms2-end-to-end-request-journey.md
@@ -13,7 +13,8 @@ related:
 
 ## TL;DR
 - `IdempotencyFilter` guards all `POST`/`PUT` `/rest/**` endpoints against OMS duplicate delivery (OMS retries on network timeout).
-- Key is **auto-derived** from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` — no header coordination required. An explicit `Idempotency-Key` header overrides the auto-key (back-compat for legacy OMS callers).
+- **SBDEV-3003 Slice 2** additionally enrols a **one-path allow-list under `/v3`** — `POST /v3/stockUnit/transferStock` (mobile Move Stock) — under **client-nonce-only** rules. The allow-list is exact-match and never a `/v3` prefix: `AdminController` is mapped at `/v3` with 43 subclasses, so a prefix would silently enrol ~215 non-GET endpoints (user and sysprop writes included) that no mapping grep reveals.
+- Key is **auto-derived** from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` — no header coordination required. An explicit `Idempotency-Key` header overrides the auto-key (back-compat for legacy OMS callers). **Auto-derive is DISABLED on the `/v3` allow-list**: a deliberate repeat Move Stock sends a byte-identical body, so a content-derived key would silently replay — and therefore drop — the real second move for the 7-day retention window. A caller sending no nonce there falls through **undeduped** (fail open), keeping older handheld builds working.
 - A true duplicate (same method + path + body) gets its **cached 2xx response replayed** — the handler never runs a second time.
 - Controlled entirely by `app.idempotency.enforce=true/false`. When `false`, the filter is **completely bypassed** — every request reaches the handler with no dedup.
 - Observable via `rest_idempotency` table (tenant DB) + `RestIdempotencyCleanupJob` (7-day retention).
@@ -65,10 +66,20 @@ When `enforce=false`:
 ### Requests excluded even with enforce=true
 
 The filter skips itself (via `shouldNotFilter()`) for:
-- All `GET` requests
-- Any URI not starting with `/rest/`
+- All `GET` requests — including on the `/v3` allow-list
+- Any URI not starting with `/rest/` **and not on the `/v3` allow-list** (SBDEV-3003 Slice 2: `V3_ALLOW_LIST`, currently the single entry `/v3/stockUnit/transferStock`)
 - `/rest/stockcount/**`
 - `/rest/transactionreport/**`
+
+### `/v3` allow-list — three rules that do NOT apply to `/rest/**` (SBDEV-3003 Slice 2)
+
+| Rule | Why `/rest/**` differs |
+|---|---|
+| **Auth is required in code**, independent of `app.idempotency.require-auth` | `/rest/**` is `permitAll` and OMS may not send a JWT, so `require-auth=false` is benign there. `/v3/**` is `hasAnyAuthority("wms_user")`, but this filter runs *before* `AuthorizationFilter`, so without the in-code gate an anonymous POST reaches `tryClaim`; with no tenant header that write routes to the **landlord** DB, where `rest_idempotency` does not exist → `42P01` → **500** instead of a clean 401 |
+| **Bridge mode is suppressed per request** (`tryClaim(…, allowBridgeMode=false)`) | Bridge mode matches on `(requestHash, method, path)` and *ignores the key*, so a fresh unique nonce would still REPLAY off an unrelated row — re-introducing the silent drop the nonce exists to prevent. Suppression is code-level, not a reliance on `bridge-mode=false` |
+| **A 2xx carrying an `errors` key is not cached** | `StockUnitController` answers business failures with HTTP **200** plus an `errors` body, and `persistResponse` drops only non-2xx. Caching that would replay the failure forever after the operator's blocker cleared, and a corrected input would then 409 |
+
+The client half (nonce minting, and discriminating `idempotency-in-flight` from `idempotency-key-conflict`) lives in `wms2-mobile-ui` `store/moveStock.js`.
 
 ### Request processing pipeline
 

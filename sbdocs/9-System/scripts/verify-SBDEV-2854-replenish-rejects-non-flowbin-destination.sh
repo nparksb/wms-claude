@@ -76,6 +76,7 @@ file_contains_n_times() {
 # The -f guard matters: `perl -0777 -ne` on a nonexistent file never enters the
 # implicit loop and therefore exits 0, which would report a false PASS.
 file_contains_ml() {
+    [ -f "$2" ] || return 1
     local pattern=$1 file=$2
     [ -f "$file" ] || return 1
     perl -0777 -ne "exit 1 unless /$pattern/s" "$file"
@@ -84,6 +85,7 @@ file_contains_ml() {
 # Negation of the above, with the same -f guard. Kept as its own helper so the
 # polarity is stated once instead of re-derived at each call-site.
 file_not_contains_ml() {
+    [ -f "$2" ] || return 1
     local pattern=$1 file=$2
     [ -f "$file" ] || return 1
     ! perl -0777 -ne "exit 1 unless /$pattern/s" "$file"
@@ -110,6 +112,7 @@ code_not_contains() {
 
 # Multi-line negative check against code only.
 code_not_contains_ml() {
+    [ -f "$2" ] || return 1
     local pattern=$1 file=$2
     [ -f "$file" ] || return 1
     ! code_only "$file" | perl -0777 -ne "exit 1 unless /$pattern/s"

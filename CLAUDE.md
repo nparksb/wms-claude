@@ -65,12 +65,11 @@ Custom Claude Code skills used by this repo live at `owl/.claude/skills/<skill-n
 
 | Skill | Purpose |
 |-------|---------|
+| `wms-triage` | **Run this first for any WMS task, however small.** Four-question triage probe (already fixed? reproduces? real cause? one line?) → a tier verdict T0–T3. Single source of truth for the tier router, the five-item floor, the ticket-filing policy and verify-row hygiene — every other WMS skill defers here and none of them restate those rules |
 | `wms-bugfix-plan` | Produce a deeply-grounded bug-fix plan into `sbdocs/1-Projects/wms{1\|2}/plan/`, then chain into `wms-tdd-gate` |
 | `wms-feature-plan` | Produce a feature/refactor plan into `sbdocs/1-Projects/wms{1\|2}/plan/`, then chain into `wms-tdd-gate` |
 | `wms-tdd-gate` | Create the per-ticket worktree, write failing tests from a reviewed plan's acceptance criteria, confirm correct failures, pause for approval before implementation. Runs automatically as the last phase of the two plan skills; also runnable standalone |
 | `wms-plan-executor` | Execute a reviewed plan in a per-ticket worktree off fresh `origin/develop`: ralph-loop to green, code review + fix High/Medium, verify-docs, commit, PR into `develop`, update plan doc + ClickUp to `pr submitted`. Stops at PR — does not merge, deploy, or archive |
-
-**Implementation worktrees:** `wms-tdd-gate` and `wms-plan-executor` never write code into the main sub-repo checkouts. Both work in `.claude/worktrees/<repo-dir-name>/<TICKET>` (git-ignored), branched off freshly-fetched `origin/develop`, one per repo per ticket — so `v2/wms2-api` and friends stay on whatever branch you left them on. Verify scripts must be run with `PROJECT_ROOT` pointed at a symlink shadow root (recipe in `wms-plan-executor`), otherwise they grade the main checkout instead of the work.
 | `wms-investigation-report` | Produce an evidence-based investigation report into `sbdocs/3-Resources/reports/` |
 | `wms-architecture-doc` | Produce a system-level architecture doc into `sbdocs/3-Resources/architecture/` |
 | `wms-design-doc` | Produce a module-level design doc into `sbdocs/3-Resources/design/` |
@@ -80,6 +79,27 @@ Custom Claude Code skills used by this repo live at `owl/.claude/skills/<skill-n
 | `refresh-moc` | Audit folder-level READMEs (MOCs) against the filesystem and report drift |
 | `verify-docs` | Audit `sbdocs/` for drift against the code |
 | `broken-links` | Scan `sbdocs/` for broken cross-references |
+
+**Effort tiers — run `wms-triage` FIRST for any WMS task, before choosing a skill and including tasks where no skill gets invoked at all.** The full plan→consensus→gate→execute path is the **T3** path and it is expensive: on SBDEV-3011 it produced a 1142-line plan, a 483-line verify script and 10 subagent passes for under 100 lines of real logic. The router routes on **execution risk, not ClickUp priority** (a different axis — business urgency). Reproduced here so the tier is decidable before any skill loads; `wms-triage` is authoritative:
+
+| Tier | Shape | Plan artifact | Review lanes | Budget |
+|---|---|---|---|---|
+| **T0** | one-liner, mechanical | none — a 2-line note on the ticket | 1 | 15 min |
+| **T1** | one file, fix obvious from the symptom, reversible | 3 bullets on the ticket | 1 | ~1 hr |
+| **T2** | multi-file, or a contract / error-shape change, still predictable | bullets on the ticket; a **document** needs Nam's explicit yes | 2 | ~½ day |
+| **T3** | authz · data integrity · Flyway migration · multi-repo · irreversible · root cause unknown | full doc | 4 | open-ended |
+
+Rows this summary drops — read `wms-triage` for them, they change what you actually do: **DB verification is required at every tier**; T0/T1 get no pre-draft questions, no pre-investigation agent, no ralplan, **no verify script**, and write the failing test inline instead of invoking `wms-tdd-gate`; T2 adds one `architect` consult and runs the gate but still gets **no verify script** (its assertions belong in JUnit/Jest); only T3 gets ralplan (one round) and an opt-in ≤15-row script.
+
+Features skew one tier higher than a bug fix of the same size. When in doubt go one tier **down** — over-tiering is the failure mode the router exists to fix, and under-tiering self-corrects via the three mid-flight escalation triggers, any one of which bumps the tier immediately: **(1)** the DB query contradicts the ticket, **(2)** the fix needs a repository/service method or projection you had not anticipated, **(3)** a review finding disputes the design rather than the code.
+
+**The floor never scales** — at every tier including T0: one DB query confirming the symptom · one failing test first, failing for the right reason · **mutation-check every new assertion** (break what it protects, confirm red) · one independent review, never self-approve · full suite compared against the known baseline. Those five are ~20 minutes and are where essentially every real defect in this repo has been found.
+
+**Ticket policy, row hygiene, and the triage probe itself live in `wms-triage/SKILL.md` only.** They used to be duplicated here and in `wms-bugfix-plan`, and the two copies contradicted each other on whether a finding belongs in a plan or a ticket. One-line version: **one ticket per fix visit, search-then-widen before filing, cap of one new ticket per fix, and Nam confirms it** — but read the skill, do not work from this summary.
+
+**Knowing a plan's actual state — run `sbdocs/9-System/scripts/plan-state.sh <TICKET>` (added 2026-08-20).** Do not read state out of a plan's `status:` frontmatter: it is hand-written prose, nothing validates it, and on SBDEV-2968 it claimed "implementation NOT started, working trees EMPTY" while the worktrees held 46 dirty paths carrying the finished implementation. The probe derives state instead — worktree branch/HEAD/commits-ahead/dirty-count/base-staleness, the verify script on both roots with the authoritative one named, open prerequisites parsed from §5.1, and the list of things no probe can answer. `--fetch` for live base staleness, `--tests` to run the suites. Two traps it encodes, both of which produce plausible walls of honest-looking reds: **verify scripts do not share a `PROJECT_ROOT` convention** (37 of 44 want the sub-repo root like `v2/wms2-api`, 7 want the monorepo root — pass the wrong shape and every path assertion fails), and **rows that shell out to `mvn`/`yarn` red spuriously when the toolchain is off PATH**, since bash's 127 records as an ordinary FAIL.
+
+**Implementation worktrees:** `wms-tdd-gate` and `wms-plan-executor` never write code into the main sub-repo checkouts. Both work in `.claude/worktrees/<repo-dir-name>/<TICKET>` (git-ignored), branched off freshly-fetched `origin/develop`, one per repo per ticket — so `v2/wms2-api` and friends stay on whatever branch you left them on. Verify scripts must be run with `PROJECT_ROOT` pointed at a symlink shadow root (recipe in `wms-plan-executor`), otherwise they grade the main checkout instead of the work.
 
 **Plan filename convention** (codified in the plan-generating skills above):
 - Untracked plans: `YYMMDD-kebab-description.md` (e.g., `260424-runclubline-transaction-boundary-hardening.md`).
@@ -136,9 +156,9 @@ All projects use **Keycloak** (OpenID Connect / OAuth2) for authentication:
 
 All backends implement **database-level multi-tenancy**:
 - **v1/oms**: Each client gets a separate MySQL schema with 3 adapters (master, replica, reporting-UTC)
-- **v1/wms-api**: HTTP headers `tenant_name` + `facility_code` → dynamic datasource routing
+- **v1/wms-api**: **no in-app tenant routing** — one deployment per warehouse, bound to a single static `spring.datasource.url` (`src/main/resources/application.properties:24`). There is no `TenantFilter`, no `AbstractRoutingDataSource` and no tenant header anywhere in `src/main` (verified 2026-08-20). Where you see `facilityCode` in v1 controllers it is a **business** field in the request body (e.g. a BOL destination facility), not tenant context. Isolation comes from deploying a separate instance per warehouse DB.
 - **v2/oms-laravel-api**: Spatie Laravel Multitenancy (database-per-tenant: tenant, landlord, reporting, MongoDB)
-- **v2/wms2-api**: HTTP headers `tenant_name` + `facility_code` → 4-char routing key → dynamic datasource
+- **v2/wms2-api**: HTTP headers **`X-Tenant-ID`** (tenant) + **`facility_code`** (warehouse) → routing key → dynamic datasource. ⚠️ **The tenant header is `X-Tenant-ID`, NOT `tenant_name`** — see `landlord/config/TenantFilter.java:23`, and both v2 UIs send it (`wms2-{web,mobile}-ui/plugins/axios.js`). `tenant_name` appears only as a `@RequestHeader` on `TenantHealthController:30`, so the two conventions coexist and only `X-Tenant-ID` routes. **A missing/misspelled tenant header does not error** — `TenantFilter` sets the context to `null`, `MultiTenantJwtDecoder` falls back to the default `rest.security.issuer-uri` decoder, and you get `401 invalid_token "no matching key(s) found"`, which reads as a Keycloak misconfiguration rather than a malformed request. The routing key is `first4(tenantName) + "-" + facilityCode` (`TenantKeyBuilder`), e.g. `localhost` + `develop` → `loca-develop` — **not** "2 chars tenant + 2 chars warehouse".
 
 ## Quick Reference — Build & Run
 

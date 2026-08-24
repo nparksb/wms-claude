@@ -4,7 +4,7 @@ ticket: ""
 ticket_url: ""
 type: migration
 priority: high
-status: draft
+status: "RUNBOOK 2026-08-20 — all four CODE phases are merged (fba957d8 / wms2-api PR #47): JVM+Hibernate pinned to UTC (StartApplication.java:61, application.properties:115), TimezoneService present, V1.2.01-05 authored, both UIs code-complete. What remains is an OPS runbook (schedule the per-tenant maintenance window; first confirm via the landlord that no two ACTIVE tenants share a facility_code) plus a handful of Phase 5 cleanups. Moved out of 1-Projects during the backlog triage because it was being counted as an unimplemented plan for 2528 lines of mostly-done work. ONE Phase 5 item was extracted and fixed separately: the cross-tenant cache-key leak recorded here as MINOR-4 turned out to span 23 annotations and 5 caches, not just SyspropService."
 project: [wms2-api, wms2-web-ui, wms2-mobile-ui]
 version: v2
 requester: "nam.park@siteboss.net"

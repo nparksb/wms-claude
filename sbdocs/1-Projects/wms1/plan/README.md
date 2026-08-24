@@ -4,7 +4,7 @@ type: index
 status: active
 version: v1
 scope: wms1-planning
-updated: 2026-07-15
+updated: 2026-08-20
 tags: [moc, index, wms1]
 ---
 

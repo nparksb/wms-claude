@@ -4,6 +4,13 @@ Skills in this folder are project-scoped helpers for the daily WMS workflow (bug
 
 ## Skills
 
+### `wms-triage`
+**Runs first, for every WMS task.** Four-question triage probe (already fixed on `origin/develop`? does it reproduce? is the reported cause the real cause? is it one line?) then a tier verdict T0–T3, routed on execution risk rather than ClickUp priority.
+- **Trigger:** any new WMS ticket, symptom, feature request, port, or investigation — including ones that look trivial
+- **Output:** a five-line triage block as a ticket comment. Never a file
+- **Also the single source of truth for:** the tier router and its escalation triggers, the five-item floor that never scales, the ticket-filing policy, and verify-script row hygiene. Every skill below defers here. Where one restates a rule (the executor's per-tier phase table, the feature skill's tier modifiers) it must agree with `wms-triage`, which is authoritative — fix the rule there first, then reconcile the restatement
+- **NOT for:** doing the work. It routes and stops; at T0/T1 it hands off to the floor and you implement inline with no plan document
+
 ### `wms-bugfix-plan`
 Produces a bug-fix plan from an error, stack trace, HTTP 500, or SBDEV ticket.
 - **Trigger words:** stack trace, error log, `SBDEV-####`, StaleObjectStateException, optimistic lock, NullPointerException, "stuck", "cannot scan", workflow breakage names (putaway / picking / replenish / receiving / cycle count / palletize / truck loading / BOL / move stock)

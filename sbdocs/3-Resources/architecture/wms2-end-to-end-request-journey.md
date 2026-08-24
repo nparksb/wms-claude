@@ -7,7 +7,7 @@ scope: cross-cutting
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-07-03
-last_verified: 2026-07-03
+last_verified: 2026-08-21
 verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui; §3.1/§3.2 updated for SBDEV-2390 (check-sso + kc-redirect-guard loop-breaker); §4.2 re-confirmed against 260610 Phase B (PR #41)
 related:
   - ./wms2-tenant-routing-datasource-topology.md
@@ -198,15 +198,16 @@ Public endpoints (prefix `/api/public/`) are exempt: `TenantContext` is set to `
 
 Resolves the tenant-specific Keycloak realm via `TenantAuthConfigCache` (populated by `TenantConfigLoader.scheduledRefresh`). Caches per-tenant `JwtDecoder` instances in a bounded Caffeine cache (`expireAfterWrite(24h)`, `maximumSize(200)` — GAP F fix, 260610 Phase B) via `jwtDecoders.get(tenantKey, ...)` to avoid rebuilding JWK sets per request; landlord auth-config changes propagate within the TTL.
 
-### 4.2.1 `IdempotencyFilter` — REST write deduplication (SBDEV-2222)
+### 4.2.1 `IdempotencyFilter` — REST write deduplication (SBDEV-2222, extended by SBDEV-3003)
 
-Wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so it runs **after** the JWT is validated and `SecurityContextHolder` is populated.
+Wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so it runs **after** the JWT is validated and `SecurityContextHolder` is populated. ⚠ It does **not** run after authorization: `AuthorizationFilter` is last in the chain, so this filter executes **before** the `hasAnyAuthority("wms_user")` check on `/v3/**`. That ordering is why the `/v3` allow-list carries its own in-code auth gate (below).
 
-- Applies only to non-GET `/rest/**` requests (skips `/rest/stockcount/**` and `/rest/transactionreport/**`).
-- Rejects anonymous callers (defence-in-depth against filter-order regression).
+- Applies to non-GET `/rest/**` requests (skips `/rest/stockcount/**` and `/rest/transactionreport/**`), **plus an exact-match `/v3` allow-list** — currently the single entry `POST /v3/stockUnit/transferStock` (SBDEV-3003 Slice 2, mobile Move Stock). Exact match, never a `/v3` prefix: `AdminController` is mapped at `/v3` with 43 subclasses, so a prefix would enrol ~215 non-GET endpoints invisible to a mapping grep.
+- Rejects anonymous callers (defence-in-depth against filter-order regression). On `/rest/**` this gate is skipped when `app.idempotency.require-auth=false` (the shipped default, because `/rest/**` is `permitAll` and OMS may not send a JWT); on the `/v3` allow-list it is **unconditional in code**, since without it an anonymous POST routes to the landlord DB (no `rest_idempotency` there) and yields `42P01` → 500 instead of 401.
 - Skips dedup for oversized bodies (> `app.idempotency.max-body-bytes`, default 5 MB) — DoS guard.
-- **Auto-derives idempotency key** from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` when no `Idempotency-Key` header is present (260520). An explicit header overrides the auto-derived key (back-compat for OMS callers).
+- **Auto-derives idempotency key** from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` when no `Idempotency-Key` header is present (260520). An explicit header overrides the auto-derived key (back-compat for OMS callers). **On the `/v3` allow-list auto-derive is disabled and the request falls through undeduped instead** — a deliberate repeat Move Stock sends a byte-identical body, so a content-derived key would replay (and therefore silently drop) the real second move for the 7-day retention window.
 - On first request: inserts a claim row atomically (`ON CONFLICT DO NOTHING RETURNING`) → forwards to handler.
+- On the `/v3` allow-list, **bridge mode is suppressed per request** (it matches on `(requestHash, method, path)` and ignores the key, so it would replay a fresh nonce off an unrelated row), and **a 2xx whose body carries an `errors` key is reported to `persistResponse` as a failure** so the claim row is dropped — `StockUnitController` answers business failures with HTTP 200. A duplicate counter (`wms.idempotency.duplicate_transfer`, tagged by path and outcome) fires in `RestIdempotencyService` on `REPLAYED`/`IN_FLIGHT`, never on `CLAIMED`.
 - On replay: returns cached 2xx response directly; evicts Caffeine `itemdata` cache for `/rest/sku/**` replays.
 - On handler exception: passes `SC_INTERNAL_SERVER_ERROR` to `persistResponse`, which deletes the claim row so OMS may retry.
 - Controlled by `app.idempotency.enforce=true` (`false` bypasses in dev). See [wms2-sysprop-catalog.md](../data-dictionary/wms2-sysprop-catalog.md) §4.6.

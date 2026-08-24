@@ -4,7 +4,7 @@ ticket: "SBDEV-2690"
 ticket_url: "https://app.clickup.com/t/868kfamn0"
 type: bugfix
 priority: high
-status: approved
+status: "archived 2026-08-20 — SHIPPED. wms2-api PR #89 (merge b3e1b806, fix f511a315) + wms2-web-ui PR #24, both merged. The frontmatter had said `approved` since implementation and was never flipped, so this plan misreported itself as unimplemented during the 2026-08-20 backlog triage. One OPS item survives it: cancel stale blocker REPL049787 (state 300, reserving 12 units since 2025-03) or the 409 fires forever for 23RHRSBTL -> 00-C02."
 project: [wms2]
 version: v2
 requester: "Nam Park (nam.park@siteboss.net)"

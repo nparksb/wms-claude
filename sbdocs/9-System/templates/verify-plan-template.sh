@@ -50,7 +50,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0
@@ -96,7 +96,14 @@ file_contains_n_times() {
 }
 
 # Assert a regex does NOT appear (anywhere uncommented).
-file_not_contains() { ! grep -qE "$1" "$2"; }
+#
+# The `[ -f "$2" ]` guard is MANDATORY, not defensive. Without it this helper FAILS OPEN: grep exits
+# non-zero on a file that does not exist, `!` inverts that to success, and the row reports PASS —
+# "the forbidden pattern is gone" — when nothing was examined at all. That is the worst failure mode
+# a verify row has, because a refactor that moves or renames the file turns the assertion green in
+# the same run that should have caught it. Every positive helper here already fails closed (grep
+# exits 2), so only the negated ones need this.
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
 
 # A specific method must exist on a class-file.
 class_has_method() {
@@ -105,9 +112,22 @@ class_has_method() {
 }
 
 # A maven test class exists and currently passes.
+#
+# Use the EXIT CODE, never a grep of the output. The previous version passed `-q` and then grepped
+# for "BUILD SUCCESS|Tests run..." — but `-q` suppresses exactly those lines, so the grep never
+# matched and every maven row was PERMANENTLY RED in every script generated from this template.
+# A permanently-red row is indistinguishable from honest work-not-done, which is how it survived.
+#
+# `Skipped: 0` is additionally required so a @Disabled class cannot certify itself green, and
+# `-DfailIfNoTests=false` means a typo'd class name would otherwise pass silently — hence the
+# explicit check that a surefire summary was actually produced.
 mvn_test_passes() {
-    local test_class=$1
-    mvn test -Dtest="$test_class" -DfailIfNoTests=false -q 2>&1 | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"
+    local test_class=$1 out rc
+    out=$(mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1); rc=$?
+    [ "$rc" -eq 0 ] || return 1
+    # a real summary must exist, or nothing ran
+    printf '%s' "$out" | grep -qE "Tests run: [0-9]+, Failures: 0, Errors: 0, Skipped: 0" || return 1
+    return 0
 }
 
 # === Per-rollout-item checks ==================================================

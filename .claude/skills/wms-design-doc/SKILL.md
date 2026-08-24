@@ -7,6 +7,13 @@ description: Produce a module-level design document for a specific WMS service, 
 
 Produces a module-level design document at `sbdocs/3-Resources/design/`. Audience: engineers about to modify or extend the module.
 
+## Before you write — `wms-triage` owns two rules that apply here
+
+You are not tiering a fix, so skip the router. Two things still bind, and they live in `wms-triage`, not here:
+
+- **The floor's evidence rules.** Class lists, state machines and contracts are claims: ground each in a `file:line` (or a DB query for a data-model claim), and take one independent review pass. A design doc that was never checked against the code is what a future fix will trust and get wrong.
+- **The ticket policy.** Reading a module closely surfaces defects. Route them through the policy — fix tooling/doc defects directly, widen an existing ticket sharing the code path, and file at most one new ticket, confirmed by Nam.
+
 ## Trigger
 
 - "Design doc for PickingOrderMergeService / TenantDynamicRoutingDataSource / ReplenishGeneratorService …"

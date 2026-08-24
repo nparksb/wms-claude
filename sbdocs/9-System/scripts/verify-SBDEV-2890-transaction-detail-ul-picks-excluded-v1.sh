@@ -7,7 +7,7 @@
 #
 # Plan: sbdocs/1-Projects/wms1/plan/SBDEV-2890-transaction-detail-ul-picks-excluded.md
 #
-#   PROJECT_ROOT=/Users/np1076/dev/spk/owl/v1/wms-api \
+#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v1/wms-api \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2890-transaction-detail-ul-picks-excluded-v1.sh
 #
 # Exit 0 ONLY on "N pass, 0 fail, 0 skip".
@@ -42,7 +42,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0; FAIL=0; SKIP=0

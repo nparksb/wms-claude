@@ -1,9 +1,30 @@
 ---
 name: wms-plan-executor
-description: Execute a reviewed WMS plan end-to-end — create a per-ticket git worktree off freshly-fetched origin/develop, ralph-loop the implementation until the TDD-gate tests and verify script pass, confirm plan conformance in a separate verifier lane, run code review and fix every High/Medium finding, audit doc drift, commit, open a PR into develop, update the plan document, and move the ClickUp ticket to "pr submitted". Use when the user says "implement plan X", "execute the plan", "ship SBDEV-####", or hands back a plan this session just authored. Stops at PR — does NOT merge, deploy, or archive the plan.
+description: Execute a reviewed WMS plan end-to-end — create a per-ticket git worktree off freshly-fetched origin/develop, ralph-loop the implementation until the TDD-gate tests and verify script pass, confirm plan conformance in a separate verifier lane, run code review and fix every High/Medium finding, audit doc drift, commit, open a PR into develop, update the plan document, and move the ClickUp ticket to "pr submitted". Use when the user says "implement plan X", "execute the plan", "ship SBDEV-####", or hands back a plan this session just authored. Stops at PR — does NOT merge, deploy, or archive the plan. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
 ---
 
 # WMS Plan Executor
+
+## Tier scaling — how many lanes actually run
+
+Read the tier from the plan (or run the `wms-triage` skill, which owns the router, if the plan predates it). The phases below are the **T3** shape; scale them:
+
+| Phase | T0/T1 | T2 | T3 |
+|---|---|---|---|
+| Worktree | yes — always. A feature branch in the main checkout is NOT an acceptable substitute (it leaves the shared checkout off its branch); the T0/T1 saving is skipping ralph, not skipping isolation | yes | yes |
+| Phase 1 implement | inline, no ralph | inline or ralph | ralph |
+| Phase 3a conformance (`verifier`) | no | no | **yes** |
+| Phase 3b `code-reviewer` | **yes** | **yes** | **yes** |
+| Phase 3b `security-reviewer` | only if it touches authz / SQL construction / secrets | same | same |
+| Second review pass after fixes | only if a fix changed an assertion | **yes if a fix changed an assertion** | yes |
+| Phase 4 doc drift | one grep | one grep | `verify-docs` |
+
+**Never scaled:** the floor — DB query, failing test first, **mutation-check every new assertion**, one independent review, full suite vs baseline. And never self-approve, at any tier.
+
+⚠ **Instruct every review lane not to run `git checkout --`, `git restore`, or `git stash`.** On SBDEV-3011 a reviewer probing a mutant used `git checkout --` and clobbered uncommitted work in two files. Tell them to copy to `/tmp` and restore from there — and **commit before the review lanes run**, so the tree cannot be lost.
+
+⚠ **A review lane that reports "idle" with no findings is not a passing review.** Recover its report from the transcript before treating silence as approval.
+
 
 Takes a **reviewed** plan and drives it to an open PR. This is the only skill in the WMS set that writes production code.
 
@@ -30,7 +51,7 @@ Ambiguous or multiple matches → list them and ask. Never guess which plan to i
 |---|---|---|---|
 | 1 | Plan exists and is **reviewed** | frontmatter `status:` — see the vocabulary below | Stop. Route to `wms-bugfix-plan` / `wms-feature-plan` for ralplan sign-off first |
 | 2 | §10 Open Questions all resolved | read §10 | Stop and ask. Implementing an open contract wastes the work |
-| 3 | Verify script exists | `sbdocs/9-System/scripts/verify-<plan-id>.sh` | Author it per the plan skill's Verification-script section, then continue |
+| 3 | Verify script — **only if the plan has one** | `sbdocs/9-System/scripts/verify-<plan-id>.sh` | **No script is the normal, correct state below T3.** Do NOT author one to satisfy this gate; note its absence and continue. Only re-author if the plan's §9 names a script that is missing |
 | 4 | Dedicated worktree off fresh `origin/develop` | see below — **do this before gate 5**, it defines where every later path resolves | Stop — never implement in the main checkout |
 | 5 | TDD-gate tests exist | grep the plan's named test classes in `$WT/src/test/` | Run `wms-tdd-gate` first — it is the completion contract for Phase 1. If it already ran, its tests are in this same worktree; if they are missing, you are in the wrong tree — recheck `git worktree list` before concluding they were never written |
 | 6 | Toolchain on PATH | `mvn -v` | export SDKMAN paths (below) |
@@ -153,9 +174,9 @@ Invoke `Skill("oh-my-claudecode:ralph", "<task>")`. Ralph is PRD-driven and its 
 | ralph PRD field | Source in the plan |
 |---|---|
 | One story per item | §3 Fix Design sub-sections (Fix A, Fix B…) or §5 phases — never one mega-story |
-| Story acceptance criteria | The TDD-gate test method(s) for that fix, by exact `Class#method` name, **plus** the verify-script rows for that fix |
+| Story acceptance criteria | The TDD-gate test method(s) for that fix, by exact `Class#method` name — plus the verify-script rows for that fix **if the plan has a script** (T3 opt-in only; most plans have none) |
 | Story order | §5 Implementation Steps order (respect stated prereqs) |
-| Definition of done | Targeted tests green + `verify-<plan-id>.sh` reports `Result: N pass, 0 fail` |
+| Definition of done | Targeted tests green, and full suite matching the Phase 0 baseline. Add `verify-<plan-id>.sh` reporting `Result: N pass, 0 fail` **only if the plan ships a script** |
 
 Task text to hand ralph must state:
 
@@ -191,7 +212,7 @@ bash /home/nampark/dev/wms-claude/sbdocs/9-System/scripts/verify-<plan-id>.sh
 | Spring bean / DI changes | Unit tests and incremental compile both miss wiring drift | `mvn clean compile` + run the context-load test (`OmsNotificationConfigContextLoadTest`) |
 | Surefire `-Dtest` overrides the `*IntegrationTest` exclude | An IT runs where you expected units only | Check which classes actually ran in the Surefire output |
 
-Exit criteria for this phase: targeted tests green, full-suite failures identical to the Phase 0 baseline (no new red), and the verify script reporting `Result: N pass, 0 fail`. Anything else → back to Phase 1.
+Exit criteria for this phase: targeted tests green, full-suite failures identical to the Phase 0 baseline (no new red), and — **if the plan has a verify script at all** (T2 and below no longer produce one) — that script reporting `Result: N pass, 0 fail`, graded against the WORKTREE and never a main checkout. Anything else → back to Phase 1.
 
 ---
 
@@ -295,6 +316,8 @@ Conformance:   verifier PASS — <N>/<N> §8 criteria VERIFIED, <N>/<N> §0 rows
 Code review:   <H> high / <M> medium fixed, <L> low deferred
 Docs:          <updated | none needed | N flagged>
 PR title:      <title>
+Inline notes:  <N> review comments to post on the PR (Phase 6a) — deferred Lows, non-obvious
+               design decisions, load-bearing ordering. 0 is a valid answer.
 ClickUp:       SBDEV-#### → "pr submitted"
 ```
 
@@ -316,6 +339,51 @@ PR body must carry: what changed and why (2–4 sentences), plan path, ClickUp l
 ```
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
+
+### 6a. Publish the surviving review reasoning ONTO the PR — inline, not in the body
+
+**The reason this step exists.** Phase 3's lanes generate their findings into files under the session
+scratchpad. Those files are invisible to whoever merges: the analysis behind a decision — why
+`ON CONFLICT` is wrong on three different tenant shapes, why a fail-open branch was not inherited from
+the sibling app, which finding was deliberately deferred and on whose authority — is either
+re-derived by the human reviewer or, more likely, not. Reviewing before the PR is the right call (it
+keeps fixes in the same commit and hands the reviewer a clean diff), but it forfeits the one thing
+post-PR review is genuinely better at: **durable, line-anchored reasoning the team can see.** This
+step buys that back for one extra command.
+
+A wall of prose at the top of the PR body does not substitute. It is the least-read part of a PR, and
+it cannot point at a line.
+
+**What to post, as inline comments anchored to the lines they concern:**
+
+| Post | Why inline |
+|---|---|
+| Every **deferred Low / nit** from Phase 3b | Otherwise it is invisible and gets re-found by the next reader, or silently never fixed |
+| Each **non-obvious design decision** where the obvious alternative is wrong | The `ON CONFLICT` / `NOT EXISTS` class: a future "simplification" reintroduces the bug unless the reasoning sits on the line |
+| Each **deliberate deviation** from the plan, with the plan's own rationale | A reviewer who spots a deviation with no note assumes a mistake and asks — costing a round trip |
+| Any assertion that is **green today as a regression pin, not a gate** | Reads as redundant coverage otherwise, and gets deleted in a later cleanup |
+| **Load-bearing ordering** (memo assigned before `.then(clear)`, migration step 1 before step 2) | These look arbitrary and are the first thing a tidy-up breaks |
+| Anything a lane **measured** rather than reasoned about | Cite the measurement; it is the difference between an opinion and a finding |
+
+**What NOT to post:** anything already fixed (the diff is the record), restatements of what the code
+plainly does, or a High/Medium finding — those had to be fixed, not annotated. Do not narrate.
+
+```bash
+cd "$WT"
+# Prefer the repo's own review tooling where it exists — it anchors comments to the diff:
+#   Skill("code-review", "<pr-number> --comment")
+# Otherwise post directly, one comment per line that needs it:
+gh pr review <pr-number> --comment --body "<summary of what the inline notes cover>"
+gh api repos/{owner}/{repo}/pulls/<pr-number>/comments   -f body="<the reasoning>" -f commit_id="<sha>" -f path="<file>" -F line=<n> -f side=RIGHT
+```
+
+⚠️ **Cap it.** Ten inline comments a reviewer reads beats forty they skim. If a lane produced more
+than that, the excess belongs in the plan document (Phase 7), not on the PR — the plan is the durable
+home for analysis, the PR is for what changes this reviewer's decision.
+
+⚠️ **Comments on a PR are outward-facing.** They land under the user's name and notify reviewers, so
+they are covered by the same Phase 6 checkpoint as the push — do not post them before the user has
+said go. State how many you intend to post in the checkpoint block.
 
 ---
 

@@ -44,7 +44,7 @@ skip() {
 }
 
 file_contains() { grep -qE "$1" "$2"; }
-file_not_contains() { ! grep -qE "$1" "$2"; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
 file_contains_n_times() {
     local pattern=$1 file=$2 n=$3
     local count

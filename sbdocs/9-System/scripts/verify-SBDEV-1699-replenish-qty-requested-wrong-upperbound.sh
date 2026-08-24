@@ -17,8 +17,8 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-api}"
-MOBILE_ROOT="${MOBILE_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-mobile-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
+MOBILE_ROOT="${MOBILE_ROOT:-/home/nampark/dev/wms-claude/v1/wms-mobile-ui}"
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
@@ -41,7 +41,7 @@ skip() {
 }
 
 file_contains()     { grep -qE "$1" "$2" 2>/dev/null; }
-file_not_contains() { ! grep -qE "$1" "$2" 2>/dev/null; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2" 2>/dev/null; }
 
 SVC=src/main/java/net/aim_ai/wms/service
 REPO=src/main/java/net/aim_ai/wms/repo/jpa

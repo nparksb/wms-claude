@@ -66,6 +66,32 @@ Archival plan for <filename>:
         + delete the merged local branch <branch>, then `git worktree prune`
 ```
 
+### 3b. Findings disposition gate (added 2026-08-21)
+
+**A plan is not archivable while it still contains findings with nowhere to go.** This is the whole
+reason archival is dangerous: the moment the plan leaves `1-Projects/`, anything recorded only inside
+it stops being read. That is how a real defect can sit undiscovered for months while the ticket that
+would have surfaced it was never opened.
+
+Before step 4, scan the plan for unresolved findings — sections named *residual*, *still owed*,
+*not fixed*, *recorded not fixed*, *deferred*, *open question*, *landmine*, or any unchecked `- [ ]`
+acceptance box — and for each one require **exactly one** of these dispositions, stated in the plan:
+
+| Disposition | What it means |
+|---|---|
+| **Fixed** | in this plan's PRs; name the commit |
+| **On a ticket** | give the ticket id. Per the ticket policy in `wms-triage`, prefer widening a ticket that shares the code path over filing a sibling |
+| **Dropped** | with a one-line reason. A deliberate drop is a fine outcome; a silent one is not |
+| **Not machine-knowable, owner named** | manual QA, a per-environment check, a decision — name who holds it |
+
+**Do not accept "recorded in the plan" as a disposition.** That is the failure mode this gate exists
+to stop. If the finding matters after archival, it needs a ticket or a named owner; if it does not, it
+needs an explicit drop.
+
+Print the list and its dispositions as part of step 3's operation summary, so the user approves the
+archival and the findings' fate in one decision. If any finding has no disposition, **stop and ask** —
+do not archive and do not guess.
+
 ### 4. Require explicit confirmation
 
 In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" and wait for "yes" / "proceed" / explicit confirmation.

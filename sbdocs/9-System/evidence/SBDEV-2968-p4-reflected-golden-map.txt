@@ -1,0 +1,110 @@
+=== P4 REFLECTED GUARDED SURFACE ===
+
+LookupController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_INFO]
+    GET /locationByLocationName/{locationName}     locationByLocationName             [MOBILE_UI_VIEW_INFO, MOBILE_UI_VIEW_REPLENISHMENT]   <== METHOD-LEVEL OVERRIDE
+    GET /search/{keyword}                          search                             []
+    GET /searchSku/{keyword}                       searchSku                          []
+    GET /stockListByItemNumber/{itemNumber}        stockListByItemNumber              []
+    GET /unitLoadListByLocationName/{locationName} unitLoadListByLocationName         []
+
+PutawayController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_PUT_AWAY]
+    POST /calculatePutawayList                     calculatePutawayList               []
+    GET /scanPallet/{input}                        requestLocation                    []
+    POST /scanFlowBinLocation                      scanFlowBinLocation                []
+    POST /storeBoxOnLocation                       storeBoxOnLocation                 []
+    POST /storePalletBackOnPutawayLane             storePalletBackOnPutawayLane       []
+    POST /storePalletOnLocation                    storePalletOnLocation              []
+
+MoveUnitloadController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_TRANSFER]
+    GET /selectSource/{input}                      selectSource                       []
+    POST /selectDestination                        selectStock                        []
+
+MoveStockController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_STOCK_TRANSFER]
+    POST /scanDestination                          scanDestination                    []
+    GET /selectSource/{input}                      selectSource                       []
+    GET /selectStockUnit/{id}/{input}              selectStockUnit                    []
+
+PickingController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_PICKING]
+    GET /pickTimeOutValue                          pickTimeOutValue                   []
+    GET /pickingOrderPositionsInfo/{id}            pickingOrderPositionsInfo          []
+    GET /processLocation/{id}/{input}              processLocation                    []
+    POST /processPick                              processPick                        []
+    GET /processRapidPickScanPackage/{section}/{input} processRapidPickScanPackage        []
+    POST /processRapidPickScanPackageToVerify      processRapidPickScanPackageToVerify []
+    POST /processRapidPickScanSource               processRapidPickScanSource         []
+    POST /processRapidPickScanSourcePass           processRapidPickScanSourcePass     []
+    GET /releasePickingOrder/{id}                  releasePickingOrder                []
+    GET /pickingOrders/{input}                     requpickingOrdersestLocation       []
+    POST /resetPickingOrder                        resetPickingOrder                  []
+
+PalletizingController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_PALLETIZING]
+    POST /scanPallet                               scanPallet                         []
+    GET /scanPalletBulk/{input}                    scanPalletBulk                     []
+    GET /scanParcelBulk/{id}/{input}               scanParcelBulk                     []
+    GET /scanParcel/{input}                        scanUnitLoad                       []
+
+TruckLoadingController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_TRUCK_LOADING]
+    POST /loadOrder                                loadOrder                          []
+    GET /orderList                                 orderList                          []
+    POST /scanGate                                 scanGate                           []
+    POST /scanPallet                               scanPallet                         []
+    GET /truckLoadingInfo/{bolName}                truckLoadingInfo                   []
+
+CycleCountLosController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_CYCLE_COUNT]
+    POST /countSingleUnitLoad                      countSingleUnitLoad                []
+    POST /countUnitLoad                            countUnitLoad                      []
+    GET /locationList/{orderId}                    locationList                       []
+    GET /orderList                                 orderList                          []
+    GET /scanSingleUnitLoad/{input}                processScanUnitLoad                []
+    POST /processScanUnitLoad                      processScanUnitLoad                []
+    POST /recountSingleUnitLoad                    recountSingleUnitLoad              []
+    POST /recountUnitLoad                          recountUnitLoad                    []
+    GET /unitLoadList/{orderId}/{locationId}       unitLoadList                       []
+
+ReplenishController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_REPLENISHMENT]
+    GET /checkAmount/{id}/{input}                  checkAmount                        []
+    GET /checkDestination/{id}/{input}             checkDestination                   []
+    GET /checkSource/{id}/{input}                  checkSource                        []
+    GET /clientList                                clientList                         []
+    GET /fixedLocationUpperBound/{locationId}      fixedLocationUpperBound            []
+    GET /loadOrderById/{id}                        loadOrderById                      []
+    POST /multi-unitloads                          multiUnitLoads                     []
+    GET /clientOrderList/{clientNumber}            orderList                          []
+    POST /requestAmount                            requestAmount                      [MOBILE_UI_VIEW_REPLENISH_REQUEST]   <== METHOD-LEVEL OVERRIDE
+    GET /requestLocation/{input}                   requestLocation                    [MOBILE_UI_VIEW_REPLENISH_REQUEST]   <== METHOD-LEVEL OVERRIDE
+    GET /reservedOrder                             reservedOrder                      []
+    PUT /order/{id}                                updateOrder                        []
+
+TransferOrderController  (net.aim_ai.wms.controller.mobile)
+  class-level: [WEB_UI_VIEW_TRANSFER_ORDER]
+    GET /orderList                                 orderList                          []
+    POST /processOrderPositionSelect               processOrderPositionSelect         []
+    POST /processScanTransferLane                  processScanTransferLane            []
+    POST /processScanUnitLoad                      processScanUnitLoad                []
+    POST /updateOrder                              updateOrder                        []
+
+OrderCancellationController  (net.aim_ai.wms.controller.mobile)
+  class-level: [MOBILE_UI_VIEW_CANCELLATION]
+    POST /{customerOrderId}/complete               completeReversal                   []
+    GET /{customerOrderId}/detail                  detail                             []
+    POST /{customerOrderId}/initiate               initiateReversal                   []
+    GET /list                                      listPendingReversals               []
+    POST /scan-tote                                scanTote                           []
+
+=== TOTALS ===
+guarded controllers            : 11
+own mapped methods (handlers)  : 67
+own URL mappings (paths)       : 67
+AdminController mapped methods : 9  (inherited by each, alias multiplier)
+AdminController own annotation  : []  (must be empty)
+=> alias URLs added per guarded controller: 9
+distinct functions referenced  : 12 [MOBILE_UI_VIEW_CANCELLATION, MOBILE_UI_VIEW_CYCLE_COUNT, MOBILE_UI_VIEW_INFO, MOBILE_UI_VIEW_PALLETIZING, MOBILE_UI_VIEW_PICKING, MOBILE_UI_VIEW_PUT_AWAY, MOBILE_UI_VIEW_REPLENISHMENT, MOBILE_UI_VIEW_REPLENISH_REQUEST, MOBILE_UI_VIEW_STOCK_TRANSFER, MOBILE_UI_VIEW_TRANSFER, MOBILE_UI_VIEW_TRUCK_LOADING, WEB_UI_VIEW_TRANSFER_ORDER]

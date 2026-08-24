@@ -6,9 +6,9 @@ version: v2
 scope: authorization
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-08-17
-last_verified: 2026-08-17
-verified_by: 2026-08-17 (later pass) SBDEV-2870 REDESIGNED onto the function model at Nam Park's direction and reconciled across §1.1, §2.1, §5, §8: the four /v3/user/* warehouse-group endpoints now gate on the FunctionEnum function WEB_UI_VIEW_USER_MANAGEMENT via accessService.doesUserHaveAccess in a new UserAdministrationController (not on the wms_admin Keycloak group), because the function is already held by exactly the screen's users (39 live on WineCo dev via super-admin) whereas the group population was unverifiable from the repo — AC-4 is dissolved rather than deferred, and AC-5 is closed for 4 of 5 by unit tests (ablation-proven both ways), leaving only importUsersFromCsvText's @PreAuthorize(IS_SB_ADMIN) as a one-curl manual check — that endpoint moved to sb_admin (not wms_admin) once the owner confirmed its caller is SiteBoss staff, which also made Authority.IS_WMS_ADMIN dead code and it was deleted (WMS_ADMIN_ROLE survives with exactly one consumer, the /actuator/** matcher). A SIXTH endpoint was found by code review and gated in the same PR: POST /v3/user/saveUserGroups (UserController:263) writes mywms_group_mywms_user — the table the function gate resolves through — and was completely ungated, so it defeated the other four in one request; UserController has zero @PreAuthorize across all 12 of its endpoints. Its siblings /user/create, /user/importUser and /user/delete remain ungated and are tracked as ticket SBDEV-2984, so this ticket must NOT be closed with wording implying Keycloak identity creation is locked down. Also records the newly-found fact that AdminController is a base class for 43 controllers, each with its own class-level @RequestMapping, so its endpoints were registered under all 43 prefixes (176 paths for these 4, not 4) — which understates the endpoint inventories in SBDEV-2967 §0.B and SBDEV-2968. Prior 2026-08-17 pass: all five gated on wms_admin, 3 of 6 ACs. Plus the setLockDamaged finding. Prior 2026-08-16 TARGET STATE added (§1.1) — decision by Nam Park + Brent (BA) — no function should be sb_admin-only; three Keycloak groups retained (wms_user for app access + facility scope, wms_admin for /actuator only, sb_admin as identity only, never enforced). Carve-outs verified against SecurityConfiguration.java:117 (actuator) and wms2-mobile-ui/pages/index.vue:80 (token.warehouse → facility scope). Prior 2026-08-15 web+mobile menu audit (§3.9 added — wms2-web-ui layouts/default.vue:284-285, util/appMenuList.js, store/index.js:92-101, pages/index.vue:114, pages/admin.vue:51-58; wms2-mobile-ui store/home.js:19-118; grep of doesUserHaveAccess across wms2-api; live SELECTs on Hydra UAT + WineCo dev for §4.1) — CORRECTED §3.7 enforcement column and §8 item 3; prior 2026-08-07 SBDEV-2863 fix + code review (Authority.java, CustomMethodSecurityExpressionRoot/Handler, AdminController @PreAuthorize audit incl. the 5 ungated sites, SecurityConfiguration rule-precedence recheck); prior 2026-06-24 re-read of v2/wms2-api WmsConstants.FunctionEnum (344-423) + Authority.java + AdminController.java (@PreAuthorize audit) + UtilRestController.java (255-420 persona seed) + SecurityConfiguration.java (116-136) + wms2-mobile-ui store/home.js (setStaticMenus)
+updated: 2026-08-22
+last_verified: 2026-08-22
+verified_by: 2026-08-22 SBDEV-2967-C — §3.7's "1 of 80 functions enforced" is SUPERSEDED (see the correction box there): 2968/2984/3013/2967-B merged and 2967-C (api PR #185) gates 13 destructive endpoints enforcing 7 of the 8 WEB_UI_ACTION_* constants. Two corrections recorded: doesUserHaveAccess is no longer the only function-checking method (checkAnyAccess + FunctionGuardInterceptor is the primary path, so grepping it no longer measures enforcement), and the single enforced site was inside transferStock's conditional branch while setLockDamaged had NO guard, leaving /transferToDamaged open. Also records that enforcement is AUDITED-ROUTE-ONLY: SDR still exposes the group/role join tables (self-grant in one PATCH) and /v3/stockunit + /v3/unitload retain all four write verbs. §3.7's per-role table itself was NOT re-derived this pass. Prior 2026-08-17 (later pass) SBDEV-2870 REDESIGNED onto the function model at Nam Park's direction and reconciled across §1.1, §2.1, §5, §8: the four /v3/user/* warehouse-group endpoints now gate on the FunctionEnum function WEB_UI_VIEW_USER_MANAGEMENT via accessService.doesUserHaveAccess in a new UserAdministrationController (not on the wms_admin Keycloak group), because the function is already held by exactly the screen's users (39 live on WineCo dev via super-admin) whereas the group population was unverifiable from the repo — AC-4 is dissolved rather than deferred, and AC-5 is closed for 4 of 5 by unit tests (ablation-proven both ways), leaving only importUsersFromCsvText's @PreAuthorize(IS_SB_ADMIN) as a one-curl manual check — that endpoint moved to sb_admin (not wms_admin) once the owner confirmed its caller is SiteBoss staff, which also made Authority.IS_WMS_ADMIN dead code and it was deleted (WMS_ADMIN_ROLE survives with exactly one consumer, the /actuator/** matcher). A SIXTH endpoint was found by code review and gated in the same PR: POST /v3/user/saveUserGroups (UserController:263) writes mywms_group_mywms_user — the table the function gate resolves through — and was completely ungated, so it defeated the other four in one request; UserController has zero @PreAuthorize across all 12 of its endpoints. Its siblings /user/create, /user/importUser and /user/delete remain ungated and are tracked as ticket SBDEV-2984, so this ticket must NOT be closed with wording implying Keycloak identity creation is locked down. Also records the newly-found fact that AdminController is a base class for 43 controllers, each with its own class-level @RequestMapping, so its endpoints were registered under all 43 prefixes (176 paths for these 4, not 4) — which understates the endpoint inventories in SBDEV-2967 §0.B and SBDEV-2968. Prior 2026-08-17 pass: all five gated on wms_admin, 3 of 6 ACs. Plus the setLockDamaged finding. Prior 2026-08-16 TARGET STATE added (§1.1) — decision by Nam Park + Brent (BA) — no function should be sb_admin-only; three Keycloak groups retained (wms_user for app access + facility scope, wms_admin for /actuator only, sb_admin as identity only, never enforced). Carve-outs verified against SecurityConfiguration.java:117 (actuator) and wms2-mobile-ui/pages/index.vue:80 (token.warehouse → facility scope). Prior 2026-08-15 web+mobile menu audit (§3.9 added — wms2-web-ui layouts/default.vue:284-285, util/appMenuList.js, store/index.js:92-101, pages/index.vue:114, pages/admin.vue:51-58; wms2-mobile-ui store/home.js:19-118; grep of doesUserHaveAccess across wms2-api; live SELECTs on Hydra UAT + WineCo dev for §4.1) — CORRECTED §3.7 enforcement column and §8 item 3; prior 2026-08-07 SBDEV-2863 fix + code review (Authority.java, CustomMethodSecurityExpressionRoot/Handler, AdminController @PreAuthorize audit incl. the 5 ungated sites, SecurityConfiguration rule-precedence recheck); prior 2026-06-24 re-read of v2/wms2-api WmsConstants.FunctionEnum (344-423) + Authority.java + AdminController.java (@PreAuthorize audit) + UtilRestController.java (255-420 persona seed) + SecurityConfiguration.java (116-136) + wms2-mobile-ui store/home.js (setStaticMenus)
 related:
   - ./wms2-end-to-end-request-journey.md
   - ./wms2-tenant-routing-datasource-topology.md
@@ -28,6 +28,33 @@ tags:
 
 ---
 
+> ## ⚠️ ENFORCEMENT CHANGED — SBDEV-2968 (branch `bugfix/SBDEV-2968-mobile-function-gating`, 2026-08-20)
+>
+> **The long-standing "only 1 of ~80 functions is actually enforced" statement in this document is now
+> out of date for the mobile surface** — but NOT yet on `develop`. It is true of `origin/develop` and false on
+> the SBDEV-2968 branch; re-read this box once that PR merges.
+>
+> What that branch adds:
+> - **`@RequiresFunction` + `FunctionGuardInterceptor`** (`net.aim_ai.wms.security`). ANY-of semantics,
+>   resolved on the handler's **declaring class** — so an inherited `AdminController` method reached through
+>   one of its ~90 alias URLs is NOT gated by the mobile subclass's function.
+> - **All 11 mobile workflow controllers gated** (the 10 in `controller/mobile/` plus
+>   `OrderCancellationController`, which **moved into that package** so the fail-closed rule covers it).
+> - **Fail-closed inside an explicit guarded set only.** A handler on a guarded controller with no annotation
+>   is denied AND fails the boot (`FunctionGuardStartupAssertion`). Everything outside the set is untouched.
+> - **A new function, `MOBILE_UI_VIEW_REPLENISH_REQUEST`** — Replenish splits into request and process halves.
+>   `V2.2.18` grants it to every role already holding `MOBILE_UI_VIEW_REPLENISHMENT`, so nobody loses access.
+> - **`X-Authz-Denied`** on every denial (`Authority.AUTHZ_DENIED_HEADER`), exposed via CORS so the browser can
+>   read it and skip its refresh-then-retry path.
+> - **`GET /v3/adminAction/accessAudit`** — per-user "which workflows survive enforcement", joined against
+>   Keycloak in ONE bulk call.
+>
+> ⚠️ **Two things this does NOT change.** Spring Data REST endpoints are served by
+> `RepositoryRestHandlerMapping`, which ignores `addInterceptors`, so **no SDR export is gated by this
+> mechanism** — tracked as SBDEV-3017. And endpoints **shared** with the web UI stay ungated, because gating
+> them on a `MOBILE_UI_*` function would 403 a web screen; that residual is 17+ endpoints, also SBDEV-3017.
+> The web surface itself remains ungated pending SBDEV-2967.
+
 ## 1. Overview
 
 > [!note] **Read §1.1 first.** As of 2026-08-16 there is an agreed target state that collapses the four namespaces below into one fine-grained mechanism. Everything in §2–§9 documents the **current** state, which is still what runs. Do not design new work against §2–§9 without checking §1.1.
@@ -46,7 +73,7 @@ v2 uses Keycloak realm roles for coarse page/feature gating and Keycloak group p
 1. **Realm roles are declared in `WmsConstants.FunctionEnum` (lines 344–423).** All **80** constants live there (66 `WEB_UI_*` at 344–409, 13 `MOBILE_UI_*` at 410–422, 1 `SPECIAL_*` at 423); grep for a role name in just this file to find where it's authoritative.
 2. **Backend enforcement is mostly at the service layer, not annotation layer.** `@PreAuthorize(Authority.IS_SB_ADMIN)` guards **18 active gates** (8 `AdminController` + 1 `ReplenishmentReconciliationController` + 3 `PutawayConfigController` + 5 `PutawayConfigService` + 1 `ItemDataController` — the last three groups added by SBDEV-2732, verified on merged develop 2026-08-11), but most `WEB_UI_ACTION_*` and `WEB_UI_VIEW_*` roles are checked via `syspropService` / `functionService` calls inside service methods, not declarative annotations. ⚠️ **Two separate problems, both in §2.1:** (a) that annotation was **completely broken 2025-10-29 → 2026-08-07** and enforced nothing — it returned HTTP 500 to everyone (SBDEV-2863, now fixed); (b) **five** `AdminController` endpoints were ungated — **code written 2026-08-17, not yet merged: the four `/v3/user/*` endpoints gate on the function `WEB_UI_VIEW_USER_MANAGEMENT` (moved to `UserAdministrationController`), `importUsersFromCsvText` on `wms_admin`; SBDEV-2870 OPEN on 1 of 6 acceptance criteria** (§2.1). That change makes `WEB_UI_VIEW_USER_MANAGEMENT` the **second** enforced function — the first `WEB_UI_VIEW_*` ever enforced — alongside `WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`, so the "1 of 80 functions enforced" figure becomes **2 of 80** once merged.
 3. **Mobile menu gating is UI-side only.** The mobile UI calls `GET /user/getAllRoles/{username}` (`store/home.js:106`) on login and filters the static menu (filter at `store/home.js:108-113`). **The backend does not re-enforce mobile view roles** — an operator who bypasses the menu (deep link, API replay) will hit service logic without the role check. Check §6 for the implications.
-4. 🔴 **The web UI has no gating at all — not even UI-side.** `layouts/default.vue:284-285` hardcodes `menuList["super-admin"]`, so **all 30 web menu items render for every authenticated user**, admin screens included. The web UI does fetch `/user/getAllRoles/{username}` and then throws the result away (`store/index.js:92-101`). **Everything §3.2–§3.7 calls a "Web UI gate" is design intent, not enforcement** — see §3.9 for the full inventory and the five code sites that prove it.
+4. ⚠️ **The web UI had no gating at all — not even UI-side. CLOSED IN THE UI 2026-08-21 by SBDEV-2967-B (`a50a6b2`, PR pending); server-side view gating is still absent and unscheduled — SBDEV-3017. See the boxed note in §3.9.** Original finding: `layouts/default.vue:284-285` hardcodes `menuList["super-admin"]`, so **all 30 web menu items render for every authenticated user**, admin screens included. The web UI does fetch `/user/getAllRoles/{username}` and then throws the result away (`store/index.js:92-101`). **Everything §3.2–§3.7 calls a "Web UI gate" is design intent, not enforcement** — see §3.9 for the full inventory and the five code sites that prove it.
 
 ---
 
@@ -114,7 +141,7 @@ Its recorded blocker was: *"Do not simply restore the annotations — `wms2-web-
 
 | If you… | Result |
 |---|---|
-| Remove `sb_admin` gates **before** enforcement is real | Controls become **fully open** to any `wms_user` — today only 1 of 80 functions is enforced anywhere (§3.7) |
+| Remove `sb_admin` gates **before** enforcement is real | Controls become **fully open** to any `wms_user` — ⚠️ the "1 of 80" figure is **superseded as of 2026-08-22**, see the correction box in §3.7; enforcement is also audited-route-only while S-1/S-2 stand |
 | Add function gates **before** the Flyway seed reaches a tenant | Controls become **inaccessible to everyone** on that tenant — worse than today, where staff could at least act |
 
 **Sequence: SBDEV-2968 lands → functions seeded and audited on every tenant → then swap the gates.** Never gates first. Migrate in tranches; putaway config is the natural pilot (smallest, and the one the BA actually asked for).
@@ -386,6 +413,35 @@ There are exactly **8** `WEB_UI_ACTION_*` constants (`WmsConstants.FunctionEnum:
 > 🔴 **CORRECTED 2026-08-15.** This table previously listed all 8 as "Service-level `FunctionEnum` check". That was wrong for 7 of them. `AccessService.doesUserHaveAccess()` — the *only* function-checking method in the backend — has exactly **five call sites, all passing the same constant**: `StockunitService.java:232`, `MobileMoveStockService.java:251, 256`, `MobileMoveUnitloadService.java:277, 282`. A repo-wide grep for `doesUserHaveAccess` returns nothing else.
 >
 > **Net: 1 of 80 functions is enforced anywhere in the system.** The other 79 are provisioning metadata.
+>
+> 🔴 **SUPERSEDED 2026-08-22 — the "1 of 80" figure is no longer true, and this section has not been fully
+> re-derived.** Four merged tickets and one open PR pair have moved it since 2026-08-15:
+>
+> | Ticket | What it enforces |
+> |---|---|
+> | SBDEV-2968 (merged) | 11 mobile controllers gated class-level via `@RequiresFunction` + `FunctionGuardInterceptor` |
+> | SBDEV-2984 (merged) | 9 `UserController` handlers |
+> | SBDEV-3013 (merged) | `UserRoleController` + `UserGroupController`, and withdrew the SDR write verbs on `mywms_role_mywms_function` |
+> | SBDEV-2967-B (merged) | web view gating — the menu filter and route guard finally *read* the `WEB_UI_VIEW_*` grants |
+> | **SBDEV-2967-C** ([api #185](https://github.com/SiteBossInc/wms2-api/pull/185), open) | **13 destructive endpoints on `StockUnitController` + `UnitLoadController`, enforcing 7 of the 8 `WEB_UI_ACTION_*` constants** (`PRINT_TOTE_LABELS` deferred to tranche C2) |
+>
+> ⚠️ **Two corrections to the paragraph above, both from SBDEV-2967-C's evidence:**
+>
+> 1. `AccessService.doesUserHaveAccess` is no longer "the *only* function-checking method". `checkAnyAccess`
+>    + `FunctionGuardInterceptor` is now the primary path, and a repo-wide `doesUserHaveAccess` grep no
+>    longer measures enforcement.
+> 2. The one enforced site was narrower than this section implies: `StockunitService:262` (was `:232`) sits
+>    inside **`transferStock`**, in a conditional branch. **`setLockDamaged` had no guard at all**, so
+>    `/transferToDamaged` and `/bulkTransferToDamaged` — the dedicated endpoints for the one action everyone
+>    believed was enforced — were open until 2967-C.
+>
+> 🔴 **And the counter-fact that matters more than the count:** enforcement is on the **audited route only**.
+> Spring Data REST still exposes the group/role join tables, so any `wms_user` can grant themselves a
+> function in one `PATCH` and defeat every gate in the table above — `RepositoryRestHandlerMapping` does not
+> consult `WebMvcConfigurer#addInterceptors`. `/v3/stockunit` and `/v3/unitload` likewise retain all four
+> write verbs, reaching the same fields with no gate and no `stockrecord` row. Measured 2026-08-22; see
+> SBDEV-2967-C plan §0.I (S-1, S-2). **Do not read a rising "N of 80 enforced" figure as a rising security
+> posture until those are closed.**
 
 | Role | Constant line | Purpose | Enforcement (verified 2026-08-15) |
 |---|---|---|---|
@@ -438,17 +494,37 @@ These are the authoritative Mobile role set (13 `MOBILE_UI_*` constants, `WmsCon
 > `UserRole`/`UserGroup` they hold. This is not a gap in one page — it is the absence of the
 > entire client-side authorization layer that §3.2–§3.7 describe.
 
-**Five independent code sites confirm it** (verified 2026-08-15 on `docs/wms2-plan-reconcile-2732-corrections`):
+> 🔴 **SUPERSEDED 2026-08-21 by SBDEV-2967-B — read this box before quoting anything above or below it.**
+> All five sites in the table below are **CLOSED in the UI** by wms2-web-ui `a50a6b2`
+> (branch `bugfix/SBDEV-2967-B-web-view-gating`, PR pending, **not yet merged or deployed**). The
+> paragraph above — "the absence of the entire client-side authorization layer" — was accurate when
+> written and is no longer.
+>
+> **What is now true, and the distinction matters more than the fix:**
+> - The **client-side** layer exists: one filtered `MENU`, a `middleware/require-function.js` route
+>   guard that fails closed, a `WEB_UI_LOG_IN` entry gate, and per-tab admin filtering.
+> - **Server-side view gating for the web UI still does NOT exist**, and is not scheduled. ~14 of ~32
+>   API roots are Spring Data REST, which `FunctionGuardInterceptor` structurally cannot reach
+>   (`RepositoryRestHandlerMapping` never consults `WebMvcConfigurer#addInterceptors`). Owner:
+>   **SBDEV-3017**. So an authenticated `wms_user` can still read those roots directly with curl.
+> - Therefore: **do not read "the web UI is gated" as "the data is protected."** That inference is
+>   the specific misreading this box exists to prevent. §3.2–§3.7's "Web UI gate" column describes
+>   what the UI now offers, not what the API enforces.
+> - Grants had to land with the filter or the fix would have been a capability removal: wms2-api
+>   V2.2.19 seeds 18 (role, function) rows. **A merged migration is applied to no database until an
+>   operator runs it** — until then those screens are dark for non-super-admins on every tenant.
 
-| Evidence | Site | What it shows |
-|---|---|---|
-| Menu is hardcoded | `layouts/default.vue:284-285` | Returns the `super-admin` key unconditionally |
-| 4 of 5 menu variants are dead code | `util/appMenuList.js:2, 197, 355, 441, 545` | Keys `super-admin`, `inventory-manager`, `outbound-manager`, `outbound-manager,receiving`, `receiving` exist; only the first is ever read |
-| Roles are fetched and **discarded** | `store/index.js:92-101` → `pages/index.vue:114` | `getUserRoles` calls `/user/getAllRoles/{username}`, commits nothing, returns a value the sole caller ignores |
-| No route guards | no `middleware/` directory in the repo | Deep-linking any page works |
-| Admin tabs hardcoded | `pages/admin.vue:51-58` | All 6 tabs render, **including User Management**, with no `WEB_UI_VIEW_USER_MANAGEMENT` check |
+**Five independent code sites confirmed it** (verified 2026-08-15 on `docs/wms2-plan-reconcile-2732-corrections`; **all five closed 2026-08-21** — see the box above):
 
-A repo-wide grep for `WEB_UI_VIEW` / `WEB_UI_ACTION` / `FunctionEnum` across `wms2-web-ui` returns **zero** hits outside Cypress fixtures. Contrast `wms2-mobile-ui/store/home.js`, where all 12 tiles carry a `role`.
+| Evidence | Site | What it showed | Now |
+|---|---|---|---|
+| Menu is hardcoded | `layouts/default.vue:284-285` | Returns the `super-admin` key unconditionally | ✅ `links()` filters one `MENU` against `state.functions`, pruning empty groups at every depth |
+| 4 of 5 menu variants are dead code | `util/appMenuList.js:2, 197, 355, 441, 545` | Five persona keys exist; only the first is ever read | ✅ the four dead keys deleted; one list, each leaf declaring its function |
+| Roles are fetched and **discarded** | `store/index.js:92-101` → `pages/index.vue:114` | `getUserRoles` commits nothing; its sole caller ignores the return | ✅ commits `functions`/`functionsLoaded`/`functionsError`; new memoised `ensureFunctionsLoaded` awaits `$kc.ready` first |
+| No route guards | no `middleware/` directory in the repo | Deep-linking any page works | ✅ `middleware/require-function.js`, registered globally; an **unclassified** route is denied, not waved through |
+| Admin tabs hardcoded | `pages/admin.vue:51-58` | All 6 tabs render, incl. User Management | ✅ `visibleTabs` filters, and **both** headers and panes iterate it. ⚠️ there are **7** tabs, not 6 — `Label Printing` was added by SBDEV-2861 and gates on `WEB_UI_VIEW_PRINTER` |
+
+A repo-wide grep for `WEB_UI_VIEW` / `WEB_UI_ACTION` / `FunctionEnum` across `wms2-web-ui` returned **zero** hits outside Cypress fixtures — ⚠️ **no longer true** as of `a50a6b2`; `util/appMenuList.js` and `pages/admin.vue` now name them directly. Contrast `wms2-mobile-ui/store/home.js`, where all 12 tiles carry a `role`.
 
 #### 3.9.1 The 30 menu items
 

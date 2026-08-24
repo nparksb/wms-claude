@@ -95,7 +95,7 @@
 # TWO TEMPLATE DEFECTS ARE FIXED HERE — do not "simplify" them back
 # ============================================================================
 # 1. PROJECT_ROOT: verify-plan-template.sh ships a stale macOS v1 path
-#    (/Users/np1076/dev/spk/owl/v1/wms-api). This plan targets v2/wms2-api on
+#    (/home/nampark/dev/wms-claude/v1/wms-api). This plan targets v2/wms2-api on
 #    this machine, so the default is corrected below.
 #
 # 2. file_not_contains FAILS OPEN on a missing file: `grep` exits 2 when it
@@ -317,7 +317,7 @@ file_exists() { [ -f "$1" ]; }
 # Whole classes only: `-Dtest='Outer#method'` silently no-ops for @Nested tests
 # (false green), and most of these suites use @Nested.
 mvn_test_passes() {
-    mvn test -Dtest="$1" -DfailIfNoTests=false -q 2>&1 \
+    mvn test -Dtest="$1" -DfailIfNoTests=false 2>&1 \
         | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"
 }
 
@@ -556,7 +556,8 @@ code_contains_ml() {    # $1 = perl regex, $2 = file
     code_only < "$2" | perl -0777 -ne "exit(/$1/s ? 0 : 1)"
 }
 
-chain_contains_ml() {   # $1 = perl regex
+chain_contains_ml() {
+    [ -f "$2" ] || return 1   # $1 = perl regex
     { [ -f "$VALIDATOR" ] && perl -0777 -ne "exit(/$1/s ? 0 : 1)" "$VALIDATOR"; } \
       || { [ -f "$RULES" ] && perl -0777 -ne "exit(/$1/s ? 0 : 1)" "$RULES"; }
 }

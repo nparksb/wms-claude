@@ -6,7 +6,7 @@ version: v2
 requester: "Nam Park"
 created: 2026-08-18
 updated: 2026-08-19
-status: reviewed
+status: "archived 2026-08-20 — NOT A PLAN. This is a review-input artifact whose job was to constrain SBDEV-2968's A2b header-contract decision; its 5 decisions are recorded and it will never be \"implemented\". Archived during the backlog triage so it stops counting as unimplemented work. Its content remains the reference for SBDEV-2968."
 review_report: reviews/SBDEV-2968-review-a2b-header-contract.md
 related:
   - SBDEV-2968-mobile-ui-function-gating-enforcement.md

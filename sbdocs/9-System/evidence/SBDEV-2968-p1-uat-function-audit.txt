@@ -1,0 +1,214 @@
+SBDEV-2968 §5.1-P1/P2 — function-surface audit, UAT + prd attempt
+Run 2026-08-20. Tenant list taken from the UAT landlord (`landlord` @ uat.sbo.li:25060,
+user wms_landlord), not from an env file — 4 active tenant/warehouse pairs.
+
+Each connection's identity was confirmed with `SELECT current_database(), current_user`
+BEFORE querying, because two MCP servers point at the same DB and one prd server reports a
+database NAME identical to a UAT one.
+
+  MCP server              -> database            user         tenant/warehouse
+  wms2-hydra-uat             wh01_hydra_v2       wh03_om1     hydra/nywh
+  nywh-hydra-uat             wh01_hydra_v2       wh03_om1     (DUPLICATE of the above)
+  c1wh-shipitez-uat          wh01_shipitez_v2    wh04_om1     shipitez/c1wh
+  nywh-shipitez-uat          wh02_shipitez_v2    wh05_om1     shipitez/nywh
+  wsl-wineco-uat             wh01_om1_v2         wh01_om1     wineco/wsl
+  wms2-hydra (PRD)           wh01_hydra_v2       wh03_om1     BLOCKED - 0 visible tables,
+                                                              "permission denied for table
+                                                              mywms_function". prd's app user
+                                                              is wh01_hydra_v2_app.
+
+Join-table columns verified identical on all four UAT DBs (no schema drift on the authz chain):
+  mywms_group_mywms_role     grouplist_id, rolelist_id
+  mywms_group_mywms_user     grouplist_id, userlist_id
+  mywms_role_mywms_function  rolelist_id,  functionlist_id
+  mywms_user_mywms_role      user_id,      roles_id      <- NOT rolelist_id
+
+REQUIRED SURFACE: 12 functions, from the P4 reflected golden map. V2.2.18 creates only 2 of
+them (REPLENISH_REQUEST, CANCELLATION); the other 10 must already exist or the workflow is
+denied to everyone after deploy.
+
+=== RESULT: only ONE required function row is missing, on all four tenants ===
+
+db                 users  missing rows                       any_mobile_view  mobile_login  no_group  via_super_admin
+wh01_hydra_v2      19     MOBILE_UI_VIEW_REPLENISH_REQUEST   15               15            4         15
+wh01_shipitez_v2   36     MOBILE_UI_VIEW_REPLENISH_REQUEST   33               33            3         23
+wh02_shipitez_v2   11     MOBILE_UI_VIEW_REPLENISH_REQUEST   9                9             2         9
+wh01_om1_v2        94     MOBILE_UI_VIEW_REPLENISH_REQUEST   46               47            45        35
+
+MOBILE_UI_VIEW_REPLENISH_REQUEST is exactly what V2.2.18 seeds, so after the migration all four
+tenants carry the complete surface. The other 11 exist on all four today.
+
+Per-function detail, wh01_hydra_v2 (roles holding / users reachable):
+  MOBILE_UI_VIEW_CANCELLATION        3 / 15
+  MOBILE_UI_VIEW_CYCLE_COUNT         3 / 15
+  MOBILE_UI_VIEW_INFO                7 / 15
+  MOBILE_UI_VIEW_PALLETIZING         3 / 15
+  MOBILE_UI_VIEW_PICKING             3 / 15
+  MOBILE_UI_VIEW_PUT_AWAY            2 / 15
+  MOBILE_UI_VIEW_REPLENISHMENT       2 / 15
+  MOBILE_UI_VIEW_STOCK_TRANSFER      6 / 15
+  MOBILE_UI_VIEW_TRANSFER            6 / 15
+  MOBILE_UI_VIEW_TRUCK_LOADING       3 / 15
+  WEB_UI_VIEW_TRANSFER_ORDER         1 / 15
+  MOBILE_UI_VIEW_REPLENISH_REQUEST   ROW ABSENT
+
+The flat "15" is not a query artifact - it was reproduced with an independent query and then
+explained: a GROUP literally named `super-admin` contains 15 of the 19 users and maps to the
+`super-admin` role, which holds everything. Structure: 19 users, 29 groups, 14 roles,
+0 rows in mywms_user_mywms_role (all grants flow group->role), 148 role->function rows.
+
+wh01_om1_v2 (wineco/wsl): 1 user holds MOBILE_UI_LOG_IN but ZERO MOBILE_UI_VIEW_* functions:
+  Z-mariaortiz(archived)
+After the gate this account reaches the mobile app and finds no workflows at all - the ticket's
+own adjacent defect #2 ("blank app, no explanation"), which this fix makes more visible.
+
+================================================================================
+ADDENDUM — HYDRA PRD, now readable (2026-08-20, after the credential fix)
+================================================================================
+The `wms2-hydra` MCP server process still authenticates as wh03_om1 (0 tables): a stdio
+MCP server is spawned at session start, so a config edit needs the server restarted.
+Worked around by connecting with psql using the connection string from the MCP config:
+  wh01_hydra_v2_app@localhost:25061/wh01_hydra_v2  -> 67 visible tables. READ-ONLY queries only.
+
+IDENTITY CONFIRMED as prd, not the same-named UAT DB:
+  users=9 (UAT hydra has 19), stockunit=433, flyway head=V2.2.16 applied 2026-08-17
+  -- matches origin/main being at V2.2.16.
+
+12-FUNCTION CHECK — identical shape to all four UAT tenants.
+COLUMNS ARE "roles holding / users reachable" — NOT "n of 7 users". A review lane misread
+"PUT_AWAY 2 / 7" as 2-of-7-users and raised a High finding on the strength of it; the per-user
+listing below is the authority on per-user counts.
+  MOBILE_UI_VIEW_REPLENISH_REQUEST   ABSENT   (V2.2.18 creates it)
+  MOBILE_UI_VIEW_CANCELLATION        3 roles / 7 users
+  MOBILE_UI_VIEW_CYCLE_COUNT         3 / 7
+  MOBILE_UI_VIEW_INFO                7 / 7
+  MOBILE_UI_VIEW_PALLETIZING         3 / 7
+  MOBILE_UI_VIEW_PICKING             3 / 7
+  MOBILE_UI_VIEW_PUT_AWAY            2 / 7
+  MOBILE_UI_VIEW_REPLENISHMENT       2 / 7
+  MOBILE_UI_VIEW_STOCK_TRANSFER      6 / 7
+  MOBILE_UI_VIEW_TRANSFER            6 / 7
+  MOBILE_UI_VIEW_TRUCK_LOADING       3 / 7
+  WEB_UI_VIEW_TRANSFER_ORDER         1 / 7
+
+POPULATION: 9 users = 7 real + 2 service accounts.
+  admin, bcampbell, davido, jgero, panderson, thomasjr, tomh
+      -> each holds ALL 10 existing MOBILE_UI_VIEW_* functions, MOBILE_UI_LOG_IN, in a group,
+         and all 7 reach them through the `super-admin` role.
+  anonymous, oms_integration -> 0 mobile view functions, no mobile login, in NO group.
+  mywms_user_mywms_role is EMPTY (0 rows): every grant flows user->group->role->function.
+
+P2 SET 4 (regression predictor) IS EMPTY ON PRD. Classification per the plan's own warning:
+genuine for the 7 real users (they hold everything), but it also means THE GATE IS A NO-OP FOR
+EVERY CURRENT PRD USER -- nobody loses access, and nobody is exploiting the bypass either,
+because all 7 legitimately hold every function. Security value on prd today is future-proofing.
+
+*** P5 VALIDATED ON PRODUCTION *** mywms_role_mywms_function on prd has NO primary key and NO
+unique constraint -- only two foreign keys (fkby47oyt3v45jq6sysqya4til9, fkgewu6gt6lnpo19dlhqmtkrhgs).
+That is a THIRD variant beyond the three §14.8 measured (base dump: none / WineCo dev: _pkey /
+Hydra UAT: _pk). BOTH ON CONFLICT forms would have FAILED here: the named form has no constraint
+to name, and column-inference raises 42P10 with no unique index to infer. The NOT EXISTS decision
+prevented a production migration failure.
+
+V2.2.18 WILL BEHAVE AS INTENDED ON PRD:
+  - persona-grant target roles all exist: outbound-worker, outbound-manager, super-admin,
+    inventory-manager (also present: inventory-worker, outbound-forklift, receiving,
+    ROLE000007, ROLE000008)
+  - back-compat grant fires for the 2 roles holding MOBILE_UI_VIEW_REPLENISHMENT:
+    `receiving` and `super-admin`
+  - prd is at V2.2.16, so it will apply V2.2.17 and V2.2.18 together.
+
+!! UNRELATED PRE-EXISTING GAP FOUND: prd's Flyway chain is missing V2.2.11
+   (seed_adjustment_alert_poll_sysprop, SBDEV-2658) while 2.2.12-2.2.16 ARE applied. Benign in
+   effect -- it seeds a feature toggle to 'false' and its own header says an absent row == OFF --
+   and it does NOT block V2.2.18 (18 > 16). But it is an unrecorded hole in a production migration
+   chain, the shape of the known "tenant migration failures never abort boot" landmine. Needs an
+   owner outside this ticket.
+
+================================================================================
+ADDENDUM 2 — CORRECTED SET 4 + SET 1 RUN ON THE FOUR REMAINING DATABASES
+(2026-08-21). Closes the "run on 2 of 6" gap left by §14.20 fix 3.
+================================================================================
+
+Queries are the VERBATIM CTE chain from the committed
+src/main/resources/db/audit-access-invariants.sql (SET 4, incl. projected_held so
+the gate is evaluated POST-migration) and SET 1. Read-only.
+
+IDENTITY CONFIRMED FIRST on every server, because two MCP servers point at
+same-named databases and prd previously answered as wh03_om1 with 0 tables:
+
+  server                database          user                users  flyway
+  c1wh-shipitez-uat     wh01_shipitez_v2  wh04_om1              36    2.2.17
+  nywh-shipitez-uat     wh02_shipitez_v2  wh05_om1              11    2.2.17
+  wsl-wineco-uat        wh01_om1_v2       wh01_om1              94    2.2.17
+  wms2-hydra (PRD)      wh01_hydra_v2     wh01_hydra_v2_app      9    2.2.16
+
+  *** The wms2-hydra MCP server NOW WORKS as wh01_hydra_v2_app. ADDENDUM 1's
+      note that it authenticates as wh03_om1 with 0 visible tables is SPENT.
+      prd identity re-confirmed against the recorded fingerprint: users=9,
+      stockunit=433, flyway head V2.2.16. Match.
+  *** mywms_user_mywms_role is EMPTY (0 rows) on all four -> the direct
+      user->role path added to `held` changes no number here, as predicted.
+
+--- SET 4 (regression predictor: users locked out of EVERY gated workflow) ------
+
+  wh01_shipitez_v2   0 rows.  Distribution: 23 users retain 12/12, 10 retain 11/12.
+  wh02_shipitez_v2   0 rows.  Distribution: 9 users retain 12/12.
+  wh01_om1_v2        3 ROWS.  Z-AdamPetersen(archived), Z-Warehouse(archived),
+                              Z-mariaortiz(archived) -- all retain (none).
+                              Distribution: 3x0, 4x6/12, 1x7/12, 6x11/12, 35x12/12.
+  wh01_hydra_v2 PRD  0 rows.  Distribution: 7 users retain 12/12.
+
+  *** PRD IS NOW MEASURED, NOT DERIVED. ADDENDUM 1 inferred an empty set 4 from
+      the per-user listing; that inference was correct, and this is the query.
+  *** ADDENDUM 1 line 60 knew only Z-mariaortiz on wh01_om1_v2. There are THREE.
+      All three carry the `Z-...(archived)` convention.
+
+  Classification per the audit header's own warning: wh02_shipitez_v2 (9/9 hold
+  everything) and prd (7/7) are the UNINFORMATIVE kind of empty -- role
+  separation is not in use, so no role has an exclusive holder to lose anything.
+  These tenants cannot demonstrate the gate. wh01_shipitez_v2 is mixed (10 users
+  genuinely lack one workflow). wh01_om1_v2 has real role separation and its
+  numbers mean something.
+
+--- SET 4's STRUCTURAL SCOPE, worth stating so no one over-reads a zero --------
+
+  per_user derives from projected_held, so a user holding NO function at all
+  never appears and CANNOT appear in SET 4. Those users are SET 1's job, and the
+  two sets are disjoint by construction. Counts line up exactly:
+  36-33=3, 11-9=2, 94-49=45, 9-7=2 -- each equals that tenant's SET 1 size.
+  This is the design, not a hole, but "SET 4 empty" means "nobody who holds
+  something is left with nothing", NOT "nobody is locked out".
+
+--- SET 1 (zero group membership -> can hold no function) ----------------------
+
+  wh01_shipitez_v2   3: anonymous, oms_integration, tuser03 (TEST TEST)
+  wh02_shipitez_v2   2: anonymous, oms_integration
+  wh01_om1_v2       45: 40 are `Z-...(archived)`; the 5 others are
+                        anonymous, oms_integration, kimberlyconyers,
+                        lukamiranda, sbuser17
+  wh01_hydra_v2 PRD  2: anonymous, oms_integration
+
+  anonymous + oms_integration are service accounts on all four (no group, no
+  mobile login) and are explicitly not blockers per P2.
+
+  NOT DISPOSED, and the whole residual of P2:
+    wh01_om1_v2      kimberlyconyers, lukamiranda, sbuser17
+    wh01_shipitez_v2 tuser03
+  None of these is a REGRESSION -- they hold zero functions today, so they
+  already get the blank app the ticket's adjacent defect #2 describes; the gate
+  does not take anything from them. Whether they need a named remediation
+  depends only on whether they can authenticate at all.
+
+--- CONSEQUENCE: P2's residual collapses into P1's Keycloak join ---------------
+
+  Every undisposed row above is settled by one question -- does this account
+  have a Keycloak identity? P2 scopes itself to "the Keycloak-mapped population
+  only" and says unmapped rows cannot authenticate and are not blockers. So the
+  two remaining blocking prerequisites are now ONE piece of work: the E1-P bulk
+  findUsers join (do NOT use per-username existsInKeycloak -- N round trips and
+  an ungated endpoint). Run it over 7 names: kimberlyconyers, lukamiranda,
+  sbuser17, tuser03, and the 3 Z-...(archived) SET 4 rows.
+
+  The prd clause of P2 -- "result set 4 must be empty on prd" -- is SATISFIED
+  AND MEASURED as of 2026-08-21.

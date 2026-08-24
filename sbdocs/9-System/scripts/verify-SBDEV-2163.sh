@@ -26,6 +26,7 @@ run() {
 
 file_contains()    { grep -qE "$1" "$2" 2>/dev/null; }
 file_contains_ml() {
+    [ -f "$2" ] || return 1
     local pattern="$1" file="$2"
     perl -0777 -ne "exit(/$pattern/ms ? 0 : 1)" "$file" 2>/dev/null
 }

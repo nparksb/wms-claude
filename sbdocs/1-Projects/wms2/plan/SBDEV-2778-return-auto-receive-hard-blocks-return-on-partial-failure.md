@@ -5,7 +5,7 @@ ticket_url: "https://app.clickup.com/t/868kj2bv4"
 type: "bugfix"
 severity: "high"
 priority: "urgent"
-status: "draft rev4 — H1 RE-VERIFIED against merged code 2026-08-09 (SBDEV-2731 #133 and SBDEV-2821 #135 both merged since rev3; neither removes H1's trigger — ReceivingService is byte-identical to its pre-2731 state). Architect + critic review applied at rev3; pending consensus review"
+status: "STALE BASE — RE-GROUND BEFORE ANY WORK (flagged 2026-08-20). The rev4 note (2026-08-09) rests on two claims that are now FALSE: that ReceivingService.java is byte-identical to its pre-2731 state, and that SBDEV-2732 step 15's diversion gate is unimplemented. Since then 67b015e, 9ed8822, cb562b3 and b950e17 landed the pick-face placement gate directly into ReceivingService (+68/-8), and ReturnAdviceAutoReceiveService took +104/-11 from 478b652 and b950e17. H1 — the primary hypothesis and the whole \"trigger still present\" argument — is plausibly ALREADY FIXED. The core defect (any recoverable receive failure hard-blocking the whole return) may survive, but every line anchor in section 0 and section 5 is stale and the RCA needs redoing. This is the SBDEV-2781 pattern repeating: git fetch and diff per repo BEFORE enumerating sites."
 project: ["wms2-api", "oms-laravel-api"]
 version: "v2"
 requester: "Brent Campbell"

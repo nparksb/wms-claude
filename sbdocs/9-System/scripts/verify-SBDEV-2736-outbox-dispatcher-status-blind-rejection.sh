@@ -53,7 +53,7 @@ run() {
 skip() { printf "  SKIP  %-12s  %s  (%s)\n" "$1" "$2" "$3"; SKIP=$((SKIP+1)); }
 
 file_contains()     { grep -qE "$1" "$2" 2>/dev/null; }
-file_not_contains() { ! grep -qE "$1" "$2" 2>/dev/null; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2" 2>/dev/null; }
 # Whole-file PCRE, for anchoring a pattern INSIDE a specific method body.
 # withEventVersion() already uses readTree/ObjectNode, so unanchored greps
 # would pass before the classifier is written.

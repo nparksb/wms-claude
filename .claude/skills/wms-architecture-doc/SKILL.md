@@ -7,6 +7,13 @@ description: Produce a system-level architecture document for a WMS subsystem or
 
 Produces a long-lived system-level architecture document at `sbdocs/3-Resources/architecture/`. Audience: new engineers, ops, security, anyone who needs the "big picture" before touching code.
 
+## Before you write — `wms-triage` owns two rules that apply here
+
+You are not tiering a fix, so skip the router. Two things still bind, and they live in `wms-triage`, not here:
+
+- **The floor's evidence rules.** Every non-obvious claim in an architecture doc needs the same grounding a fix needs — a `file:line` or a DB query, and one independent review pass. Docs asserting opposite things about the same subsystem (measured: two repo docs disagreed on v1 OSIV) come from claims that were never checked.
+- **The ticket policy.** Documenting a subsystem surfaces defects. Route them through the policy — fix tooling/doc defects directly, widen an existing ticket on the same code path, and file at most one new ticket, confirmed by Nam. Do not open a ticket per drift you notice.
+
 ## Trigger
 
 - "Write / update the architecture doc for {v1|v2|WMS API|picking|replenishment|auth|multi-tenancy}"

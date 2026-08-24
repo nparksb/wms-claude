@@ -4,7 +4,7 @@ ticket: "SBDEV-2994"
 ticket_url: "https://app.clickup.com/t/868ktubtu"
 type: "bugfix"
 priority: "normal"
-status: "implemented — PRs open, merge order web #67 -> api #167 -> mobile #36. Verify 55 pass / 0 fail. R3 still blocks per-tenant ENABLEMENT of TRANSFER_DESTINATION_ELIGIBILITY_ENABLED; §8.6 manual plan not executed; the null/dangling-storagelocation_id population remains unmeasured (§13)."
+status: "merged — all 3 PRs in develop (web 99e2359 -> api 6135203 -> mobile 7f83d55); V2.2.17 APPLIED to wineco dev, sysprop seeded false (shadow). R3 still blocks per-tenant ENABLEMENT; §8.6 manual plan not executed; the null/dangling-storagelocation_id population remains unmeasured (§13)."
 project:
   - wms2
 version: "v2"
@@ -1219,6 +1219,20 @@ Neither has a plan file yet; both are ClickUp-only until picked up.
 ---
 
 ## 13. Implementation Status
+
+### Merged and migrated — 2026-08-19
+
+All three PRs merged into `develop` in the required order: **wms2-web-ui #67 `99e2359` → wms2-api #167 `6135203` → wms2-mobile-ui #36 `7f83d55`**. Web-first was honoured for the reason §8 gives — API-first would have left the desktop telling operators that 411,862 truthful Shipped containers "do not exist" for the whole inter-deploy window.
+
+`V2.2.17` was re-swept against **every remote branch** immediately before the merge (not `ls db/migration/`): claimed only by this PR's branch, `develop` was at `V2.2.16`. No collision.
+
+**Flyway `V2.2.17` is applied to WineCo dev (`dev_wh01_om1`)** — `flyway_schema_history` shows `2.2.17` `success=true` at 2026-08-19 21:46:59; exactly **one** `los_sysprop` row for `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` (the `WHERE NOT EXISTS` idempotency held); `sysvalue = 'false'`; `description` 227 chars, under the `varchar(255)` ceiling that aborts with `22001`.
+
+Static exposure on that tenant, re-measured post-merge, matches this plan exactly: **411,862** unit loads at Shipped, 320,638 at Nirwana, 320,642 locked.
+
+⚠ **R3 is unchanged and still blocks enablement.** Shadow mode is now live on WineCo dev. To clear R3 for a tenant: run one operating cycle, then grep for `SBDEV-2994 shadow: would have refused destination … reason=Shipped` — matching `reason=Shipped`, **not** `reason=already shipped` (the lock branch fires first and words it differently). Zero lines over a full cycle is the clearing condition. The Nirvana-sentinel refusal is ungated by design and is live on deploy.
+
+**Not verified as deployed.** The migration being applied does not by itself establish that the application image carrying these commits is running on dev. Other tenants stay unpatched until the app boots against them (`StartupFlywayMigrator` runs Flyway per **active** tenant every boot). `wms2-hydra-dev2` is an **inactive** tenant with no `flyway_schema_history` at all — expected for an inactive DB, not a stalled chain, and not a gap to chase.
 
 **Implemented 2026-08-19.** Three repos, one commit each, all off `origin/develop` in per-ticket worktrees.
 

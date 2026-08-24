@@ -11,7 +11,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0
@@ -33,10 +33,11 @@ skip() {
 }
 
 file_contains() { grep -qE "$1" "$2" 2>/dev/null; }
-file_not_contains() { ! grep -qE "$1" "$2" 2>/dev/null; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2" 2>/dev/null; }
 # Multi-line variant — uses perl -0777 so the regex can span newlines.
 # (BSD grep -z doesn't make `.` / `\s*` truly multi-line on macOS.)
 file_contains_ml() {
+    [ -f "$2" ] || return 1
     PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null
 }
 

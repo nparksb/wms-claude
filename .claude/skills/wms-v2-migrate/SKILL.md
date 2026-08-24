@@ -1,11 +1,17 @@
 ---
 name: wms-v2-migrate
-description: Port or adapt an existing v1/wms-api plan (bug fix or feature) into a corresponding v2/wms2-api plan by deeply analyzing the v2 codebase, determining which v1 fixes still apply, and discovering new v2-only issues along the way. Use when input is a pointer to a v1 plan file (usually under sbdocs/1-Projects/wms1/plan/ or sbdocs/4-Archieves/wms1/plan/), a list of v1 fixes to port, or phrases like "port to v2", "v1 to v2 applicability", "migrate to v2", "backport", "v2 equivalent". Output is a v2-specific plan document — does NOT implement changes.
+description: Port or adapt an existing v1/wms-api plan (bug fix or feature) into a corresponding v2/wms2-api plan by deeply analyzing the v2 codebase, determining which v1 fixes still apply, and discovering new v2-only issues along the way. Use when input is a pointer to a v1 plan file (usually under sbdocs/1-Projects/wms1/plan/ or sbdocs/4-Archieves/wms1/plan/), a list of v1 fixes to port, or phrases like "port to v2", "v1 to v2 applicability", "migrate to v2", "backport", "v2 equivalent". Output is a v2-specific plan document — does NOT implement changes. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
 ---
 
 # WMS v1 → v2 Migration Plan
 
 Produces a v2-specific plan document, tailored from an existing v1 plan by verifying each v1 fix against the v2 codebase. Saved to `sbdocs/1-Projects/wms2/plan/`. Work is implemented AFTER review.
+
+## Triage and tier — run `wms-triage` FIRST
+
+**Invoke `Skill("wms-triage", "<the v1 plan or fix list>")` before porting anything.** Probe question 1 is the one that bites here: a v1 fix is routinely **already on v2's `origin/develop`** via an unlinked commit — fetch and check per repo before enumerating sites. A port whose fixes are all already present needs a two-line note, not a plan document.
+
+Then tier the port like any other change — `wms-triage` owns the router, the floor, the ticket policy and row hygiene, and this skill does not restate them. A one-file port with an obvious v2 equivalent is **T1**, not T3; the tier decides whether the plan below is a document at all.
 
 ## Trigger
 
@@ -17,9 +23,9 @@ User hands you:
 
 If the v1 plan doesn't exist yet, stop and invoke **wms-bugfix-plan** or **wms-feature-plan** first.
 
-## Plan generation — MANDATORY: use ralplan
+## Plan generation — ralplan at T3 ONLY (tier per `wms-triage`)
 
-Every migration plan produced by this skill **MUST** go through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic). Do not write the plan document directly.
+**T3 only.** A T3 migration plan goes through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic) for **one** round; a second only if the Critic returns a **High**. At **T2**, a single `architect` consult on the riskiest divergence replaces the loop and you write the plan yourself. At **T0/T1** there is no plan document to review — port it, test it, done.
 
 **Why:** Migration plans feed directly into `wms-tdd-gate`. A plan that skips consensus produces incomplete acceptance criteria, missed v2-only issues, and inadequate TDD gate checklists — all of which cause the implementation phase to fail or regress.
 
@@ -94,7 +100,7 @@ This is the hardest of the three skills — don't shortcut. A bad migration plan
    - Label these `NEW-1`, `NEW-2`, … and rank severity.
 5. **Verify "Already done" claims.** It is tempting to mark many fixes as already done. For each such claim, quote the v2 line range showing the fix is in place. If you can't quote it, it's not actually already done.
 6. **Check for v2 architectural refactors.** v2 often extracts responsibilities (e.g., `PickingOrderMergeService` extracted from `ReplenishOrderJob`). The v1 fix may need to land in a different class, or needs to be split across multiple classes. Spell this out.
-7. **Only then invoke ralplan.** Pass the full analysis as context (see "Plan generation — MANDATORY: use ralplan" above). Do NOT write the plan file directly.
+7. **At T3 only, invoke ralplan** (skip at T2 and below — see the tier gate). Pass the full analysis as context (see "Plan generation — MANDATORY: use ralplan" above). Do NOT write the plan file directly.
 
 ## Output document
 

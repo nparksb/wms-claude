@@ -1,17 +1,32 @@
 ---
 name: wms-bugfix-plan
-description: Produce a deeply-grounded bug fix plan document for the WMS codebase (v1/wms-api or v2/wms2-api) from an error description, stack trace, exception message, HTTP 500 report, or SBDEV ticket. Use when the input is a concrete defect — error logs, stack traces, StaleObjectStateException, ObjectOptimisticLockingFailureException, NullPointerException, NoSuchElementException, optimistic-lock failures, race conditions, stuck states, workflow breakages (putaway / picking / replenishment / receiving / cycle count / palletizing / truck loading / BOL / move stock). Output is a plan document plus the failing tests written by the chained TDD gate — it does NOT implement the fix.
+description: Produce a deeply-grounded bug fix plan document for the WMS codebase (v1/wms-api or v2/wms2-api) from an error description, stack trace, exception message, HTTP 500 report, or SBDEV ticket. Use when the input is a concrete defect — error logs, stack traces, StaleObjectStateException, ObjectOptimisticLockingFailureException, NullPointerException, NoSuchElementException, optimistic-lock failures, race conditions, stuck states, workflow breakages (putaway / picking / replenishment / receiving / cycle count / palletizing / truck loading / BOL / move stock). Output is a plan document plus the failing tests written by the chained TDD gate — it does NOT implement the fix. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
 ---
 
 ## Execution model
+
+**Run the `wms-triage` skill FIRST — its tier verdict decides which of these phases run at all.** At T0/T1 there is no analysis-delegation phase and no ralplan phase; you do the work inline and the whole thing is minutes. The sequence below is the **T3** shape.
 
 Three phases:
 0. **Ticket resolution** — Stay in the main session for this (the confirmation gate needs the user). Resolve or create the ClickUp ticket and move it to `in development` (see "Ticket resolution" below), then pass the resulting `SBDEV-####` and plan filename into the phases below. Complete this phase before delegating analysis — it is two fast MCP calls, and the ticket id feeds the filename, the verify-script name, and the board state.
 1. **Analysis phase** — Delegate to an `executor` subagent with `model: opus`. The executor runs pre-investigation agents, analysis protocol, and pre-draft enumeration, producing all file:line evidence, root-cause hypotheses, and affected-sites data.
 2. **Plan drafting phase** — Pass the analysis output to `ralplan` (see "Plan generation" below). Do not write the plan document directly from the analysis output.
-3. **TDD gate phase** — After the plan is saved and its verify script exists, chain straight into `wms-tdd-gate` in the same session (see "Chain to the TDD gate" below). Do not end the session at the approved plan.
+3. **TDD gate phase** — After the plan is saved (and its verify script, **if the tier calls for one — T2 and below do not**), chain straight into `wms-tdd-gate` in the same session (see "Chain to the TDD gate" below). Do not end the session at the approved plan.
 
 # WMS Bug Fix Plan
+
+## Triage and tier — run `wms-triage` FIRST
+
+**Do not start here.** Invoke `Skill("wms-triage", "<ticket or symptom>")` before anything below. It owns:
+
+- the four-question **triage probe** (already fixed? reproduces? is the reported cause the real cause? one line?),
+- the **tier router** (T0-T3) and the mid-flight escalation triggers,
+- **the floor** — the five things that never scale at any tier,
+- the **ticket policy**, and **row hygiene** for verify scripts.
+
+Those rules live in exactly one file. Do not restate them here; if one is wrong, fix `wms-triage/SKILL.md`.
+
+**This skill is the T3 shape.** The triage probe frequently ends the task before this skill is needed — that is the intended outcome, not a failure to engage. Come back here only when the probe says `needs a plan: yes` at **T2** (reduced: no ralplan, no verify script) or **T3** (everything below).
 
 Produces a reviewable fix plan saved into the Obsidian vault at `sbdocs/1-Projects/wms{1|2}/plan/`. Implementation happens AFTER review in a separate session.
 
@@ -84,7 +99,8 @@ Default question set (adapt — pick the 3-5 most relevant):
 5. **Backward compatibility** — is breaking any contract OK, or must everything stay additive?
 6. **Coordination** — does any in-flight plan or sibling ticket cover the same code paths?
 
-**Skip questions when:**
+**Skip questions when (tier-gated — see `wms-triage`):**
+- **T0 always; T1 unless a user-visible contract changes.** The router already answered this; do not re-derive it
 - The fix is mechanical (typo, missing null-check, single `.equals()` → `.getId().equals()`)
 - The user has already answered every question category in the prompt
 - The user has explicitly asked you to "just draft" / "use reasonable defaults"
@@ -103,7 +119,8 @@ Before writing the plan body, route the input to one or more specialist agents t
 | `analyst` | Feature work or behavior change with ambiguous scope, input has no concrete stack trace / error message, acceptance criteria are undefined, behavior change where the user could reasonably disagree about correctness | Requirements gaps, undefined acceptance criteria, scope risks, questions to resolve before the plan is authoritative |
 | `architect` | Code path crosses ≥3 services/modules, fix touches transaction managers / tenant routing / caching architecture, or a second-opinion is needed after `tracer` to verify hypotheses against actual code structure | File:line evidence for the suspected root cause, which architectural constraints apply, which alternative fixes were ruled out and why |
 
-**Skip pre-investigation when:**
+**Skip pre-investigation when (tier-gated):**
+- **T0/T1: skip entirely.** **T2: one `architect` consult — a single specific question about the riskiest design choice, not a loop.** Only T3 runs `tracer` / `architect` as full passes
 - Fix is mechanical: single null-check, `.get()` → `.orElseThrow()`, typo, constant swap
 - The user has explicitly said "just draft" / "use reasonable defaults"
 
@@ -128,7 +145,8 @@ For non-trivial bug fixes, invoke `mcp__sequential-thinking__sequentialthinking`
 - Regression archaeology is needed (commits re-enabling / disabling fixes)
 - Fix requires changes in both API and UI
 
-**Skip sequential-thinking when:**
+**Skip sequential-thinking when (tier-gated):**
+- **T0/T1/T2: skip.** It is a T3 tool — reserve it for a genuinely unknown root cause
 - Single unguarded `.get()` on `Optional`
 - Typo, missing null check, single `.equals()` → `.getId().equals()` swap
 - Fix is mechanical and already clear from the stack trace
@@ -141,7 +159,7 @@ Do ALL of these before drafting the plan. Do not skip.
 
 1. **Reproduce the code path in your head.** Start at the entry point named in the stack (controller → service → business service → repository). Quote file:line for every hop.
 2. **Identify every `.get()` on `Optional` in the hot path.** Any unguarded `.get()` is a candidate 500. Note line numbers.
-3. **Check transaction boundaries.** Is the throwing method `@Transactional`? In v2 it MUST be `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})` for tenant-scoped writes. OSIV is disabled in both versions (`spring.jpa.open-in-view=false`), so repository calls in non-transactional methods run in separate sessions with no L1 cache.
+3. **Check transaction boundaries.** Is the throwing method `@Transactional`? In v2 it MUST be `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})` for tenant-scoped writes. **OSIV is NOT symmetric across versions — do not assume it (corrected 2026-08-20, SBDEV-3003).** v2 pins it: `v2/wms2-api/src/main/resources/application.properties:55` has `spring.jpa.open-in-view=false`. **v1 pins it nowhere** — no `spring.jpa.open-in-view` in any tracked file. **UAT and Production run v1 with it off** (set externally); **DEV may not**, and neither does a bare local/CI JVM — both get Spring Boot 2.x's default, which is **on**. So for any v1 concurrency or stale-entity bug: check the setting on the box you reproduced on before concluding whether a caller's entity arrives **detached** (re-fetch = real DB read, fresh version) or **managed** (re-fetch may be an L1 hit returning the same object, unrefreshed). The two cases have different failure modes for the same defect — silent lost update versus `OptimisticLockException`-then-retry. Details and the correction trail: `sbdocs/3-Resources/architecture/wms1-transaction-boundary-map.md` §3, which itself asserted the opposite in ~8 places until 2026-08-20.
 4. **Entity equality audit.** In v1, `Location.equals()` is broken (compares xpos/ypos/zpos/name, not id). In v1, most entities use `Object.equals()` (reference equality) — lookups from different sessions return different instances. In v2, `AbstractBaseEntity.equals()` is ID-based and correct. If the bug hinges on `.equals()`, this is almost always the root cause.
 5. **Optimistic lock chain.** `StaleObjectStateException` → look for the method that loaded the entity in one mini-session and re-used the reference across another write. Suspect duplicate writes, transfer + second sendToNirvana, or merge after detached state.
 6. **Pessimistic lock needs.** Concurrent picker/replenish races often need `findByIdForUpdate` — check the repository for an existing locked variant before suggesting a new one.
@@ -149,6 +167,8 @@ Do ALL of these before drafting the plan. Do not skip.
 8. **DB verification gate (mandatory before writing Root Cause Analysis).** Confirm the symptom at the DB level using `mcp__wms1-wineco-dev__execute_sql`, `explain_query`, or `get_object_details` before drafting any RCA prose. A plan built on code reading alone can plausibly misidentify the root cause — a live query is the only way to prove the data state that triggers the bug. Run at minimum one query that either reproduces the triggering data condition OR confirms the absence of the expected state. Record the query + result inline in §1 (Symptom). Set `db_verified: true` in the plan frontmatter. **If the MCP connection is unavailable, set `db_verified: false` and flag it explicitly at the top of §1 — do not silently omit. A plan flagged `db_verified: false` requires a note on what manual DB check the implementer must run before starting.**
 
 ## Pre-draft enumeration (Layer 1 — MANDATORY before drafting §1-§9)
+
+**Tier gate: the enumeration itself happens at EVERY tier — it is grep and one SQL query, and it is where the parallel Spring Data REST delete route and the three-FK fact came from on SBDEV-3011. What scales is whether it becomes a §0 *table in a document* (T2/T3) or three lines on the ticket (T0/T1).**
 
 Before writing a single section of the plan body, produce a single Affected-Sites table by **enumeration, not memory**. The plan body MUST visit every row — either fixing it or explicitly excluding it with rationale. This is the highest-ROI completeness step; ~60-70% of "the plan missed sites" gaps come from skipping it.
 
@@ -217,9 +237,11 @@ If any in-scope row is missing from §3 Fix Design (or §5 Implementation Steps)
 
 The §0 table also feeds §9 Acceptance — every in-scope row should map to one POSITIVE check in `verify-<plan-id>.sh`.
 
-## Plan generation — MANDATORY: use ralplan
+## Plan generation — ralplan at T3 ONLY (tier per `wms-triage`)
 
-Every plan produced by this skill MUST go through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic). Do not write the plan document directly from the analysis output.
+**T3 only.** A T3 plan goes through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic) for **one** round; run a second round only if the Critic returns a **High**. At **T2**, replace the loop with a single `architect` consult — one specific question about the riskiest design choice — and write the plan yourself. At **T0/T1** there is no plan document to review.
+
+Measured on SBDEV-3011: two consensus rounds over six agent passes produced exactly **one** genuinely valuable design change. One round plus the mid-flight escalation triggers would have caught it.
 
 **Why:** The analysis phase identifies what is broken; ralplan ensures the fix design, acceptance criteria, and implementation steps survive a structured review before being committed to disk. Plans that skip consensus routinely have weak §3 Fix Design or acceptance criteria too vague for the TDD gate.
 
@@ -240,6 +262,8 @@ Every plan produced by this skill MUST go through the `/oh-my-claudecode:ralplan
 
 ## Output document
 
+**LENGTH — T2 does not get a document by default** (bullets on the ticket; a document needs Nam's explicit yes — see `wms-triage`). **T3: no hard cap, but every section must earn its place.** The old flat ≤200-line T2 cap is retired: 85% of archived v2 plans blew it, which made it a number people overrode rather than a limit.** A plan's job is to make the fix decidable and reviewable. Past roughly 200 lines it starts competing with the code for maintenance, and over-specified detail becomes its own defect source: SBDEV-3011's 1142-line plan required several correction rounds for precedent counts, annotation counts and citations that were only wrong because they were stated at all. Prefer a shorter plan and a sharper verify script.
+
 Save to `sbdocs/1-Projects/wms{1|2}/plan/`. **Filename MUST follow the naming convention in the section below** — `YYMMDD-kebab-description.md` for untracked plans, `SBDEV-####-kebab-description.md` for ticketed plans. Use the template at `sbdocs/9-System/templates/wms-plan-template.md` for frontmatter. Structure the body like existing plans in the same folder — see `SBDEV-2102-putaway-unit-load-not-found-stuck.md` and `SBDEV-2116-unguarded-optional-get-fix-plan.md` as the canonical references.
 
 Required sections (numbered, in order):
@@ -256,6 +280,8 @@ Required sections (numbered, in order):
 10. **Implementation Status** — add when implemented in a later session; version it (`## 11. Bug N (v2 — YYYY-MM-DD)`) when new layers are discovered.
 
 ## Completeness checklist (Layer 2 — gate before declaring the draft ready)
+
+**Tier gate: T2/T3 only.** At T0/T1 there is no plan document, and the floor (DB query · failing test · mutation-check · one review · suite-vs-baseline) is the whole gate.
 
 Before declaring the plan draft ready for review, walk every row. For each: mark `✓ <reference>` (with §-section / file:line / sub-section reference) OR `no — <one-line rationale>`. **Empty rows block the plan.**
 
@@ -275,9 +301,11 @@ Before declaring the plan draft ready for review, walk every row. For each: mark
 
 A `no — rationale` answer is acceptable when defensible (e.g. "no — this is a v1-only plan; v2 has its own evolution"). An empty row means the category was not considered, and the plan is not ready for review.
 
-## Verification script (MANDATORY companion to every plan this skill emits)
+## Verification script — T3 OPT-IN ONLY, ≤ 15 rows
 
-**Why this exists.** Prose claims like "S3 done" can be over-claimed without anyone noticing. A 30-second grep-based script encodes each fix as a machine-checkable assertion so an implementing agent's "DONE" claim is provable. Real incident: an executor claimed 14 OMS-decoupling sites complete but had only done 3 — the verify script (added retroactively) exposed the gap immediately. Every plan ships with one.
+**Read *Row hygiene* in `wms-triage` before writing a single row.** T2 and below produce **no** script — their assertions live in JUnit/Jest, which run in CI, survive refactors and can be mutation-checked. Even at T3 a script is opt-in and capped at 15 rows: write a row only for an invariant a test genuinely cannot see (a cross-file or cross-repo one, e.g. *"no call site anywhere passes an entity"*).
+
+**Why the mechanism exists at all.** Prose claims like "S3 done" can be over-claimed without anyone noticing; a grep row encodes a fix as a machine-checkable assertion. Real incident: an executor claimed 14 OMS-decoupling sites complete but had only done 3, and a retroactive script exposed it. That is the one job rows are still good at — counting sites across files. They have been a net negative at everything else; see the measured evidence in `wms-triage`.
 
 **What to do, automatically as part of authoring this plan:**
 
@@ -304,11 +332,19 @@ A `no — rationale` answer is acceptable when defensible (e.g. "no — this is 
 - `sbdocs/9-System/scripts/verify-260424-oms-notification.sh` — cross-service program with 14 sites; demonstrates `file_count_at_least`, multi-line regex via `file_contains_ml`, and `mvn_test_passes` integration.
 - `sbdocs/9-System/scripts/verify-SBDEV-2095.sh` — focused 4-fix plan with positive + negative assertions per fix and per-repo signature checks.
 
-**A bug-fix plan delivered without a corresponding verify script is not review-ready.**
+**Tier gate:** a verify script is **T3 opt-in only**, capped at 15 rows. At **T2 and below there is no script** — the failing test IS the acceptance check, and cross-file invariants that a test cannot see are the only reason to add a row at all. This supersedes any earlier text in this skill requiring a script at T2.
+
+**Build it from `sbdocs/9-System/templates/verify-plan-template.sh`** — the two defects that used to make it unusable were fixed 2026-08-21: `file_not_contains` now guards `[ -f "$2" ] || return 1` (it used to PASS for a file that does not exist, a fault 51 scripts inherited) and `mvn_test_passes` now checks the exit code plus a real `Tests run:` summary line (it used to grep strings `mvn -q` suppresses, so it was permanently red in 38 scripts). A mutation-checked guard test pins both at `sbdocs/9-System/templates/test-verify-plan-template-helpers.sh` — run it if you touch the template. Do NOT fork a one-off script from a sibling `verify-*.sh`: that re-detaches from the guard test, which is how the original two defects survived for months.
+
+**And run it, do not merely read it.** Three separate bugs in SBDEV-3011's script were found only by executing it: a permanently-red row (`NoDeletePagingAndSortingRepository` *contains* the substring `PagingAndSortingRepository`), a negative satisfied by its own explanatory comment, and a `PLAN` path unresolvable from a worktree. Then re-check each fix against the unfixed tree, so a repair cannot have quietly become a false green.
+
+**A plan is not review-ready without acceptance criteria a test can encode.** A verify script is not part of that bar — at T3 it is optional, below T3 it should not exist.
 
 ## Chain to the TDD gate (automatic — do NOT stop at the approved plan)
 
-Once the plan is saved AND `verify-<plan-id>.sh` exists, invoke `Skill("wms-tdd-gate", "<path-to-plan-file>")` in the same session. **Do not ask the user whether to run it.** Plan approval already happened at the ralplan Critic step; the human checkpoint for the tests themselves is the gate's own Step 5. A "shall I run the gate?" prompt approves a decision that was already made and forces the gate to re-read the plan cold in a fresh session.
+**Tier gate: T2/T3 run the gate skill. At T0/T1 write the failing test inline yourself** — creating a worktree and a gate session for a one-file fix costs more than the fix. The floor still applies: the test must exist, fail for the right reason, and be mutation-checked.
+
+At T2/T3, once the plan is saved AND `verify-<plan-id>.sh` exists, invoke `Skill("wms-tdd-gate", "<path-to-plan-file>")` in the same session. **Do not ask the user whether to run it.** Plan approval already happened at the ralplan Critic step; the human checkpoint for the tests themselves is the gate's own Step 5. A "shall I run the gate?" prompt approves a decision that was already made and forces the gate to re-read the plan cold in a fresh session.
 
 **Why chain rather than defer.** The verify script and the failing tests are both *baselines*, and a baseline is only trustworthy when captured against the unfixed build. A grep-based verify script cannot prove its own assertions have teeth — it can report `Result: N pass, 0 fail` on a build that still contains the defect the plan was written to kill. The gate's Step 4 "unexpectedly passes" row is the negative test that catches exactly that. Capture both baselines in one session, before any production code changes.
 
@@ -334,7 +370,7 @@ Bake these into the plan whenever relevant — they're the most common sources o
 
 **v1/wms-api:**
 - `Location.equals()` compares by coord+name (broken); `hashCode()` mixes in id → equals/hashCode contract violated. ALWAYS use `.getId().equals()` for Location comparison.
-- Most other entities use `Object.equals()` — reference equality. With OSIV disabled, two `findById`/`findByName` calls return different instances. Do NOT use `.equals()` on them; compare IDs.
+- Most other entities use `Object.equals()` — reference equality. Outside a session (and OSIV is **not** reliably on or off in v1 — it is pinned nowhere in-repo, off on UAT/prod, unknown on DEV), two `findById`/`findByName` calls return different instances. Do NOT use `.equals()` on them; compare IDs.
 - Mockito 3.3.3 — no `mockStatic()`. If a test needs static mocking, refactor instead.
 - No JPA association annotations — manual FK relationships only.
 - `RestExceptionHandler` only handles `ApiInvalidParameterException` / `ApiConstraintViolationException` / `MethodArgumentNotValidException` / `ApiMissingUserException` / SSO. `NoSuchElementException` and `NullPointerException` become HTTP 500.
@@ -350,7 +386,7 @@ Bake these into the plan whenever relevant — they're the most common sources o
 
 **Both versions:**
 - Multi-tenant. Every tenant has its own database; never assume cross-tenant data in a single query.
-- OSIV is disabled. Every unannotated method that chains multiple repository calls is suspect.
+- OSIV is **not pinned anywhere in v1's repo** — measured off on UAT and prod, unverified on DEV, so a DEV repro may not match what you ship. Every unannotated method that chains multiple repository calls is suspect either way.
 - Never commit `.env`, `auth.json`, `config.php`, `local.php`, `*_dev.properties`, or Jasypt `ENC(...)` values.
 
 ## Plan naming convention
@@ -368,7 +404,9 @@ Do NOT use the older PascalCase / underscore-separated naming style (e.g. `RunCl
 
 v2/wms2-api runs as **multiple replicas** behind a load balancer. Even bug fixes can regress horizontal scalability — e.g., adding a field to a thread-local, a non-idempotent write in a retry path, or a new connection-holding transaction. v1 plans may skip this section; v2 plans MUST include it.
 
-Every v2-targeted plan produced by this skill MUST include the "Horizontal Scalability Validation" section from `sbdocs/9-System/templates/wms-plan-template.md` §7. Fill in the 10-row checklist with an explicit verdict (Yes / No / N/A) for each concern:
+**Tier gate: T2/T3.** At T0/T1, state in one line whether the change adds in-JVM state, a scheduled job, a long transaction, or an external call — if all four are no, that is the whole section.
+
+Every T2/T3 v2-targeted plan produced by this skill MUST include the "Horizontal Scalability Validation" section from `sbdocs/9-System/templates/wms-plan-template.md` §7. Fill in the 10-row checklist with an explicit verdict (Yes / No / N/A) for each concern:
 
 1. **In-JVM state** — new Caffeine / ConcurrentHashMap / static / ThreadLocal state visible only to one replica
 2. **Connection pool math** — changes to per-request DB connections; recompute `replicas × tenants × maxPoolSize` vs Postgres `max_connections`
@@ -386,6 +424,8 @@ For any **Yes** row: provide file:line or test evidence in the "Evidence" sub-ta
 A missing or empty row blocks plan sign-off.
 
 ## v2-only constraint checklist (skip entirely for v1 plans)
+
+**Tier gate: T2/T3 as a written table. At T0/T1 the relevant rows are still TRUE — `tenantTransactionManager`, jakarta namespace, constructor injection, OSIV-disabled — you simply do not write a table about them.**
 
 Before drafting any v2 plan section, verify each constraint. These don't overlap with the horizontal scalability checklist — they're code-level architectural invariants that differ from v1.
 
@@ -408,7 +448,7 @@ This skill produces a *plan* plus the chained TDD gate's failing tests — never
 
 A fix (single-commit OR phase of a batch plan) is NOT complete until all four hold:
 
-0. **Run the verify script first AND last.** Before any code change, run `bash sbdocs/9-System/scripts/verify-<plan-id>.sh` to capture the FAIL baseline. Re-run after every cluster of changes. **Final acceptance: the script reports `Result: N pass, 0 fail`.** The implementing agent / human MUST paste this exact line in the end-of-task report. Filename-level checks ("the file mentions OmsNotificationHelper") are not sufficient — content-level grep at the call-site is what catches over-claims.
+0. **If the plan has a verify script** (T3 opt-in only — most plans have none; skip this item and say so), run it first AND last. Before any code change, run `bash sbdocs/9-System/scripts/verify-<plan-id>.sh` to capture the FAIL baseline. Re-run after every cluster of changes. **Final acceptance: the script reports `Result: N pass, 0 fail`.** The implementing agent / human MUST paste this exact line in the end-of-task report. Filename-level checks ("the file mentions OmsNotificationHelper") are not sufficient — content-level grep at the call-site is what catches over-claims.
 
 1. **Tests exist for every code change.** At minimum one unit test asserting the new behavior. Repository native-SQL or JPQL changes require a Testcontainers integration test. Controller endpoint changes require a controller test (extending `BaseControllerTest` in v2). If the originating report added no tests, the fix still adds them — don't inherit the gap. If coverage is truly impossible (auto-generated code, config-only change), record the reason in the plan's §8 Testing Plan.
 

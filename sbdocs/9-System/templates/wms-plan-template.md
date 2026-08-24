@@ -212,18 +212,20 @@ This section closes two gaps that bit historical plans:
 - **9.1 Acceptance script** — a machine-checkable contract so an agent's "DONE" claim cannot be accepted on prose alone.
 - **9.2 Recommended OMC composition** — an explicit orchestration recipe so the implementer (human or autopilot) doesn't single-shot a multi-cluster plan with one `executor` and over-claim. Match the orchestration shape to the plan's complexity.
 
-### 9.1 Acceptance script (machine-checkable)
+### 9.1 Acceptance script (machine-checkable) — T3 OPT-IN ONLY
 
-Every plan ships an executable acceptance script at `sbdocs/9-System/scripts/verify-<plan-id>.sh`. The script encodes each rollout item as a grep / test assertion so the implementer's "DONE" claim is provable, not prose.
+**Delete this whole sub-section unless the plan is T3 and has a cross-file invariant a test cannot see.** T2 and below ship **no** script; their assertions belong in JUnit/Jest, which run in CI, survive refactors and can be mutation-checked. See *Row hygiene* in the `wms-triage` skill — verify scripts have been a measured net negative here (12 of 16 deliberately-broken implementations once scored a full green). If you do write one, cap it at 15 rows.
+
+A T3 script lives at `sbdocs/9-System/scripts/verify-<plan-id>.sh`. The script encodes each rollout item as a grep / test assertion so the implementer's "DONE" claim is provable, not prose.
 
 **Authoring rules:**
-- Copy `sbdocs/9-System/templates/verify-plan-template.sh` as a starting point.
+- Copy `sbdocs/9-System/templates/verify-plan-template.sh` as a starting point — never fork a sibling `verify-*.sh`, which detaches from the mutation-checked guard test at `test-verify-plan-template-helpers.sh`.
 - Add one `check_<rollout-id>_<aspect>` function per rollout item — at least a POSITIVE check ("new construct present at right call-site"), and a NEGATIVE check where applicable ("old construct is gone").
 - Wire each check into the runner via `run <id> "<description>" <fn>`.
 - Optional but encouraged: invoke a targeted `mvn test -Dtest=<TestClass>` for any item whose correctness depends on behavior, not just code shape.
 
 **Workflow contract:**
-1. The plan author writes the verify script alongside the plan, before implementation starts.
+1. The plan author writes the verify script alongside the plan, before implementation starts — **and proves each row can go red** by replaying the pre-fix file. A row never observed failing proves nothing.
 2. The implementing agent (human or executor) runs it after every change pass and pastes the output into its end-of-task report.
 3. The orchestrator re-runs it. **A "DONE" claim with FAIL lines is not accepted.**
 4. CI (or a pre-commit hook, if wired) runs it on every push.
@@ -270,12 +272,12 @@ Plan size / complexity?
 
 | Aspect | Value | One-line rationale |
 |---|---|---|
-| **Size class** | Trivial / Standard / Large / Pattern-decision | e.g. "8 fixes across one service — Standard" |
+| **Tier** | T0 / T1 / T2 / T3 — per the `wms-triage` router, on execution risk not ClickUp priority | e.g. "multi-file but predictable — T2"; name the deciding factor |
 | **Pre-draft step** | none / deep-interview / analyst+planner / ccg | when applicable |
-| **Plan-review step** | none / critic | should be `critic` for Standard+ |
-| **Implementation shape** | executor / ralph / team / autopilot | pick one; `ralph` is the default for Large |
-| **Verification step** | verify-script + verifier (mandatory for ALL) | always |
-| **Code-review step** | none / code-reviewer | should be `code-reviewer` for Large |
+| **Plan-review step** | none / critic | `critic` at T3; a single `architect` consult at T2; none below |
+| **Implementation shape** | executor / ralph / team / autopilot | pick one; `ralph` at T3, inline at T0/T1 |
+| **Verification step** | the floor, always: DB query · failing test first · mutation-check every new assertion · one independent review · full suite vs baseline. `verifier` lane at T3. Verify script only if T3 and this plan ships one | always |
+| **Code-review step** | none / code-reviewer | `code-reviewer` at EVERY tier — the floor's independent review; never self-approve |
 | **Commit step** | git directly / git-master | use `git-master` for plans with multiple logical commits |
 
 The implementer MAY override this recommendation (e.g., scale down `ralph` to `executor` if the verify script is comprehensive enough) but the override and rationale go into the implementation report.

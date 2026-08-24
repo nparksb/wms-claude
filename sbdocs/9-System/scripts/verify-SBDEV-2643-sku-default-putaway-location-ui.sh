@@ -335,7 +335,7 @@ file_exists() { [ -f "$1" ]; }
 # always pass a CLASS name here, never Class#method.
 mvn_test_passes() {
     [ -d "$PROJECT_ROOT" ] || return 1
-    (cd "$PROJECT_ROOT" && mvn test -Dtest="$1" -DfailIfNoTests=false -q 2>&1 \
+    (cd "$PROJECT_ROOT" && mvn test -Dtest="$1" -DfailIfNoTests=false 2>&1 \
         | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0")
 }
 

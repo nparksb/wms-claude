@@ -1,7 +1,22 @@
 ---
 name: wms-feature-plan
-description: Produce a reviewable implementation plan document for a new feature, enhancement, refactor, or architecture change in the WMS codebase (v1/wms-api or v2/wms2-api). Use when the input is a design description, feature request, performance goal, configuration toggle, new endpoint, or broader architectural change (connection pooling, transaction refactoring, caching strategy, horizontal scaling, pick path config, API redesign). Output is a plan document plus the failing tests written by the chained TDD gate — it does NOT implement the feature.
+description: Produce a reviewable implementation plan document for a new feature, enhancement, refactor, or architecture change in the WMS codebase (v1/wms-api or v2/wms2-api). Use when the input is a design description, feature request, performance goal, configuration toggle, new endpoint, or broader architectural change (connection pooling, transaction refactoring, caching strategy, horizontal scaling, pick path config, API redesign). Output is a plan document plus the failing tests written by the chained TDD gate — it does NOT implement the feature. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
 ---
+
+## Triage and tier — run `wms-triage` FIRST
+
+**Invoke `Skill("wms-triage", "<the request>")` before anything below.** It owns the triage probe, the tier router, the floor, the ticket policy and row hygiene — for features as much as bug fixes; those rules are workflow-wide, not bug-fix-specific. Do not restate them here.
+
+**Phase 0 applies to features too:** a feature request that is already built, already covered by an existing endpoint, or decided by a one-line config change needs none of this skill.
+
+Two adjustments for feature work:
+
+- **Features skew one tier higher than a bug fix of the same size**, because there is no existing behaviour to anchor against and no symptom to verify. A one-file feature is T2, not T1.
+- **Question 2 of the router changes.** For a bug it is *"is the fix predictable from the symptom?"*. For a feature it is **"is the acceptance criterion already decidable?"** If you cannot state, in one sentence, the observable condition that means *done*, you are at least T2 and the pre-draft question phase is mandatory regardless of size.
+
+The floor still applies unchanged at every tier — including the DB query (for a feature: confirm the data condition the feature assumes actually holds) and mutation-checking every new assertion.
+
+
 
 ## Execution model
 
@@ -9,7 +24,7 @@ Three phases:
 0. **Ticket resolution** — Stay in the main session for this (the confirmation gate needs the user). Resolve or create the ClickUp ticket and move it to `in development` (see "Ticket resolution" below), then pass the resulting `SBDEV-####` and plan filename into the phases below. Complete this phase before delegating analysis — it is two fast MCP calls, and the ticket id feeds the filename, the verify-script name, and the board state.
 1. **Analysis phase** — Delegate to an `executor` subagent with `model: opus`. The executor runs pre-investigation agents, analysis protocol, and pre-draft enumeration, producing all file:line evidence, current architecture mapping, callsite enumeration, and design constraints.
 2. **Plan drafting phase** — Pass the analysis output to `ralplan` (see "Plan generation" below). Do not write the plan document directly from the analysis output.
-3. **TDD gate phase** — After the plan is saved and its verify script exists, chain straight into `wms-tdd-gate` in the same session (see "Chain to the TDD gate" below). Do not end the session at the approved plan.
+3. **TDD gate phase** — After the plan is saved (and its verify script, **if the tier calls for one — T2 and below do not**), chain straight into `wms-tdd-gate` in the same session (see "Chain to the TDD gate" below). Do not end the session at the approved plan.
 
 # WMS Feature Implementation Plan
 
@@ -202,9 +217,9 @@ Before writing a single section of the plan body, produce a single Affected-Site
 
 If any in-scope row is missing from §3 Design (or §5 Phased Implementation Plan), the plan is incomplete. The §0 table also feeds §9 Acceptance — every in-scope row should map to one POSITIVE check in `verify-<plan-id>.sh`.
 
-## Plan generation — MANDATORY: use ralplan
+## Plan generation — ralplan at T3 ONLY (tier per `wms-triage`)
 
-Every plan produced by this skill MUST go through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic). Do not write the plan document directly from the analysis output.
+**T3 only** (tier per `wms-triage`). At T2 a single `architect` consult replaces the loop. A T3 plan MUST go through the `/oh-my-claudecode:ralplan` consensus loop (Planner → Architect → Critic). Do not write the plan document directly from the analysis output.
 
 **Why:** Feature plans have a higher rate of scope drift and missing acceptance criteria than bug fixes. ralplan's structured Planner→Architect→Critic loop catches under-specified designs, missing callsites, and backward-compatibility gaps before the plan is written to disk — all of which would stall the TDD gate or the implementation phase.
 
@@ -265,9 +280,11 @@ Before declaring the plan draft ready for review, walk every row. For each: mark
 
 A `no — rationale` answer is acceptable when defensible. An empty row means the category was not considered, and the plan is not ready for review.
 
-## Verification script (MANDATORY companion to every plan this skill emits)
+## Verification script — T3 OPT-IN ONLY, ≤ 15 rows
 
-**Why this exists.** Prose claims like "F3 done" can be over-claimed without anyone noticing. A 30-second grep-based script encodes each fix as a machine-checkable assertion so an implementing agent's "DONE" claim is provable. Real incident: an executor claimed 14 OMS-decoupling sites complete but had only done 3 — the verify script (added retroactively) exposed the gap immediately. Every plan ships with one.
+**Read *Row hygiene* in `wms-triage` before writing a single row, and prefer a JUnit/Jest test to a row every time** — a test runs in CI, survives a refactor and can be mutation-checked. **T2 and below produce no script at all.** Even at T3 it is opt-in: write a row only for an invariant a test genuinely cannot see, such as a cross-file or cross-repo one (*"no call site anywhere passes an entity"*).
+
+**Why the mechanism exists at all.** Prose claims like "F3 done" can be over-claimed without anyone noticing. A 30-second grep-based script encodes each fix as a machine-checkable assertion so an implementing agent's "DONE" claim is provable. Real incident: an executor claimed 14 OMS-decoupling sites complete but had only done 3 — the verify script (added retroactively) exposed the gap immediately. That site-counting job is the one thing rows are still good at; they have been a measured net negative at everything else.
 
 **What to do, automatically as part of authoring this plan:**
 
@@ -285,7 +302,7 @@ A `no — rationale` answer is acceptable when defensible. An empty row means th
    - **One NEGATIVE check** when the change replaces existing code — "the old construct is gone."
    - **For phased plans:** group the checks by phase and label them so the script's output matches the rollout order.
 
-4. Optionally append `mvn_test_passes <ClassName>` rows for each touched test class.
+4. Optionally append `mvn_test_passes <ClassName>` rows for each touched test class. (The template's `mvn_test_passes` and `file_not_contains` were both fixed 2026-08-21 — build from the template, never fork a sibling `verify-*.sh`.)
 
 5. Wire each check via the `run` runner so the script outputs PASS/FAIL per item. Exit code is 0 only when every check passes.
 
@@ -295,7 +312,7 @@ A `no — rationale` answer is acceptable when defensible. An empty row means th
 - `sbdocs/9-System/scripts/verify-260424-oms-notification.sh` — cross-service program with 14 sites; demonstrates `file_count_at_least`, multi-line regex via `file_contains_ml`, and `mvn_test_passes` integration.
 - `sbdocs/9-System/scripts/verify-SBDEV-2095.sh` — focused 4-fix plan with positive + negative assertions per fix and per-repo signature checks.
 
-**A feature plan delivered without a corresponding verify script is not review-ready.**
+**A feature plan is not review-ready without acceptance criteria a test can encode.** A verify script is not part of that bar — at T3 it is optional, below T3 it should not exist. If you do write one, run it and prove each row can go red; a row never observed failing proves nothing.
 
 ## Chain to the TDD gate (automatic — do NOT stop at the approved plan)
 

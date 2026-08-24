@@ -27,8 +27,7 @@ run() {
 }
 
 file_contains()    { grep -qE "$1" "$2" 2>/dev/null; }
-file_contains_ml() { perl -0777 -ne "exit(/$1/ms ? 0 : 1)" "$2" 2>/dev/null; }
-
+file_contains_ml() { [ -f "$2" ] || return 1; perl -0777 -ne "exit(/$1/ms ? 0 : 1)" "$2" 2>/dev/null; }
 echo "=== verify-SBDEV-2164  WMS: Cron Cleanup for Stale Club Batches ==="
 echo
 

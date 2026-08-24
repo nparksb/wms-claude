@@ -13,9 +13,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // \"\"'); if echo \"$CMD\" | grep -q 'git commit' && echo \"$CMD\" | grep -q 'wms-api'; then cd /Users/np1076/dev/spk/owl/v1/wms-api && mvn test -q 2>&1 || exit 2; fi",
+            "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // \"\"'); if echo \"$CMD\" | grep -q 'git commit' && echo \"$CMD\" | grep -q 'wms-api'; then cd ${CLAUDE_PROJECT_DIR:-/home/nampark/dev/wms-claude}/v1/wms-api && mvn test -q 2>&1 || exit 2; fi",
             "asyncRewake": true,
-            "rewakeMessage": "mvn test FAILED after wms-api commit — output:",
+            "rewakeMessage": "mvn test FAILED after wms-api commit \u2014 output:",
             "rewakeSummary": "wms-api tests failed after commit",
             "statusMessage": "Running wms-api tests post-commit..."
           }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "changed=$(cd /Users/np1076/dev/spk/owl/v1/wms-api && { git diff HEAD --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null; git show --name-only --format='' HEAD 2>/dev/null; } | grep 'src/main/java.*service.*\\.java' | sort -u | head -5); if [ -n \"$changed\" ]; then printf '{\"systemMessage\": \"Java service files modified — consider running /verify-docs to check for doc drift.\"}'; fi"
+            "command": "changed=$(cd ${CLAUDE_PROJECT_DIR:-/home/nampark/dev/wms-claude}/v1/wms-api && { git diff HEAD --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null; git show --name-only --format='' HEAD 2>/dev/null; } | grep 'src/main/java.*service.*\\.java' | sort -u | head -5); if [ -n \"$changed\" ]; then printf '{\"systemMessage\": \"Java service files modified \u2014 consider running /verify-docs to check for doc drift.\"}'; fi"
           }
         ]
       }

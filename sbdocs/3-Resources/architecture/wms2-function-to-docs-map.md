@@ -183,6 +183,22 @@ Recommendation: remove or quarantine in a dedicated folder after confirming no d
 
 ## 9. API Symbol → Doc Index
 
+> **Added 2026-08-20 (SBDEV-2968 branch, not yet on `develop`).** New symbols, so a future grep by class name
+> resolves rather than silently missing:
+>
+> | Symbol | What it is |
+> |---|---|
+> | `net.aim_ai.wms.security.RequiresFunction` | the gating annotation; values must be `FunctionEnum` constant **references** so a rename is a compile error |
+> | `net.aim_ai.wms.security.FunctionGuardInterceptor` | the enforcement point; resolves on the **declaring class**, fail-closed inside an explicit 11-controller set |
+> | `net.aim_ai.wms.security.FunctionGuardStartupAssertion` | fails the boot when a guarded handler carries no annotation |
+> | `net.aim_ai.wms.security.AccessDecision` | the decision record — `ALLOWED` / `MISSING_FUNCTION` / `NO_FUNCTIONS` / `USER_NOT_PROVISIONED`, each carrying its own metric tag |
+> | `net.aim_ai.wms.service.AccessAuditService` | `GET /v3/adminAction/accessAudit`; one bulk Keycloak call, never per-row |
+> | `net.aim_ai.wms.controller.UserAdministrationController` | **pre-existing since SBDEV-2870 PR #166 and previously unindexed here** — four `/v3/user/*` endpoints gated on `WEB_UI_VIEW_USER_MANAGEMENT` |
+>
+> ⚠️ `OrderCancellationController` **moved** from `controller/` to `controller/mobile/` on that branch. A grep
+> against the old package will miss it.
+
+
 **Why this section exists.** §2–§8 index the platform by *user-facing function and endpoint*. The workflow the root `CLAUDE.md` mandates — "grep this map for the affected service/method" — starts from a **Java symbol** instead, and before 2026-08-03 this file contained no class or method names at all, so every such grep returned nothing and read as "no docs apply". This section is that missing axis. Added per SBDEV-2803 (surfaced by SBDEV-2632, where a cycle-count change grepped `CycleCountController` / `CyclecountService` and found nothing, though `wms2-cycle-count-workflow.md` covered the subsystem in detail).
 
 **v1 counterpart:** [wms1-function-to-docs-map §9 *Service Method → Doc Index*](./wms1-function-to-docs-map.md) — v1 had this axis from the start and v2 did not, which is the actual gap SBDEV-2803 closes. The two are shaped differently on purpose: v1 lists 18 hot services one-per-row with file paths and section pointers (no controllers); v2 groups by subsystem so all 61 controllers fit without a 61-row table.

@@ -39,9 +39,10 @@ skip() {
 }
 
 file_contains() { grep -qE "$1" "$2" 2>/dev/null; }
-file_not_contains() { ! grep -qE "$1" "$2" 2>/dev/null; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2" 2>/dev/null; }
 # Multi-line variant — perl -0777 so the regex can span newlines.
 file_contains_ml() {
+    [ -f "$2" ] || return 1
     PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null
 }
 

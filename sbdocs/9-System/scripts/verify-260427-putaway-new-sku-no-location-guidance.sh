@@ -10,8 +10,8 @@
 
 set -u
 
-UI_ROOT="${UI_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-mobile-ui}"
-API_ROOT="${API_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-api}"
+UI_ROOT="${UI_ROOT:-/home/nampark/dev/wms-claude/v1/wms-mobile-ui}"
+API_ROOT="${API_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
 SCAN_FLOWBIN="$UI_ROOT/components/putaway/scanFlowBin.vue"
 FLA_SERVICE="$API_ROOT/src/main/java/net/aim_ai/wms/service/FixLocationAssignmentService.java"
 PUTAWAY_SERVICE="$API_ROOT/src/main/java/net/aim_ai/wms/service/mobile/MobilePutAwayService.java"
@@ -30,7 +30,7 @@ run() {
 }
 
 file_contains()     { grep -qE "$1" "$2"; }
-file_not_contains() { ! grep -qE "$1" "$2"; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
 
 echo
 echo "verify-260427-putaway-new-sku-no-location-guidance — acceptance checks"

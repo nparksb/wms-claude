@@ -49,7 +49,7 @@ skip() {
 }
 
 file_contains()     { grep -qE "$1" "$2"; }
-file_not_contains() { ! grep -qE "$1" "$2"; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
 
 SC="src/main/java/net/aim_ai/wms/SecurityConfiguration.java"
 SDW="src/main/java/net/aim_ai/wms/SecurityDisabledWarning.java"
@@ -163,7 +163,7 @@ run AC-6b "SecurityDisabledWarning does NOT import javax.annotation.PostConstruc
 # ---------------------------------------------------------------------------
 check_ac7_mvn_test() {
     "$MVN" test -Dtest=SecurityFilterChainIntegrationTest \
-        -DfailIfNoTests=false -q 2>&1 \
+        -DfailIfNoTests=false 2>&1 \
         | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"
 }
 

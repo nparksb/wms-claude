@@ -31,11 +31,11 @@ run() {
 skip() { printf "  SKIP  %-10s  %s  (%s)\n" "$1" "$2" "$3"; SKIP=$((SKIP+1)); }
 
 file_contains() { grep -qE "$1" "$2" 2>/dev/null; }
-file_not_contains() { ! grep -qE "$1" "$2" 2>/dev/null; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2" 2>/dev/null; }
 # Multi-line regex (spans newlines) via perl -0777. Used for proximity checks —
 # NOTE: the service already references NOT_LOCKED elsewhere, so a bare file-scoped
 # grep would false-PASS; require it ADJACENT to setPrintable instead.
-file_contains_ml() { PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/; exit 1' "$2" 2>/dev/null; }
+file_contains_ml() { [ -f "$2" ] || return 1; PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/; exit 1' "$2" 2>/dev/null; }
 # Key off mvn's own exit code (non-zero on failure); do NOT grep stdout.
 mvn_test_passes() { mvn -q test -Dtest="$1" -DfailIfNoTests=false >/dev/null 2>&1; }
 

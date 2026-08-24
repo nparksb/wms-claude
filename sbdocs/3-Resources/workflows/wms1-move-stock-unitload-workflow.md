@@ -359,7 +359,34 @@ Pure unit-load relocations via `CODE_TRANSFER` (moving a pallet between location
 
 ## 12. Known Landmines
 
-1. **No pessimistic lock on split path.** `StockunitRepository.findByIdForUpdate()` exists in v1 but is not called from the move-stock path. Concurrent splits from two operators on the same high-velocity flowbin can produce a lost-update: both reads see `amount=10`, both write `amount=5`, net result is `amount=5` instead of `0`. Symptom: inventory count drifts positive over time on busy flowbins.
+1. ~~**No pessimistic lock on split path.**~~ **FIXED 2026-08-20 — SBDEV-3003** (wms-api `0a16aba`).
+   This landmine predicted the defect correctly ("inventory count drifts positive over time") and it
+   was then reported by WineCo as ST#1116 and reproduced on v1 DEV: one Move Stock of 12 left 3012 on
+   hand against 3000 ever received.
+
+   **The diagnosis in the original note was wrong in a way worth keeping.** It was not a missing
+   pessimistic lock, and it was not two writes of the same value. `transferStockToUnitLoad` re-fetched
+   the source row and then assigned it an **absolute** amount computed from the *caller's stale
+   instance* — value and version drawn from different snapshots. The losing transaction issued **no
+   UPDATE at all**: Hibernate's dirty check found the freshly-loaded 2988 equal to the computed
+   `3000 − 12`, so no SQL was emitted, `@Version` was never consulted, and the row kept **no trace**
+   (`stockunit 21376110`: version=1, modified at the *first* transaction's timestamp).
+
+   The fix adds **no lock**: it detaches the caller's instance, re-fetches in-transaction, and uses
+   that one instance for both the availability guard and the arithmetic. A pessimistic lock was
+   considered and **rejected** — it would have applied to all 23 callers of the method, two of them
+   batch loops (`BillofladingService:992`, `CustomerorderBatchService:666-684`), in a codebase with
+   zero lock timeouts in `src/main`. `findByIdForUpdate` is also **JPQL**, so an L1 hit returns the
+   cached instance unrefreshed; without also replicating the `detach` at `changeReservedAmount:372`
+   the lock would have been decorative.
+
+   **Detection** (a `stockunit`-vs-ledger drift query cannot find victims — there is no trace on the
+   row): group `stockrecord` `STOCK_REMOVED` rows by `(itemdata, fromunitload, amount, amountstock)`
+   and flag any group with `count(*) > 1` inside ~10 seconds. Validated both ways — finds the known
+   case on `wh01_om1`, returns zero on `wh01_om1_v2`.
+
+   Full analysis: [[../../1-Projects/wms1/plan/SBDEV-3003-move-stock-lost-update-inventory-inflation]].
+   v2 is unaffected — it locks and refreshes, and computes from the locked instance.
 
 2. **No outer transaction in `MobileMoveStockService.selectDestination`.** The pallet-destination path in `selectDestination` calls `transferStockToUnitLoad` then `transferUnitLoadToCarrier` as two separate `@Transactional` methods. A crash between them leaves a dangling box UL at the pallet's location with stock but no carrier assignment.
 

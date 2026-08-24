@@ -7,8 +7,8 @@
 #   ui-sync.sh <v1-repo-path> <v2-repo-path>
 #
 # Example:
-#   ui-sync.sh /Users/np1076/dev/spk/owl/v1/wms-web-ui \
-#              /Users/np1076/dev/spk/owl/v2/wms2-web-ui
+#   ui-sync.sh /home/nampark/dev/wms-claude/v1/wms-web-ui \
+#              /home/nampark/dev/wms-claude/v2/wms2-web-ui
 #
 # Preconditions (one-time setup per v2 repo):
 #   cd <v2-repo>

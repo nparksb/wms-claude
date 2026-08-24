@@ -8,7 +8,7 @@
 #
 # Plan: sbdocs/1-Projects/wms2/plan/SBDEV-2890-transaction-detail-ul-picks-excluded.md
 #
-#   PROJECT_ROOT=/Users/np1076/dev/spk/owl/v2/wms2-api \
+#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-api \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2890-transaction-detail-ul-picks-excluded.sh
 #
 # Exit 0 ONLY on "N pass, 0 fail, 0 skip". Paste that line in the end-of-task report.
@@ -40,7 +40,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v2/wms2-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0; FAIL=0; SKIP=0

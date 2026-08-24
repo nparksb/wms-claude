@@ -75,8 +75,25 @@ tags:
 
 ## 3. Key Facts (read once)
 
-- **The app does not run Flyway at runtime.** Migrations are an operator step. Nothing
-  self-heals on deploy.
+- 🔴 **CORRECTED 2026-08-21 — the app DOES run Flyway at runtime, on every boot, in every
+  environment.** This bullet previously read *"The app does not run Flyway at runtime. Migrations are
+  an operator step. Nothing self-heals on deploy."* That is **false on all three branches**
+  (`develop`, `release`, `main`): `application.properties` sets `app.flyway.migrate-on-startup=true`
+  **and** `app.flyway.out-of-order=true`, and `landlord/service/StartupFlywayMigrator.java` runs the
+  chain against the landlord DB plus every active tenant DB at startup. So a deploy **does** self-heal
+  a lagging tenant, and it can apply a version out of order without anyone asking it to.
+  Consequences an operator must know:
+  - **A deploy is a migration event.** Pending migrations land when the image boots, not when you run
+    this runbook. Plan for that rather than being surprised by it.
+  - **Legacy psql-provisioned DBs are SKIPPED**, so this runbook is still the path for those.
+  - **Tenant migration failures never abort boot.** A tenant whose chain is frozen — e.g. by object
+    ownership drift, where `CREATE OR REPLACE FUNCTION` needs ownership — fails **silently** and
+    nobody is paged. Always verify per tenant afterwards.
+  - **Reading the code beats reading this file.** The claim above survived here for months. Confirm
+    with `flyway_schema_history` on the tenant, never from a document.
+  - Worked example of why it matters: production is at `2.2.16` **with no row for `V2.2.11`**, even
+    though `main` carries `V2.2.11` and out-of-order is on — which proves the running prd image
+    predates `main`. That inference is only available if you know boot-migration is enabled.
 - **Two migration sets exist. Only one is in play here:**
   - `db/migration/` — `V2.2.x`, the live set. **This runbook applies these.**
   - `db/v1-to-v2-onboarding/schema/` — `V1.0.01`→`V2.1.17`, historical. **Never replay.**

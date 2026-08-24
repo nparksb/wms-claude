@@ -10,7 +10,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v2/wms2-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0
@@ -33,7 +33,8 @@ skip() {
 
 file_contains()        { grep -qE "$1" "$2" 2>/dev/null; }
 file_not_contains()    { ! grep -qE "$1" "$2" 2>/dev/null; }
-file_contains_ml()     { PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null; }
+file_contains_ml()     {
+    [ -f "$2" ] || return 1 PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null; }
 # negative multi-line: fails (returns 1) if the pattern IS present across lines
 file_not_contains_ml() { test -f "$2" && ! ( PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null ); }
 

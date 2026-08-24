@@ -1,10 +1,24 @@
 ---
 name: wms-tdd-gate
-description: Create the per-ticket git worktree off freshly-fetched origin/develop, then write failing tests from a reviewed WMS plan's acceptance criteria, confirm they fail for the right reason, and pause for human approval before implementation starts. Normally invoked automatically as the final phase of wms-bugfix-plan / wms-feature-plan; can also be run standalone against an approved plan from an earlier session.
+description: Create the per-ticket git worktree off freshly-fetched origin/develop, then write failing tests from a reviewed WMS plan's acceptance criteria, confirm they fail for the right reason, and pause for human approval before implementation starts. Normally invoked automatically as the final phase of wms-bugfix-plan / wms-feature-plan; can also be run standalone against an approved plan from an earlier session. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
 version: 1.1.0
 ---
 
 # WMS TDD Gate
+
+## Tier gate — is this skill even the right tool?
+
+**This skill is for T2/T3 work** (tier assigned by the `wms-triage` skill, which owns the router). It creates a git worktree, writes tests from a plan document, and pauses for approval — worth it when the fix spans files or is irreversible, and pure overhead for a one-file change.
+
+- **T0/T1: do not invoke this skill.** Write the failing test inline in the existing test class, confirm it fails for the right reason, mutation-check it, then implement. The floor is satisfied; a worktree and a gate session are not.
+- **T2/T3: invoke it.** Everything below applies.
+
+**The floor applies either way** — a failing test that fails for the *right* reason, and mutation-checked. What this skill adds beyond the floor is the worktree, the plan-to-test mapping, and the human checkpoint.
+
+⚠ **A new method's contract cannot be expressed in compiling Java before the method exists.** On SBDEV-3011 the behavioural tests could not compile until `deleteRole` had a signature, and adding them would have broken compilation for the whole module — destroying the one gate that did work. The resolution: write a **reflection-based contract test** first (it compiles today and fails correctly), and defer the behavioural tests to the executor's first commit, once the signatures land. Precedents: `unit/repo/OnHandQueryContractUnitTest`, `unit/repo/AdviceRepositoryRestExportUnitTest`.
+
+⚠ **A reflection test that `for`-eaches over `getDeclaredMethods()` is vacuous when the list is empty.** Measured: gutting the interface under test left 13/13 green. Assert the declared SET first, keyed on **name + parameter count** — a name-only key collapses overloads and still misses partial removal. Then mutation-check it.
+
 
 Bridges plan review and implementation. Given a critic-approved plan, writes the minimum failing tests that encode the plan's acceptance criteria, validates they fail correctly, and presents a baseline report for human approval. Implementation does not start until the user explicitly signs off.
 
@@ -178,6 +192,8 @@ The plan ships with `sbdocs/9-System/scripts/verify-<plan-id>.sh`. Run it once h
 ```bash
 bash sbdocs/9-System/scripts/verify-<plan-id>.sh 2>&1 | tail -20
 ```
+
+**Only if the plan has a verify script** — T2 and below no longer produce one; their assertions live in JUnit/Jest, which is the preferred home (see *Row hygiene* in `wms-triage`). If there is no script, skip this step and say so.
 
 Expect failures — that is the point. **If it reports `Result: N pass, 0 fail` before any production code changed, the script is asserting nothing** (usually filename-level checks instead of call-site regexes). Flag it in the Step 5 report and tighten it now; a verify script that cannot fail cannot later prove the work was done. This is the same trap that let a plan score 57 pass / 0 fail on a build that still contained the defect it was written to catch.
 

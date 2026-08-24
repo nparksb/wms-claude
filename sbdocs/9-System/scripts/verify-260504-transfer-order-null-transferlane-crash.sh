@@ -11,7 +11,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/Users/np1076/dev/spk/owl/v1/wms-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0
@@ -42,11 +42,12 @@ skip() {
 # --- assertion helpers ---
 file_contains()      { grep -qE "$1" "$2"; }
 file_not_contains()  { ! grep -qE "$1" "$2"; }
-file_contains_ml()   { local p=$1; perl -0777 -e 'my $p=shift; my $f=do{local $/;<STDIN>}; exit($f=~/$p/s ? 0 : 1)' "$p" < "$2"; }  # multi-line via Perl slurp
+file_contains_ml()   {
+    [ -f "$2" ] || return 1 local p=$1; perl -0777 -e 'my $p=shift; my $f=do{local $/;<STDIN>}; exit($f=~/$p/s ? 0 : 1)' "$p" < "$2"; }  # multi-line via Perl slurp
 
 mvn_test_passes() {
     local test_class=$1
-    mvn test -Dtest="$test_class" -DfailIfNoTests=false -q 2>&1 \
+    mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1 \
         | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"
 }
 

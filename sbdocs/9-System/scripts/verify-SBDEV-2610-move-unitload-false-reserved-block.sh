@@ -19,8 +19,8 @@ run() { local id=$1 desc=$2; shift 2
     else printf "  FAIL  %-10s  %s\n" "$id" "$desc"; FAIL=$((FAIL+1)); fi; }
 skip() { printf "  SKIP  %-10s  %s  (%s)\n" "$1" "$2" "$3"; SKIP=$((SKIP+1)); }
 file_contains()     { grep -qE "$1" "$2"; }
-file_not_contains() { ! grep -qE "$1" "$2"; }
-mvn_test_passes()   { mvn test -Dtest="$1" -DfailIfNoTests=false -q 2>&1 | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"; }
+file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
+mvn_test_passes()   { mvn test -Dtest="$1" -DfailIfNoTests=false 2>&1 | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"; }
 
 SRC=src/main/java/net/aim_ai/wms/service/ReplenishmentOrderSourceSyncService.java
 MMU=src/main/java/net/aim_ai/wms/service/mobile/MobileMoveUnitloadService.java

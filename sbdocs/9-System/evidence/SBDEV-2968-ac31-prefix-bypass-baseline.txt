@@ -1,0 +1,76 @@
+SBDEV-2968 / AC-31 — PRE-FIX BYPASS BASELINE (§14.9 Phase A step 6)
+Captured 2026-08-20 against origin/develop (wms2-api e7b3b88-era build running from
+v2/wms2-api/target/classes). NOT a test of the fix: develop contains zero of the
+SBDEV-2968 mechanism (RequiresFunction / FunctionGuardInterceptor / AUTHZ_DENIED all 0 files).
+
+SUBJECT   sbtest -> group 'test group' -> role 'test role' -> {MOBILE_UI_LOG_IN, WEB_UI_LOG_IN}
+          ZERO MOBILE_UI_VIEW_* functions. Confirmed in-app:
+          GET /v3/user/getAllRoles/sbtest -> 200 ["MOBILE_UI_LOG_IN","WEB_UI_LOG_IN"]
+ROUTING   X-Tenant-ID: localhost   facility_code: develop   (NOT tenant_name - TenantFilter:23)
+AUTH      Keycloak kc2.dev.sbo.li realm=wineco client=om1, direct access grant
+TENANT DB dev_wh01_om1
+
+RESULT: 35 of 35 GET endpoints across all 11 gated controllers reached their handler.
+        401 responses: 0.   403 responses: 0.   Authorization blocks: NONE.
+        Every non-200 is a BUSINESS outcome of handler execution (ProblemDetail
+        'Entity Not Found', or 400/500 from bad input), not an access decision.
+        Path variables were deliberately non-existent ids (999999999) / nonsense
+        scan inputs (ZZ-NOMATCH-ZZ) so that GET-but-mutating handlers had nothing
+        to act on. The parameterless list endpoints carry the disclosure evidence.
+
+LIVE DATA RETURNED TO A USER WITH NO MOBILE VIEW FUNCTION:
+  /v3/cycleCountLos/orderList     200  21260 bytes  live cycle-count orders
+  /v3/replenish/clientList        200  11431 bytes  live client list
+  /v3/truckLoading/orderList      200   5878 bytes  live BOL names
+  /v3/transferOrder/orderList     200    669 bytes  live transfer orders + customerOrderIds
+  /v3/cancellation/list           200    220 bytes  live customer order numbers
+  /v3/picking/pickTimeOutValue    200      2 bytes  '30' (config disclosure)
+
+FULL TABLE (status / bytes / endpoint / body head)
+STATUS BYTES   ENDPOINT                                             BODY
+200    2       /v3/lookup/search/{keyword}                          {}
+200    2       /v3/lookup/searchSku/{keyword}                       {}
+200    2       /v3/lookup/stockListByItemNumber/{itemNumber}        []
+200    2       /v3/lookup/unitLoadListByLocationName/{locationName} []
+200    2       /v3/lookup/locationByLocationName/{locationName}     {}
+200    101     /v3/putaway/scanPallet/{input}                       {"errors":[{"field":"Runtime Error","message":"No 
+200    89      /v3/moveUnitload/selectSource/{input}                {"errors":[{"field":"Runtime Error","message":"No 
+404    204     /v3/moveStock/selectSource/{input}                   {"type":"about:blank","title":"Entity Not Found","
+400    133     /v3/moveStock/selectStockUnit/{id}/{input}           {"timestamp":"2026-08-20 12:44:38","status":400,"e
+200    84      /v3/picking/processRapidPickScanPackage/{section}/{input} {"errors":[{"field":"Runtime Error","message":"ZZ-
+200    2       /v3/picking/pickTimeOutValue                         30
+200    25      /v3/picking/pickingOrders/{input}                    {"message":"","items":[]}
+404    203     /v3/picking/releasePickingOrder/{id}                 {"type":"about:blank","title":"Entity Not Found","
+404    209     /v3/picking/pickingOrderPositionsInfo/{id}           {"type":"about:blank","title":"Entity Not Found","
+200    80      /v3/picking/processLocation/{id}/{input}             {"errors":[{"field":"Runtime Error","message":"No 
+200    106     /v3/palletizing/scanParcel/{input}                   {"errors":[{"field":"Runtime Error","message":"The
+200    166     /v3/palletizing/scanPalletBulk/{input}               {"errors":[{"field":"Runtime Error","message":"Str
+404    212     /v3/palletizing/scanParcelBulk/{id}/{input}          {"type":"about:blank","title":"Entity Not Found","
+200    5878    /v3/truckLoading/orderList                           [null,"",null,"",null,null,"","WineCo Close 4-28-2
+200    0       /v3/truckLoading/truckLoadingInfo/{bolName}          
+200    87      /v3/cycleCountLos/scanSingleUnitLoad/{input}         {"errors":[{"field":"Runtime Error","message":"No 
+200    21260   /v3/cycleCountLos/orderList                          [{"id":11333508,"created":"2022-06-29T02:27:43.036
+200    2       /v3/cycleCountLos/locationList/{orderId}             []
+200    2       /v3/cycleCountLos/unitLoadList/{orderId}/{locationId} []
+200    90      /v3/replenish/requestLocation/{input}                {"errors":[{"field":"Runtime Error","message":"No 
+200    0       /v3/replenish/reservedOrder                          
+200    11431   /v3/replenish/clientList                             [{"id":55750,"created":"2019-05-30T23:22:10.810Z",
+404    203     /v3/replenish/clientOrderList/{clientNumber}         {"type":"about:blank","title":"Entity Not Found","
+200    0       /v3/replenish/loadOrderById/{id}                     
+500    139     /v3/replenish/checkSource/{id}/{input}               {"timestamp":"2026-08-20 12:44:40","status":500,"e
+400    129     /v3/replenish/checkAmount/{id}/{input}               {"timestamp":"2026-08-20 12:44:40","status":400,"e
+500    144     /v3/replenish/checkDestination/{id}/{input}          {"timestamp":"2026-08-20 12:44:40","status":500,"e
+200    669     /v3/transferOrder/orderList                          [{"customerOrderId":30628148,"transferid":"TCOMPAN
+200    220     /v3/cancellation/list                                [{"customerorderId":29855310,"customerorderNumber"
+404    196     /v3/cancellation/{customerOrderId}/detail            {"type":"about:blank","title":"Entity Not Found","
+
+STATUS DISTRIBUTION
+       25 200
+        6 404
+        2 500
+        2 400
+
+NOT PROBED BY CHOICE: the 32 mutating endpoints (POST/PUT/DELETE/PATCH) on the same
+11 controllers. They move stock. Their authorization posture is identical by
+construction - the /v3/** wms_user floor is the only gate on the class - but this
+file does not claim to have measured them.

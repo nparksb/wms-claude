@@ -149,7 +149,7 @@ method_body_not_contains() {
 mvn_test_passes() {
     local test_class=$1
     [ -d "$WMS_ROOT" ] || return 1
-    (cd "$WMS_ROOT" && mvn test -Dtest="$test_class" -DfailIfNoTests=false -q 2>&1 \
+    (cd "$WMS_ROOT" && mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1 \
         | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0")
 }
 

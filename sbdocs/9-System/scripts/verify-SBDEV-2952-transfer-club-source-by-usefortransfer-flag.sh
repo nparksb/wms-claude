@@ -152,7 +152,7 @@ clearing_hoisted_in() {
 
 mvn_test_passes() {
     local test_class=$1
-    mvn test -Dtest="$test_class" -DfailIfNoTests=false -q 2>&1 \
+    mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1 \
         | grep -qE "BUILD SUCCESS|Tests run.*Failures: 0.*Errors: 0"
 }
 

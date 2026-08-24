@@ -15,8 +15,8 @@ Cherry-picks v1 UI commits forward to v2 (Lane A of the weekly WMS v1→v2 sync 
 
 ```bash
 ./sbdocs/9-System/scripts/ui-sync.sh \
-  /Users/np1076/dev/spk/owl/v1/wms-mobile-ui \
-  /Users/np1076/dev/spk/owl/v2/wms2-mobile-ui
+  /home/nampark/dev/wms-claude/v1/wms-mobile-ui \
+  /home/nampark/dev/wms-claude/v2/wms2-mobile-ui
 ```
 
 **What it does:**
