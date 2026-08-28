@@ -46,6 +46,30 @@ echo "── file_not_contains"
 file_not_contains 'forbidden_token' "$REAL"; check "reports absent=false when the token IS present" 1 $?
 file_not_contains 'nope_not_here'   "$REAL"; check "reports absent=true when the token is absent"   0 $?
 file_not_contains 'anything' "$MISSING" 2>/dev/null; check_nonzero "MUST FAIL CLOSED on a missing file" $?
+UNREADABLE="$(dirname "$REAL")/unreadable_$$.java"
+printf 'void f(){ forbidden_token(); }\n' > "$UNREADABLE"; chmod 000 "$UNREADABLE"
+file_not_contains 'forbidden_token' "$UNREADABLE" 2>/dev/null
+check_nonzero "MUST FAIL CLOSED on an UNREADABLE file (grep exits 2; ! inverts it to a false PASS)" $?
+chmod 644 "$UNREADABLE"
+
+echo "── code_not_contains (negatives about DELETED symbols)"
+printf '// tombstone: setPutAwayLocation was DELETED here\nvoid keep(){ }\n' > "$REAL"
+code_not_contains 'setPutAwayLocation' "$REAL"
+check "IGNORES a comment-only line — the tombstone trap that reds a correct deletion" 0 $?
+printf '// tombstone: setPutAwayLocation was DELETED here\nvoid f(){ setPutAwayLocation(a,b); }\n' > "$REAL"
+code_not_contains 'setPutAwayLocation' "$REAL"
+check "still CATCHES the symbol on a real code line"                                  1 $?
+printf ' * setPutAwayLocation in a javadoc continuation\n' > "$REAL"
+code_not_contains 'setPutAwayLocation' "$REAL"
+check "IGNORES a javadoc continuation line"                                            0 $?
+code_not_contains 'anything' "$MISSING" 2>/dev/null
+check_nonzero "MUST FAIL CLOSED on a missing file"                                      $?
+chmod 000 "$UNREADABLE"; code_not_contains 'forbidden_token' "$UNREADABLE" 2>/dev/null
+check_nonzero "MUST FAIL CLOSED on an UNREADABLE file"                                  $?
+chmod 644 "$UNREADABLE"; rm -f "$UNREADABLE"
+printf 'forbidden_token\n' > "$REAL"
+echo "── file_not_contains (resumed)"
+
 
 echo "── file_contains (control: should already fail closed)"
 file_contains 'forbidden_token' "$REAL";    check "finds a present token"            0 $?

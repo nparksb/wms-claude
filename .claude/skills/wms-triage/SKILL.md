@@ -127,6 +127,39 @@ These are the five cheapest things in the whole process and they are where the d
 1. **One DB query confirming the symptom** before writing anything. Record it and its result. If the MCP is unavailable, say so explicitly and name the query the implementer must run.
 2. **One failing test before the fix**, and it must fail for the *right* reason — an assertion, not a compile error or an NPE in setup.
 3. **Mutation-check every new assertion.** Break the thing it protects; confirm the test goes red; restore. An assertion never observed failing is not evidence. This single habit found **five** defects on SBDEV-3011 that four review lanes and two consensus rounds had missed, including a regression pin that passed while the fix it guarded was deleted wholesale.
+
+   **Use PIT, not a hand-rolled harness** (`wms2-api` only; landed on develop 2026-08-25):
+
+   ```bash
+   export SDKMAN_DIR="$HOME/.sdkman"; source "$SDKMAN_DIR/bin/sdkman-init.sh"
+   cd <worktree> && mvn -o test-compile -q
+   mvn -o org.pitest:pitest-maven:mutationCoverage \
+     -DtargetClasses=net.aim_ai.wms.service.YourService \
+     -DtargetTests='net.aim_ai.wms.unit.service.YourServiceUnitTest'
+   ```
+
+   Read the survivors — the actionable half — with the XML snippet in
+   `sbdocs/9-System/mutation-testing-recipe.md`. Roughly 12s scoped to one class after a
+   ~35s cold `test-compile`. A `SURVIVED` line is an assertion gap; `NO_COVERAGE` may just
+   be unreachable code, and PIT distinguishing the two is the point.
+
+   **Always scope it to the class you changed.** Not because of a red baseline any more —
+   **SBDEV-3089 cleared both develop reds on 2026-08-26** (`OptionalSafetyArchTest`,
+   `MobilePalletizingServiceTest`), so develop now runs at **0 failures** and a wider run does
+   clear PIT's green-suite abort. ⚠ Do not hardcode the test COUNT from any doc — it moves with
+   every merge (5620 at the clearing, 5635 after SBDEV-3103). Measure the baseline fresh and
+   compare failures, not totals. Scope it because wider runs are still slow and
+   hit `Minion exited abnormally due to TIMED_OUT` — that half is unchanged and is SBDEV-3007's
+   problem, not yours. **Do not treat a red full suite as expected.** If `mvn test` shows any
+   failure, that is now a signal, not the baseline — which is the whole point of having cleared it.
+
+   **Why the tool and not a script:** hand-rolled patch-and-recompile harnesses produced
+   *measured false results at least five times across three sessions* — an mtime-preserving
+   restore let mutant bytecode leak into a fabricated 17/17; a patch silently never applied;
+   an anchor hit the wrong occurrence for 6 false greens; two lanes raced the same worktree;
+   a greedy `re.S` regex ate six store actions and reported success. PIT mutates bytecode in
+   memory, so it writes no source file, matches no anchor, triggers no recompile, and cannot
+   be raced. Hand-roll only where PIT cannot reach (Jest/Vue, SQL, config).
 4. **One independent review pass.** Never self-approve in the authoring context.
 5. **Full suite compared against the known baseline** — not "did it pass", but "are the failures the same ones".
 

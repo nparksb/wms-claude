@@ -4,7 +4,7 @@ ticket: "SBDEV-2951"
 ticket_url: "https://app.clickup.com/t/868kr4zhb"
 type: "bugfix"
 priority: "high"
-status: "MERGED to develop 2026-08-15 (API first). ClickUp `on dev`.
+status: "ARCHIVED 2026-08-28 — MERGED to develop 2026-08-15 (API first). ClickUp `on dev`."
     wms2-api    PR #157  merge 945e8e8  bugfix/SBDEV-2951-transfer-club-onhand-quantity
     wms2-web-ui PR  #60  merge f5596fa  bugfix/SBDEV-2951-transfer-club-onhand-column
   Verify 35 pass / 0 fail / 0 skip. API suite 5046 run / 2 fail = develop baseline. Jest 17/17 (355 total).
@@ -24,6 +24,10 @@ related:
 tags:
   - plan
 ---
+
+> Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2951-transfer-club-available-counts-lane-only.sh`
+> Implementation worktree(s) removed 2026-08-28: wms2-api/SBDEV-2951, wms2-web-ui/SBDEV-2951
+> §5.4's implementation checklist was never ticked; it is a PRE-implementation checklist and the plan shipped. Archived on the §10.1 decisions, all resolved 2026-08-13.
 
 # WMSv2: Transfer and Club item lists show no warehouse-wide stock figure
 

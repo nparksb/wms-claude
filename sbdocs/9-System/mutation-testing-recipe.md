@@ -1,8 +1,8 @@
 ---
-title: "Mutation testing (PIT) for wms2-api — setup, gotchas, and why it replaces grep verification"
+title: "Mutation testing (PIT) for wms2-api — scoped setup, gotchas, and why it beats a hand-rolled harness"
 type: "how-to"
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-25
 tags:
   - system
   - testing
@@ -13,9 +13,18 @@ tags:
 
 ## Why this exists
 
-Every plan in this vault ships a `verify-<plan-id>.sh` grep script. Across SBDEV-2994 and SBDEV-2995
-those scripts were broken **four separate times**, each round closing the previous round's escapes and
-each followed by a new lane finding more:
+**The driver is floor item 3** — *"mutation-check every new assertion"* applies at every tier including
+T0, and the tool used for it was a hand-rolled Python patch-and-recompile harness that produced measured
+false results at least five times across three sessions (see *Status* below). PIT does the same job
+without any of those failure modes.
+
+The original driver, recorded here for history, was **verify scripts** — but that premise expired:
+`wms-triage` and the plan template (2026-08-21) now demote verify scripts to T3-opt-in and ≤15 rows,
+T0/T1/T2 ship none, and none has been written since 2026-08-22. The analysis below still explains *why*
+a grep cannot do this job, which is why it is kept.
+
+Across SBDEV-2994 and SBDEV-2995 those scripts were broken **four separate times**, each round closing
+the previous round's escapes and each followed by a new lane finding more:
 
 | Round | Result |
 |---|---|
@@ -35,8 +44,10 @@ blind spots.
 
 ## Setup
 
-Add to `v2/wms2-api/pom.xml`, in `<build><plugins>` (verified working 2026-08-19 on Java 21 /
-Spring Boot 3.5.9 / JUnit 5.12.2):
+**Landed on `origin/develop` 2026-08-25** — nothing to add, the block below is already in
+`v2/wms2-api/pom.xml`. It is not bound to any lifecycle phase, so `mvn test` / `mvn package` are
+unaffected (verified: 0 pitest invocations during `mvn test-compile`). Reproduced on Java 21 /
+Spring Boot 3.5.9 / JUnit 5.12.2. Kept here for reference and for porting to another repo:
 
 ```xml
 <plugin>
@@ -65,7 +76,7 @@ Spring Boot 3.5.9 / JUnit 5.12.2):
 </plugin>
 ```
 
-## Three gotchas that each cost a debugging cycle
+## Four gotchas that each cost a debugging cycle
 
 1. **`<parseSurefireConfig>false</parseSurefireConfig>` is mandatory.** Surefire's `argLine` in this
    pom carries jacoco's late-binding `@{argLine}` placeholder. PIT does not resolve it, so the minion
@@ -76,10 +87,37 @@ Spring Boot 3.5.9 / JUnit 5.12.2):
    `TestEngine with ID 'junit-jupiter' failed to discover tests` → `UNKNOWN_ERROR`. **1.2.3 works.**
 3. **Compile first.** `mvn test-compile` before the PIT goal, or the pre-scan reports
    `Created 0 mutation test units` and the run fails with "No mutations found".
+4. **Do not write `--add-opens` into an XML comment** documenting the block. XML forbids `--`
+   inside a comment, so the pom stops parsing and *every* Maven goal dies with
+   `ModelParseException` — including `mvn validate`, which makes it look like a toolchain
+   problem rather than a typo. Write "add-opens" without the leading dashes in prose.
 
 ## Running it
 
-Always scope — a whole-project run is minutes, a scoped one is seconds:
+**Scoped is the only supported mode.** Not a preference — two hard constraints, both measured
+2026-08-25 on `origin/develop` @ `0d1e3e51`:
+
+1. ~~**PIT aborts unless the whole selected suite is green.**~~ **RESOLVED 2026-08-26 — SBDEV-3089
+   shipped.** This constraint no longer applies. It used to: `-DtargetClasses='net.aim_ai.wms.service.*'`
+   failed in 1m39s with `2 tests did not pass without mutation when calculating line coverage.
+   Mutation testing requires a green suite.`, the two being
+   `OptionalSafetyArchTest.noNewOptionalGetCallsInServiceClasses` and
+   `MobilePalletizingServiceTest.testScanParcelBulkPalletAlreadyAssignedToGate`. Both were fixed by
+   SBDEV-3089 (PRs #200/#201/#202); develop is now **5620 tests / 0 failures / 67 skipped**, and a
+   wide run was re-measured getting **past** the line-coverage phase with **zero** occurrences of
+   `Mutation testing requires a green suite` (`Created 154 mutation test units in pre scan` →
+   `Created 136 mutation test units`). **The green-suite abort is no longer why you scope.**
+2. **Wider runs are still slow and unstable — this is the remaining reason, and it is enough.**
+   Re-measured 2026-08-26 on the now-green develop: PIT clears coverage, then hits repeated
+   `Minion exited abnormally due to TIMED_OUT`. Unchanged from the earlier measurement, and it is
+   **SBDEV-3007**'s problem, not the caller's.
+
+   ⚠ **Corollary now that develop is green:** a red `mvn test` is a *signal*, not the baseline. The
+   habit of mentally excusing "the usual two" is exactly what SBDEV-3089 existed to remove — do not
+   carry it forward.
+
+So: one class, one test class, ~12s (after a ~35s cold `test-compile`). 83 of 86 top-level
+`*Service` classes have a matching `*Test` class, so this reaches nearly everything.
 
 ```bash
 export JAVA_HOME=~/.sdkman/candidates/java/21.0.11-ms
@@ -169,10 +207,18 @@ Two honest limits, both demonstrated this session:
 
 ## Status
 
-**Adoption is tracked by [SBDEV-3007](https://app.clickup.com/t/868ku88w8).** That ticket owns landing
-the pom block, choosing the CI mode and threshold policy, the package scope, the version pins, and
-updating the plan template so §Acceptance asks for mutation coverage instead of a grep tally.
+**The plugin block is landed on `origin/develop`** (2026-08-25, SBDEV-3007). Floor item 3 in
+`.claude/skills/wms-triage/SKILL.md` now points at the scoped command above as the default way to
+mutation-check a new assertion, replacing the hand-rolled patch-and-recompile harness.
 
-The pom block above was applied **only in the SBDEV-2994 worktree** for this evaluation and was
-**reverted before committing** — PR #167 is a reviewed bug fix and must not acquire unrelated build
-tooling. The three *tests* PIT found are on that PR (commit `2ed3bf9`); the plugin is not.
+SBDEV-3007's other filed items were dropped after measurement: there is **no CI lane to hook into**
+(`.gitlab-ci.yml` is tag-only and builds `-DskipTests=true`; the GitHub workflows are docker builds
+with no test step — wms2-api runs zero tests in CI), and a threshold policy is premature while no
+stable package-wide figure exists. Revisit if a test CI lane is ever built.
+
+**Why the tool beat the script.** Hand-rolled mutation harnesses produced measured false results at
+least five times across three sessions: an mtime-preserving restore let mutant bytecode leak into a
+fabricated 17/17; a patch silently never applied; an anchor hit the wrong occurrence for 6 false
+greens; two lanes raced the same worktree; a greedy `re.S` regex ate six store actions and reported
+success. PIT mutates bytecode in memory — no source write, no anchor, no recompile, no race. Hand-roll
+only where PIT cannot reach (Jest/Vue, SQL, config).

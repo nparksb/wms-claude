@@ -1813,14 +1813,41 @@ There is no role gating anywhere in `wms2-web-ui` (§2.5). 2643 builds the first
 > `false` for 100% of real `sb_admin` users, on every tenant, permanently.** SBDEV-2732's review round
 > proved it on two independent grounds:
 > 1. **`sb_admin` is carried in the JWT via the Keycloak GROUP — the `groups` claim** (confirmed with
->    the ticket owner 2026-08-11). **Group membership does not appear under `resource_access` at all**,
->    so a `resource_access` lookup cannot see it, regardless of which client is named. The API knows
+>    the ticket owner 2026-08-11). ~~**Group membership does not appear under `resource_access` at all**,
+>    so a `resource_access` lookup cannot see it, regardless of which client is named.~~
+>    🔴 **THIS SENTENCE IS FALSE — measured 2026-08-26; see the correction box below ground 2.**
+>    `sb_admin` DOES appear under `resource_access[om1-api].roles`, bare. The client named is exactly
+>    what matters. The API knows
 >    this: `JwtAccessTokenCustomizer.extractRoles` harvests `GROUP_ELEMENT_IN_JWT = "groups"` at `:98`
 >    *in addition to* iterating every client under `resource_access` (`.elements()`, not one client).
 > 2. Even setting that aside, `$config.keycloak.clientId` is the build-wide `KEYCLOAK_CLIENT`, while
 >    the token is issued by the **per-tenant** client from tenant discovery
 >    (`plugins/keycloak.client.js` ← `tenant_discovery.client_id`). Two independent sources on one
 >    deployment serving every tenant hostname — **wrong by construction**, not merely fragile.
+>
+> 🔴 **CORRECTED 2026-08-26 by a live token probe — ground 1 above is FALSE, and it matters because
+> it points at the wrong repair.** Measured on `kc2.dev.sbo.li` / realm `wineco` / client `om1`
+> (password grant, JWT decoded) for `panderson`, a real `sb_admin`:
+>
+> ```
+> groups:                         ['/sb_admin', '/wms_admin', '/wms_user', '/warehouse/wsl']
+> resource_access[om1-api].roles: ['wms_admin', 'sb_admin', 'wms_user']    <-- sb_admin IS here, BARE
+> ```
+>
+> Group membership **does** appear under `resource_access` — Keycloak emits each group as a bare
+> client role on `om1-api`, and that bare copy is the one `hasAuthority('sb_admin')` matches (the
+> `groups` entry keeps its full path `/sb_admin` and matches nothing). Nam, 2026-08-26: *"Keycloak
+> group `/sb_admin` IS the `sb_admin` role within the WMS app; the WMS token decoder does that role
+> mapping from the token."*
+>
+> **The CONCLUSION stands — the original gate did return `false` for every real `sb_admin` — but the
+> CAUSE is ground 2 alone:** `$config.keycloak.clientId` is `om1` (the auth client) while the roles
+> live under **`om1-api`**. So `hasResourceRole` is not blind to `sb_admin` in principle, and anyone
+> repairing a gate like this must fix the **clientId**, not the claim it reads. Full probe: role
+> matrix §2.1's precondition box.
+>
+> ⚠ Ground 2 is therefore the *whole* reason, not a belt-and-braces second argument. The phrase
+> "regardless of which client is named" in ground 1 is the specific sentence to disbelieve.
 >
 > r6's own warning ("ops must confirm `KEYCLOAK_CLIENT` equals `om1-api` per environment") framed this
 > as a configuration risk. It was not: no configuration value would have made it work.

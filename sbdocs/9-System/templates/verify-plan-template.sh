@@ -103,7 +103,25 @@ file_contains_n_times() {
 # a verify row has, because a refactor that moves or renames the file turns the assertion green in
 # the same run that should have caught it. Every positive helper here already fails closed (grep
 # exits 2), so only the negated ones need this.
-file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
+# ⚠ Both guards are load-bearing. `[ -f ]` because `! grep` on a MISSING file returns PASS (51 scripts
+# inherited that bug). `[ -r ]` because on an UNREADABLE file grep exits 2 writing to stderr, the `-q`
+# sees no match, and `!` inverts that to PASS as well — measured 2026-08-27 via `chmod 000`.
+file_not_contains() { [ -f "$2" ] && [ -r "$2" ] || return 1; ! grep -qE "$1" "$2"; }
+
+# code_not_contains <regex> <file> — file_not_contains, but ignoring COMMENT-ONLY lines (//, *, /*, #).
+#
+# ⚠ USE THIS, NOT file_not_contains, FOR ANY NEGATIVE ROW ABOUT A DELETED SYMBOL. A good deletion leaves
+# a tombstone comment naming the thing it removed, and that comment satisfies a plain negative grep — so
+# the row goes RED against correct code. Measured on SBDEV-3017: the row asserting the legacy
+# setPutAwayLocation endpoint was gone went red purely on its own tombstone. A sibling row survived only
+# because the tombstone happened to capitalise one letter differently than the pattern — i.e. by luck.
+#
+# Direction of the residual gap is safe: a TRAILING comment on a code line (`foo(); // setPutAwayLocation`)
+# still counts as code, so this can false-RED but never false-GREEN.
+code_not_contains() {
+    [ -f "$2" ] && [ -r "$2" ] || return 1
+    ! grep -vE '^[[:space:]]*(//|\*|/\*|#)' "$2" | grep -qE "$1"
+}
 
 # A specific method must exist on a class-file.
 class_has_method() {

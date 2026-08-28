@@ -2,7 +2,7 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-08-14
+last_verified: 2026-08-26
 verified_by: Claude (executor)
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
@@ -76,7 +76,7 @@ All methods throw `BusinessException` (user-facing) or `FacadeException` (system
 | `create` | `(clientId, unitLoadId, itemDataId, amount) → Stockunit` | No | — | Low-level raw create; no `Stockrecord` written. Used only in import/legacy paths. |
 | `transferStock` | `(stockUnit, amountToTransfer, isTransferToExistingContainer, locationName, unitLoadLabelId, comment, printLabel)` | Yes — `tenantTransactionManager` | B, F | Orchestrates all manual split/transfer flows. Handles pallet, flowbin, and plain location cases. **Does NOT trigger replenishment recalc** (removed by SBDEV-2033 / `38fcc13`: a synchronous recalc re-grabbed the still-`NOT_LOCKED` source the operator just moved). |
 | `setLockOnHold` | `(stockUnit, comment, principal) → Stockunit` | Yes — `tenantTransactionManager` | B, F | Sets `entityLock = ON_HOLD (104)`. Guards: stock must be `NOT_LOCKED (0)`, unit load unlocked, location unlocked, location not a flowbin, single SU on unit load, unit load not on a carrier, amount > 0, no reserved amount. **Triggers `recalculateForItem` (SBDEV-2033 follow-up / `d3f5ce18`)** as the last statement before return; safe because the now-relocated, ON_HOLD UL is excluded by `isSourceUsable`. |
-| `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new Box-type unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. Clamps to `stockUnit.amount` if given amount exceeds it. Requires `availableamount >= amount`. **Triggers `recalculateForItem`** (excluded source = the new QUALITY_FAULT UL at the Damaged location). |
+| `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new Box-type unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. Clamps to `stockUnit.amount` if given amount exceeds it. Requires `availableamount >= amount`. **Since SBDEV-3086** the container-create + transfer + `QUALITY_FAULT` write happen inside `UnitloadService.moveStockToNewDamagedContainer`, which IS `@Transactional` — this method itself stays unannotated on purpose. **Triggers `recalculateForItem`** (excluded source = the new QUALITY_FAULT UL at the Damaged location). |
 | `adjustAmount` | `(stockUnit, amount, comment) → Stockunit` | No | F, B | Sets absolute quantity. Blocked on `SHIPPED` or `GOING_TO_DELETE`. Delegates to `changeAmount`. Sends OMS stock-change notification via `messageService`. **Triggers replenishment recalculation** — kept ON in v2 (deliberate divergence from v1, which deferred it: an amount edit changes availability and is not a re-reservation path). |
 | `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit` | Yes — `tenantTransactionManager` | F, B | Sets absolute reserved amount. Blocked if any linked picking position has `state >= STARTED`. Deliberately does NOT trigger replenishment recalculation (SBDEV-2033 re-reservation boundary). |
 | `removeLock` | `(stockUnitId, comment, principal) → Stockunit` | No | B | Clears `entityLock` back to `NOT_LOCKED`. Only works for `QUALITY_FAULT` and `ON_HOLD`. Blocked on flowbin locations. `SHIPPED` and `GOING_TO_DELETE` throw. **Triggers `recalculateForItem` (SBDEV-2033 follow-up / `d3f5ce18`)** in its own tenant tx (method is non-`@Transactional`); re-enabling the freed stock as a replenishment source is the intended outcome. |
@@ -137,7 +137,51 @@ UnitloadBusinessService   (unit-load placement primitives)
   ├─► FixLocationAssignmentRepository
 ```
 
-**Transaction boundary note (v2):** `StockunitService` has no class-level `@Transactional`. Only `transferStock` (line 145) and `adjustReservedAmount` (line 434) carry method-level `@Transactional(value = "tenantTransactionManager")`. The primitives `changeAmount` and `changeReservedAmount` in `StockunitBusinessService` are individually transactional. Methods like `setLockDamaged`, `adjustAmount`, and `removeLock` are NOT wrapped in an outer transaction — each sub-call commits independently (same risk as v1: an orphaned unit load is possible if `setLockDamaged` fails between unit-load creation and SU lock assignment).
+**Transaction boundary note (v2)** — *rewritten 2026-08-26 for post-SBDEV-3086 `develop` (`dae5e79a`).*
+
+`StockunitService` has no class-level `@Transactional`. Three of its methods carry one — `transferStock` (`:157`), `setLockOnHold` (`:348`) and `adjustReservedAmount` (`:534`) — each as `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})`. The primitives `changeAmount` and `changeReservedAmount` in `StockunitBusinessService` are individually transactional.
+
+The other three comment-bearing entry points — `setLockDamaged` (`:413`), `adjustAmount` (`:485`) and `removeLock` (`:565`) — **remain unannotated, deliberately**, and no caller supplies a boundary (`StockUnitController` and its base `AdminController` both declare zero `@Transactional`). SBDEV-3086 did **not** wrap them. What it changed is *what happens inside* them, so a late failure no longer leaves a half-applied write:
+
+- **`setLockDamaged` — the multi-write core moved into a real boundary.** The container-create + stock-transfer + `QUALITY_FAULT` write now live in `UnitloadService.moveStockToNewDamagedContainer` (`UnitloadService:157-158`), which carries the literal `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})`. This is `UnitloadService`'s **first and only** transaction boundary — it had none before (verified against `353a3484`) — so the bean is now proxied for the first time. Two mechanics are load-bearing and easy to break: the label is minted **outside** the boundary via `unitloadService.mintUnitloadLabel()`, because the sequence write is `REQUIRES_NEW` and must not run inside a lock-holding transaction; and the helper is reached **cross-bean** through `unitloadService`, never `this.`, or the advice evaporates. The boundary is scoped to the helper on purpose so `triggerReplenishmentMaintenance` stays *outside* it, keeping the `ReplenishmentOrderMaintenanceService:126-135` rollback-only hazard unreachable.
+- **`removeLock` — saves, then notifies.** `stockunitRepository.save(...)` runs first and `messageService.sendStockChangeMessage(list)` exactly once after (`:598-602`). Previously the send fired from inside the `switch` arms, announcing to OMS an unlock a later throw could still prevent. The method is still non-transactional, so the unlock commits and `recalculateForItem` (`REQUIRED`) opens its own short tenant tx — best-effort, v1 parity.
+- **`adjustAmount` — validates, then mutates.** The lock-state `switch` (`:506`) now runs **before** `changeAmount` (`:520`). Its `default:` arm says *"value not changed"*, which was false while `changeAmount` committed first.
+- **`printLabel` is last.** In `setLockDamaged` the print is the final statement before `return`, so a printer outage no longer skips the replenishment recalc — and, per M1, no longer reports a committed damage transfer as failed.
+
+The residual `location[Damaged]` ↔ `location[src]` ABBA against `transferStock`'s damaged-destination branch is **unchanged and expected**: a low-frequency `40P01` there is not a regression.
+
+> **Changelog — SBDEV-3086 landed 2026-08-26.** Merged as `206ad9ed` (wms2-api [#198](https://github.com/SiteBossInc/wms2-api/pull/198)),
+> `d3fb6ac` (wms2-web-ui [#79](https://github.com/SiteBossInc/wms2-web-ui/pull/79)) and `98060c99`
+> (wms2-api [#203](https://github.com/SiteBossInc/wms2-api/pull/203)); deployed to dev and live-verified.
+> The section above was rewritten for the post-3086 code. For the **pre-3086** residue analysis —
+> the orphan-container, notify-before-save and commit-before-validate failure modes as they existed,
+> with the measured exposure figures — see the archived plan's §1.3 and §2 at
+> `sbdocs/4-Archieves/wms2/plan/SBDEV-3086-stockunit-nontransactional-write-paths.md`.
+
+**Bulk endpoints — per-item outcomes (SBDEV-3086 F5).** `bulkSetLockOnHold`, `bulkTransferToDamaged`
+and `bulkRemoveLock` now put the `try` **inside** the per-id loop and return
+`{requested, succeeded[, errors[{id, field, message}]]}`. One bad id no longer abandons the batch:
+each id is reported individually, and the `errors` key is **omitted entirely** — not emitted empty —
+on total success (D7), which keeps the already-deployed UI's `if (results.errors)` safe.
+
+Three details that look like accidents and are not:
+
+- **The failing id appears in BOTH `errors[].id` and inside `errors[].field`.** Different consumers:
+  `id` is read programmatically by the web-UI's `failedIdsFrom()` to narrow the grid to failed rows
+  (load-bearing — `setLockDamaged` is not idempotent, so retrying a whole-batch selection damages
+  already-succeeded stock twice), while `field` is what the operator reads, since the toast renderer
+  `util/commonUtility.js:11` prints `${field}: ${message}` and knows nothing about `id`. Pinned by
+  `StockUnitControllerUnitTest.bulkSetLockOnHold_failingId_isFoldedIntoField`; do not "clean up" the
+  interpolation.
+- **`bulkRemoveLock` keeps its no-lookup shape** — it passes `parsedId` straight to the service and
+  lets `EntityNotFoundException` originate there. Do not add a `findById` to it.
+- **The sibling bulk endpoints were left on the old abort-the-batch shape by design** (D4):
+  `bulkAdjustAmount`, `bulkAdjustReservedAmount` and `UnitLoadController:139`.
+
+⚠️ **Known gap, unrelated to F5:** `bulkTransferToDamaged` returns **HTTP 500** when the request omits
+`amount` — `Integer.parseInt(null)` throws, then the catch calls `Double.parseDouble(null)`, which
+NPEs uncaught at `StockUnitController:572-573`, before the per-item loop is reached. Pre-existing and
+outside SBDEV-3086's scope; measured on dev 2026-08-26.
 
 **Dual transaction manager:** All `@Transactional` annotations in this subsystem explicitly specify `value = "tenantTransactionManager"`. The `@Primary` transaction manager is the landlord TM — omitting `value` would silently route operations to the master config database. See `wms2-api/CLAUDE.md` for the full dual-TM rules.
 
@@ -172,7 +216,7 @@ Unitload     1 ──< 1  PickingorderUnitload  (unitload_id — nullable)
 | `client_id` | `bigint` | NOT NULL, FK → client | |
 | `itemdata_id` | `bigint` | NOT NULL, FK → itemdata | |
 | `unitload_id` | `bigint` | NOT NULL, FK → unitload | The container holding this stock |
-| `additionalcontent` | `varchar(255)` | nullable | Free-text comment (set on lock operations) |
+| `additionalcontent` | `varchar(255)` | nullable | Free-text operator comment (set on lock operations). **Clamped to 200 chars on write, not 255** — `AuditCommentUtil.clamp` (SBDEV-3085), applied as the first statement of all six comment-bearing `StockunitService` entry points. The 55-char gap is deliberate headroom for the `" - moved to damaged location"` append on the transfer-to-Damaged path (`StockunitService:294-295`), which concatenates onto the *stored* source value and is clamped separately at 255. `null` stays `null`. |
 | `version` | `integer` | NOT NULL | JPA `@Version` — optimistic lock |
 | `created` / `modified` | `timestamp` | auditing | Set by `AuditingEntityListener` |
 
@@ -366,7 +410,7 @@ entityManager.refresh(stockUnit);   // evict stale L1 entry
 
 **Race site:** If two threads call `changeReservedAmount` on the same SU concurrently, one will block on the DB row lock. This is by design.
 
-**`adjustReservedAmount` intentionally skips replenishment recalculation** (comment at `StockunitService:455`): Triggering recalculation would immediately re-reserve the stock the user just released. The scheduled `ReplenishOrderJob` re-evaluates on its next cycle.
+**`adjustReservedAmount` intentionally skips replenishment recalculation** (comment at `StockunitService:541-542`): Triggering recalculation would immediately re-reserve the stock the user just released. The scheduled `ReplenishOrderJob` re-evaluates on its next cycle.
 
 ### Reservation lifecycle by subsystem
 
@@ -596,7 +640,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 | **Jakarta EE** | `javax.persistence.*` | `jakarta.persistence.*` |
 | **L1 cache stale-entity fix** | `entityManager.detach(staleEntity)` before `findByIdForUpdate` | `entityManager.refresh(locked)` after `findByIdForUpdate` |
 | **L2 / application cache** | None (no Caffeine) | Caffeine L1 on `sysprops`, `clients`, `locations`, `itemdata` (see §7) |
-| **Multi-tenant datasource** | HTTP header routing (`tenant_name` + `facility_code`) | Same routing model; explicit `value = "tenantTransactionManager"` required on all `@Transactional` (dual-TM architecture) |
+| **Multi-tenant datasource** | **No in-app tenant routing at all** — one deployment per warehouse bound to a static `spring.datasource.url` (`application.properties:24`); no `TenantFilter`, no `AbstractRoutingDataSource` in `src/main` | HTTP header routing on **`X-Tenant-ID`** + `facility_code` (`landlord/config/TenantFilter.java:23-24`) → dynamic datasource. Note `tenant_name` does **not** route — it appears only on `TenantHealthController`. Explicit `value = "tenantTransactionManager"` required on all `@Transactional` (dual-TM architecture) |
 | **`@Transactional` default** | `@Primary` = landlord TM same risk as v2 | `@Primary` = landlord TM — omitting `value` silently breaks tenant writes |
 | **Optimistic lock retry** | None in stock path | None in stock path either (260610 Phase A removed the inert `transferUnitLoadToLocation` wrapper; sole remaining `OptimisticLockRetry` consumer is the non-transactional `MobilePalletizingService.scanPallet`) |
 | **`createStockUnit` overload** | Single signature | v2 adds pre-fetched-location overload to avoid repeated DB lookups in batch receives |
@@ -615,7 +659,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 
 1. **No outer transaction on `setLockDamaged`:** The method creates a new unit load then calls `transferStockToUnitLoad`, but has no outer `@Transactional`. A failure between unit-load creation and SU lock assignment leaves an orphaned unit load at the Damaged location. The TODO comments in the code acknowledge the missing lock checks on the unit load and location.
 
-2. **`adjustReservedAmount` deliberately skips replenishment recalculation** (line 455 comment): This is by design — triggering recalculation would immediately re-reserve stock the user just released. However, replenishment orders sit over-reserved until the next scheduled recalculation cycle.
+2. **`adjustReservedAmount` deliberately skips replenishment recalculation** (comment at `StockunitService:541-542`): This is by design — triggering recalculation would immediately re-reserve stock the user just released. However, replenishment orders sit over-reserved until the next scheduled recalculation cycle.
 
 3. **Caffeine L1 caches are JVM-local:** In a multi-replica deployment, `itemdata`, `locations`, `sysprops`, and `clients` can be stale for up to 5 minutes per replica after a write. A SKU update evicts the `itemdata` cache on the replica that handled the write — other replicas continue serving stale data until their TTL expires. The CacheConfig comment explicitly notes a plan for Redis migration.
 

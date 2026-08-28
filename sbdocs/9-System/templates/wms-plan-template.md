@@ -101,7 +101,7 @@ List everything that must be prepared before implementation starts. Every row is
 | 4 | **Deploy-order dependencies** (other services / apps that must ship first or together) | e.g. oms-laravel-api must deploy v2.5.x before this wms-api change | | |
 | 5 | **Data migration** (backfill script, one-off SQL, manual DBA task) | e.g. run `tools/backfill_qtyrequired.sql` once per tenant | | |
 | 6 | **External systems** (OMS webhook URL, printer config, Keycloak realm) | e.g. WMS_WEBSERVICE_ORDER_BATCH_PICKED_URL reachable | | |
-| 7 | **Access / permissions** (new role, new endpoint authority, Keycloak client scope) | e.g. add `WMS_ADMIN_CLUB_RUN` to app admin group | | |
+| 7 | **Access / permissions** (new function, new endpoint authority) | e.g. add `WEB_UI_ACTION_<VERB>_<NOUN>` to `WmsConstants.FunctionEnum` and grant it to the `super-admin` role — ⚠ **never** "add a role to the app admin group": Keycloak is coarse-only (`wms_user` = may reach the app) and all fine-grained authz lives in WMS V2's `group → role → function` model. `wms_admin` gates `/actuator/**` and nothing else; a business gate on `wms_admin` or `sb_admin` is the retired anti-pattern (role matrix §1.1) | | |
 | 8 | **Monitoring / alerts** (Grafana panel, alert rule, log-based metric) | e.g. add panel for `stockunit_optimistic_lock_failure_total` | | |
 
 ### 5.2 Implementation Checklist

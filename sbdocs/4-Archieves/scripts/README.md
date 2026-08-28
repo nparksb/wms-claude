@@ -99,6 +99,9 @@ Acceptance / verification harnesses (`verify-<plan-id>.sh`) whose paired plan ha
 | `verify-SBDEV-2778-return-to-inventory-not-received-bol-not-closed.sh` | [SBDEV-2778-return-to-inventory-not-received-bol-not-closed](../wms2/plan/SBDEV-2778-return-to-inventory-not-received-bol-not-closed.md) |
 | `verify-SBDEV-3003-move-stock-lost-update-inventory-inflation.sh` | [SBDEV-3003-move-stock-lost-update-inventory-inflation](../wms1/plan/SBDEV-3003-move-stock-lost-update-inventory-inflation.md) (v1) · [same base](../wms2/plan/SBDEV-3003-move-stock-lost-update-inventory-inflation.md) (v2) · [SBDEV-3003-slice2-transfer-stock-idempotency](../wms2/plan/SBDEV-3003-slice2-transfer-stock-idempotency.md) |
 | [verify-SBDEV-3013-role-function-write-surface-gating.sh](verify-SBDEV-3013-role-function-write-surface-gating.sh) | [SBDEV-3013](../wms2/plan/SBDEV-3013-role-function-write-surface-gating.md) | v2 | 2026-08-21 | Door ② only (controller gates). Door ① shipped after the script was written and has no rows here — it is covered by `SdrWriteExposureUnitTest` instead. |
+| `verify-SBDEV-2821-tier1-direct-placement-onto-pick-face.sh` | [SBDEV-2821-tier1-direct-placement-onto-pick-face.md](../wms2/plan/SBDEV-2821-tier1-direct-placement-onto-pick-face.md) | 2026-08-28 |
+| `verify-SBDEV-2951-transfer-club-available-counts-lane-only.sh` | [SBDEV-2951-transfer-club-available-counts-lane-only.md](../wms2/plan/SBDEV-2951-transfer-club-available-counts-lane-only.md) | 2026-08-28 |
+| `verify-SBDEV-2968-mobile-ui-function-gating-enforcement.sh` | [SBDEV-2968-mobile-ui-function-gating-enforcement.md](../wms2/plan/SBDEV-2968-mobile-ui-function-gating-enforcement.md) | 2026-08-28 |
 
 _77 rows, matching 77 `verify-*.sh` files (re-counted 2026-08-21 after SBDEV-3003 was retired here). Regenerate after a backfill sweep; single archivals append one row via the archive-plan skill._
 

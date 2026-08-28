@@ -6,9 +6,9 @@ version: "v1/wms-api @ release (0d6f989)"
 scope: "v1/wms-api replenishment subsystem — ReplenishmentMonitorView, ReplenishGeneratorService, source-stock selection"
 owner: "Nam Park"
 created: 2026-06-01
-updated: 2026-06-01
-last_verified: 2026-06-01
-verified_by: "wms1-wineco production DB (read-only), release branch code read"
+updated: 2026-08-27
+last_verified: 2026-08-27
+verified_by: "wms1-wineco production DB (read-only), release branch code read; §5.4 re-verified and DELIVERED 2026-08-27 under SBDEV-3120"
 related:
   - "[[wms1-replenish-order-creation]]"
   - "[[wms1-replenish-workflow]]"
@@ -220,6 +220,7 @@ Two independent defects in the per-SKU **order_hold** ("Parcels"/Qty Hold) value
 - [x] **Fix now** — **Monitor area classification.** Replace the hardcoded area-**name** lists in `getReplenishViewSummary` (and the deployed `replenishment_monitor_view`) with the `location_area.useforreplenish` / `useforpicking` **flags**, so pick-only stock is never reported as replenishable. Draft via **`wms-bugfix-plan`** for v1. The downstream plan **must** ship `sbdocs/9-System/scripts/verify-<plan-id>.sh`.
 
 - [x] **Fix later** — **Order-count accuracy.** Change `count(co.*)` → `count(DISTINCT co.id)` and eliminate the `t4`/`t5` row fan-out (aggregate replenish-order and fixed-assignment data per SKU, or dedup in `ViewDtoService`). Same `wms-bugfix-plan` or a follow-up; ship a verify script.
+  - **DELIVERED 2026-08-27 under SBDEV-3120** — commit `10602f5`, PR SiteBossInc/wms-api#204 (branch `bugfix/SBDEV-3120-replenishment-monitor-visibility`, into `develop`). `count(co.*)` → `count(DISTINCT co.id)` and the prio tallies likewise; **t5** fan-out closed by aggregating per assignment and adding the missing `su.itemdata_id = i.id` predicate (it had been summing other SKUs' stock). **`t4` is NOT done** — collapsing the per-replenish-order rows costs either the `ro_id` link the UI uses or the duplicate lines, so it needs a product decision. No verify script: the assertions live in `ReplenishmentMonitorViewRepositoryIT` (13 tests, mutation-checked 8/8), which runs in CI and survives refactors.
 
 - [x] **Fix later** — **Source-query hardening.** Add `AND area.useforpicking = false` (or an explicit "replenish-from" semantic) to `getStockUnitsByNotLockedAndItemIdAndUseForDeepStorage` so pick faces can never be chosen as replenishment sources even if a dual-purpose area is later populated.
 
@@ -258,3 +259,4 @@ Because §8 includes "Fix now"/"Fix later," each downstream `wms-bugfix-plan` is
 | Date | What was re-checked | Result | Checked by |
 |------|---------------------|--------|------------|
 | 2026-06-01 | Area config, monitor `on_replenishable` miscount (BW23CPN/25GNEAH750), open-RO source areas, fan-out multipliers, SU 985079706 reservation provenance, deployed view DDL, release branch hygiene | All findings confirmed against live wms1-wineco (read-only) | Nam Park |
+| 2026-08-27 | §5.2 dual-purpose area 51552 still **0 locations** on prd; §5.4 `count(co.*)` and the t5 fan-out still present in `origin/develop` and now fixed; deployed `replenishment_monitor_view` still carries all four defects **and a different `t2` predicate than the Java query** | §5.2 unchanged (latent). §5.4 **delivered** — see §8. New: the view is a second, SDR-exported read path (`GET /v3/replenishmentMonitorView`) with **no caller in either UI**, so it was left unsynced | Claude (SBDEV-3120) |

@@ -6,9 +6,9 @@ version: v2
 scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
-last_verified: 2026-08-19
-verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService
+updated: 2026-08-28
+last_verified: 2026-08-28
+verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired)
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -108,39 +108,64 @@ MobileMoveUnitloadService.scanDestination()        [line 205]  @Transactional(te
 Operator scans stock unit ID or UL label
   │  GET /v3/moveStock/selectSource/{input}     [MoveStockController:1-119]
   ▼
-MobileMoveStockService.selectSource()            [line 99]
+MobileMoveStockService.selectSource()            [line 70]
   └── Return StockTransferDto with all stockunits on that UL (sorted by item number)
 
 Operator selects stockunit + enters transfer amount
   │  GET /v3/moveStock/selectStockUnit/{id}/{input}    @Transactional(readOnly=true)
   ▼
-MobileMoveStockService.selectStockUnit()         [line 191]
+MobileMoveStockService.selectStockUnit()         [line 162]
   ├── Guard: amount > 0 && amount <= stockunit.amount
   └── Return candidate destinations (flowbins + overstocks, sorted by DefaultStrategy; direction controlled by PICK_PATH_DIRECTION sysprop via PickPathConfig → DefaultStrategy)
 
 Operator scans destination (location OR UL label)
-  │  POST /v3/moveStock/scanDestination         [StockTransferDto]
+  │  POST /v3/stockUnit/transferStock            [shared with the desktop]
   ▼
-MobileMoveStockService.selectDestination()       [line 223]  @Transactional(tenantTransactionManager)
-  │
-  ├── Validate destination:
-  │     · Not Nirvana / Shipped
-  │     · If location: must be FLOWBIN type
-  │     · If flowbin has FixLocationAssignment: source itemdata must match
-  │     · If UL label: must match STRING_PATTERN_SEPARATE_STOCK (SU-\d{6}), or be an existing UL
-  │
-  ├── stockunitBusinessService.transferStockToUnitLoad(source, destUL, amount, CODE_MANUAL_SPLIT, ref, null, removeIfEmpty, ignoreLock)
-  │     Depends on amount:
-  │       · amount == source.amount AND no split needed:
-  │           full move — reattach source to destUL
-  │       · amount < source.amount:
-  │           split — source.amount -= amount; NEW stockunit at dest with amount
-  │
-  ├── If source.amount reaches 0 and removeIfEmpty=true:
-  │     sendStockUnitToNirvana(source) — effectively deletes from inventory
-  │
-  └── Commit — stockrecord (removal + creation or transfer), unitload_record if new UL created
+StockunitService.transferStock()
+  │  (see §4.1 — the mobile screen has used this path since SBDEV-2994)
+  └── ... → StockunitBusinessService.transferStockToUnitLoad (below)
 ```
+
+### 4.1 ⚠️ `POST /v3/moveStock/scanDestination` was RETIRED by SBDEV-2996 (2026-08-28)
+
+Until 2026-08-28 this section documented a second destination-scan path —
+`POST /v3/moveStock/scanDestination` → `MobileMoveStockService.selectDestination` — as if it were the
+live one. **It was not reachable.** `wms2-mobile-ui store/moveStock.js` held a `scanDestination`
+action that nothing dispatched; `components/moveStock/scanDestination.vue` dispatches
+`moveStock/checkContainer` then `moveStock/transferStock`, and `wms2-web-ui` never referenced the
+route. The endpoint, the service method and the dead store action were deleted.
+
+**The semantics that survive** (this is the answer AC2 of SBDEV-2996 asked to be written down): an
+**unknown but well-formed destination label is REJECTED**, with a message naming the container —
+the behaviour SBDEV-2994 shipped on `StockunitService.transferStock`. The retired path did the
+opposite: it validated the label against `STRING_PATTERN_SEPARATE_STOCK` (`SU-\d{6}`) and
+**auto-created** the container at `Clearing`. Two conventions for one operator gesture is what the
+retirement removed. Measured at retirement time, zero unitloads matched `^SU-[0-9]{6}$` on either
+WineCo dev or Hydra UAT, so the auto-create branch had produced nothing.
+
+What the retired path guarded, and whether the live path guards it too. ⚠️ **This table has now been
+wrong twice.** The first draft claimed four gaps; a verifier lane knocked out two; a code-review lane
+then knocked out a third. Corrected 2026-08-28 against the code — **only one of the four is actually
+absent, and it is a deliberate divergence, not a gap:**
+
+| Guard | On the live path (`StockunitService.transferStock`)? |
+|---|---|
+| Destination is Nirvana | ✅ **yes** — `:177` calls `destinationEligibilityService.assertCanReceiveStock(unitLoad)` on the existing-container branch, and that sentinel refusal sits **outside** the `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` gate (`DestinationEligibilityService:115`). Shipped by **SBDEV-2994 Fix B**. |
+| Source stock unit is locked | ✅ **yes, and broader than the retired check** — `StockunitBusinessService.transferStockToUnitLoad:293-297` throws for **any** `entityLock != NOT_LOCKED` when `ignoreLock == false`, which is what `transferStock` passes at four of its six call sites. The retired path tested `ON_HOLD` alone. The two `ignoreLock = true` sites are the damaged-stock branches, deliberately. |
+| Flowbin `FixLocationAssignment` SKU match | ✅ **yes** — `:230-232`, `"Flow bin has different SKU "`. The retired path spelled it `"Flowbin has different SKU "` (no space), which is what made it look absent. |
+| Destination must be a FLOWBIN when it is a Location | ❌ **absent — deliberately.** The retired path threw `"Destination is not a flowbin!"`; the live path takes an `else` branch at `:232` and relocates or creates a unit load at the location instead. Restoring the refusal would be a **regression** in capability, not a fix. |
+
+⚠️ **Do not read this table as a to-do list.** An earlier draft of it named SBDEV-2995 as tracking the
+Nirvana gap. That is wrong twice over: the guard is present, and **SBDEV-2995 was rewritten on
+2026-08-19** and no longer concerns `transferStock` destinations at all — it now covers outbound
+palletising type checks and the `MobileMoveUnitloadService` sentinel. The Nirvana-destination concern
+was always SBDEV-2994's, and it shipped in PR #167.
+
+The retirement also deleted **two `WEB_UI_ACTION_ADJUST_LOCK_DAMAGED` permission checks** that lived
+in `selectDestination`. No authorization was lost: the live path gates the same function at
+`StockunitService:265`, and the two deleted checks were unreachable along with the method.
+
+---
 
 ### Core API: `StockunitBusinessService.transferStockToUnitLoad`
 
@@ -162,7 +187,7 @@ Written to `stockrecord.activitycode` and/or `unitload_record.activitycode`. Fro
 | Code | When | Written by |
 |---|---|---|
 | `CODE_TRANSFER` | Move unitload (to location or carrier) | `MobileMoveUnitloadService.scanDestination` |
-| `CODE_MANUAL_SPLIT` | Move stock split or full move | `MobileMoveStockService.selectDestination` |
+| `CODE_MANUAL_SPLIT` | Move stock split or full move | `StockunitService.transferStock` (was `MobileMoveStockService.selectDestination`, retired by SBDEV-2996) |
 | `CODE_CREATE_INBOUND_PALLET` | Move unitload to a location matching inbound pattern creates a new pallet | `MobileMoveUnitloadService.scanDestination` (line 321) |
 | `CODE_SEND_TO_NIRVANA` | Source becomes empty, deleted from inventory | `unitloadBusinessService.sendToNirvana` / `stockunitBusinessService.sendStockUnitToNirvana` |
 
@@ -193,14 +218,32 @@ Never invent a new code at a call site — add a constant to `WmsConstants` firs
 
 ### Move Stock
 
+⚠️ **Re-measured 2026-08-28 (SBDEV-2996).** Four of the six rows here cited
+`MobileMoveStockService.selectDestination`, which no longer exists — that file is now 195 lines, so
+the old pins at 228/273/279/288 pointed past its end. The destination half of the Move Stock flow
+lives on `StockunitService.transferStock`; both halves are listed below.
+
+**Source + amount — `MobileMoveStockService` / `MoveStockController` (still live):**
+
 | Guard | Exception | Line |
 |---|---|---|
-| Source UL on NIRVANA/SHIPPED | `"Can not move stock from nirvana/shipped"` | 147, 153 |
-| Stock unit ON_HOLD | `"Stock unit is locked on hold!"` | 228 |
-| `transfer > available` | `"Entered amount more than available"` | 78 |
-| Destination not flowbin | `"Destination is not a flowbin!"` | 279 |
-| Flowbin itemdata mismatch | `"Flowbin has different SKU"` | 273 |
-| Destination label fails regex | `"noValidString"` | 288 |
+| Source UL is the Nirvana UL | `"Can not move stock from <label>"` | `MobileMoveStockService:111` |
+| Source UL on NIRVANA location | `"Can not move unit load from Nirwana"` | `MobileMoveStockService:118` |
+| `transfer > available` | `"Entered amount more than available"` | `MoveStockController:80` |
+
+**Destination — `StockunitService.transferStock` (the path both UIs use):**
+
+| Guard | Exception | Line |
+|---|---|---|
+| Scanned destination label does not resolve | keyed `BusinessException(transferStockDestinationUnitloadNotFound)` | `:171` |
+| Destination cannot receive stock (Nirvana sentinel ungated; lock/Shipped sysprop-gated) | keyed `BusinessException(transferStockDestinationNotUsable)` | `:177` → `DestinationEligibilityService:115, :124` |
+| Flowbin `FixLocationAssignment` SKU mismatch | `"Flow bin has different SKU <name>"` | `:232` |
+| Damaged-stock permission | `"No permission to alter damaged stock"` (`WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`) | `:265-267` |
+
+**Retired by SBDEV-2996, listed so nobody hunts for them:** `"Stock unit is locked on hold!"`,
+`"Destination is not a flowbin!"`, `"Flowbin has different SKU"` (no space — distinct from the live
+one above) and the `noValidString` destination-regex check all lived in `selectDestination`. Only the
+first two are genuine gaps on the live path; see §4.1.
 
 #### Destination error contract — `POST /v3/stockUnit/transferStock` (SBDEV-2994, 2026-08-19)
 
@@ -254,8 +297,8 @@ See [wms2-bol-truck-loading-workflow.md §7](./wms2-bol-truck-loading-workflow.m
 ## 8. Transaction Boundaries
 
 - `MobileMoveUnitloadService.scanDestination` — single `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})`. All entity mutations + audit + BOL cleanup atomic.
-- `MobileMoveStockService.selectDestination` — same annotation. Split writes (source decrement + destination create + records) commit together.
-- `MobileMoveStockService.selectStockUnit` is `readOnly=true` (line 191).
+- `StockunitService.transferStock` — the live Move Stock write. (`MobileMoveStockService.selectDestination` carried the same annotation and is listed in this doc's history only; SBDEV-2996 retired it — see §4.1.)
+- `MobileMoveStockService.selectStockUnit` is `readOnly=true` (line 162; re-measured 2026-08-28).
 - `transferStockToUnitLoad` takes a pessimistic write lock on the source stockunit row — this is the primary concurrency guard in the split path.
 
 See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction-osiv-boundary-map.md) for the pessimistic-lock site inventory.
@@ -285,7 +328,7 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 6. **Move Stock to a flowbin without an assignment** creates an implicit fixed-assignment on first scan (line 290 check). This is intentional — it's how flowbins get populated the first time. But an operator who scans the wrong flowbin locks that SKU into that location until an admin removes the assignment.
 7. **`removeUnitLoadIfEmpty=true` default** sends source UL to Nirvana when `amount` hits zero. Desirable for manual splits; unexpected if a caller is iterating splits and expects to reuse the source UL. Audit `transferStockToUnitLoad` call sites before changing this flag.
 8. **No OMS callback for `CODE_TRANSFER` when stock amount doesn't change.** Pure unit-load relocation (moving a pallet to a different location) is invisible to OMS. If OMS needs location visibility, it has to poll or subscribe to the monitor-view endpoints.
-9. **Damaged-stock permission gate** (`FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`) is checked in both flows (unitload lines 232–238, stock lines 240–247). A Keycloak realm that doesn't grant this role blocks all moves involving damaged stock. Check the role matrix before provisioning a new operator composite role.
+9. **Damaged-stock permission gate** (`FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`) is checked in both flows — `MobileMoveUnitloadService:303, 308` for Move Unitload, and `StockunitService:265` for Move Stock. ⚠️ Re-measured 2026-08-28: the old "stock lines 240–247" pin referred to `MobileMoveStockService.selectDestination`, retired by SBDEV-2996; the gate on the stock flow is now solely the `StockunitService` one. A Keycloak realm that doesn't grant this role blocks all moves involving damaged stock. Check the role matrix before provisioning a new operator composite role.
 10. **`CODE_MANUAL_SPLIT` reused for full-move scenarios** in `transferStockToUnitLoad` when the transfer amount equals the source amount. Reports that count "splits" by this code over-count by the number of full moves. Downstream analytics need to check source vs destination unit load IDs to distinguish.
 
 ---
@@ -313,6 +356,12 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 **Re-verify every 90 days.** Next due: **2026-10-20**.
 
 _2026-07-22 (SBDEV-2610): reserved-stock guard (`checkReservedStock`) rewritten — now blocks only on an in-progress pick and allows stranded reservations; `TransferInfoDto.activeReplenNumber` added and surfaced on the source-scan screen._
+
+_2026-08-28 (SBDEV-2996): `POST /v3/moveStock/scanDestination` and
+`MobileMoveStockService.selectDestination` **retired** as unreachable code — see §4.1. §6's Move Stock
+guard table re-measured (four of six rows pointed into the deleted method), §10 landmine 9 corrected,
+and the create-vs-reject semantics written down. Verified by an independent review lane, which found
+and corrected two wrong rows in §4.1's own guard table._
 
 _2026-08-19 (SBDEV-2994): destination error contract added to §6 — operator-supplied lookups on
 `POST /v3/stockUnit/transferStock` now raise keyed `BusinessException`s instead of 404-ing, internal

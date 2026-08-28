@@ -4,7 +4,7 @@ ticket: "SBDEV-2968"
 ticket_url: "https://app.clickup.com/t/868krr3rw"
 type: "bugfix"
 priority: "normal"
-status: "✅ MERGED TO DEVELOP 2026-08-21. [wms2-api #178](https://github.com/SiteBossInc/wms2-api/pull/178) → merge commit `5506117b60`, and [wms2-mobile-ui #42](https://github.com/SiteBossInc/wms2-mobile-ui/pull/42) → `4d768cfa29`. Both branch heads (`bba025c`, `03113ad`) confirmed **ancestors of `origin/develop`** by `merge-base --is-ancestor` — the orphan check, not just the PR page. `V2.2.18` is on develop. ⚠️ **Neither repo has CI checks configured and no human reviewed either PR** — the four review lanes were agent-run; local verification was the only gate. **At merge:** `wms2-api` 5314 tests / 2 failures = known baseline; `wms2-mobile-ui` 218 passing / 18 suites; verify 132/0/2; key pins re-mutated post-rebase, all killed with a null mutant surviving; P6 re-swept (`V2.2.18` uncontested). ⚠️ **DEPLOY ORDER, still live: apply `V2.2.18` → deploy mobile → deploy API.** Runtime Flyway applies migrations on **API boot**, so on UAT/prd step 1 needs a manual run or Replenish Request is dead for everyone between steps 2 and 3 (15 of 19 Hydra UAT users, measured). DEV auto-deploys from develop, so it takes the migration and the gate together — acceptable there, since dev is almost all super-admins. **Owed before ARCHIVE:** manual handheld QA (whether the denial toast paints — its precondition is proven from a real browser, the paint is not) and the 35-endpoint breadth re-measurement, which needs an under-privileged subject and is cheapest now that DEV carries the code. **Ceiling unchanged:** gates are self-grantable via ungated SDR; `/v3/section*` and `/v3/dashboard/*` stay ungated (reads); and a nonce can substitute for a function on `transferStock` via `IdempotencyFilter` (Medium, SBDEV-3017). Full history: §14.3-§14.27."
+status: "ARCHIVED 2026-08-28 — ✅ MERGED TO DEVELOP 2026-08-21. [wms2-api #178](https://github.com/SiteBossInc/wms2-api/pull/178) → merge commit `5506117b60`, and [wms2-mobile-ui #42](https://github.com/SiteBossInc/wms2-mobile-ui/pull/42) → `4d768cfa29`. Both branch heads (`bba025c`, `03113ad`) confirmed **ancestors of `origin/develop`** by `merge-base --is-ancestor` — the orphan check, not just the PR page. `V2.2.18` is on develop. ⚠️ **Neither repo has CI checks configured and no human reviewed either PR** — the four review lanes were agent-run; local verification was the only gate. **At merge:** `wms2-api` 5314 tests / 2 failures = known baseline; `wms2-mobile-ui` 218 passing / 18 suites; verify 132/0/2; key pins re-mutated post-rebase, all killed with a null mutant surviving; P6 re-swept (`V2.2.18` uncontested). ⚠️ **DEPLOY ORDER, still live: apply `V2.2.18` → deploy mobile → deploy API.** Runtime Flyway applies migrations on **API boot**, so on UAT/prd step 1 needs a manual run or Replenish Request is dead for everyone between steps 2 and 3 (15 of 19 Hydra UAT users, measured). DEV auto-deploys from develop, so it takes the migration and the gate together — acceptable there, since dev is almost all super-admins. **Owed before ARCHIVE:** manual handheld QA (whether the denial toast paints — its precondition is proven from a real browser, the paint is not) and the 35-endpoint breadth re-measurement, which needs an under-privileged subject and is cheapest now that DEV carries the code. **Ceiling unchanged:** gates are self-grantable via ungated SDR; `/v3/section*` and `/v3/dashboard/*` stay ungated (reads); and a nonce can substitute for a function on `transferStock` via `IdempotencyFilter` (Medium, SBDEV-3017). Full history: §14.3-§14.27."
 project: [wms2]
 version: v2
 requester: "Nam Park"
@@ -20,6 +20,9 @@ tags:
   - security
   - authorization
 ---
+
+> Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2968-mobile-ui-function-gating-enforcement.sh`
+> Implementation worktree(s) removed 2026-08-28: wms2-api/SBDEV-2968, wms2-mobile-ui/SBDEV-2968
 
 # SBDEV-2968 — Mobile workflow tiles are gated client-side only; nothing re-enforces server-side
 
@@ -890,7 +893,7 @@ That reframes this ticket. It was scoped as "close a mobile bypass." It is now *
 | Keycloak group | Purpose | Enforced? |
 |---|---|---|
 | `wms_user` | App access **and facility scope** | Yes — the `/v3/**` floor |
-| `wms_admin` | `/actuator/**` only | Yes, narrowly |
+| `wms_admin` | `/actuator/**` only | Yes, narrowly — ✅ **REAFFIRMED 2026-08-26** (Nam): actuator stays on `wms_admin`. The axis decision is scoped to business access, so this row is unchanged. `wms_admin` has exactly ONE enforcing site, `SecurityConfiguration:120` |
 | `sb_admin` | SiteBoss identity; reserved for future global actions | **No — retained, never checked** |
 
 Everything else is `UserFunction` → `UserRole` → `UserGroup` → `User`. Two carve-outs are structural, not preference: actuator is per-JVM so there is no tenant DB to read a function from; and facility scope cannot become a function because `token.warehouse` → routing key → *which DB holds `mywms_function`* — choosing the facility is what selects the function table.

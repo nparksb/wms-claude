@@ -279,8 +279,19 @@ file_contains() {
 
 # file_not_contains <regex> <file>   — a missing file FAILS, never passes vacuously
 file_not_contains() {
-    [ -f "$2" ] || return 1
+    [ -f "$2" ] && [ -r "$2" ] || return 1
     ! grep -qE "$1" "$2"
+}
+
+# code_not_contains <regex> <file> — like file_not_contains, but IGNORES comment-only lines
+# (`//`, `*`, `/*`). Added 2026-08-27 (SBDEV-3017) after a MEASURED false red: the row asserting the
+# legacy setPutAwayLocation endpoint is deleted went red against correct code, because the deletion
+# left a TOMBSTONE COMMENT naming the very path it forbids. Prose about a deleted symbol is exactly
+# what a good deletion leaves behind, so any negative row on a deleted symbol needs this, not
+# file_not_contains. Fails closed on a missing file, same as its sibling.
+code_not_contains() {
+    [ -f "$2" ] && [ -r "$2" ] || return 1
+    ! grep -vE '^[[:space:]]*(//|\*|/\*)' "$2" | grep -qE "$1"
 }
 
 # file_contains_n_times <regex> <file> <n>
@@ -1083,9 +1094,10 @@ check_A4_neg_not_native() {
 # "not yet built" — and only turns green when the debounced term is wired AND the banner is not recomputed
 # from a searched read. Expect this row and A4-debounce to be the two reds at PR 6.
 #
-# ⚠ The banner's capture-once guard DOES now have executable coverage regardless of this row:
-# editSkuPutawayDialog.spec.js's `capturesTheBannerCountsOnceAndRearmsOnReopen` emits twice with different
-# counts and asserts the first survives, then asserts a reopen re-arms it.
+# 🔴 OBSOLETE 2026-08-26 (SBDEV-2960) — this paragraph claimed the banner's capture-once guard had
+# executable coverage via `capturesTheBannerCountsOnceAndRearmsOnReopen`. **That test no longer exists.**
+# SBDEV-2960 deleted the dialog's count line and the `captureCounts` latch with it, so there is nothing
+# left in the dialog to capture once. Do not read this row as backed by a test.
 # ⚠ TWICE CORRECTED. Fail-closed was right but the first attempt got both halves wrong:
 #   (a) it accepted a bare COMMENT — inserting `<!-- TODO A4: debounce -->` turned it green (seventh
 #       instance of comment-vs-code on this ticket), so the debounce conjunct now requires a CALL;
@@ -1093,10 +1105,18 @@ check_A4_neg_not_native() {
 #       mounting the picker and B2-one-elig forbids a second reader, so the term gets wired in the shared
 #       FIELD or the PICKER. As written it could only go green by putting the debounce exactly where B2's
 #       architecture forbids — pressuring the follow-up author to relax the row instead of satisfying it.
-# ⚠ And its third conjunct cannot catch the recompute hazard IN THE DIALOG at all: the dialog never assigns
-# `totalCount`, it assigns `this.counts = payload`. That invariant is carried EXECUTABLY by
-# editSkuPutawayDialog.spec.js's `capturesTheBannerCountsOnceAndRearmsOnReopen`, which emits twice with
-# different counts and asserts the first survives — this row guards the wiring, that test guards the rule.
+# 🔴 THIS ROW IS NOW TRIVIALLY GREEN AND MUST NOT BE READ AS EVIDENCE — SBDEV-2960, 2026-08-26.
+# Its third conjunct asserts that no `search…(totalCount|counts) =` assignment appears in $V_DIALOG. The
+# dialog now has NO counts at all, so that conjunct is satisfied by absence, permanently, whatever A4
+# does. And the test this paragraph named as carrying the rule executably
+# (`capturesTheBannerCountsOnceAndRearmsOnReopen`) was DELETED with the latch.
+#
+# ⚠ THE HAZARD DID NOT GO AWAY, IT MOVED. `defaultPutawayLocationField`'s four counts — `totalCount`,
+# `eligibleCount`, `eligibleDefaultCount`, `eligibleAdvancedCount` — are live-computed and unlatched, and
+# the field's read passes no search term today. If A4 wires the debounced `name` search, a searched read
+# reports the count of MATCHES and those four degrade to a match-relative denominator with no error
+# anywhere. **Whoever lands A4 owns re-pointing this row at the FIELD and writing the latch test there.**
+# Until then: this row guards wiring it cannot judge, and nothing executable guards the rule.
 check_A4_neg_banner_from_search() {
     file_exists "$V_DIALOG" \
       && { multiline_contains '(debounce|setTimeout)\s*\(' "$V_FIELD" \
@@ -1414,10 +1434,27 @@ check_X_no_new_migration() {
 check_X_notnull_not_touched_by_2643() {
     file_contains 'putawaylocationId' "$F_ITEMDATA_MODEL"
 }
-# The legacy write endpoint stays in place, verb unchanged (2732 §10.4 Q5).
-# 2643 simply never calls it. Asserting its ABSENCE would be wrong.
-check_X_legacy_endpoint_still_present() {
-    file_contains 'GetMapping\(path=\s*"/setPutAwayLocation/' "$F_ITEMDATA_CTL"
+# INVERTED 2026-08-27 (SBDEV-3017). This row used to assert the legacy endpoint was STILL PRESENT,
+# on 2732 §10.4 Q5's reasoning that 2643 simply never calls it so asserting its absence would be
+# wrong. That premise expired: GET /v3/itemData/setPutAwayLocation and the orphaned
+# ItemdataService.setPutAwayLocation were DELETED at Nam's instruction on 2026-08-27, because a
+# mutating GET on a controller outside FunctionGuardInterceptor.GUARDED is ungated the moment its
+# @RequiresFunction is lost — which a review measured actually happening against all 5673 tests.
+#
+# Left as-is it would be a PERMANENTLY-RED row, which is worse than no row: indistinguishable from
+# unfinished work. Inverted rather than deleted, because the direction that is now load-bearing is
+# the negative — the endpoint must not come BACK. The API pins this properly in
+# PutawayConfigActionGuardUnitTest#theDeletedLegacySkuPathHasNotReturned (all verbs, type-resolved);
+# this row is the cross-repo echo, and the JUnit pin is the authority.
+check_X_legacy_endpoint_deleted() {
+    code_not_contains 'setPutAwayLocation' "$F_ITEMDATA_CTL"
+}
+# L7 (2026-08-27): the SERVICE half had no row in either script — only the JUnit pin — while the commit
+# message presented both halves as pinned in both places. ItemdataService.setPutAwayLocation delegated
+# into the validated writer and @RequiresFunction cannot gate a service method, so it was the ungatable
+# twin of the endpoint above and deserves the same cheap echo.
+check_X_legacy_service_method_deleted() {
+    code_not_contains 'setPutAwayLocation' "$F_ITEMDATA_SVC"
 }
 # archunit_store must not be committed dirty — `mvn test` mutates it.
 check_X_archunit_store_clean() {
@@ -1701,7 +1738,8 @@ echo
 echo "--- Cross-cutting invariants (runnable in every phase) ---"
 run X-nomig      "X — 2643 ships ZERO migrations"                            check_X_no_new_migration
 run X-notnull    "X — Itemdata.putawaylocationId untouched by 2643"          check_X_notnull_not_touched_by_2643
-run X-legacy     "X — legacy write endpoint still present (2732 Q5)"         check_X_legacy_endpoint_still_present
+run X-legacy     "X — legacy setPutAwayLocation endpoint DELETED (SBDEV-3017)"    check_X_legacy_endpoint_deleted
+run X-legacy-svc "X — legacy ItemdataService.setPutAwayLocation DELETED (SBDEV-3017)" check_X_legacy_service_method_deleted
 run X-archunit   "X — archunit_store is clean (mvn test mutates it)"         check_X_archunit_store_clean
 # CROSS-CUTTING GUARD — runs today, never blocked. A FAIL means SBDEV-2863's repair
 # regressed, which silently 500s every admin-gated endpoint in BOTH tickets.

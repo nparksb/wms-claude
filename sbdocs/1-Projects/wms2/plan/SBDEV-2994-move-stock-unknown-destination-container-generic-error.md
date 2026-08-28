@@ -23,6 +23,26 @@ tags:
   - error-handling
 ---
 
+> 🔴 **LINE PINS IN THIS PLAN ARE STALE as of 2026-08-24 — re-derive before using them.**
+> `StockUnitController.java` gained ~30 lines from SBDEV-3017-C (api PR #189, `e44e972`) and SBDEV-3077
+> (PR #191, `4ff42b8`). Measured on `origin/develop@4ff42b8`:
+>
+> | this plan says | actually now |
+> |---|---|
+> | `bulkTransferStock` at `:115-176` | **`:215`** |
+> | its `catch (EntityNotFoundException)` at `:165` | **`:264`** |
+> | `bulkTransferStock` is *"50 lines below"* `transferStock` | `transferStock` `:110` → **105 lines** |
+> | `bulkTransferStock:163-167` (review-planner §D3) | shifted by the same amount |
+>
+> ⚠️ **The plan's substance is unaffected** — `bulkTransferStock` still catches `BusinessException` and returns
+> `ResponseEntity.ok(errorMap)`, which is the behaviour this plan is about. Only the pins moved.
+>
+> ⚠️ `bulkTransferStock` now also carries
+> `@RequiresFunction({MOBILE_UI_VIEW_STOCK_TRANSFER, WEB_UI_VIEW_STOCK_UNIT})` (SBDEV-3017-C). Any change here
+> must keep it, and must keep it **identical to `transferStock`'s set** — `FunctionGuardArchTest`'s AC-4d
+> asserts every single/bulk pair carries one set, and a divergence is either a bypass or a 403 on a working
+> button.
+
 # Move Stock: unknown / retired destination container returns 404 and shows the generic network toast
 
 **Ticket:** [SBDEV-2994](https://app.clickup.com/t/868ktubtu)

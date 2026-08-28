@@ -206,6 +206,18 @@ file_not_contains() {
     ! grep -qE "$1" "$2"
 }
 
+# code_not_contains <regex> <file> — file_not_contains, but ignoring COMMENT-ONLY lines.
+# ⚠ Required for any negative row about a DELETED symbol: a good deletion leaves a tombstone comment
+# naming what it removed, and that comment satisfies a plain negative grep, reddening the row against
+# CORRECT code. Ported here 2026-08-27 (SBDEV-3017 review L5) — these two rows had been passing only
+# because a tombstone happened to capitalise one letter differently than the pattern, i.e. by luck.
+# Both guards are load-bearing: [ -f ] because ! grep on a missing file PASSes; [ -r ] because on an
+# unreadable file grep exits 2 and ! inverts the no-match into a PASS too.
+code_not_contains() {
+    [ -f "$2" ] && [ -r "$2" ] || return 1
+    ! grep -vE '^[[:space:]]*(//|\*|/\*|#)' "$2" | grep -qE "$1"
+}
+
 # file_contains_n_times <extended-regex> <file> <n>
 file_contains_n_times() {
     [ -f "$2" ] || return 1
@@ -713,12 +725,32 @@ check_C_no_all_entries()    { file_not_contains 'allEntries *= *true' "$CFGSVC";
 # Clearing the WAREHOUSE override writes '' — it must NOT delete the sysprop row.
 check_C_no_sysprop_delete() { file_not_contains 'syspropRepository\.delete' "$CFGSVC"; }
 
-check_IDS_delegates()       { file_contains 'putawayConfigService\.' "$IDSVC"; }
-check_IDCTL_delegates()     { file_contains '(itemdataService\.setPutAwayLocation|putawayConfigService\.)' "$IDCTL"; }
+# INVERTED 2026-08-27 (SBDEV-3017). Both rows used to assert that ItemdataService and
+# ItemDataController DELEGATE to PutawayConfigService rather than raw-saving — correct while each
+# still owned a putaway write. Neither does now: ItemDataController.setPutAwayLocation (a mutating
+# GET, ungated because ItemDataController is outside FunctionGuardInterceptor.GUARDED) and the
+# orphaned ItemdataService.setPutAwayLocation were both DELETED at Nam's instruction, and with them
+# the PutawayConfigService injection in each class (ItemDataController 14 ctor args -> 13).
+#
+# Left as-written both would be PERMANENTLY RED — worse than no row, being indistinguishable from
+# unfinished work. Inverted, because 2732's actual invariant survives in a stronger form: there is
+# now exactly ONE validated, audited SKU-putaway writer, reached only through
+# PutawayConfigController.setSku (@RequiresFunction(WEB_UI_VIEW_ITEM_DATA)). The authority is
+# PutawayConfigActionGuardUnitTest#onlyTheFourGatedHandlersMayCallTheSetters, an ArchUnit
+# type-resolved call-site rule; these two rows are the cheap cross-file echo of it.
+check_IDS_no_putaway_write()   { code_not_contains 'putawayConfigService\.' "$IDSVC"; }
+check_IDCTL_no_putaway_write() { code_not_contains '(itemdataService\.setPutAwayLocation|putawayConfigService\.)' "$IDCTL"; }
 # NEGATIVE: ItemDataController:80 allEntries=true (flushes ALL tenants) must be gone.
 check_IDCTL_all_entries_gone() { file_not_contains 'allEntries *= *true' "$IDCTL"; }
 # NEGATIVE: the raw unvalidated save at :88-90 must be gone.
-check_IDCTL_raw_save_gone() { file_not_contains_multiline 'setPutawaylocationId\(locationId\);\s*\n\s*Itemdata newItemData = itemdataRepository\.save\(itemData\);' "$IDCTL"; }
+# GENERALISED 2026-08-27 (SBDEV-3017 review M1). This pinned the EXACT two-line text of the old body,
+# down to the local variable name `newItemData`. A mutant writing the same defect without that local —
+# `return ResponseEntity.ok(itemdataRepository.save(itemData));` — passed it. The row nominally guards
+# "no raw unvalidated save in this controller" and guarded one transcription of it. Now pins the actual
+# hazard: this controller must not touch the putaway field at all. Authority is the ArchUnit rule
+# PutawayConfigActionGuardUnitTest#onlyTheValidatedWriterMayWriteThePutawayField, which enforces it
+# across ALL of src/main; this row is the cheap file-scoped echo.
+check_IDCTL_raw_save_gone() { code_not_contains 'setPutawaylocationId' "$IDCTL"; }
 
 # ============================================================================
 # PHASE 1-API — stop seeding the PutAwayLane id at all FOUR write sites (§3.2)
@@ -1974,8 +2006,8 @@ runp 1 C-evictcl     "clients eviction covers BOTH keys"                  check_
 run C-evictsp     "sysprops eviction present"                          check_C_evict_sysprops
 run C-noall       "NEG: no allEntries=true (cross-tenant flush)"       check_C_no_all_entries
 run C-nodel       "NEG: warehouse clear is UPDATE '', not DELETE"      check_C_no_sysprop_delete
-run IDS-deleg     "ItemdataService delegates to PutawayConfigService"  check_IDS_delegates
-run IDCTL-deleg   "ItemDataController routes through the service"      check_IDCTL_delegates
+run IDS-nowrite   "ItemdataService has NO putaway write (SBDEV-3017)"    check_IDS_no_putaway_write
+run IDCTL-nowrite "ItemDataController has NO putaway write (SBDEV-3017)"  check_IDCTL_no_putaway_write
 run IDCTL-neg1    "NEG: allEntries=true removed from ItemDataController" check_IDCTL_all_entries_gone
 run IDCTL-neg2    "NEG: raw unvalidated save removed"                  check_IDCTL_raw_save_gone
 echo

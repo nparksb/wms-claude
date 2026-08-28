@@ -4,7 +4,7 @@ ticket: "SBDEV-2821"
 ticket_url: "https://app.clickup.com/t/868km8j9z"
 type: "bugfix"
 priority: "high"
-status: "merged — **PR #135 MERGED into `develop` 2026-08-09** (merge `fd90487`, feature commit `cfb6d49`); ClickUp moved to `on dev`. See §11 Implementation Status. Original approval record follows. APPROVED for OPTION (iii) — route at putaway. **M1a PASSED 2026-08-09 on wineco DEV: the design gate is GREEN** (FLA 30586183 auto-created, stock merged into virtual PickLocation UL 30586181, one UL on the location). M1b confirmed the cases-and-pallets gap. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). **No gates remain: the M1-on-UAT prerequisite was SATISFIED 2026-08-09 by the DEV run, accepted by the ticket owner (§5.1 row 2) — M1a exercises a switch branch, not tenant data, and re-running on UAT would burn a second fixture pair for no extra coverage.** **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0. **Next action: TDD gate (§5.2 step 2).**"
+status: "ARCHIVED 2026-08-28 — merged — **PR #135 MERGED into `develop` 2026-08-09** (merge `fd90487`, feature commit `cfb6d49`); ClickUp moved to `on dev`. See §11 Implementation Status. Original approval record follows. APPROVED for OPTION (iii) — route at putaway. **M1a PASSED 2026-08-09 on wineco DEV: the design gate is GREEN** (FLA 30586183 auto-created, stock merged into virtual PickLocation UL 30586181, one UL on the location). M1b confirmed the cases-and-pallets gap. Q4 resolved; Q1 resolved (label prints unconditionally = existing behaviour, no change). Q15 resolved 2026-08-08 as (A) — this ticket ships TIER 1 ONLY, first and independently; SBDEV-2732 extends putaway to all four tiers and now DEPENDS ON THIS TICKET (§0, §5.1 row 4). **No gates remain: the M1-on-UAT prerequisite was SATISFIED 2026-08-09 by the DEV run, accepted by the ticket owner (§5.1 row 2) — M1a exercises a switch branch, not tenant data, and re-running on UAT would burn a second fixture pair for no extra coverage.** **M1b was RUN 2026-08-09 and confirmed the `cases and pallets` gap** — §3.2a is evidenced, not inferred. Decision provenance in §0. **Next action: TDD gate (§5.2 step 2).**"
 project: [wms2]
 version: "v2"
 requester: "Brent Campbell (via SBDEV-2731)"
@@ -36,6 +36,9 @@ related:
 tags:
   - plan
 ---
+
+> Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2821-tier1-direct-placement-onto-pick-face.sh`
+> Implementation worktree(s) removed 2026-08-28: wms2-api/SBDEV-2821
 
 # SBDEV-2821 — Receive ICE PACK into the ICE PACK pick face
 

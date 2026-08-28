@@ -48,7 +48,7 @@ tags:
 
 ### 0.A In scope — the user-administration endpoints (5 from the ticket, +1 found by review)
 
-All were reachable by **any authenticated `wms_user`**: `/v3/**` → `hasAnyAuthority("wms_user")` (`SecurityConfiguration:143`) was the only gate.
+All were reachable by **any authenticated `wms_user`**: `/v3/**` → `hasAnyAuthority("wms_user")` (`SecurityConfiguration:178`) was the only gate.
 
 | # | Endpoint | Prior guard state | Now (revised 2026-08-17) |
 |---|---|---|---|
@@ -98,8 +98,8 @@ This also means **the endpoint inventories in SBDEV-2967 §0.B and SBDEV-2968 ar
 | # | Site | Role |
 |---|---|---|
 | 0.11 | `Authority.java` | gains `WMS_ADMIN_ROLE` only — `IS_WMS_ADMIN` was added then **deleted** once 0.1 moved to `sb_admin` and 0.2–0.5 + 0.16 to the function model, leaving it unreferenced (§3.1). *(`AUTHZ_DENIED_HEADER` went to 2967 with Fix C — §11.4.)* |
-| 0.12 | `SecurityConfiguration:120` | `/actuator/**` — the pre-existing `wms_admin` gate; literal replaced with the constant |
-| 0.13 | `SecurityConfiguration:167-188` | CORS exposed-headers — **unchanged by this ticket**; the `X-Authz-Denied` entry moved out (§11.4). ⚠️ **Its destination is SBDEV-2968 §3.1-A2b, not 2967** (reassigned 2026-08-17 on ordering — 2968 lands first). Retained here only as the site 2968 must edit. |
+| 0.12 | `SecurityConfiguration:147` | `/actuator/**` — the pre-existing `wms_admin` gate; literal replaced with the constant |
+| 0.13 | `SecurityConfiguration:194-215` | CORS exposed-headers — **unchanged by this ticket**; the `X-Authz-Denied` entry moved out (§11.4). ⚠️ **Its destination is SBDEV-2968 §3.1-A2b, not 2967** (reassigned 2026-08-17 on ordering — 2968 lands first). Retained here only as the site 2968 must edit. |
 | 0.14 | `StockunitRepository:27` | `@RepositoryRestResource(path="stockunit")` over `CrudRepository`, `exported=false` on query methods only — the 0.10 surface |
 | 0.15 | `RestConfiguration:24,32` | SDR base path set to `/v3` **programmatically**, not by property — so 0.10 *is* behind the `wms_user` floor, not open to a zero-authority principal |
 
@@ -148,7 +148,7 @@ Queried live on `wms2-wineco-dev` 2026-08-16/17:
 
 ### 3.1 Fix A — `Authority` constants
 
-`WMS_ADMIN_ROLE = "wms_admin"` — **that is all that remains.** Its only purpose is to remove the bare `"wms_admin"` string literal from the `/actuator/**` matcher at `SecurityConfiguration:120`, which is its **single** consumer (pinned by verify row `A4`).
+`WMS_ADMIN_ROLE = "wms_admin"` — **that is all that remains.** Its only purpose is to remove the bare `"wms_admin"` string literal from the `/actuator/**` matcher at `SecurityConfiguration:147`, which is its **single** consumer (pinned by verify row `A4`).
 
 **There is deliberately no `IS_WMS_ADMIN` expression.** An earlier revision added one to gate all five endpoints; it was removed once 0.2–0.6 went to the function model and 0.1 went to `sb_admin` (§3.2), leaving it with zero references. A dead SpEL constant in a security class invites exactly the kind of misuse this ticket exists to fix, and §1.1's target state reserves `wms_admin` for `/actuator/**` alone. The `Authority.java` javadoc records this so nobody reintroduces it speculatively; verify rows `A2`/`A3` assert it stays gone.
 
@@ -288,7 +288,7 @@ That is why §10.1 is the blocker rather than a caveat: the failure mode is not 
 2b. ✅ **Fix E** — `saveUserGroups` gated on the same function (§3.2.1), without which 2 was bypassable in one request
 3. ➡️ ~~`denyUnlessDamagedLockAllowed()` + 2 call sites~~ — **moved to SBDEV-2967 Fix E** (§3.3)
 4. ➡️ ~~`X-Authz-Denied` via CORS + 2 `SecurityConfigurationTest` cases~~ — **moved to SBDEV-2967** (§3.4)
-5. ✅ `SecurityConfiguration:120` uses `Authority.WMS_ADMIN_ROLE`
+5. ✅ `SecurityConfiguration:147` uses `Authority.WMS_ADMIN_ROLE`
 6. ➡️ ~~4 `DamagedLockAuthorizationGate` tests, ablation-proven~~ — **moved to SBDEV-2967** (design carried over intact, §3.3)
 7. ❌ **No `wms2-web-ui` change** (AC-4 — §10.1)
 8. ❌ **No manual 403 verification** (AC-5 — P3)
@@ -456,7 +456,7 @@ Two *passed on the broken tree* (false green — strictly worse), and **only the
 
 ### 11.1 Review
 
-One independent code-review pass, 2026-08-17. Verdict **DON'T SHIP**. Findings HIGH-1 (→ §10.1), HIGH-2 (→ §10.2), MEDIUM-1 (the vacuous test — **fixed**), MEDIUM-2 (CORS exposure — **fixed**), MEDIUM-3 (→ §10.7), MEDIUM-4 (→ §10.3), MEDIUM-5 (→ §10.4), plus a LOW that was fixed (the `wms_admin` literal at `SecurityConfiguration:120`).
+One independent code-review pass, 2026-08-17. Verdict **DON'T SHIP**. Findings HIGH-1 (→ §10.1), HIGH-2 (→ §10.2), MEDIUM-1 (the vacuous test — **fixed**), MEDIUM-2 (CORS exposure — **fixed**), MEDIUM-3 (→ §10.7), MEDIUM-4 (→ §10.3), MEDIUM-5 (→ §10.4), plus a LOW that was fixed (the `wms_admin` literal at `SecurityConfiguration:147`).
 
 > [!warning] That review does not cover the current branch state
 > It reviewed the **6-file** version, which still contained Fix C, Fix D and the `wms_admin` gates on all five endpoints. Since then Fix C/D were reverted (§11.4) *and* Fix B was redesigned onto the function model (§3.2), which added a new controller, a new test class, and moved 4 endpoints. **HIGH-1 is now closed by construction rather than by argument** (§10.1). Nothing has independently reviewed the 6-file diff that exists today. Two of the errors on this branch were introduced by the *revert* itself — a truncated `SecurityConfigurationTest` and a verify script left with an undefined `$SUC` that died silently under `set -u` — so removal carries its own risk and warrants a fresh pass before merge.
@@ -515,6 +515,6 @@ Removed from this branch and re-homed in SBDEV-2967 Fix E:
 > itself, so emitting a header costs one line there and an `AccessDeniedHandler` anywhere else. Recorded as 2968
 > R13 and §14-Δ1. **The revert from this branch stands and was correct** — only the destination changed.
 
-Kept: Fix A (`WMS_ADMIN_ROLE`, `IS_WMS_ADMIN`), Fix B (5 gates), and the `SecurityConfiguration:120` literal→constant tidy-up. Branch was then **3 files / 72 insertions**; full suite **5113 run, 2 failures, both pre-existing on `develop`**.
+Kept: Fix A (`WMS_ADMIN_ROLE`, `IS_WMS_ADMIN`), Fix B (5 gates), and the `SecurityConfiguration:147` literal→constant tidy-up. Branch was then **3 files / 72 insertions**; full suite **5113 run, 2 failures, both pre-existing on `develop`**.
 
 > ⚠️ **Superseded — this paragraph is a snapshot of 2026-08-17 mid-morning, kept as the revert record only.** Fix B was afterwards redesigned onto the function model (§3.2), `IS_WMS_ADMIN` was **deleted** as dead (§3.1), and Fix E was added (§3.2.1). Current state: **6 files + 2 new**, full suite **5122 run, 2 failures**. Do not read the file/insertion counts here as current.

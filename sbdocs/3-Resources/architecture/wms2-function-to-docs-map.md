@@ -6,9 +6,9 @@ version: v2
 scope: function-map
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-08-03
+updated: 2026-08-24
 last_verified: 2026-08-03
-verified_by: enumeration of wms2-web-ui + wms2-mobile-ui menus + wms2-api endpoints; §9 symbol axis derived from find(*Controller*.java) + symbol grep over workflows/architecture/design docs (SBDEV-2803)
+verified_by: enumeration of wms2-web-ui + wms2-mobile-ui menus + wms2-api endpoints; §9 symbol axis derived from find(*Controller*.java) + symbol grep over workflows/architecture/design docs (SBDEV-2803). 2026-08-24 (SBDEV-3063): §9's five security rows re-verified against origin/develop @ 5b704e5 and corrected — GUARDED 11→14, AccessDecision gained CONFLICTING_ANNOTATIONS, PublicHandler row added, FunctionGuardInterceptor's SDR reachability corrected per SBDEV-3017 slice A. last_verified deliberately NOT bumped: only those rows were checked, not the whole map
 related:
   - ./wms2-keycloak-role-matrix.md
   - ./wms2-end-to-end-request-journey.md
@@ -189,9 +189,10 @@ Recommendation: remove or quarantine in a dedicated folder after confirming no d
 > | Symbol | What it is |
 > |---|---|
 > | `net.aim_ai.wms.security.RequiresFunction` | the gating annotation; values must be `FunctionEnum` constant **references** so a rename is a compile error |
-> | `net.aim_ai.wms.security.FunctionGuardInterceptor` | the enforcement point; resolves on the **declaring class**, fail-closed inside an explicit 11-controller set |
-> | `net.aim_ai.wms.security.FunctionGuardStartupAssertion` | fails the boot when a guarded handler carries no annotation |
-> | `net.aim_ai.wms.security.AccessDecision` | the decision record — `ALLOWED` / `MISSING_FUNCTION` / `NO_FUNCTIONS` / `USER_NOT_PROVISIONED`, each carrying its own metric tag |
+> | `net.aim_ai.wms.security.FunctionGuardInterceptor` | the enforcement point; resolves on the **declaring class**, fail-closed inside an explicit **14**-controller set. Registered as a `MappedInterceptor` **bean** since SBDEV-3017 slice A, so Spring Data REST requests DO reach it (reaching ≠ gating: SDR's declaring classes carry no annotation and are outside the set, so they fall through allowed) |
+> | `net.aim_ai.wms.security.FunctionGuardStartupAssertion` | fails the boot when a guarded handler carries no annotation **and no `@PublicHandler`**; also exposes two pure static seams (`findPublicHandlers`, `findMarkedHandlersOutsideGuarded`) so the boot enumeration is unit-assertable |
+> | `net.aim_ai.wms.security.AccessDecision` | the decision record — `ALLOWED` / `MISSING_FUNCTION` / `NO_FUNCTIONS` / `USER_NOT_PROVISIONED` / `CONFLICTING_ANNOTATIONS`, each carrying its own metric tag |
+> | `net.aim_ai.wms.security.PublicHandler` | **SBDEV-3063** — the deliberately-open marker. `@Target(METHOD)` only, mandatory `reason()`, resolved BEFORE any `@RequiresFunction` lookup so neither a method- nor class-level annotation can shadow it. Lets a controller join `GUARDED` while keeping named handlers open (`UserController`'s two UI bootstrap reads). Mutually exclusive with `@RequiresFunction` on the same method — both ⇒ `CONFLICTING_ANNOTATIONS`. ⚠️ Membership of `GUARDED` gives **default-to-class-function**, not fail-closed, once the class carries a class-level annotation: an unannotated new handler inherits that function rather than being denied |
 > | `net.aim_ai.wms.service.AccessAuditService` | `GET /v3/adminAction/accessAudit`; one bulk Keycloak call, never per-row |
 > | `net.aim_ai.wms.controller.UserAdministrationController` | **pre-existing since SBDEV-2870 PR #166 and previously unindexed here** — four `/v3/user/*` endpoints gated on `WEB_UI_VIEW_USER_MANAGEMENT` |
 >
@@ -207,7 +208,7 @@ Recommendation: remove or quarantine in a dedicated folder after confirming no d
 
 | Subsystem | Controllers | Primary services | Docs |
 |---|---|---|---|
-| Receiving / putaway | `AdviceController`, `AdviceRestController`, `ReceivingController`, `GoodsReceiptPositionController`, `PutawayController`, `FileImportController`, **`PutawayConfigController`** | `AdviceService`, `ReceivingService`, `GoodsreceiptService`, `MobilePutAwayService`, **`PutawayDestinationResolver`**, **`PutawayDestinationQueryService`**, **`PutawayDestinationValidator`**, **`PutawayConfigService`**, **`PutawayConfigAuditService`** | 📕 [wms2-receiving-putaway-workflow](../workflows/wms2-receiving-putaway-workflow.md) §4.2, §5.2 · destination hierarchy: 📗 [sysprop-catalog](../data-dictionary/wms2-sysprop-catalog.md) §10 (`DEFAULT_PUTAWAY_LOCATION`) · plan `SBDEV-2732` (⚠ PR #139 open, not merged) |
+| Receiving / putaway | `AdviceController`, `AdviceRestController`, `ReceivingController`, `GoodsReceiptPositionController`, `PutawayController`, `FileImportController`, **`PutawayConfigController`** | `AdviceService`, `ReceivingService`, `GoodsreceiptService`, `MobilePutAwayService`, **`PutawayDestinationResolver`**, **`PutawayDestinationQueryService`**, **`PutawayDestinationValidator`**, **`PutawayConfigService`**, **`PutawayConfigAuditService`** | 📕 [wms2-receiving-putaway-workflow](../workflows/wms2-receiving-putaway-workflow.md) §4.2, §5.2 · destination hierarchy: 📗 [sysprop-catalog](../data-dictionary/wms2-sysprop-catalog.md) §10 (`DEFAULT_PUTAWAY_LOCATION`) · plan `SBDEV-2732` (BOTH PHASES MERGED 2026-08-11; PR #139 landed) |
 | Picking | `PickingController`, `PickingOrderPositionController` | `MobilePickingService`, `PickingorderBusinessService`, `PickingOrderMergeService`, `PickingorderPositionService`, `ReleaseOrderJobService` | 📕 [wms2-picking-workflow](../workflows/wms2-picking-workflow.md) |
 | Replenishment | `ReplenishController`, `ReplenishOrderController`, `ReplenishmentReconciliationController` | `MobileReplenishService`, `ReplenishGeneratorService`, `ReplenishorderService`, `ReplenishOrderJobService`, `ReplenishmentOrderMaintenanceService`, `ReplenishmentOrderSourceSyncService` | 📕 [wms2-replenish-workflow](../workflows/wms2-replenish-workflow.md) · 📕 [order-creation](../workflows/wms2-replenish-order-creation.md) · 📕 [multi-unitload](../workflows/wms2-multi-unitload-replenish.md) · 📙 [replenishment-design](../design/wms2-replenishment-design.md) |
 | Cycle count | `CycleCountController`, `CycleCountLosController` | `CyclecountService`, `MobileCycleCountService` | 📕 [wms2-cycle-count-workflow](../workflows/wms2-cycle-count-workflow.md) |

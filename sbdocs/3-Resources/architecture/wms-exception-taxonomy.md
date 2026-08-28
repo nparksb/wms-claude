@@ -133,7 +133,7 @@ The catch block in every `/rest/` controller:
 
 ---
 
-### SBDEV-2732 — `PutawayConfigValidationException` (v2, PR #139 open)
+### SBDEV-2732 — `PutawayConfigValidationException` (v2, PR #139 merged 2026-08-11)
 
 | Exception | Extends | HTTP | Where it is thrown |
 |---|---|---|---|
@@ -325,7 +325,7 @@ Fallback behaviour: if the bundle or key is missing, the key and parameters are 
 
 ---
 
-### SBDEV-2732 putaway destination keys (v2, PR #139 open)
+### SBDEV-2732 putaway destination keys (v2, PR #139 merged 2026-08-11)
 
 Ten keys, present in **both** `messages.properties` and `messages_en_US.properties` — the ResourceBundle
 parent chain hides a deletion from the child, so both files must carry every key.

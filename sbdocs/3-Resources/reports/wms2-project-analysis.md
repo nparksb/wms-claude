@@ -281,13 +281,30 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 ```
 
 ### Authorization Model
+
+⚠️ **Corrected 2026-08-26.** This section previously showed a **fabricated** sample —
+`@PreAuthorize("hasAnyAuthority('ADMIN', 'wms_admin')")` on a `getAllClients()` — which exists nowhere
+in wms2-api and misrepresented the model in two ways: `wms_admin` gates **only** `/actuator/**`
+(`SecurityConfiguration:147`, its single consumer), and `ADMIN` is dead — a Spring Boot 2→3 migration
+placeholder from commit `09eb2f06` that matches no Keycloak role or group.
+
+The real model has **two axes**:
+
 ```java
-// Role-based access control
-@PreAuthorize("hasAnyAuthority('ADMIN', 'wms_admin')")
-public ResponseEntity<List<Client>> getAllClients() {
-    // Admin-only operation
-}
+// (a) Coarse, Keycloak: every WMS2 user holds the `wms_user` group. Route-level only.
+//     SecurityConfiguration:178 -> .requestMatchers("/v3/**", "/putawayConfig/**")
+//                                  .hasAnyAuthority(Authority.WMS_USER_ROLE)
+
+// (b) Fine-grained, WMS V2's own model: user -> group -> role -> function, in the TENANT DB.
+//     Enforced by FunctionGuardInterceptor / accessService, e.g.
+@RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_ITEM_DATA)
+public ResponseEntity<?> someBusinessRead() { … }
 ```
+
+Business authorization belongs on axis (b). The legacy `@PreAuthorize(Authority.IS_SB_ADMIN)` sites —
+**20** of them as of 2026-08-26 — are the anti-pattern being retired; see
+`3-Resources/architecture/wms2-keycloak-role-matrix.md` §1.1 and
+`3-Resources/reports/260826-wms-admin-to-super-admin-authz-axis-audit.md`.
 
 ### Multi-Tenant Security
 - **Data Isolation**: Database-level tenant separation

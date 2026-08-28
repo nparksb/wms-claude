@@ -6,8 +6,8 @@ version: v1
 scope: picking
 owner: Nam Park
 created: 2026-04-26
-updated: 2026-04-26
-last_verified: 2026-07-09
+updated: 2026-08-27
+last_verified: 2026-08-27
 verified_by: code read of v1/wms-api src/main — all four picking services + mobile service + controllers
 related:
   - ./wms2-picking-workflow.md
@@ -112,6 +112,36 @@ No JPA association annotations exist — all FK relationships are `Long foreignK
    - If an `OrderBatch` is present, advances batch state to `STARTED` (line 550–551).
 
 > **SBDEV-2512 (reinstated 2026-07-09, PR #194) — `partitionallowed` guard in overstock release.** When the `ENFORCE_PARTITIONALLOWED` sysprop is ON (default), a `CustomerorderPosition` with `partitionallowed = false` must be filled from a **single** stock unit. In phase 2 a cumulative per-order per-SKU ledger (`reserveSingleCoveringUnit`) checks whether one unit can still cover the amount after prior same-SKU admissions; if not, the position is held (`RAW_ON_HOLD_NOT_ENOUGH_STOCK_ON_LOCATION` → order `RAW_ON_HOLD`) instead of being fragmented across source unit loads. In phase 3 a non-partitionable position takes exactly one pick from a single covering unit (no greedy split). Set the sysprop `false` to restore the legacy fragment-and-ship behavior. **Line numbers above predate SBDEV-2512 — grep before trusting them.**
+
+> **The fix-assignment path enforces a strict one-unitload / one-stockunit invariant.** Measured 2026-08-27.
+> A position whose SKU *has* a `fix_location_assignment` does **not** go through the SBDEV-2512 overstock
+> guard at all — that guard sits inside `if (fixAssignmentID == null)` (`ReleaseOrderJobService:117`, `:228`).
+> The fix-assignment branch instead runs a chain of sanity checks on the assigned location, and **any** of
+> them parks the position in `RAW_ON_HOLD_PROBLEM_WITH_FIXED_ASSIGNED_LOCATION` (57):
+>
+> | Check | Condition that holds the position | Line |
+> |---|---|---|
+> | no stock on the assigned unitload | `stockunits.size() == 0` | `:324` |
+> | **more than one stockunit on the unitload** | `stockunits.size() > 1` | `:338` |
+> | stockunit holds a different SKU | `stockItemData != itemdata` | `:354` |
+> | unitload is not on the assigned location | `storageLocation != assignedLocation` | `:371` |
+> | no unitload on the assigned location | `unitloads.size() == 0` | `:387` |
+> | **more than one unitload on the assigned location** | `unitloads.size() > 1` | `:401` |
+> | unitload label ≠ location name | `!unitload.labelid.equals(location.name)` | `:415` |
+>
+> **Practical consequence — this bites anyone building test data.** A fix-assigned pick face cannot be
+> given several small stock units: adding a second unitload trips `:401`, and adding a second stockunit to
+> the existing unitload trips `:338`. Both land on state 57, *not* on the "not enough stock" state 55 the
+> scenario was aiming for. So the SBDEV-2512 fragmentation shape (aggregate stock sufficient, but no single
+> unit large enough) is **only constructible for a SKU with no fix assignment**. Observed directly on
+> `wh01_om1` dev: adding one extra unitload with 22 × 1-bottle stockunits to `T1X3Y3` flipped all three
+> `LEO-TEST-WINE-1` positions 55 → 57, and the job healed them back to 55 on the next cycle once the extra
+> unitload was removed. The heal is automatic — no manual repair needed — but the intermediate state is
+> visible to anyone watching the monitor meanwhile.
+>
+> Note the label check at `:415` also means a fix-assignment unitload's `labelid` **must equal the location
+> name** (e.g. unitload `T1X3Y3` on location `T1X3Y3`), which is why fix-face unitloads are named after
+> their location rather than carrying a normal `UL…` label.
 
 **`PickingorderService.create()`** (`service/PickingorderService.java:32`):
 - Loops up to 10 000 times generating a candidate number via `BasicService.generatePickOrderNumber()`, checking uniqueness via `PickingorderRepository.findByNumber`.
@@ -420,6 +450,8 @@ The fallback synchronous OMS call in `finishPickingOrder` (line 169) fires only 
 | "Tote rejected — still bound to in-flight order" | `getOrderByToteLabelId` found an order with `state < FINISHED` (600). Tote was used for a PICKED order that hasn't yet been packed. Do not null `pickingtoteId` on PICKED orders |
 | "Optimistic lock error during processPick" | Position version bumped by the tote-assignment loop before `confirmPick` — fixed by re-read at line 464. If recurring, check for concurrent processPick calls on the same position |
 | "Parcel already assigned to user X" | `Pickingorder.operatorId` is set to a different user. Release via `GET /v3/picking/releasePickingOrder/{id}` (calls `releaseRegularPickingOrder`) |
+| "Position stuck on hold 57 — PROBLEM_WITH_FIXED_ASSIGNED_LOCATION" | One of the seven fix-assignment sanity checks in §4 is failing. Most common in practice: **two unitloads on the assigned location** (`:401`) or **two stockunits on the assigned unitload** (`:338`). Fix the location so it holds exactly one unitload (labelled with the location name) carrying exactly one stockunit of the right SKU; the release job heals the position on its next cycle |
+| "Non-partitionable position held even though total stock looks sufficient" | Expected — SBDEV-2512 requires a **single** covering unit. Check `max(amount - reservedamount)` per stockunit, not the sum. Only applies to SKUs with **no** fix assignment (§4) |
 | "No picks left for parcel" (rapid pick) | All positions already `>= PICKED` but `finishPickingOrder` was not called — the TODO at `rapidPickingScanPackage:774` marks this as unimplemented |
 
 ---
@@ -444,5 +476,7 @@ The fallback synchronous OMS call in `finishPickingOrder` (line 169) fires only 
 | 2026-04-26 | All four picking services (full read) + `MobilePickingService` (full read, 1032 lines) + `PickingController` (full read) + `PickingOrderPositionController` (full read) + `ReleaseOrderJobService` (grep + targeted read) + `WmsConstants.State` constants | All file:line refs confirmed against `v1/wms-api/src/main/java` | Code read |
 
 | 2026-07-09 | SBDEV-2512 impl in `ReleaseOrderJobService.releaseOrder` (phase-2 cumulative `partitionallowed` hold guard + `reserveSingleCoveringUnit`, phase-3 single-pick branch, `ENFORCE_PARTITIONALLOWED` kill-switch) — reinstated via PR #194 after the #192 revert | Re-added §4 SBDEV-2512 note; §4 numbered line refs predate this change (grep before trusting) | Code read (SBDEV-2512 impl) |
+
+| 2026-08-27 | Fix-assignment branch of `ReleaseOrderJobService` — all seven checks that set `RAW_ON_HOLD_PROBLEM_WITH_FIXED_ASSIGNED_LOCATION` (57), and the `fixAssignmentID == null` gate that excludes fix-assigned SKUs from the SBDEV-2512 guard | Confirmed by code read **and** by live experiment on `wh01_om1` dev (SBDEV-3120): a second unitload on a fix face flipped 3 positions 55 → 57 and the job healed them back after removal. Added the invariant table to §4 and two rows to §16 | Code read + dev experiment (SBDEV-3120) |
 
 **Re-verify when any of these files change:** `PickingorderBusinessService.java`, `MobilePickingService.java`, `ReleaseOrderJobService.java`.

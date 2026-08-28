@@ -5,13 +5,13 @@ ticket_url: ""
 type: "security"
 priority: "high"
 status: "blocked"
-blocked_on: "OMS v2 must send a Keycloak Bearer JWT on all /rest/** calls before this can deploy. Interim stopgap in effect: app.idempotency.require-auth=false (commit 40bdc13, Option 1 of 260522-wms2-rest-idempotency-without-jwt-options). Deploy this fix + flip require-auth back to true in the same release."
+blocked_on: "DEFERRED BY DECISION 2026-08-27 (Nam) — not merely technically blocked. Two decisions were taken on SBDEV-3124: (1) TOPOLOGY — /rest/** is internal-only between WMS and OMS and is NEVER internet-exposed, so the missing auth is defence-in-depth, not a live exposure; SBDEV-3124 was moved to high/blocked on that basis. (2) MECHANISM — Keycloak JWT, same as every other service, which RATIFIES this plan's title and approach; do not re-plan it. Timing: Nam will drive it with the OMS team later, not now. Do not ship the WMS half first. CORRECTED 2026-08-27 (SBDEV-3124 triage) — the prior wording said only 'OMS v2 must send a Keycloak Bearer JWT'. That is directionally right and materially incomplete: WmsApiService::applyAuthentication on oms-laravel-api origin/develop OPENS with an unconditional early return for any URL matching #/rest/#i, so OMS skips auth on this exact surface BEFORE reading any config. Setting WMS_AUTH_TYPE=token changes nothing here. Also: the operative auth config is a per-facility DB lookup (WmsUrlLut::getAuthConfigForFacility), not the config/wms.php env default; and 'token' applies a STATIC opaque bearer, which MultiTenantJwtDecoder rejects — no Keycloak client-credentials flow exists on the OMS side today. So the OMS work is: delete the /rest/ skip + build a client-credentials flow + populate per-facility auth config. Interim stopgap still in effect: app.idempotency.require-auth=false (application.properties:167, commit 40bdc13, Option 1 of 260522-wms2-rest-idempotency-without-jwt-options). NOTE the coded gate at IdempotencyFilter:196-203 defaults to require-auth=TRUE and is disabled only by that property line — and flipping it does NOT cover /rest/stockcount/**, which shouldNotFilter skips."
 project:
   - wms2
 version: "v2"
 requester: ""
 created: "2026-05-20"
-updated: "2026-07-16"
+updated: "2026-08-27"
 db_verified: false
 db_verified_rationale: "No DB change — pure Spring Security configuration. No Flyway migration or SQL query involved."
 related:

@@ -1,6 +1,6 @@
 ---
 name: wms-plan-executor
-description: Execute a reviewed WMS plan end-to-end — create a per-ticket git worktree off freshly-fetched origin/develop, ralph-loop the implementation until the TDD-gate tests and verify script pass, confirm plan conformance in a separate verifier lane, run code review and fix every High/Medium finding, audit doc drift, commit, open a PR into develop, update the plan document, and move the ClickUp ticket to "pr submitted". Use when the user says "implement plan X", "execute the plan", "ship SBDEV-####", or hands back a plan this session just authored. Stops at PR — does NOT merge, deploy, or archive the plan. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
+description: Execute a reviewed WMS plan end-to-end — create a per-ticket git worktree off freshly-fetched origin/develop, ralph-loop the implementation until the TDD-gate tests and verify script pass, confirm plan conformance in a separate verifier lane, run code review and fix EVERY finding including Low, audit doc drift, commit, open a PR into develop, update the plan document, and move the ClickUp ticket to "pr submitted". Use when the user says "implement plan X", "execute the plan", "ship SBDEV-####", or hands back a plan this session just authored. Stops at PR — does NOT merge, deploy, or archive the plan. BEFORE this skill: run `wms-triage` for the tier verdict — it decides how much of this skill runs, and often ends the task instead.
 ---
 
 # WMS Plan Executor
@@ -262,10 +262,10 @@ Run them in parallel; both get: `git -C "$WT" diff origin/develop...HEAD`, the w
 |---|---|
 | High | Fix. Non-negotiable. |
 | Medium | Fix. Non-negotiable. |
-| Low / nit | Record in the final report and the PR body. Fix only if it is a one-liner in code you already touched. |
+| Low / nit | **Fix. Also non-negotiable — Nam 2026-08-26: "let's also address low ones too".** A Low that is genuinely out of scope (it needs its own ticket, or it disputes something the owner decided) gets *dispatched*, not merely recorded: say where it went. A Low whose remedy is a **ticket note rather than code** — a deliberate behaviour no AC states, a stale citation — still counts as unaddressed until the note is posted. Do not hand a Low back to the user as an "open item"; that is the failure this row exists to stop. |
 | Finding that disputes the plan's **design** | Do NOT redesign silently. Stop, present the finding and the plan's rationale, and let the user decide. |
 
-After fixes: re-run Phase 2 in full, then a **second review pass scoped to the fixes only**. Loop until a pass yields no new High/Medium. If the same finding survives two fix attempts, stop and escalate — repeated failure means the plan or the finding is wrong, not the code.
+After fixes: re-run Phase 2 in full, then a **second review pass scoped to the fixes only**. Loop until a pass yields no new High/Medium. (Lows are fixed too, but a fresh Low does not by itself force another loop — fix it and move on.) If the same finding survives two fix attempts, stop and escalate — repeated failure means the plan or the finding is wrong, not the code.
 
 **Re-run 3a as well** when a review fix changed behavior covered by a §8 criterion — scoped to the affected criteria, not the whole plan. A fix that satisfies the reviewer while breaking conformance is the one thing this two-lane structure exists to catch, and only the verifier lane will see it.
 
@@ -316,7 +316,7 @@ Conformance:   verifier PASS — <N>/<N> §8 criteria VERIFIED, <N>/<N> §0 rows
 Code review:   <H> high / <M> medium fixed, <L> low deferred
 Docs:          <updated | none needed | N flagged>
 PR title:      <title>
-Inline notes:  <N> review comments to post on the PR (Phase 6a) — deferred Lows, non-obvious
+Inline notes:  <N> review comments to post on the PR (Phase 6a) — dispatched Lows, non-obvious
                design decisions, load-bearing ordering. 0 is a valid answer.
 ClickUp:       SBDEV-#### → "pr submitted"
 ```
@@ -358,7 +358,7 @@ it cannot point at a line.
 
 | Post | Why inline |
 |---|---|
-| Every **deferred Low / nit** from Phase 3b | Otherwise it is invisible and gets re-found by the next reader, or silently never fixed |
+| Any Low from Phase 3b that was **dispatched rather than fixed** — sent to its own ticket, or refused because it disputes an owner decision — naming where it went | Lows are fixed by default (Phase 3b), so the only ones reaching the PR body are those deliberately not fixed. An *undispatched* Low is not one of them, and a Low whose remedy was a **ticket note** belongs on the ticket, not here |
 | Each **non-obvious design decision** where the obvious alternative is wrong | The `ON CONFLICT` / `NOT EXISTS` class: a future "simplification" reintroduces the bug unless the reasoning sits on the line |
 | Each **deliberate deviation** from the plan, with the plan's own rationale | A reviewer who spots a deviation with no note assumes a mistake and asks — costing a round trip |
 | Any assertion that is **green today as a regression pin, not a gate** | Reads as redundant coverage otherwise, and gets deleted in a later cleanup |
@@ -366,7 +366,9 @@ it cannot point at a line.
 | Anything a lane **measured** rather than reasoned about | Cite the measurement; it is the difference between an opinion and a finding |
 
 **What NOT to post:** anything already fixed (the diff is the record), restatements of what the code
-plainly does, or a High/Medium finding — those had to be fixed, not annotated. Do not narrate.
+plainly does, or a High/Medium/**Low** finding — all of those had to be fixed, not annotated. Do not
+narrate. The exception is a Low whose remedy *is* a note: a deliberate behaviour no AC states belongs
+on the ticket so QA does not file it as a defect.
 
 ```bash
 cd "$WT"
@@ -401,7 +403,7 @@ Never declare done with the plan doc still saying `draft` — this has been a re
 
 1. Status → **`pr submitted`** (`mcp__clickup__clickup_update_task`). The ladder on Fulfillment Development Backlog is `in development` → `comitted local` → `pr submitted` → `on dev` → `on qa` → `ready for deployment` → `on prod` → `Closed`. Use `comitted local` only if you committed but deliberately did not open a PR.
 2. **`on dev` is not this skill's to set** — it belongs to whoever merges the PR.
-3. Comment (`mcp__clickup__clickup_create_comment`) with: PR URL, commit SHAs, test + verify results, the verifier's conformance verdict (`N/N` criteria VERIFIED, plus any deferral), High/Medium findings fixed, docs touched, deploy prerequisites, and what a reviewer should exercise manually. Link the plan path so the evidence trail is one hop away.
+3. Comment (`mcp__clickup__clickup_create_comment`) with: PR URL, commit SHAs, test + verify results, the verifier's conformance verdict (`N/N` criteria VERIFIED, plus any deferral), review findings fixed at **every** severity, docs touched, deploy prerequisites, and what a reviewer should exercise manually. Link the plan path so the evidence trail is one hop away.
 
 ---
 
