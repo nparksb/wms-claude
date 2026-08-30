@@ -82,6 +82,61 @@ def strip_comment(l):
     return None if st.startswith('//') or st.startswith('*') or st.startswith('/*') else l
 
 
+MOCK_DECL = [
+    r'(?:@Mock|@MockBean|@Spy)[^;]*?\b([A-Z]\w*)(?:<[^;]*?>)?\s+%s\s*[;=]',
+    r'\b([A-Z]\w*)(?:<[^>]*>)?\s+%s\s*=\s*mock\(',
+    r'\b([A-Z]\w*)(?:<[^>]*>)?\s+%s\s*;',
+]
+
+
+def _strip_java_comments(src):
+    """Remove // and /* */ comments, preserving string literals.
+
+    CHECK A's probes must never see comment text. Measured 2026-08-29: running the ownership gate
+    against raw source made FOUR live guards look like unreachable targets, because the
+    collaborator's type name appeared ONLY in a javadoc or a `//` note -- e.g. FileExportService is
+    named in CycleCountController exclusively in two comments, while the real call path runs
+    CycleCountController -> cyclecountService.exportCycleCounts -> CyclecountService. That is
+    verbatim the false positive this gate exists to prevent.
+    """
+    out = []
+    i = 0
+    n = len(src)
+    while i < n:
+        c = src[i]
+        if c == '"' or c == "'":
+            q = c
+            out.append(c)
+            i += 1
+            while i < n and src[i] != q:
+                if src[i] == '\\':
+                    out.append(src[i]); i += 1
+                    if i < n: out.append(src[i]); i += 1
+                    continue
+                out.append(src[i]); i += 1
+            if i < n: out.append(src[i]); i += 1
+            continue
+        if c == '/' and i + 1 < n and src[i + 1] == '/':
+            while i < n and src[i] != '\n': i += 1
+            continue
+        if c == '/' and i + 1 < n and src[i + 1] == '*':
+            i += 2
+            while i + 1 < n and not (src[i] == '*' and src[i + 1] == '/'): i += 1
+            i += 2
+            continue
+        out.append(c); i += 1
+    return ''.join(out)
+
+
+def _mock_type(test_text, mock):
+    """Declared type of a mock variable, or None. Handles @Mock fields and `T x = mock(T.class)`."""
+    for pat in MOCK_DECL:
+        m = re.search(pat % re.escape(mock), test_text, re.S)
+        if m:
+            return m.group(1)
+    return None
+
+
 def _span_end(text, open_paren):
     """Index just past the ')' balancing the '(' at open_paren. -1 if unbalanced."""
     depth = 0
@@ -104,8 +159,9 @@ def _span_end(text, open_paren):
 
 def main():
     test = sys.argv[1]
-    svc = open(sys.argv[2]).read() if len(sys.argv) > 2 else None
+    svc = _strip_java_comments(open(sys.argv[2]).read()) if len(sys.argv) > 2 else None
     text = open(test).read()
+    test_text = text
     a_hits, b_hits, q_hits, unpaired = [], [], [], set()
     # Scan the WHOLE FILE, not line by line. A per-line regex cannot see a never() whose `.method(`
     # wraps onto the line after `never())` -- the match simply fails, so the site is invisible to
@@ -130,16 +186,36 @@ def main():
         # CyclecountService calls -- the controller never does, so a naive check called it VACUOUS. It
         # is not; the pairing was wrong. Measured: that class of false positive dominated the first
         # sweep, so require the collaborator to appear in the paired class before trusting CHECK A.
-        if svc is not None and re.search(r'\b' + re.escape(mock) + r'\b', svc):
-            # Match the QUALIFIED call `mock.method(`, not a bare `method(`. A bare match collides
-            # across collaborators: AdviceServiceUnitTest's never() on itemdataRepository.findById was
-            # reported as a matcher problem rather than an unreachable target, because AdviceService
-            # calls findById on a DIFFERENT repository. Measured on that class, so keep it qualified.
-            if not re.search(re.escape(mock) + r'\s*\.\s*' + re.escape(meth) + r'\s*\(', svc):
-                a_hits.append((i, mock, meth))
-                continue                   # unreachable target dominates; B is moot
-        elif svc is not None:
-            unpaired.add(mock)             # collaborator not owned by the paired class -> A unknown
+        if svc is not None:
+            # Resolve the mock to its declared TYPE, then ask whether the class under test calls
+            # <meth> on ANY field of that type. Matching the test's mock VARIABLE NAME against the
+            # production source (the previous rule) assumes the two names agree, and they need not:
+            # measured 2026-08-29, IdempotencyFilterUnitTest mocks `RestIdempotencyService service`
+            # while IdempotencyFilter calls it through a field named `idempotencyService`, so three
+            # live, killable guards were reported as unreachable targets. A chained call is missed
+            # the same way -- KeycloakService reaches delete() via `getUsersResource().delete(...)`,
+            # never through a field at all. Four false [A] out of 95 came from these two shapes.
+            mtype = _mock_type(test_text, mock)
+            if mtype is None:
+                unpaired.add(mock)         # cannot resolve the type -> A unknown, do not guess
+            elif not re.search(r'\b' + re.escape(mtype) + r'\b', svc):
+                unpaired.add(mock)         # collaborator not owned by the paired class -> A unknown
+            else:
+                fields = set(re.findall(r'\b' + re.escape(mtype) + r'(?:<[^>]*>)?\s+(\w+)\s*[;,)=]', svc))
+                # A call site is `field.meth(` OR a method reference `field::meth` / `Type::meth`.
+                # Measured 2026-08-29: SkuPutawayQueryService reaches findById only as
+                # `.flatMap(clientRepository::findById)`, so a paren-only probe called a live guard
+                # unreachable. Stripping comments exposed this -- a javadoc had been masking it.
+                calls = any(re.search(r'\b' + re.escape(f) + r'\s*(?:\.\s*' + re.escape(meth)
+                                      + r'\s*\(|::\s*' + re.escape(meth) + r'\b)', svc)
+                            for f in fields)
+                calls = calls or bool(re.search(r'\b' + re.escape(mtype) + r'\s*::\s*'
+                                                + re.escape(meth) + r'\b', svc))
+                # `).meth(` -- reached through a chain such as getUsersResource().delete(...)
+                chained = re.search(r'\)\s*\.\s*' + re.escape(meth) + r'\s*\(', svc)
+                if not calls and not chained:
+                    a_hits.append((i, mock, meth))
+                    continue               # unreachable target dominates; B is moot
         ref = sorted({b[0] for b in REF_BLIND.findall(args)})
         prim = sorted({'any%s()' % b for b in PRIM_CAPABLE.findall(args)})
         if ref:

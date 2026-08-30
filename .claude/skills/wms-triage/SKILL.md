@@ -1,6 +1,6 @@
 ---
 name: wms-triage
-description: FIRST STEP for every WMS task, before wms-bugfix-plan / wms-feature-plan / wms-v2-migrate / wms-tdd-gate / wms-plan-executor. Run it on a stack trace, an HTTP 500, an SBDEV ticket, a stuck workflow, a feature or refactor request, a v1->v2 port, or an investigation — including anything that looks like a one-liner. Answers: is it already fixed on origin/develop? does it reproduce? is the reported cause the real cause? is it one line? — then assigns an effort tier T0-T3 on execution risk. Single source of truth for the tier router, the five-item floor that never scales, the ticket-filing policy, and verify-script row hygiene; every other WMS skill defers here. Output is a five-line triage block on the ticket, never a file.
+description: FIRST STEP for every WMS task, before wms-bugfix-plan / wms-feature-plan / wms-v2-migrate / wms-tdd-gate / wms-plan-executor. Run it on a stack trace, an HTTP 500, an SBDEV ticket, a stuck workflow, a feature or refactor request, a v1->v2 port, or an investigation — including anything that looks like a one-liner. Answers: is it already fixed on origin/develop? does it reproduce? is the reported cause the real cause? is it one line? — then assigns an effort tier T0-T3 on execution risk. Single source of truth for the tier router, the five-item floor that never scales, fix discipline (sibling sweep, invariant-over-instance, citation form), claim discipline (completeness words, two instruments), the ticket-filing policy, and verify-script row hygiene; every other WMS skill defers here. Output is a five-line triage block on the ticket, never a file.
 ---
 
 # WMS Triage & Tier Router
@@ -128,6 +128,8 @@ These are the five cheapest things in the whole process and they are where the d
 2. **One failing test before the fix**, and it must fail for the *right* reason — an assertion, not a compile error or an NPE in setup.
 3. **Mutation-check every new assertion.** Break the thing it protects; confirm the test goes red; restore. An assertion never observed failing is not evidence. This single habit found **five** defects on SBDEV-3011 that four review lanes and two consensus rounds had missed, including a regression pin that passed while the fix it guarded was deleted wholesale.
 
+   ⚠️ **The kill must be ATTRIBUTABLE: the failure message has to name the thing you broke.** A red that arrives as `NoSuchMethodException`, an NPE in setup, or a diagnostic quoting a *different* constant is a red, not a kill — it proves the test noticed something, not that it is guarding what you think. Measured twice: SBDEV-3169's structural pin first "killed" via `NoSuchMethodException` because it looked the method up by signature, and an earlier hand-rolled harness reported 4/4 KILLED where only one mutant was real — the tell was M2's diagnostic quoting M1's constant. If the message does not name the mutant, rewrite the assertion until it does.
+
    **Use PIT, not a hand-rolled harness** (`wms2-api` only; landed on develop 2026-08-25):
 
    ```bash
@@ -165,18 +167,124 @@ These are the five cheapest things in the whole process and they are where the d
 
 A tier decides how much *planning and documentation* you do. It never decides whether you do these.
 
+---
 
-## Ticket policy — one ticket per FIX VISIT, and ask first
+## Fix discipline — three habits that cost seconds and repeatedly paid
 
-**Revised 2026-08-21. This supersedes the older "record the finding in the plan by default, file by exception" rule** — a finding recorded only in a plan or a ticket comment **dies when that plan is archived**, so findings *do* belong in tickets. The lever is not *fewer findings filed*, it is **fewer tickets per finding**.
+Not part of the floor (the floor is about *evidence*); these are about *the change itself*. All three are
+measured on this repo, not borrowed advice.
 
-What the old rule got right and this one keeps: discovery outruns implementation here (**43 plans in flight, 12 of them unimplemented as of 2026-08-20**), and an unactionable backlog is **worse** than a note, because it looks tracked. So:
+### 1. Sweep for siblings of the LITERAL you changed, not the symbol
 
-- **One ticket per FIX VISIT** — one code path plus one owner — never one per symptom. Two symptoms in the same method are one ticket. (Worked example: SBDEV-1615, the picking-started guard 500s, and SBDEV-2473, the same method deferring replenishment re-sync, are one `adjustReservedAmount` visit — not two tickets.)
-- **Search before filing, then widen.** Search the backlog for a ticket sharing the code path; if one exists, widen it and add your evidence there. File only when no code-path sibling exists. (SBDEV-3011 → widening SBDEV-3012 was right; a separate ticket for the same non-atomic pattern in the same controller would have split one piece of work in two.)
-- **The filing test: would you accept a standalone PR for it?** If the answer is no, it is not a ticket — it is a line in the plan or a comment on the ticket you are already in. This is the sharpest of the filing criteria; apply it before the two below.
-- **Ask before filing.** Hard cap of **one new ticket per fix**, and Nam confirms it. 68 of 94 assigned tickets are already high-or-urgent, so the priority signal is saturated — adding to it costs more than it records.
-- Correcting a stale citation or line number in an *existing* ticket is always free — do it; it costs a comment and saves someone landing in the wrong method.
+**The single most repeated defect in this workspace is "fixed one copy of a pattern, missed the others."**
+Measured on SBDEV-3157 alone, in one day: a javadoc count corrected while both `@DisplayName` copies of the
+same number were missed (so the PR whose purpose was fixing that number shipped it still wrong); a reviewed
+allow-list that exists in **four** places, one of which spells its elements in a different order so a
+string-replace over three looked complete; and earlier, 33 stale rationale comments and a sentinel fixed
+once when three existed.
+
+**The step:** after changing a literal — a count, a constant, a message, a path — grep the repo for the
+**old value**. Not the symbol, not the new value. Ten seconds, and it is the only thing that finds a copy
+you did not know about. `git grep -n '<old literal>'` before you commit.
+
+### 2. Fix the RULE, not the instance you were handed
+
+When a finding names one site, ask what invariant that site violates and assert **the invariant**. A pin on
+the reported instance ships, looks complete, and leaves the siblings.
+
+Measured, SBDEV-3169: an enumeration lane reported **one** exported Spring Data REST search taking a
+`PESSIMISTIC_WRITE` lock. Written as *"no exported SDR search resolves to a `@Lock` method"*, the same test
+found **ten, across nine repositories**, on the hottest entities in the product. A path pin would have
+closed one tenth of it and read as done.
+
+This is the same lesson as *a guard fences the mechanism you aimed at* — applied before the fact instead of
+after.
+
+### 3. Cite a quoted string, not a line number
+
+`file:line` decays on every merge. Measured on one SBDEV-3169 plan review: **six** citations had drifted by
+1–3 lines, and one pointed at a **comment block** rather than the code it claimed — inside the very
+paragraph warning about stale citations.
+
+Prefer `file` plus a short distinctive quoted snippet: a reader can grep it, and it relocates itself. Keep
+line numbers only where they are cheap to re-derive and add real precision, and never treat one copied from
+an older document as current.
+
+---
+
+## Claim discipline — the asymmetry to internalise
+
+Measured on SBDEV-3169's adversarial review: the fact-check lane **reproduced every quantitative claim
+exactly** — surface counts, row counts, population figures, percentages — and **broke every completeness
+claim**: *"every caller"*, *"exactly six"*, *"the six paths"*, *"no controller at all"*, *"two independent
+corroborations"*, *"v1 has none"*. Eleven false claims, and not one of them was a number.
+
+That is not luck. Counting is cheap and checkable; asserting a closed set means proving a negative.
+
+**So: any sentence containing *every · only · all · no · exactly · none* must name the method that derived
+it and that method's blind spots, inline.** Two examples of the same author getting this right and wrong on
+the same day:
+
+- *Right* — a test whose javadoc says it detects `@Lock` **only** (a native `SELECT … FOR UPDATE` inside
+  `@Query` is invisible to it), **searches only**, and says nothing about authorization.
+- *Wrong* — *"there are exactly six SDR controller classes"*, written as the justification for a rule whose
+  stated rationale is **do not assert closed sets**. There were seven, one in a sub-package, and one of the
+  six was an annotation rather than a controller.
+
+**Corollary — two instruments, always, for any count that drives a decision.** grep and runtime disagree on
+this codebase; the runtime SDR inventory both *under*-reports (association paths absent) and *over*-reports
+(an MVC mapping can shadow an exported SDR route); and an HTTP-derived population count silently used the
+join table as its denominator, hiding the 44 users who hold no group — a factor-of-3.5 error in the
+direction that understated the exposure. **When two instruments disagree, that disagreement IS the
+finding**, not an inconvenience to resolve by picking one.
+
+
+## Ticket policy — findings go on the ticket you are already in
+
+**Revised 2026-08-28 (Nam). This is the primary rule and it supersedes the older search-then-widen default:**
+
+> **A new fix discovered during analysis or implementation goes onto the EXISTING ticket when its own tier is below T3. If it is T3, PROPOSE a new ticket — do not file one.**
+
+That is the whole rule. Everything below is how to apply it, not additional hurdles.
+
+- **"The existing ticket" means the one you are working in.** You no longer have to find a code-path sibling before a finding has somewhere to go. Add it to the ticket that surfaced it, as a comment naming `file:line`, the tier of the added scope, and what a fix would involve.
+- **Tier the ADDED scope on its own** — not the combined ticket, and not the host's existing tier. Ten more endpoints on a gating ticket is T3 work whether or not the host already says T3.
+- **T3 additions are proposed, never filed.** Authorization · data integrity · a Flyway migration · multi-repo · irreversible · root cause unknown. A T3 addition is not an addendum, it is a second project wearing the first one's number, and it silently re-tiers a ticket someone picked up as an afternoon's work. State the finding, say it is T3 and why, and let Nam decide. Hard cap of **one proposed ticket per fix visit**.
+- **The filing test still applies to the T3 branch: would you accept a standalone PR for it?** If no, it is a comment, not a ticket — even at T3.
+- **Never drop a finding to stay tidy.** A finding recorded only in a plan **dies when that plan is archived**; that is why findings belong on tickets. The lever is fewer *tickets* per finding, not fewer findings.
+- Correcting a stale citation or line number in an existing ticket is always free — do it.
+
+### The one carve-out: a sibling at `on dev` or later
+
+Adding scope to a ticket whose code is already **deployed** corrupts the deployment ladder — in this workspace the status ladder *is* the tracker (`on dev` → `on qa` → `ready for deployment` → `on prod` → `Closed`). A widened ticket either stalls the promotion of code that already shipped, or gets promoted carrying scope that was never built.
+
+| sibling status | sub-T3 finding goes |
+|---|---|
+| `Open` · `pending` · `ready for sprint` · `blocked` · `in development` · `comitted local` | **onto that ticket** |
+| `on dev` · `on qa` · `ready for deployment` · `on prod` · `Closed` | **propose a new ticket** — say why, and name the sibling in Related |
+
+Nam specified `on dev` and confirmed 2026-08-28 that "at or past `on dev`" is the intended reading. Settled; do not re-litigate.
+
+⚠ **This carve-out is the only thing that turns a sub-T3 finding into a new ticket.** If the ticket you are in has not shipped, the finding goes on it — do not invent other reasons to split.
+
+**When you cannot add to the existing ticket, say so explicitly and propose the new one** — never widen quietly, never drop the finding. Name the sibling in the new ticket's Related, and comment on the sibling pointing at the new one, so the code-path link survives the split.
+
+**Status and acceptance criteria must move together.** The status gate above assumes a ticket's status
+describes what is actually built. Measured on SBDEV-3157: it sat at **`on dev` with five of its six ACs
+unticked**, because only one of its two halves had shipped. The board said deployed; most of the work did
+not exist. Nothing detected that — the ladder tracks deployment, and no one had told it the scope had
+shrunk.
+
+**So: when you move a ticket to `on dev`, tick or strike its acceptance criteria in the same action.**
+
+- Every AC met → tick it.
+- An AC that is **out of scope now** → strike it and name the ticket that carries it, in the same edit.
+- If you cannot do either for an AC, the ticket is not `on dev` — it is a split waiting to happen, and the
+  file-don't-widen rule above tells you which way it goes.
+
+**A ticket at `on dev` or later with mostly-unticked ACs is a reliable signal that scope was split or
+quietly abandoned.** Treat finding one as a triage result in its own right, not as paperwork: it means the
+next reader — and the status gate — is working from a false picture of what shipped.
 
 **Where each kind of finding goes.** Getting this wrong is what produced the backlog:
 
@@ -184,5 +292,5 @@ What the old rule got right and this one keeps: discovery outruns implementation
 |---|---|
 | Defect in the code being changed | fix it in the same PR; no ticket |
 | Defect in **tooling, templates or skills** | **fix it directly** — do not file, do not merely write a memory. `.claude/**` and `sbdocs/9-System/**` are editable. Eight memories recorded ways verify scripts lie while the template that generates them stayed broken and 51 scripts inherited the fault |
-| Defect in adjacent product code | search-then-widen per above |
+| Defect in adjacent product code | sub-T3 → onto the ticket you are in; T3 → propose one. Per above |
 | Environment / data finding | attach to the ticket that caused the discovery, with a named owner |

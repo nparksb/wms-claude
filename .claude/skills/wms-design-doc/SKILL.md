@@ -12,7 +12,7 @@ Produces a module-level design document at `sbdocs/3-Resources/design/`. Audienc
 You are not tiering a fix, so skip the router. Two things still bind, and they live in `wms-triage`, not here:
 
 - **The floor's evidence rules.** Class lists, state machines and contracts are claims: ground each in a `file:line` (or a DB query for a data-model claim), and take one independent review pass. A design doc that was never checked against the code is what a future fix will trust and get wrong.
-- **The ticket policy.** Reading a module closely surfaces defects. Route them through the policy — fix tooling/doc defects directly, widen an existing ticket sharing the code path, and file at most one new ticket, confirmed by Nam.
+- **The ticket policy.** Reading a module closely surfaces defects. Route them through the policy — fix tooling/doc defects directly; put a sub-T3 finding on the ticket you are already in (unless it is `on dev` or later); PROPOSE, never file, anything T3, capped at one per visit and confirmed by Nam.
 
 ## Trigger
 

@@ -2,7 +2,7 @@
 type: architecture
 status: active
 system: wms1+wms2
-last_verified: 2026-08-19
+last_verified: 2026-08-29
 verified_by: SBDEV-2994 implementation — code read of v2 StockunitService, StockUnitController, DestinationEligibilityService, RestExceptionHandler + both message bundles
 ---
 
@@ -347,6 +347,34 @@ parent chain hides a deletion from the child, so both files must carry every key
 throw site. `%3$s` is the incompatibility *sentence*, not a bare type id — passing an id there produces
 a garbled message, which shipped once and was caught in review because no test rendered the template.
 
+### SBDEV-3134 scan-ambiguity keys (v2, PR #234 merged 2026-08-29)
+
+Three keys, verified present in **both** `messages.properties` and `messages_en_US.properties` on
+`origin/develop` at `e5daa8ca`. Each is raised by `ScannedCodeResolver` when a case-insensitive scan
+resolves to more than one stored spelling.
+
+| Key | Raised by | Meaning |
+|---|---|---|
+| `scanCodeAmbiguousLocation` | `ScannedCodeResolver.canonicalLocationName` | The entered text matches two or more `location.name` rows differing only by letter case |
+| `scanCodeAmbiguousUnitLoad` | `ScannedCodeResolver.canonicalUnitLoadLabel` | Same, for `unitload.labelid` |
+| `scanCodeAmbiguousDestination` | `ScannedCodeResolver.canonicalDestinationCode` | Same, where the scan could denote *either* a location or a container |
+
+**Both take exactly two positional args**, and both are `%N$s` form — `%1$s` = what the operator
+entered, `%2$s` = the comma-joined stored spellings it collided with. A bare `%1s` is *not* positional
+in Java and would render wrong; the constants' javadoc in `WmsConstants` states the arg map, and the
+throw site passes them in that order (`new BusinessException(key, scanned, String.join(", ", matches))`).
+
+⚠ **These are raised through the `BusinessException(String key, Object... parameter)` overload**
+(`exceptions/BusinessException.java:49`). The 1-arg `BusinessException(String message)` at `:42`
+sets `this.key = "placeholder"` and wraps the message as `parameter[0]`, so a throw site that used it
+would never localise and a test asserting `getKey()` would read `"placeholder"`, not the key. Both
+verified against `origin/develop` at `e5daa8ca`.
+
+**Why an ambiguity is refused rather than resolved.** `location.name` and `unitload.labelid` are both
+`UNIQUE`, but Postgres enforces uniqueness **case-sensitively** — so `SH-A015` and `sh-a015` are two
+legal rows. Picking one would move real stock into an arbitrary bin, which is worse than the
+not-found the operator gets from an exact-match miss.
+
 ## §6 — When to Use Which Exception (Decision Guide)
 
 ```
@@ -497,6 +525,7 @@ try {
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-08-29 | §5 gained the **SBDEV-3134 scan-ambiguity key table** (`scanCodeAmbiguous{Location,UnitLoad,Destination}`, wms2-api PR #234 merged 2026-08-29). Scoped to §5; the rest of the doc was not re-read, but §5 is the only section the change touches. | All three keys confirmed present in **both** `messages.properties` and `messages_en_US.properties` on `origin/develop` at `e5daa8ca` (the parent-chain rule §5 exists to enforce), and their args confirmed `%1$s`/`%2$s` — true positional form, not the bare `%1s` that silently renders wrong. The `BusinessException(String key, Object... parameter)` overload confirmed at `:49`, and the 1-arg constructor's `key = "placeholder"` at `:42`. | Code read on `origin/develop` + bundle greps |
 | 2026-08-06 | §5 i18n bundle inventory for both stacks, and the `messages bundle` row of the v1↔v2 delta table | **Both were wrong, in opposite directions, and are corrected.** v1 was documented as 7 locale files (base, `en`, `en_US`, `de`, `fr`, `hu`, `ru`); it has exactly **one**, `messages_en_US.properties`, and the other six have no history in the repo — no deletion commit, never tracked. v2 was documented as `en_US` only; it has had a base `messages.properties` since SBDEV-2729, with keys added by SBDEV-2632 and SBDEV-2731. The "add a new message" recipe pointed at `messages_de`/`messages_fr`, files that exist in neither repo, and omitted the v2 both-bundles rule entirely. **Scoped check — §1–§4 were NOT re-verified, so `last_verified` stays at 2026-07-22.** | Filesystem + `git ls-tree`/`git log --diff-filter=D` on both repos (SBDEV-2731) |
 
 > **Why this was worth fixing rather than just re-dating.** The stale recipe actively produced the bug: it told implementers to add keys to `messages_en_US.properties` alone, which resolves correctly under an en_US default locale and degrades to concatenated fallback text under any other. Nothing in CI or the Dockerfile pins the locale.

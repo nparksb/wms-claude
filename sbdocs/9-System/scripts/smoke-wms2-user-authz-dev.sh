@@ -41,6 +41,21 @@ check() { # name expected-code token path
   else printf '  FAIL  %-52s got %s, want %s\n' "$1" "$got" "$2"; fail=$((fail+1)); fi
 }
 
+# Method-aware variant, for the SDR rows below. Same shape as check(), plus a verb and an optional body.
+checkm() { # name expected-code token method path [body]
+  local got
+  if [ -n "${6:-}" ]; then
+    got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X "$4" \
+          -H "Authorization: Bearer $3" -H "X-Tenant-ID: wineco" -H "facility_code: wsl" \
+          -H 'Content-Type: application/json' -d "$6" "$API/v3/$5")
+  else
+    got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X "$4" \
+          -H "Authorization: Bearer $3" -H "X-Tenant-ID: wineco" -H "facility_code: wsl" "$API/v3/$5")
+  fi
+  if [ "$got" = "$2" ]; then printf '  PASS  %-52s %s\n' "$1" "$got"; pass=$((pass+1))
+  else printf '  FAIL  %-52s got %s, want %s\n' "$1" "$got" "$2"; fail=$((fail+1)); fi
+}
+
 T_NON=$(tok sbtest); T_ADM=$(tok panderson)
 [ -n "$T_NON" ] && [ -n "$T_ADM" ] || { echo "token fetch failed"; exit 2; }
 
@@ -58,6 +73,69 @@ check "admin: bootstrap reads ALLOWED"           200 "$T_ADM" "user/getAllRoles/
 # Control: a sibling GUARDED controller this ticket did not touch.
 check "control: userRole ALLOWED for admin"      200 "$T_ADM" "userRole"
 
+
+# ── SBDEV-3157 · Spring Data REST (Class A). Added 2026-08-28. ────────────────────────────────────
+#
+# ⚠️ SAFETY: EVERY WRITE ROW BELOW USES A DELIBERATELY NON-EXISTENT ID (999999999). Nothing is
+# created, modified or destroyed. DO NOT substitute a real id "to make it more realistic" — a live
+# DELETE here removes production-shaped data from dev, and the row proves exactly as much with a
+# missing id. That is the whole design: the question is whether AUTHORIZATION stops the request,
+# and the answer is visible in WHICH rejection you get, before the row is ever reached.
+#
+#   403 -> authorization refused it            (the endpoint is GATED)
+#   405 -> the verb is withdrawn by SDR        (ExposureConfiguration took it away)
+#   404 -> the request reached the repository  (NOTHING gated it; the row simply does not exist)
+#
+# So 404 on a write is the FINDING, not a passing row. These rows encode today's measured state, so
+# they will start FAILING the moment the withdrawal or the gate lands — at which point update the
+# expectations in the same commit. A row that still expects 404 after the fix is a stale row.
+#
+# MEASURED ON DEV 2026-08-29, after SBDEV-3157's write half reached dev (merge `79320399`). The four
+# rows did NOT move together, and that split was the predicted result and the actual one:
+#   itemdata  DELETE  404 -> 405   CONFIRMED. In the withdrawn 47; nothing writes to it, verb removed
+#   stockunit DELETE  404 -> 405   CONFIRMED. same
+#   client    DELETE  404 == 404   CONFIRMED UNCHANGED. `client` is one of the ELEVEN that must STAY
+#   sysprop   PATCH   404 == 404   CONFIRMED UNCHANGED. writable (a live UI writer at its SDR path),
+#                                  so the withdrawal could not touch these two. They close only when
+#                                  the GATE lands — the READ half — and then 404 -> 403.
+# Two rows moving to 405 while two stayed at 404 was the correct outcome, not a partial failure. Had all
+# four moved, something would have withdrawn a resource that a screen writes to.
+#
+# Corroborated the same run by OPTIONS Allow, read in the NEGATIVE direction only (see the caveat below):
+#   /v3/itemdata/{id}  ->  HEAD,GET,OPTIONS                     write verbs gone
+#   /v3/client/{id}    ->  HEAD,DELETE,GET,OPTIONS,PUT,PATCH    write verbs retained
+#
+# ⚠️ AN OPTIONS/Allow READING WOULD NOT DO — IN THE POSITIVE DIRECTION. This estate has measured that
+# an advertised capability is not an exploitable one, so an Allow header listing DELETE proves nothing
+# about whether a DELETE succeeds. The ABSENCE of a verb is weaker evidence still and is used above
+# only as corroboration. A body-free write against a missing id remains the cheapest thing that
+# actually distinguishes "refused" from "reached the code", and it is what every row below does.
+#
+# Account choice is load-bearing here exactly as it is above: `sbtest` is a plain wms_user. If these
+# rows are run as `panderson` they prove nothing, because he holds every function.
+
+echo "  --- SBDEV-3157: SDR write half WITHDRAWN on dev; reads + 11 kept-writable still ungated ---"
+
+# CONTROL, and the row that makes the rest non-vacuous: userFunction's write verbs WERE withdrawn
+# (RestConfiguration:224-227, SBDEV-3017 §8.12.1). It must answer 405, not 404. If this row returns
+# 404 the withdrawal has regressed; if it returns the SAME code as the rows below, the probe cannot
+# tell "withdrawn" from "open" and none of its verdicts mean anything.
+checkm "control: userFunction DELETE WITHDRAWN"   405 "$T_NON" DELETE "userFunction/999999999"
+
+# The reads. 347 exported searches, none gated — this is the ticket's founding complaint, still live
+# after the write half. These two rows are the READ half's open criterion: they must become 403 for a
+# caller denied the function. Until then a 200 here is the finding, not a healthy row.
+check  "non-admin: SDR itemdata list STILL OPEN"  200 "$T_NON" "itemdata?size=1"
+check  "non-admin: SDR sysprop list STILL OPEN"   200 "$T_NON" "sysprop?size=1"
+
+# The writes, post-withdrawal. 47 of the 58 writable resources had their write verbs removed; the other
+# 11 kept theirs because a UI writes to them at their SDR path, and those close only via the gate.
+checkm "non-admin: SDR itemdata DELETE WITHDRAWN"  405 "$T_NON" DELETE "itemdata/999999999"
+checkm "non-admin: SDR stockunit DELETE WITHDRAWN" 405 "$T_NON" DELETE "stockunit/999999999"
+checkm "non-admin: SDR client DELETE UNGATED"      404 "$T_NON" DELETE "client/999999999"
+checkm "non-admin: SDR sysprop PATCH UNGATED"      404 "$T_NON" PATCH  "sysprop/999999999" '{}'
+
 echo "  ---"
 echo "  Result: $pass pass, $fail fail"
+echo "  NOTE: a PASS on an *_UNGATED or *_STILL_OPEN row confirms the EXPOSURE, not a healthy system."
 [ "$fail" -eq 0 ] || exit 1

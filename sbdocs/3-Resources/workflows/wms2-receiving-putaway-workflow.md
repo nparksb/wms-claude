@@ -7,7 +7,7 @@ scope: receiving-putaway
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-04-19
-last_verified: 2026-05-10
+last_verified: 2026-08-29
 verified_by: code read of v2/wms2-api service/AdviceService + ReceivingService + mobile/MobilePutAwayService
 related:
   - ../architecture/wms2-state-machine-catalog.md
@@ -81,14 +81,14 @@ Three things to hold in mind:
             │  still follows the arrow below.
             │
             │  physical receive per position
-            │  ReceivingService.receiveGoods() [line 303-543]
+            │  ReceivingService.receiveGoods() [line 320-614]
             ▼
    Adviceposition.state = OPEN → (stays OPEN until close)
    Goodsreceiptposition rows created
    Stockunit rows created
    Unitload rows created / transferred
             │
-            │  AdviceService.close()       [line 264-353]
+            │  AdviceService.close()       [line 284-381]
             ▼
    Advice.state = FINISHED
    Adviceposition.state = FINISHED  (bulk JPQL update via updateAdvicepositionToStateByAdviceId)
@@ -101,10 +101,10 @@ Three things to hold in mind:
 
 | Entry method | Path | Purpose |
 |---|---|---|
-| `AdviceService.close(Advice)` | `AdviceService.java:264` | Regular advice finalize; fires `WEBSERVICE_CLOSE_ADVICE` |
-| `AdviceService.acceptTransferAdvice(...)` | `AdviceService.java:356` | Transfer-type advice accept; fires `WEBSERVICE_ACCEPT_TRANSFER` |
-| `AdviceService.acceptHubAndSpokeAdvice(...)` | `AdviceService.java:145` | Hub-and-spoke accept; fires `WEBSERVICE_ACCEPT_HUB_AND_SPOKE`; creates `Unitload`, `CustomerorderBatch`, `Customerorder` in the same TX |
-| `AdviceRestController.reopen(...)` | `AdviceRestController.java:648` | **NOT IMPLEMENTED** — throws `RuntimeException("method not supported")`. See §9 item 3. |
+| `AdviceService.close(Advice)` | `AdviceService.java:284` | Regular advice finalize; fires `WEBSERVICE_CLOSE_ADVICE` |
+| `AdviceService.acceptTransferAdvice(...)` | `AdviceService.java:384` | Transfer-type advice accept; fires `WEBSERVICE_ACCEPT_TRANSFER` |
+| `AdviceService.acceptHubAndSpokeAdvice(...)` | `AdviceService.java:157` | Hub-and-spoke accept; fires `WEBSERVICE_ACCEPT_HUB_AND_SPOKE`; creates `Unitload`, `CustomerorderBatch`, `Customerorder` in the same TX |
+| `AdviceRestController.reopen(...)` | `AdviceRestController.java:730` | **NOT IMPLEMENTED** — throws `RuntimeException("method not supported")`. See §9 item 3. |
 
 All three state-writing methods: `@Transactional(value="tenantTransactionManager", rollbackFor={BusinessException, FacadeException})`.
 
@@ -112,16 +112,16 @@ All three state-writing methods: `@Transactional(value="tenantTransactionManager
 
 ## 4. Physical Receive — `ReceivingService.receiveGoods`
 
-The core inbound operation at `ReceivingService.java:303-543`. Called from the receiving workstation when an operator scans items at the inbound gate.
+The core inbound operation at `ReceivingService.java:320-614`. Called from the receiving workstation when an operator scans items at the inbound gate.
 
 ### 4.1 Preconditions
 
 - `Advice.state == OPEN` (close handler rejects PROCESSING / CLOSED / FINISHED / CANCELLED).
-- A `Goodsreceipt` header exists for the advice, or is created on first receive (line 405-414).
-- Pallet / cart label matches regex `STRING_PATTERN_INBOUND_PALLET` (default `CART-\d{4}|IN-\d{6}`), validated by `verifyPalletOrCartLabel` at `ReceivingService.java:616-628`.
+- A `Goodsreceipt` header exists for the advice, or is created on first receive (line 423-431).
+- Pallet / cart label matches regex `STRING_PATTERN_INBOUND_PALLET` (default `CART-\d{4}|IN-\d{6}`), validated by `verifyPalletOrCartLabel` at `ReceivingService.java:616-642`.
   ⚠ **Updated 2026-08-25 for SBDEV-3004.** The stated default is now actually applied in code: `getSysvalue` returns the raw repository result, so a tenant with no `STRING_PATTERN_INBOUND_PALLET` row previously produced `label.matches(null)` → NPE. `verifyPalletOrCartLabel` now falls back to `WmsConstants.SYSTEM_PROPERTY_STRING_PATTERN_INBOUND_PALLET_DEFAULT_VALUE` when the row is absent or blank. Measured across WineCo dev, four UAT tenants and Hydra prd, the key is seeded everywhere, so this is a guard rather than a fix for an observed failure. Same commit also added the missing `verifyPalletOrCartLabel` call to `unassignPallet:697` (it validated nothing before) and made `updatePallet:652` the transaction boundary for the unassign→assign pair.
 
-### 4.2 Core loop (line 459-499)
+### 4.2 Core loop (the `while (amountBottles > 0)` loop, from line 522)
 
 **Updated 2026-08-10 for SBDEV-2732 (wms2-api PR #139) — MERGED 2026-08-11; this is shipped behaviour.** `putAwayLocation` is no
 longer `itemdata.putawaylocation_id`. It is resolved through a **four-tier hierarchy** ONCE above the
@@ -174,7 +174,7 @@ every case in the loop, and a bad destination fails before any unit load exists.
 including a `divertedTo` field when the gate retargets it, so the screen and the placement cannot
 disagree.
 
-### 4.3 OMS stock-change gate (line 505-523)
+### 4.3 OMS stock-change gate (line 578-594)
 
 ```java
 if (advice.getType() == REGULAR) {
@@ -222,7 +222,7 @@ ticket reported. v2 throws instead.
 
 **Per-tenant prerequisites** (any missing one makes every RETURN advice 400, or worse):
 a `processdefault=true` `type='RETURN'` printer; a `boxtype` with `externalid='1'`; a `mywms_user`
-named `anonymous` (`ReceivingService:359` — `/rest/**` is unauthenticated, so
+named `anonymous` (`ReceivingService:376` — `/rest/**` is unauthenticated, so
 `SecurityContextUtils.getUserName()` returns its fallback); and the `MAXIMUM_RECEIVING_DURING_INBOUND`
 and `WAREHOUSE_NAME` sysprops set (both are unguarded reads inside `receiveGoods`).
 
@@ -232,7 +232,7 @@ what SBDEV-2236 had deliberately changed.
 
 ### 4.4 Post-commit label print
 
-Label printing is registered via `TransactionSynchronizationManager.registerSynchronization` (line 532-541) so the printer only fires after the receive commits. If the transaction rolls back, no label is printed — this is the correct behavior.
+Label printing is registered via `TransactionSynchronizationManager.registerSynchronization` (line 603) so the printer only fires after the receive commits. If the transaction rolls back, no label is printed — this is the correct behavior.
 
 ---
 
@@ -263,7 +263,12 @@ Operator scans pallet
    Classify each location by LocationType.sltname:
      - STORAGE_LOCATION_TYPE_BOX_RESTRICTION_FLOWBIN → flowBinLocationList
      - STORAGE_LOCATION_TYPE_BOX_RESTRICTION_OVERSTOCK or PALLET_RESTRICTION_OVERSTOCK → overstockLocationList
-   Sort by DefaultStrategy (rack + rack-row; direction controlled by PICK_PATH_DIRECTION sysprop via PickPathConfig → DefaultStrategy)
+   Sort by DefaultStrategy (rack-row → rack → column/level; direction controlled by PICK_PATH_DIRECTION sysprop via PickPathConfig → DefaultStrategy)
+   ⚠ SBDEV-3133: the tier logic now lives in LocationPathOrdering, shared with the handheld pick
+     route (InMemoryLocationComparator) and CycleCountStrategy, so the suggested putaway order and
+     the printed tote label cannot drift apart. UNZONED racks (rackrowId == null) sort AFTER every
+     zoned rack, as one contiguous block — previously the rack-row tier was skipped for such pairs,
+     which made the relation cyclic and the emitted order arbitrary. See picking-workflow §9.1.
    │
    ▼ operator walks to suggested location, scans it
    │
@@ -274,7 +279,7 @@ Operator scans pallet
    unitloadBusinessService.transferUnitLoadToLocation(...) OR transferStockToUnitLoad(...)
 ```
 
-### 5.2 Target-location classification (`MobilePutAwayService` lines 268–295, inside `calculatePutAwayList` at :217)
+### 5.2 Target-location classification (`MobilePutAwayService` lines 322–335, the type switch inside `calculatePutAwayList` at :246)
 
 ⚠ **Updated 2026-08-09 for SBDEV-2821.** Two things changed: where candidates come from, and a fourth
 location type that was previously dropped.
@@ -311,7 +316,7 @@ for (Location loc : candidates) {
 
 FLOWBIN locations are pick-face (fast-moving) — they take priority in the UI. OVERSTOCK absorbs overflow.
 
-**`cases and pallets` (`STORAGE_LOCATION_TYPE_STOCK_RESTRICTION`, `WmsConstants:741`) used to hit
+**`cases and pallets` (`STORAGE_LOCATION_TYPE_STOCK_RESTRICTION`, `WmsConstants:769`) used to hit
 `default:` here and be silently dropped** — the destination never reached the operator. It is the type
 wineco's club lanes use. It is bucketed with overstock because it takes a **whole unit load**, unlike
 flowbin which merges stock into a resident `PickLocation` UL.
@@ -322,7 +327,7 @@ flowbin which merges stock into a resident `PickLocation` UL.
 have `putawaylocation_id = PutAwayLane`. Without it, adding the type to this switch would offer every
 operator "put it back on the PutAwayLane".
 
-### 5.3 Fixed-assignment constraint (line 433-455)
+### 5.3 Fixed-assignment constraint (line 481-492, inside `verifyScannedLocation` at :456)
 
 When the operator scans a FLOWBIN target, `verifyScannedLocation` enforces:
 
@@ -339,7 +344,7 @@ multi-SKU pick face (`Club01` carries 27 distinct SKUs on `wsl-wineco-uat`; 15 o
 `UNIQUE(assignedlocation_id)`, so binding it to the first SKU put away would break every other SKU on
 that lane. Pinned by `casesAndPalletsDestinationShouldPlaceWithoutCreatingFixLocationAssignment`.
 
-What `verifyScannedLocation` *does* apply to every type is its area gate at `:427` —
+What `verifyScannedLocation` *does* apply to every type is its area gate at `:470-471` —
 `!useforstorage && !staginglane` ⇒ `locationNotUsableForStorage`. SBDEV-2821's candidate query mirrors
 that gate exactly (§5.2) so a location can never be offered that the scan would then refuse.
 
@@ -354,7 +359,7 @@ that gate exactly (§5.2) so a location can never be offered that the scan would
 | `/rest/advice/create` | PUT | `AdviceRestController.java` | `List<AdviceDto>` — creates REGULAR or RETURN advices. **RETURN is also received + closed here** unless the kill switch is off (SBDEV-2778, §3.5). Reads `printer_id`, which was accepted-and-discarded before SBDEV-2778 |
 | `/rest/advice/createTransfer` | PUT | | `BillOfLadingWebServiceDto` — TRANSFER-type advice from OMS |
 | `/rest/advice/createHubAndSpoke` | PUT | | `BillOfLadingWebServiceDto` with manifest — hub-and-spoke flow |
-| `/rest/advice/reopen` | POST | `AdviceRestController.java:648` | **Throws RuntimeException — not implemented** |
+| `/rest/advice/reopen` | POST | `AdviceRestController.java:730` | **Throws RuntimeException — not implemented** |
 
 ### File import
 
@@ -376,10 +381,10 @@ All under `/mobile/putAway/...`, delegating directly to `MobilePutAwayService` m
 
 | Callback | Fired from | Sysprop URL key |
 |---|---|---|
-| `WEBSERVICE_CLOSE_ADVICE` | `AdviceService.close` (line 343-347) | `SYSTEM_PROPERTY_WEBSERVICE_CLOSE_ADVICE_URL_KEY` |
-| `WEBSERVICE_ACCEPT_TRANSFER` | `AdviceService.acceptTransferAdvice` (line 406) | `SYSTEM_PROPERTY_WEBSERVICE_ACCEPT_TRANSFER_URL_KEY` |
-| `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `AdviceService.acceptHubAndSpokeAdvice` (line 251) | `SYSTEM_PROPERTY_WEBSERVICE_ACCEPT_HUB_AND_SPOKE_URL_KEY` |
-| Per-receive stock-change | `ReceivingService.receiveGoods` (line 507-523) | via `messageService.sendStockChangeMessage` — gated by `INBOUND_UPDATE_STOCK_IMMEDIATELY` |
+| `WEBSERVICE_CLOSE_ADVICE` | `AdviceService.close` (line 363) | `SYSTEM_PROPERTY_WEBSERVICE_CLOSE_ADVICE_URL_KEY` |
+| `WEBSERVICE_ACCEPT_TRANSFER` | `AdviceService.acceptTransferAdvice` (line 434) | `SYSTEM_PROPERTY_WEBSERVICE_ACCEPT_TRANSFER_URL_KEY` |
+| `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `AdviceService.acceptHubAndSpokeAdvice` (line 263) | `SYSTEM_PROPERTY_WEBSERVICE_ACCEPT_HUB_AND_SPOKE_URL_KEY` |
+| Per-receive stock-change | `ReceivingService.receiveGoods` (line 578-594) | via `messageService.sendStockChangeMessage` — gated by `INBOUND_UPDATE_STOCK_IMMEDIATELY` |
 
 All callbacks use `omsNotificationService.sendAfterCommit(...)` — post-commit only. Rollback silently drops the callback.
 
@@ -389,7 +394,7 @@ All callbacks use `omsNotificationService.sendAfterCommit(...)` — post-commit 
 
 - `AdviceService.close` / `acceptTransferAdvice` / `acceptHubAndSpokeAdvice`: single `@Transactional` atomic.
 - `ReceivingService.receiveGoods`: single `@Transactional` atomic — all cases for one adviceposition commit together, all roll back together.
-- `MobilePutAwayService` write methods: single TX each. The 3 `readOnly=true` methods (lines 211, 353, 396) are the cache-friendliest read paths.
+- `MobilePutAwayService` write methods: single TX each. The 3 `readOnly=true` methods (lines 245, 412, 455) are the cache-friendliest read paths.
 - Pessimistic-write lock on `Adviceposition` during receive (see [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.2).
 - Post-commit hooks: label printing (receive), OMS callbacks (close / accept), stock-change message (receive).
 
@@ -428,12 +433,14 @@ All callbacks use `omsNotificationService.sendAfterCommit(...)` — post-commit 
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-08-29 | **FULL PASS — the first since 2026-04-19.** Every line anchor in the document re-derived against `origin/develop` at `e5daa8ca` and **all 24 rebased**; the load-bearing behavioural claims of §3–§9 re-checked. | ⚠ **Every anchor in the doc had drifted** — the three cited files had grown (`ReceivingService` 765 lines, `AdviceService` 559, `MobilePutAwayService` 589) and anchors were stale by 12–29 lines each. Rebased: `receiveGoods` 303-543→**320-614**; `AdviceService.close` 264-353→**284-381**; `acceptTransferAdvice` 356→**384**; `acceptHubAndSpoke` 145→**157**; Goodsreceipt create 405-414→**423-431**; anonymous-user lookup 359→**376**; core loop 459-499→the `while (amountBottles > 0)` at **522**; `carrier == null` 491-495→**508-509**; stock-change gate 505-523→**578-594**; `registerSynchronization` 532-541→**603**; putaway classification 268-295→**322-335**; `calculatePutAwayList` 217→**246**; fixed-assignment 433-455→**481-492**; area gate 427→**470-471**; readOnly trio 211/353/396→**245/412/455**; `WmsConstants` 741→**769**; `AdviceRestController.reopen` 648→**730**. `verifyPalletOrCartLabel` **616** was already correct (widened 616-628→616-642). All 24 re-verified programmatically after rewriting. Behaviour spot-checks all **held**: `reopen` still `throw new RuntimeException("method not supported")`; the SBDEV-3004 sysprop-default fallback present at `:621-623`; `receiveGoods` carries `@Transactional(tenantTransactionManager, rollbackFor=…)` at `:319`, so §4.4's one-transaction claim stands; `SecurityContextUtils.ANONYMOUS = "anonymous"` confirmed, so §4.5's per-tenant `anonymous` user prerequisite stands. **Scope of this pass: anchors (exhaustive) + behavioural claims (load-bearing ones). NOT re-read line-by-line: the §2 entity cast, §10 debug recipes, and the §9 landmine prose.** | Code read on `origin/develop` + programmatic anchor sweep |
 | 2026-04-19 | `AdviceService` (close, accept variants, reopen stub); `ReceivingService.receiveGoods` loop + stock-change gate; `MobilePutAwayService` all 6 methods + location classification + fixed-assignment validator; OMS callbacks | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-08-03 | §3.5 added: RETURN auto-receive at advice-create time (SBDEV-2778, supersedes SBDEV-2236); advice-lifecycle diagram annotated; `/rest/advice/create` row corrected | Verified against the SBDEV-2778 branch only — **the rest of the doc was NOT re-verified, so `last_verified` is deliberately left at 2026-05-10** | Code read (SBDEV-2778 diff) |
 
-| 2026-08-06 | §4 receiving loop's `if (carrier == null)` fork and §5.2 target-location classification, re-checked for SBDEV-2731 (PRs wms2-api #133 / wms2-web-ui #39) | Both **confirmed accurate** against `ReceivingService:491-495` and `MobilePutAwayService:268-288`. §5.2's anchor was stale (`line 263-283`) and is corrected to `268–288`, now naming the enclosing method. SBDEV-2731 changed only the *message* thrown on constraint rejection, not the routing this doc describes, so no behavioural text needed updating. **Scoped check — the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10.** | Code read (SBDEV-2731 diff + targeted greps) |
+| 2026-08-06 | §4 receiving loop's `if (carrier == null)` fork and §5.2 target-location classification, re-checked for SBDEV-2731 (PRs wms2-api #133 / wms2-web-ui #39) | Both **confirmed accurate** against `ReceivingService:508-509` and `MobilePutAwayService:268-288`. §5.2's anchor was stale (`line 263-283`) and is corrected to `268–288`, now naming the enclosing method. SBDEV-2731 changed only the *message* thrown on constraint rejection, not the routing this doc describes, so no behavioural text needed updating. **Scoped check — the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10.** | Code read (SBDEV-2731 diff + targeted greps) |
 
 | 2026-08-09 | §5.2 and §5.3 **rewritten** for SBDEV-2821. §5.2's quoted code block was invalidated on two counts: candidates now come from `getPutAwayCandidateLocations(skuId, configuredLocationId)` rather than the stock-derived `getStorageLocationsForPutAwayItemData(skuId)`, and the switch gained a fourth case (`cases and pallets`) that previously fell to `default:` and was silently dropped. §5.3 gained the flowbin-only scoping of the fixed-assignment branch and the club-lane no-FLA rule. Anchor corrected `268–288` → `268–295`; §5.3 anchor and its `:418` citation rebased to `433-455` / `:427`. | Confirmed against the SBDEV-2821 branch. The `(useforstorage OR staginglane)` predicate on the query's second leg was additionally proven by executing the shipped SQL against `wms2-wineco-dev` — it is what keeps `PutAwayLane` (itself `cases and pallets`, `useforstorage=false`, the configured destination of 8,803/8,804 SKUs) out of the candidate list. **Scoped check — the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10.** | Code read (SBDEV-2821 diff) + live SQL on `wms2-wineco-dev` |
+| 2026-08-29 | §5.2's sort line re-checked for **SBDEV-3133** (wms2-api PR #233, merged 2026-08-29). `DefaultStrategy` now delegates its tier logic to the new shared `LocationPathOrdering`; the line described the tiers as "rack + rack-row" and did not mention unzoned racks. Corrected to the real tier order and annotated with the unzoned-block rule. | Confirmed against `origin/develop` at `e5daa8ca`: `DefaultStrategy.compare` delegates to `LocationPathOrdering.compareResolved`/`compareCoordinates`, and `MobilePutAwayService` constructs it at `:356`, `:366`, `:387` — so this doc's putaway suggestion order is genuinely governed by it. **Scoped check — the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10.** It is now **111 days** old and overdue a full pass. | Code read (SBDEV-3133 diff + targeted greps) |
 | 2026-08-10 | §4.2 and §5.2 updated for **SBDEV-2732** (wms2-api PR #139, **MERGED 2026-08-11**). §4.2's `putAwayLocation` is no longer `itemdata.putawaylocation_id`: it is a four-tier resolution taken ONCE above the loop on both branches, followed by the (iv-b) pick-face placement gate and a `carrier == null`-only `requireCompatible`. §5.2's second query argument moves from the tier-1 column to that same resolution, with tier 4 mapping back to null. | Confirmed against the SBDEV-2732 branch at `aff434e`. **Described unmerged behaviour when written; PR #139 MERGED 2026-08-11, so this row now describes the shipped code** (status corrected 2026-08-25). **Scoped check: the rest of the doc was NOT re-verified, so `last_verified` stays at 2026-05-10** — it is now 92 days old and due a full pass. | Code read (SBDEV-2732 diff) |
 
 **Re-verify every 90 days.** Next due: **2026-07-18** — receiving logic is stable but mobile putaway (SBDEV-2102 area) is fix-prone. ⚠️ **Overdue as of 2026-08-06.** Two scoped checks have landed since (2026-08-03, 2026-08-06) but neither was a full pass; a top-to-bottom re-verification is still owed.

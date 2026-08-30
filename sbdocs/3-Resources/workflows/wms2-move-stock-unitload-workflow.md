@@ -7,7 +7,7 @@ scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-08-28
-last_verified: 2026-08-28
+last_verified: 2026-08-29
 verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired)
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -180,6 +180,70 @@ At line 173–322. Two code paths:
 
 ---
 
+## 4.2 Scanned-identifier case resolution (SBDEV-3134, PR #234 + mobile-ui #50, merged 2026-08-29)
+
+Before this, both move flows resolved identifiers through `LocationRepository.findByName` and
+`UnitloadRepository.findByLabelid` — **exact and case-sensitive** — while Putaway and Replenish
+already tolerated the case an operator types (`findByLabelidIgnoreCase`). Nothing had decided the
+rule; each screen picked one. `ScannedCodeResolver` is now the single place it is decided.
+
+### The rule
+
+| Step | Behaviour |
+|---|---|
+| **Exact match first, always** | The case-insensitive query runs *only after* an exact miss. No scan that works today changes behaviour, query plan or cost. |
+| **Case-insensitive fallback** | Resolves to the **stored** spelling; the caller then runs its existing, unchanged lookup. |
+| **Two or more stored spellings** | **Refused** — never guessed. Raises `scanCodeAmbiguous*` (see the exception taxonomy §5). |
+| **No match** | Input returned unchanged, so the caller's own "not found" error still fires. |
+| **Case only** | Nothing is trimmed or otherwise rewritten. Pinned by `ScannedCodeResolverUnitTest.surroundingWhitespaceIsNotTrimmed` (`:155`), so the resolver cannot quietly grow a trim. |
+
+⚠ **Why ambiguity is refused.** Verified 2026-08-29 on **both** UAT and PRD hydra: `location.name`
+carries `uk_sahixf1v7f7xns19cbg12d946` and `unitload.labelid` carries `uk_s2ujivixnde5dqb2stih8m2vh`
+(plus a redundant `uq_unitload_labelid`) — all plain `btree(name)` / `btree(labelid)`, **not**
+`lower(...)`. So uniqueness is enforced case-sensitively and `SH-A015` / `sh-a015` can both exist as
+separate rows. The pre-existing `findByLabelidIgnoreCase` cannot be reused for the verdict because
+its query ends `limit 1` (`UnitloadRepository:80`) and picks one arbitrarily; the two new methods
+return `List` for exactly this reason — `findAllByLabelidIgnoreCase` (`UnitloadRepository:118`) and
+`findAllByNameIgnoreCase` (`LocationRepository:60`).
+
+Note the asymmetry that is *not* a bug: **two distinct stored spellings** (location `DOCK-1`,
+container `Dock-1`) is refused, because the string itself is ambiguous; **one shared spelling**
+(both `DOCK-1`) resolves, because nothing is guessed — `scanDestination`'s pre-existing
+location-first precedence then decides which entity it denotes.
+
+### Call sites — 7 on `origin/develop` at `e5daa8ca`
+
+| Site | Method |
+|---|---|
+| `StockunitService.java:185` | `canonicalUnitLoadLabel` |
+| `StockunitService.java:230` | `canonicalLocationName` |
+| `MobileMoveStockService.java:119` | `canonicalUnitLoadLabel` (source) |
+| `MobileMoveUnitloadService.java:134` | `canonicalUnitLoadLabel` |
+| `MobileMoveUnitloadService.java:290` | `canonicalUnitLoadLabel` |
+| `MobileMoveUnitloadService.java:295` | `canonicalDestinationCode` |
+| `StockUnitController.java:775` | `canonicalUnitLoadLabelForProbe` — the **TOTAL** variant |
+
+⚠ `canonicalUnitLoadLabelForProbe` never throws. `isUnitLoadIdValid` is declared to return a bare
+`Boolean` and has no room for an error, so the probe swallows the ambiguity and returns the input
+unchanged. Do not "simplify" it to the throwing variant.
+
+### The mobile half is not optional
+
+`components/moveStock/scanDestination.vue` is a `v-autocomplete`: `v-model` only ever holds a value
+the component **committed from `:items`**, so scanned text that was never confirmed leaves it `null`
+and *no request was made at all*. The server-side fix could not have rescued that screen. The UI now
+resolves the entered text against the same list the menu is drawn from
+(`/stockUnit/storageLocationsForStockMovement`), via `util/commonUtility.resolveIgnoreCase`, which
+mirrors this rule.
+
+⚠ `moveUnitload`'s `isDamagedDestination` predicts the backend's `setStockDamaged` branch and was
+case-sensitive **on the stated grounds that `findByName` is too**. This change falsifies that premise
+— which is why **mobile-ui #50 had to merge before api #234**. With the API case-insensitive and the
+UI not, a lower-case scan takes the damaged path on the server while the operator is never prompted,
+and the shipper's alert carries the `DAMAGED_LOCATION_NAME` placeholder text.
+
+**No sysprop gate**, deliberately: a rule that can only *widen* acceptance has nothing to roll back.
+
 ## 5. Activity Codes
 
 Written to `stockrecord.activitycode` and/or `unitload_record.activitycode`. From `WmsConstants`:
@@ -351,9 +415,10 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-08-29 | **New §4.2 — scanned-identifier case resolution** (SBDEV-3134; wms2-api PR #234 + mobile-ui PR #50, both merged 2026-08-29). Documents the exact-first / case-insensitive-fallback / refuse-ambiguity rule, all 7 call sites, the TOTAL probe variant, the mobile `v-autocomplete` half, and the merge-order constraint between the two PRs. | All 7 call sites confirmed line-exact on `origin/develop` at `e5daa8ca`. `findByLabelidIgnoreCase`'s `limit 1` confirmed at `UnitloadRepository:80`; the two new `List`-returning methods at `UnitloadRepository:118` and `LocationRepository:60`. **UNIQUE-but-case-sensitive confirmed by live query on BOTH UAT and PRD hydra** — `uk_sahixf1v7f7xns19cbg12d946` on `location(name)` and `uk_s2ujivixnde5dqb2stih8m2vh` on `unitload(labelid)`, both plain `btree`, not `lower(...)`. `/storageLocationsForStockMovement` confirmed at `StockUnitController:749`. **Scoped check — the rest of the doc was NOT re-verified.** | Code read on `origin/develop` + `pg_index` on `wms2-hydra` (PRD) and `nywh-hydra-uat` |
 | 2026-04-19 | `MobileMoveUnitloadService` (scanUnitLoad, scanDestination, handleTruckOffLoading), `MobileMoveStockService` (selectSource, selectStockUnit, selectDestination), `UnitloadBusinessService.transferUnitLoadToLocation / transferUnitLoadToCarrier`, `StockunitBusinessService.transferStockToUnitLoad`, REST endpoints, activity code constants, pessimistic lock site | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 
-**Re-verify every 90 days.** Next due: **2026-10-20**.
+**Re-verify every 90 days.** Next due: **2026-11-27**.
 
 _2026-07-22 (SBDEV-2610): reserved-stock guard (`checkReservedStock`) rewritten — now blocks only on an in-progress pick and allows stranded reservations; `TransferInfoDto.activeReplenNumber` added and surfaced on the source-scan screen._
 

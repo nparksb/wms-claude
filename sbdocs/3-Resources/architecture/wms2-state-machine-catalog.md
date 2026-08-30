@@ -160,18 +160,18 @@ Common numeric-order guards you'll see in code:
 
 | Location | Transition |
 |---|---|
-| `service/CustomerorderService.java:239-244` (`createForRelease`) | → `RAW` / `FUTURE_PICKING_DATE` |
-| `service/job/ReleaseOrderJobService.java:643,647` (`releaseOrderAndPosition`) | → `ASSIGNED` / `STARTED` |
-| `service/TransferOrderService.java:96,110,124,132` | → `CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED` / `CUSTOMER_ORDER_ACTIVATED`; line 110 is `unlinkTransferLaneFromTransferOrder` (Group T port v1 5ada0b0 / v2 24280b0): when a transfer lane is unlinked, state is reset to `CUSTOMER_ORDER_ACTIVATED` (not left in `CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED`) |
-| `service/PickingorderBusinessService.java:238,241,343,502` | → `PENDING` / `PICKED` / `CANCELED` / `STARTED` |
-| `service/CustomerorderService.java:485` (`pack`) | → `PACKED` |
-| `service/ParcelMonitorViewService.java:156,283` (`palletizeOrders`) | → `PALLETIZED` |
-| `service/mobile/MobilePalletizingService.java:220` (`palletizeOrder`) | → `PALLETIZED` |
-| `service/ParcelMonitorViewService.java:401` (`loadTruck`) | → `LOADED_TO_TRUCK` |
-| `service/mobile/MobileTruckLoadingService.java:304` (`finishLoadingTruck`) | → `LOADED_TO_TRUCK` |
-| `service/BillofladingService.java:481` (`finishOrdersOnBol`) | → `FINISHED` |
-| `service/CustomerorderService.java:351` (`forceCancelOrder` Customerorder write) / `:675` (`cancelOrder` Customerorder write) | → `CANCELED` |
-| `controller/rest/UtilRestController.java:960` (admin reset) | → `RAW` |
+| `service/CustomerorderService.java:285,290-291` (`setPickingDate`, declared :246) | → `RAW` / `FUTURE_PICKING_DATE` |
+| `service/job/ReleaseOrderJobService.java:196,395,440,454` / `:723` (`releaseOrder`, declared :121) | → `ASSIGNED` / `STARTED` |
+| `service/TransferOrderService.java:100,155,163` / `:115` / `:132` | → `CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED` (`assignTransferLaneToTransferOrder` :90, `activateAndAssignTransferLane` :139, `assignTransferLane` :161) / `CUSTOMER_ORDER_ACTIVATED` (`activateTransferOrder` :124); `:115` is `unlinkTransferLaneFromTransferOrder` (Group T port v1 5ada0b0 / v2 24280b0): when a transfer lane is unlinked, state is reset to `CUSTOMER_ORDER_ACTIVATED` (not left in `CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED`) |
+| `service/PickingorderBusinessService.java:249,252` (`finishPickingOrder` :148) / `:419` (`cleanUpCancelledOrder` :401) / `:594` (`confirmPick` :491) | → `PENDING` / `PICKED` / `CANCELED` / `STARTED` |
+| `service/CustomerorderService.java:557` (`packageOrder`, declared :541) | → `PACKED` |
+| `service/ParcelMonitorViewService.java:193` (`palletise` :103) / `:345` (`palletiseAndTruckLoad` :249) | → `PALLETIZED` |
+| `service/mobile/MobilePalletizingService.java:269` (`scanPallet` :159) / `:421` (`scanParcelBulk` :362) | → `PALLETIZED` |
+| `service/ParcelMonitorViewService.java:465` (`palletiseAndTruckLoad` :249) | → `LOADED_TO_TRUCK` |
+| `service/mobile/MobileTruckLoadingService.java:306` (`scanGate` :180) | → `LOADED_TO_TRUCK` |
+| `service/BillofladingService.java:503,546` (`closeBOL` :298) | → `FINISHED` |
+| `service/CustomerorderService.java:356,361` (`checkAndCleanUpPickingOrderPositions` :299) / `:408,415` (`updateOrderPositions` :370); the public entry point is `cancelOrder` at **:690** | → `CANCELED` |
+| `controller/rest/UtilRestController.java:1092,1095,1099` (`resetOrdersInReleasedStatus` :1080) | → `RAW` |
 
 **Key guards:**
 - `OrderRestController:180` — "can cancel iff `!= FINISHED && != CANCELED`"
@@ -191,13 +191,13 @@ Common numeric-order guards you'll see in code:
 
 | Location | Transition |
 |---|---|
-| `service/CustomerorderBatchService.java:427` (`activateBatch`) | → `ORDER_BATCH_ACTIVATED` |
-| `service/CustomerorderBatchService.java:434` (`assignStagingLane`) | → `ORDER_BATCH_STAGING_LANE_ASSIGNED` |
-| `service/CustomerorderBatchService.java:606` (`startClubRun`) | → `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` |
-| `service/CustomerorderBatchService.java:689` (`finishClubRun`) | → `ORDER_BATCH_CLUB_RUN_FINISHED` |
+| `service/CustomerorderBatchService.java:474` (`activateOrderBatch`, declared :468) | → `ORDER_BATCH_ACTIVATED` |
+| `service/CustomerorderBatchService.java:479` (`assignStagingLane`) | → `ORDER_BATCH_STAGING_LANE_ASSIGNED` |
+| `service/CustomerorderBatchService.java:628` (`validateClubLine`, declared :610) | → `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` |
+| `service/CustomerorderBatchService.java:716` (`finalizeClubLine`, declared :693) | → `ORDER_BATCH_CLUB_RUN_FINISHED` |
 | `service/CustomerorderBatchService.java:709` (error recovery) | → `originalState` (rollback from club run) |
-| `service/CustomerorderBatchService.java:279,339` (`cancelBatch`) | → `CANCELED` |
-| `service/CustomerorderBatchService.java:358` (`finalizeBatchIfComplete`) | → `CANCELED` or `FINISHED` depending on child orders |
+| `service/CustomerorderBatchService.java:260` (`cancelBatch`) | → `CANCELED` |
+| `service/CustomerorderBatchService.java:393` (`finalizeBatchIfComplete`) | → `CANCELED` or `FINISHED` depending on child orders |
 
 **Guard:** `CustomerorderBatchService:557` — club run start requires `ORDER_BATCH_ACTIVATED` OR `ORDER_BATCH_STAGING_LANE_ASSIGNED`.
 
@@ -216,7 +216,7 @@ Common numeric-order guards you'll see in code:
 | `service/job/ReleaseOrderJobService.java:557` (`releaseOrderAndPosition`) | → `PROCESSABLE` |
 | `service/PickingOrderMergeService.java:161` (`mergeOrders`) | → `PROCESSABLE` |
 | `service/mobile/MobilePickingService.java:341` (`reserveOrder`) | → `RESERVED` |
-| `service/PickingorderBusinessService.java:121` (`startPicking`) | → `STARTED` |
+| `service/PickingorderBusinessService.java:121` (`startPickingOrder`) | → `STARTED` |
 | `service/mobile/MobilePickingService.java:222,267,271,276` (`finishPicking`) | → `PICKED` / `FINISHED` / `PROCESSABLE` / `CANCELED` |
 | `service/PickingorderBusinessService.java:318` (`finalizePicking`) | → `orderState` (parameter) |
 | `service/PickingOrderMergeService.java:127` (`cancelOrderIfMergeFails`) | → `CANCELED` |
@@ -428,6 +428,7 @@ Outside these paths, there is no safe way to "fix" a stuck state — direct SQL 
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-08-29 | **PARTIAL — §4.1 and §4.2 write-site tables fully rebased; the rest of the doc NOT re-verified.** Extracted all 74 citations and machine-checked them against `origin/develop` at `e5daa8ca`. | ⚠ **Read this before trusting any anchor here: this doc's parenthetical names are sometimes DESCRIPTIVE LABELS, not declared methods.** `PickingOrderMergeService` has taken **0 commits** since the last verification yet cites `:127` (`cancelOrderIfMergeFails`) and `:161` (`mergeOrders`), neither of which is a declared method — both are lines *inside* `mergePickingOrders` (:46). Four successive automated checks each mis-read that convention as "method deleted", so the untouched citations below **cannot be machine-swept** and need per-citation reading. **Rebased and re-verified against code (24 anchors):** `CustomerorderService` `239-244 (createForRelease)`→**285,290-291 (`setPickingDate`)** (`createForRelease` does not exist; `:239` is an unrelated method), `485 (pack)`→**557 (`packageOrder`)**, `351/675 (cancel)`→**356,361 (`checkAndCleanUpPickingOrderPositions`) / 408,415 (`updateOrderPositions`)** with the public entry `cancelOrder` at **:690**; `ReleaseOrderJobService` `643,647 (releaseOrderAndPosition)`→**196,395,440,454 / 723 (`releaseOrder`)** — that method name does not exist either; `TransferOrderService` `96,110,124,132`→**100,155,163 / 115 / 132** with all four enclosing methods named; `PickingorderBusinessService` `238,241,343,502`→**249,252 (`finishPickingOrder`) / 419 (`cleanUpCancelledOrder`) / 594 (`confirmPick`)**; `ParcelMonitorViewService` `156,283 / 401`→**193,345 / 465**; `MobilePalletizingService` `220`→**269,421**; `MobileTruckLoadingService` `304`→**306 (`scanGate`)**; `BillofladingService` `481`→**503,546 (`closeBOL`)**; `UtilRestController` `960`→**1092,1095,1099 (`resetOrdersInReleasedStatus`)**; `CustomerorderBatchService` `427`→**474 (`activateOrderBatch`)**, `606`→**628 (`validateClubLine`)**, `689`→**716 (`finalizeClubLine`)**, `434`→**479**, `279,339`→**260**, `358`→**393**; and `startPicking`→**`startPickingOrder`**. Every rewritten anchor re-verified to contain the state token the row claims. **STILL STALE, not fixed:** §4.1's four guard citations (`OrderRestController:180`, `CustomerorderService:471`, `:382,554`, `:639`) — these are interpretive prose claims, not state writes, and need a human read; and §4.3 onward plus §5's cascades were not audited at all. **`last_verified` deliberately NOT bumped — it stays at 2026-05-08.** | Code read on `origin/develop` + machine citation sweep, every replacement re-verified |
 | 2026-04-19 | All state field declarations, `WmsConstants.State` + `AdviceState` + `BillOfLadingState` + `CycleCountState` values, write-site inventories (~160 total), primary guards, cascade methods, recovery endpoints | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-05-08 | Group T (transfer-order) churn — `TransferOrderService.unlinkTransferLaneFromTransferOrder` resets state to `CUSTOMER_ORDER_ACTIVATED` on lane unlink (commit 24280b0); Group P picking lines shifted +1 (`finalizePicking` now 238–569; cascade table updated); rapid-pick recovery cite confirmed at line 645 (guard at 639); SBDEV-2164 stale club batch cleanup adds JobLockId.STALE_CLUB_BATCH_CLEANUP but does not introduce new state values for `CustomerorderBatch` (cancel transitions remain through `cancelBatch`); §4.6 Replenishorder unaffected; receiving repository `findByStateAndItemdataId` confirmed live in `ReplenishorderRepository.java:46` (only used by job paths, no new state added). | All write-site lines re-confirmed; minor +1 drift in `PickingorderBusinessService` updated. | Code read (grep-based) |
 | 2026-08-03 | §4.8 `Adviceposition` write sites: added `ReturnAdviceAutoReceiveService.markFinished` (SBDEV-2778) + the RETURN-reaches-FINISHED-without-a-dock-scan note | Only §4.7/§4.8 re-verified; the ~160-site inventory elsewhere was **not** re-counted, so `last_verified` stays at 2026-05-08 | Code read (SBDEV-2778 diff) |

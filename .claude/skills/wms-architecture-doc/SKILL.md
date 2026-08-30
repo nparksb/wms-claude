@@ -12,7 +12,7 @@ Produces a long-lived system-level architecture document at `sbdocs/3-Resources/
 You are not tiering a fix, so skip the router. Two things still bind, and they live in `wms-triage`, not here:
 
 - **The floor's evidence rules.** Every non-obvious claim in an architecture doc needs the same grounding a fix needs — a `file:line` or a DB query, and one independent review pass. Docs asserting opposite things about the same subsystem (measured: two repo docs disagreed on v1 OSIV) come from claims that were never checked.
-- **The ticket policy.** Documenting a subsystem surfaces defects. Route them through the policy — fix tooling/doc defects directly, widen an existing ticket on the same code path, and file at most one new ticket, confirmed by Nam. Do not open a ticket per drift you notice.
+- **The ticket policy.** Documenting a subsystem surfaces defects. Route them through the policy — fix tooling/doc defects directly; put a sub-T3 finding on the ticket you are already in (unless it is `on dev` or later); PROPOSE, never file, anything T3, capped at one per visit and confirmed by Nam. Do not open a ticket per drift you notice.
 
 ## Trigger
 

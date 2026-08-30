@@ -80,7 +80,7 @@ acceptance box — and for each one require **exactly one** of these disposition
 | Disposition | What it means |
 |---|---|
 | **Fixed** | in this plan's PRs; name the commit |
-| **On a ticket** | give the ticket id. Per the ticket policy in `wms-triage`, prefer widening a ticket that shares the code path over filing a sibling |
+| **On a ticket** | give the ticket id. Per the ticket policy in `wms-triage`: a sub-T3 finding goes on the ticket you are already in (unless it is `on dev` or later); T3 is proposed, never filed |
 | **Dropped** | with a one-line reason. A deliberate drop is a fine outcome; a silent one is not |
 | **Not machine-knowable, owner named** | manual QA, a per-environment check, a decision — name who holds it |
 

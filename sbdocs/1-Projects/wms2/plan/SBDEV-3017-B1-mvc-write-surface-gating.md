@@ -4,12 +4,12 @@ ticket: "SBDEV-3017"
 ticket_url: "https://app.clickup.com/t/868kufdy1"
 type: "feature"
 priority: "high"
-status: "🔴 DRAFT — 📍 **READ §9 FIRST for what is done and what remains** (added 2026-08-26); everything below is narrative revision history, not state. ✅ **R8 SHIPPED (§9.19/§9.20)** — PR #219 merged `e7a37f4e` (api) then #88 merged `aa8ad6bc` (web-ui), in the §8.14.3 order, each after an independent review lane that BLOCKED it and whose findings were fixed. 4 controller handlers now on functions, 3 service restrictions LIFTED, so the sb_admin denominator drops 20 -> 17 and the move/stay framing is retired (13 stay / 4 on functions / 3 relocated). Prior state: 0 of 7 moved (split revised to 9 move / 11 stay on 2026-08-27, §9.15 — fourth revision; re-derive from source, never edit the label alone). Done on develop: slice A (#187), slice C (#189), §8.12.1 UserFunction SDR write withdrawal (#209). R1 grant check DONE (51/51, §9.6) and R2 lane-table re-read DONE (§9.7) — 6 findings between them, all decisions for R8. R4 DONE (§9.8, PR #210) and R3 DONE (§9.9). All four blocking analysis items closed (R1 §9.6, R2 §9.7, R3 §9.9, R4 §9.8/PR #210). R5 DECIDED §9.10 (ANY-of, FOUR members) and R6 DECIDED §9.11 (2 dead endpoints -> deletion, needs Nam's yes). R6 SHIPPED (PR #211, merge 38861ad7, TWO review lanes). §9.14/§9.15 SHIPPED (PR #214, merge 23cdc6ad, THREE lanes — the first BLOCKED it): all six of Nam's 2026-08-27 decisions are implemented, the split is 9 move / 11 stay, and the tripwire pins ELEVEN carve-outs verified as a SET against the stay-list. R8 (implementation, T3) is next. Its putaway gating is DECIDED (§9.16, Option B — screen VIEW functions, ZERO new constants, F4 superseded). SCOPE DECIDED (§9.17): R8 = the 7 putaway sites ONLY (§9.18: AdminController moves NOTHING); §1's ~97 rows are a separate slice. Consequence — **zero new constants, NO V2.2.22 migration, and the tier drops T3 -> T2**. One question remains open (§9.17.2): whether AdminController:107/:133 follow decisions 1-2 onto sb_admin, which it did — §9.18, split 7 move / 13 stay — 44 of 62 SDR repositories have live write verbs and only the 7 access-chain types are withdrawn. R7 FILED as SBDEV-3124 (§9.13) and is OUT of this ticket. R1-R7 all closed; R8 is the only remaining work and its SCOPE is an open decision (§9.13.1), not a default. — **§8.16 ADDED 2026-08-26: TWO OF THE 17 SITES CANNOT BE FUNCTION-GATED BY ANNOTATION AT ALL.** `PutawayConfigService:257` (`validateOnly`) and `:287` (`requireWarehouseConfigWriteAuthority`) are invoked from `@HandleBefore*` SDR event handlers, and `FunctionGuardInterceptor` resolves `@RequiresFunction` from the MVC handler's declaring class — which for an SDR write is `RepositoryEntityController`, never the service (its own javadoc, `:41` and `:87-92`). An annotation swap there **compiles, keeps SBDEV-3103's 8 mutants green (they assert the handler CALLS the method, and `:287`'s body is empty), and silently reverts SBDEV-3103's security fix** — `PATCH /v3/sysprop/{id} {"workstation":"WS1"}` works again for any `wms_user`. No lane in this repo can see it. Second reason not to move them: a function grant is self-grantable while `UserFunctionRepository`'s SDR write is open, whereas `sb_admin` arrives as a bare client role in `resource_access[om1-api]` that no `wms_user` can write — so the swap trades an unforgeable gate for a forgeable one. ✅ **DECIDED 2026-08-26 (Nam): option (a) — CARVE THEM OUT.** `PutawayConfigService:257` and `:287` stay on `@PreAuthorize(IS_SB_ADMIN)`, joining the other three, so the split was **15 move / 5 stay**. An earlier revision of this status recorded (b); Nam reversed it after a written comparison — *"I changed my mind after hearing your peer's explanation. I will go (a)."* (b)'s spec is retained as CONDITIONAL in §8.16.5a and must not be implemented from. The reason (b) lost is in §8.16.6: a function grant is self-grantable while `UserFunctionRepository`'s SDR write is open, whereas `sb_admin` arrives as a bare client role no `wms_user` can write — so (b) would have traded an unforgeable gate for a forgeable one and re-opened SBDEV-3103's bypass. 🚫 **RETIRED — option (b), do NOT implement. Retained only in §8.16.5a as CONDITIONAL.** (b) would have gated `:257`/`:287` programmatically via `accessService.doesUserHaveAccess(WEB_UI_ACTION_SET_PUTAWAY_DESTINATION_DEFAULTS)` in the method body and kept the split at 17/3. It was rejected: it trades an unforgeable gate for a forgeable one while `UserFunctionRepository`'s SDR write is open, and it needs SBDEV-3103's tests rewritten to assert the CHECK rather than the CALL because `:287`'s body stops being empty. **The split is now **9 move / 11 stay** (§9.14, 2026-08-27) — it passed through 17/3 and 15/5.** An earlier revision of this status field left (b)'s "Split stays 17/3" asserted OUTSIDE its strikethrough, contradicting the 15/5 decision recorded earlier in this same field. — **§8.13 SUPERSEDED SAME DAY 2026-08-26 by §8.15 — Nam's clarified decision: Keycloak carries COARSE access only (every user gets `wms_user`, nothing more) and ALL fine-grained authz lives in WMS V2's group→role→function model, with WMS admins in the `super-admin` group. So no business endpoint may gate on `wms_admin` OR `sb_admin`: §8.13's disjunction is RETIRED and §8.11's function-gate design is REINSTATED. This also RESOLVES §8.14's blocking B1 in the reviewers' favour — the axis mismatch B1 identified is exactly what the clarified decision removes. Measured on `dev_wh01_om1`: `super-admin` group = 38 users, its role holds 79 of 82 functions, and `wms_admin` is NEITHER a mywms_role NOR a mywms_group (0/0) — a cross-axis migration, never a rename. Audit: `3-Resources/reports/260826-wms-admin-to-super-admin-authz-axis-audit.md`. §8.13 retained below for its SURFACE census and the review trail ONLY — DO NOT IMPLEMENT ITS MECHANISM.** Prior §8.13 note: putaway config moves to a `wms_admin` OR `sb_admin` disjunction, NOT to a function — Nam's decision, superseding §8.11's mechanism (its surface census survives) and §8.12's F4 split (moot). Reason it is not the function gate: `FunctionGuardInterceptor` is ABSENT from `origin/main` (develop +112), so `@RequiresFunction` would be inert and replacing `@PreAuthorize` un-gates 4 prd endpoints; and function grants stay self-grantable per §8.12.1. OR not swap, because `wms_admin`-only would REGRESS staff, who hold `sb_admin` and are the only current users. Also supersedes the in-code prohibition at `Authority.java:53-61` and falsifies role-matrix §1.1 line 94 — both must change in the same PR (§8.13.5). §8.13.4's precondition is now ANSWERED (2026-08-26) and was WRONG: the mapper emits FULL PATHS (`/wms_admin`), which match nothing — every gate passes because Keycloak also emits each group as a BARE client role on `om1-api`, and that is what `hasAuthority()` matches. **Do NOT "fix" the mapper to emit bare names.** The probe is a password grant + JWT decode, not `curl /actuator/env` (which is not an exposed endpoint and 404s after passing the authority check). T3. **§8.14 — REVIEWED 2026-08-26 in 3 lanes (evidence/security/design): 9 High, 7 Medium, 4 Low; 6 corrections applied in place. TWO BLOCKING. B1: the widening CANNOT DELIVER ITS OWN GOAL alone — the web UI gates the screen on FUNCTIONS (`require-function.js`, `WEB_UI_VIEW_ITEM_DATA` / `_SYSTEM_PROPERTY` / `_CLIENT`), and `wms_admin` confers ZERO functions, so a wms_admin outside super-admin/inventory-manager is redirected BEFORE any request reaches the widened @PreAuthorize; role-matrix §1.1 also names `super-admin` (a tenant-DB UserRole), a DIFFERENT AXIS, and under OR-semantics a wrong population guess is SILENT — all 9 ACs pass while the target user stays locked out. Needs a Keycloak group enumeration + owner confirmation before any code. B2: the surface is NOT staff-only today — a plain `wms_user` can silently remove the tier-3 default, unaudited, by RENAMING the guarded syskey over SDR (`PATCH /v3/sysprop/{id}`), because both hooks branch on the merged incoming entity; pre-existing, needs its own ticket. Also: NO test lane in this repo evaluates @PreAuthorize, so AC-1..AC-4/AC-7 as written are unachievable (§8.14.4), and @PreAuthorize 403s miss `X-Authz-Denied` so they hit the silent-no-op/logout path — merge API BEFORE web-ui. One review finding was itself FALSE (§8.14.6, a working-tree grep 29 commits stale). DO NOT IMPLEMENT.** REVISED three times (§8 2026-08-24, §8.11 + §8.12 2026-08-25), still DO NOT IMPLEMENT. Reviewed by 3 lanes 2026-08-24: 8 High / 13 Medium; §8 supersedes the sections it names and resolves the Highs on paper. **Now RE-SEQUENCED: §8.9 recommends Class A (SDR) leads slice B, not this MVC tranche** — measured, every tranche-1 entity keeps a live un-withdrawn SDR write verb, so ~19 of ~92 rows gate nothing real, and the live escalation path found in that same surface is now SBDEV-3077 / wms2-api PR #191. Corrections in §8: the tote-printing OUTAGE (§8.2, named-role intersection = super-admin alone); §2.2's GUARDED ban was right for the WRONG reason and @PublicHandler (SBDEV-3063, merged d83b72a) makes membership the correct END state for tranche 3 (§8.3); §2.3 broke the sb_admin tool and gated accessAudit, its own rollout instrument (§8.4); AC-2/T-3 replaced by the screen-reachability invariant AC-2′ (§8.5); the census missed ClubLineController / TransfersController / setPutAwayLocation and AC-1 rewritten to the boundary (§8.6); every count corrected (§8.7); the closeBolPop headline example is FALSE and acceptHubAndSpokeBol has one mapping so a third of T-4 passed vacuously (§8.8). §8.10 lists 6 items still blocking implementation, chief among them re-running the grant check on the ~56 rows that never had it. SOUND throughout: state-change-over-verb scoping (conclusion), all 6 deletions, the Flyway two-separate-INSERTs rule, the mechanism claims, the OMS exclusion SET, T3, V2.2.22. Reviews: scratchpad/review-planB1-{design,evidence,security}.md. **WIDENED 2026-08-25 (§8.11)** — the putaway-destination write surface (4 endpoints + 5 service writers) joins this tranche by Nam's decision, moving off `sb_admin` onto a new `WEB_UI_ACTION_SET_PUTAWAY_DESTINATION` granted to super-admin + inventory-manager. Three things came with it: §8.6's row for `setPutAwayLocation` is CORRECTED (it is NOT ungated — `@PreAuthorize(IS_SB_ADMIN)` at ItemDataController:105); row 31's self-grant objection has largely EXPIRED (all five access-chain join repos now `exported = false`, `saveUserGroups` gated, SDR inside the guard) but leaves `UserFunctionRepository` SDR-exported by default, which is a rename-shaped hole and a PREREQUISITE; and a MERGE-ORDER CONSTRAINT — `FunctionGuardInterceptor` is absent from `main`, so dropping `@PreAuthorize` before it reaches prd un-gates 4 production endpoints. **§8.12 — §8.11 WAS THEN REVIEWED (it had been posted to ClickUp with NO review lane) and 4 High found, 2 of them false claims already published: the "five join repos are `exported = false`" bullet was a method-level grep read as class-level (the conclusion survives via `RestConfiguration` ExposureConfiguration, but narrower — `PUT /v3/userGroup/{id}` and `POST /v3/userGroup` stay live), and "SDR is now inside the gate" is the OPPOSITE of `FunctionGuardInterceptor:87-92` ("it is reachable, and still open"). Both corrected in place. F3: the surface omitted the `PutawayConfigRepositoryEventHandler` SDR channel (`/v3/itemData`, `/v3/client`, `/v3/sysprop`), which CANNOT take `@RequiresFunction`. F4: ONE function is a privilege EXPANSION — tiers 2/3 sit behind super-admin-only view gates while inventory-manager would reach 11 users; SPLIT into `_SKU` and `_DEFAULTS`. F5: §8.6's table is wrong on TWO of seven rows. `UserFunctionRepository`'s open SDR write is a SLICE-WIDE blocker defeating every function gate, not a putaway prerequisite."
+status: "🏁 SBDEV-3017 SCOPE CLOSED 2026-08-28 — ⚠️ §9.30: this plan's OMS enumeration (8 paths) was read from a checkout 838 commits STALE; the real number is 10 and OMS DOES write over SDR. The no-OMS-endpoint-was-gated conclusion still holds (both misses are SDR). — **READ §9.29 FIRST**. ClickUp status stays **`on dev`**, NOT `Closed`: the ladder here tracks deployment (on dev → on qa → ready for deployment → on prod) and tranche 1 has only reached dev. No scope remains in the ticket; it now just rides the promotion ladder. Class A (SDR) was never implemented and is now **SBDEV-3157**, carrying this ticket's unmet Class A AC verbatim; MVC reads widened into SBDEV-3142 (16 → 106); also spun out 3154/3155/3156. Surface moved 291→355 gated / 122→58 ungated. ✅ TRANCHE 1 MERGED TO DEVELOP 2026-08-28 — api `1f5f8697` (PR #232, commit `81989036`) then web-ui `e629517` (PR #95, `a10aca0`), API-first per §8.14.3, both landings verified with `merge-base --is-ancestor`. AC-1 closed **as originally written** (Nam 2026-08-28, option (a)); the 10 state-changing GETs are SBDEV-3155. 🟢 was: TRANCHE 1 PR SUBMITTED — **READ §9.25 FIRST**: 71 of 75 rows gated, **PR #232 MERGED** `1f5f8697` (api, `81989036`) + **web-ui PR #95** (`a10aca0`), merge API first. Suite 5693/0/67; 11 mutants killed; THREE review rounds, 1 High/10 Med/12 Low ALL FIXED (§9.26-§9.27 — each round found my previous fix fenced ONE gate mechanism and missed its siblings; there are six, seven with the SecurityFilterChain). C30–C33 split to SBDEV-3154. ⚠️ AC-1 closes only as ORIGINALLY written — 10 state-changing GETs (`runClubLine`, `runTransfer`, …) are in no total and the AC-4 tool cannot see them. Everything before §9.25 is revision history. 🔴 DRAFT — 📍 **READ §9 FIRST for what is done and what remains** (added 2026-08-26); everything below is narrative revision history, not state. ✅ **R8 SHIPPED (§9.19/§9.20)** — PR #219 merged `e7a37f4e` (api) then #88 merged `aa8ad6bc` (web-ui), in the §8.14.3 order, each after an independent review lane that BLOCKED it and whose findings were fixed. 4 controller handlers now on functions, 3 service restrictions LIFTED, so the sb_admin denominator drops 20 -> 17 and the move/stay framing is retired (13 stay / 4 on functions / 3 relocated). Prior state: 0 of 7 moved (split revised to 9 move / 11 stay on 2026-08-27, §9.15 — fourth revision; re-derive from source, never edit the label alone). Done on develop: slice A (#187), slice C (#189), §8.12.1 UserFunction SDR write withdrawal (#209). R1 grant check DONE (51/51, §9.6) and R2 lane-table re-read DONE (§9.7) — 6 findings between them, all decisions for R8. R4 DONE (§9.8, PR #210) and R3 DONE (§9.9). All four blocking analysis items closed (R1 §9.6, R2 §9.7, R3 §9.9, R4 §9.8/PR #210). R5 DECIDED §9.10 (ANY-of, FOUR members) and R6 DECIDED §9.11 (2 dead endpoints -> deletion, needs Nam's yes). R6 SHIPPED (PR #211, merge 38861ad7, TWO review lanes). §9.14/§9.15 SHIPPED (PR #214, merge 23cdc6ad, THREE lanes — the first BLOCKED it): all six of Nam's 2026-08-27 decisions are implemented, the split is 9 move / 11 stay, and the tripwire pins ELEVEN carve-outs verified as a SET against the stay-list. R8 (implementation, T3) is next. Its putaway gating is DECIDED (§9.16, Option B — screen VIEW functions, ZERO new constants, F4 superseded). SCOPE DECIDED (§9.17): R8 = the 7 putaway sites ONLY (§9.18: AdminController moves NOTHING); §1's ~97 rows are a separate slice. Consequence — **zero new constants, NO V2.2.22 migration, and the tier drops T3 -> T2**. One question remains open (§9.17.2): whether AdminController:107/:133 follow decisions 1-2 onto sb_admin, which it did — §9.18, split 7 move / 13 stay — 44 of 62 SDR repositories have live write verbs and only the 7 access-chain types are withdrawn. R7 FILED as SBDEV-3124 (§9.13) and is OUT of this ticket. R1-R7 all closed; R8 is the only remaining work and its SCOPE is an open decision (§9.13.1), not a default. — **§8.16 ADDED 2026-08-26: TWO OF THE 17 SITES CANNOT BE FUNCTION-GATED BY ANNOTATION AT ALL.** `PutawayConfigService:257` (`validateOnly`) and `:287` (`requireWarehouseConfigWriteAuthority`) are invoked from `@HandleBefore*` SDR event handlers, and `FunctionGuardInterceptor` resolves `@RequiresFunction` from the MVC handler's declaring class — which for an SDR write is `RepositoryEntityController`, never the service (its own javadoc, `:41` and `:87-92`). An annotation swap there **compiles, keeps SBDEV-3103's 8 mutants green (they assert the handler CALLS the method, and `:287`'s body is empty), and silently reverts SBDEV-3103's security fix** — `PATCH /v3/sysprop/{id} {"workstation":"WS1"}` works again for any `wms_user`. No lane in this repo can see it. Second reason not to move them: a function grant is self-grantable while `UserFunctionRepository`'s SDR write is open, whereas `sb_admin` arrives as a bare client role in `resource_access[om1-api]` that no `wms_user` can write — so the swap trades an unforgeable gate for a forgeable one. ✅ **DECIDED 2026-08-26 (Nam): option (a) — CARVE THEM OUT.** `PutawayConfigService:257` and `:287` stay on `@PreAuthorize(IS_SB_ADMIN)`, joining the other three, so the split was **15 move / 5 stay**. An earlier revision of this status recorded (b); Nam reversed it after a written comparison — *"I changed my mind after hearing your peer's explanation. I will go (a)."* (b)'s spec is retained as CONDITIONAL in §8.16.5a and must not be implemented from. The reason (b) lost is in §8.16.6: a function grant is self-grantable while `UserFunctionRepository`'s SDR write is open, whereas `sb_admin` arrives as a bare client role no `wms_user` can write — so (b) would have traded an unforgeable gate for a forgeable one and re-opened SBDEV-3103's bypass. 🚫 **RETIRED — option (b), do NOT implement. Retained only in §8.16.5a as CONDITIONAL.** (b) would have gated `:257`/`:287` programmatically via `accessService.doesUserHaveAccess(WEB_UI_ACTION_SET_PUTAWAY_DESTINATION_DEFAULTS)` in the method body and kept the split at 17/3. It was rejected: it trades an unforgeable gate for a forgeable one while `UserFunctionRepository`'s SDR write is open, and it needs SBDEV-3103's tests rewritten to assert the CHECK rather than the CALL because `:287`'s body stops being empty. **The split is now **9 move / 11 stay** (§9.14, 2026-08-27) — it passed through 17/3 and 15/5.** An earlier revision of this status field left (b)'s "Split stays 17/3" asserted OUTSIDE its strikethrough, contradicting the 15/5 decision recorded earlier in this same field. — **§8.13 SUPERSEDED SAME DAY 2026-08-26 by §8.15 — Nam's clarified decision: Keycloak carries COARSE access only (every user gets `wms_user`, nothing more) and ALL fine-grained authz lives in WMS V2's group→role→function model, with WMS admins in the `super-admin` group. So no business endpoint may gate on `wms_admin` OR `sb_admin`: §8.13's disjunction is RETIRED and §8.11's function-gate design is REINSTATED. This also RESOLVES §8.14's blocking B1 in the reviewers' favour — the axis mismatch B1 identified is exactly what the clarified decision removes. Measured on `dev_wh01_om1`: `super-admin` group = 38 users, its role holds 79 of 82 functions, and `wms_admin` is NEITHER a mywms_role NOR a mywms_group (0/0) — a cross-axis migration, never a rename. Audit: `3-Resources/reports/260826-wms-admin-to-super-admin-authz-axis-audit.md`. §8.13 retained below for its SURFACE census and the review trail ONLY — DO NOT IMPLEMENT ITS MECHANISM.** Prior §8.13 note: putaway config moves to a `wms_admin` OR `sb_admin` disjunction, NOT to a function — Nam's decision, superseding §8.11's mechanism (its surface census survives) and §8.12's F4 split (moot). Reason it is not the function gate: `FunctionGuardInterceptor` is ABSENT from `origin/main` (develop +112), so `@RequiresFunction` would be inert and replacing `@PreAuthorize` un-gates 4 prd endpoints; and function grants stay self-grantable per §8.12.1. OR not swap, because `wms_admin`-only would REGRESS staff, who hold `sb_admin` and are the only current users. Also supersedes the in-code prohibition at `Authority.java:53-61` and falsifies role-matrix §1.1 line 94 — both must change in the same PR (§8.13.5). §8.13.4's precondition is now ANSWERED (2026-08-26) and was WRONG: the mapper emits FULL PATHS (`/wms_admin`), which match nothing — every gate passes because Keycloak also emits each group as a BARE client role on `om1-api`, and that is what `hasAuthority()` matches. **Do NOT "fix" the mapper to emit bare names.** The probe is a password grant + JWT decode, not `curl /actuator/env` (which is not an exposed endpoint and 404s after passing the authority check). T3. **§8.14 — REVIEWED 2026-08-26 in 3 lanes (evidence/security/design): 9 High, 7 Medium, 4 Low; 6 corrections applied in place. TWO BLOCKING. B1: the widening CANNOT DELIVER ITS OWN GOAL alone — the web UI gates the screen on FUNCTIONS (`require-function.js`, `WEB_UI_VIEW_ITEM_DATA` / `_SYSTEM_PROPERTY` / `_CLIENT`), and `wms_admin` confers ZERO functions, so a wms_admin outside super-admin/inventory-manager is redirected BEFORE any request reaches the widened @PreAuthorize; role-matrix §1.1 also names `super-admin` (a tenant-DB UserRole), a DIFFERENT AXIS, and under OR-semantics a wrong population guess is SILENT — all 9 ACs pass while the target user stays locked out. Needs a Keycloak group enumeration + owner confirmation before any code. B2: the surface is NOT staff-only today — a plain `wms_user` can silently remove the tier-3 default, unaudited, by RENAMING the guarded syskey over SDR (`PATCH /v3/sysprop/{id}`), because both hooks branch on the merged incoming entity; pre-existing, needs its own ticket. Also: NO test lane in this repo evaluates @PreAuthorize, so AC-1..AC-4/AC-7 as written are unachievable (§8.14.4), and @PreAuthorize 403s miss `X-Authz-Denied` so they hit the silent-no-op/logout path — merge API BEFORE web-ui. One review finding was itself FALSE (§8.14.6, a working-tree grep 29 commits stale). DO NOT IMPLEMENT.** REVISED three times (§8 2026-08-24, §8.11 + §8.12 2026-08-25), still DO NOT IMPLEMENT. Reviewed by 3 lanes 2026-08-24: 8 High / 13 Medium; §8 supersedes the sections it names and resolves the Highs on paper. **Now RE-SEQUENCED: §8.9 recommends Class A (SDR) leads slice B, not this MVC tranche** — measured, every tranche-1 entity keeps a live un-withdrawn SDR write verb, so ~19 of ~92 rows gate nothing real, and the live escalation path found in that same surface is now SBDEV-3077 / wms2-api PR #191. Corrections in §8: the tote-printing OUTAGE (§8.2, named-role intersection = super-admin alone); §2.2's GUARDED ban was right for the WRONG reason and @PublicHandler (SBDEV-3063, merged d83b72a) makes membership the correct END state for tranche 3 (§8.3); §2.3 broke the sb_admin tool and gated accessAudit, its own rollout instrument (§8.4); AC-2/T-3 replaced by the screen-reachability invariant AC-2′ (§8.5); the census missed ClubLineController / TransfersController / setPutAwayLocation and AC-1 rewritten to the boundary (§8.6); every count corrected (§8.7); the closeBolPop headline example is FALSE and acceptHubAndSpokeBol has one mapping so a third of T-4 passed vacuously (§8.8). §8.10 lists 6 items still blocking implementation, chief among them re-running the grant check on the ~56 rows that never had it. SOUND throughout: state-change-over-verb scoping (conclusion), all 6 deletions, the Flyway two-separate-INSERTs rule, the mechanism claims, the OMS exclusion SET, T3, V2.2.22. Reviews: scratchpad/review-planB1-{design,evidence,security}.md. **WIDENED 2026-08-25 (§8.11)** — the putaway-destination write surface (4 endpoints + 5 service writers) joins this tranche by Nam's decision, moving off `sb_admin` onto a new `WEB_UI_ACTION_SET_PUTAWAY_DESTINATION` granted to super-admin + inventory-manager. Three things came with it: §8.6's row for `setPutAwayLocation` is CORRECTED (it is NOT ungated — `@PreAuthorize(IS_SB_ADMIN)` at ItemDataController:105); row 31's self-grant objection has largely EXPIRED (all five access-chain join repos now `exported = false`, `saveUserGroups` gated, SDR inside the guard) but leaves `UserFunctionRepository` SDR-exported by default, which is a rename-shaped hole and a PREREQUISITE; and a MERGE-ORDER CONSTRAINT — `FunctionGuardInterceptor` is absent from `main`, so dropping `@PreAuthorize` before it reaches prd un-gates 4 production endpoints. **§8.12 — §8.11 WAS THEN REVIEWED (it had been posted to ClickUp with NO review lane) and 4 High found, 2 of them false claims already published: the "five join repos are `exported = false`" bullet was a method-level grep read as class-level (the conclusion survives via `RestConfiguration` ExposureConfiguration, but narrower — `PUT /v3/userGroup/{id}` and `POST /v3/userGroup` stay live), and "SDR is now inside the gate" is the OPPOSITE of `FunctionGuardInterceptor:87-92` ("it is reachable, and still open"). Both corrected in place. F3: the surface omitted the `PutawayConfigRepositoryEventHandler` SDR channel (`/v3/itemData`, `/v3/client`, `/v3/sysprop`), which CANNOT take `@RequiresFunction`. F4: ONE function is a privilege EXPANSION — tiers 2/3 sit behind super-admin-only view gates while inventory-manager would reach 11 users; SPLIT into `_SKU` and `_DEFAULTS`. F5: §8.6's table is wrong on TWO of seven rows. `UserFunctionRepository`'s open SDR write is a SLICE-WIDE blocker defeating every function gate, not a putaway prerequisite."
 project: [wms2]
 version: v2
 requester: "Nam Park"
 created: 2026-08-24
-updated: 2026-08-27
+updated: 2026-08-28
 db_verified: true
 db_verified_rationale: "mywms_function eight-column shape and its PK/UNIQUE constraints verified against information_schema and pg_constraint on wms2-wineco-dev 2026-08-24 (§2.4). Function grant populations queried per constant (§1.3)."
 related:
@@ -3675,3 +3675,496 @@ is on `develop`, and `gh pr view` showing `MERGED` says nothing about commits pu
 sections numbered 9.23. Mine renumbered to 9.24. Its content is accurate and independently verified here —
 `93806b3d` (#217) and `fadc79b9` (#220) both exist and both PRs report `MERGED`. Treat this plan as
 concurrently edited: **re-read before appending.**
+
+---
+
+### 9.25 TRANCHE 1 IMPLEMENTED 2026-08-28 — 71 of the 75 rows gated; C30–C33 split to SBDEV-3154
+
+**PR #232** (wms2-api) — commit **`01028a37`** on `bugfix/SBDEV-3017-B1-mvc-write-surface-gating`, off
+`origin/develop@8c676d34`. **PR wms2-web-ui #95** — commit **`a10aca0`** for AC-7. Merge **API first**
+(§8.14.3). Both open, neither merged; promotion past `develop` is dev-ops'.
+(`f3d51631`/`65e4bbb` were the pre-review commits, amended after the review lane's 11 findings.) Full suite **5691 / 0 failures / 0 errors / 67 skipped**,
+tree clean.
+
+**Scope decision (Nam, 2026-08-28):** ship the 71 rows that annotate onto existing constants; split the
+four `AdminActionController` operator-console routes (C30–C33) out as **SBDEV-3154**, because they alone
+need two new `FunctionEnum` constants and `V2.2.22`. This keeps the PR migration-free — so the merge is not
+a Flyway run on every tenant — and drops the tier T3 → T2. It follows the precedent §9.16 and §9.17 set.
+
+#### 9.25.1 Five plan claims that did not survive measurement
+
+| claim | source | verdict |
+|---|---|---|
+| B1 / B15–B20 fail AC-2′ (CS-REP reaches the screen, lacks the function) | §9.7.1 | ❌ **retracted.** Measured by USER population: 1 excluded user each, and it is `Z-mariaortiz(archived)` |
+| `WEB_UI_ACTION_PRINT_TOTE_LABELS` is "super-admin-only", an outage | §8.2 | ⚠️ **conclusion right, reason wrong.** 38 users, not super-admin-only — but a *different* 38 from the screens' 46/47, so it 403s **7 live users**. A1/A2 take the screen constants |
+| Two more new constants owed (`_GENERATE_TOTE_LABELS`, `_CREATE_BILL_OF_LADING`) | §9.6.1 | ❌ **not needed.** §1 records both as explicitly *rejected* alternatives; §9.6.1 read a rejected alternative as a recommendation. The count stays at two |
+| Six endpoints to be DELETED | §2.5 | ❌ **superseded** by §9.15 dec 6 — all six still exist and are gated here. **AC-8 is unachievable as written** |
+| `/v3/report/exportParcelPicking` blocked on a missing constant | §1.1 r6 | ❌ **stale.** `WEB_UI_VIEW_PARCEL_PICKING` exists, 8 roles, landed in `V2.2.19` |
+
+Exactly **5** of the plan's constants are genuinely absent from both `WmsConstants.FunctionEnum` and
+`mywms_function` on `dev_wh01_om1` — code and DB agree.
+
+#### 9.25.2 🔑 The transferable rule: role COUNT is not the AC-2′ unit, USER population is
+
+Three role-name verdicts were checked against user populations. **Two were wrong, in opposite directions** —
+so the failure mode is not "role names overstate" or "understate", it is that the role axis is simply
+uninformative:
+
+| claim | verdict on measurement |
+|---|---|
+| `WEB_UI_VIEW_CLIENT` / `_PRINTER` gate screens with no named holder (**this session's own**) | ❌ 38 users each |
+| B1/B15–B20 break CS-REP (§9.7.1) | ❌ 1 archived user |
+| `PRINT_TOTE_LABELS` causes an outage (§8.2) | ✅ 7 live users |
+
+`WEB_UI_VIEW_SYSTEM_PROPERTY` has **1 role and 38 users** — the narrowest-looking constant in the catalogue
+is among the widest. Every AC-2′ check must join `mywms_function` → `mywms_role_mywms_function` →
+`mywms_role` → `mywms_group_mywms_role` → `mywms_group` → `mywms_group_mywms_user` → `mywms_user`. Stopping
+at `mywms_role.name` is unreliable in both directions. Evidence: `SBDEV-3017-db-evidence.md` in the worktree.
+
+This also **closes R2's §9.7.3 blocker** (*"both must close before R8 writes an annotation"*), which R8's
+narrowed scope left open and which landed on this slice.
+
+#### 9.25.3 Two structural findings the path-keyed tables hide
+
+1. **`DashboardController extends ReportController`.** The dual `/v3/report` + `/v3/dashboard` mapping is
+   **inheritance**, not a two-valued `@RequestMapping`. One method-level annotation covers both paths — §1's
+   path-keyed rows overstate that work. It also means a class-level annotation on `ReportController` would
+   silently gate every `/v3/dashboard` read; §2.2's method-level rule for it is right.
+2. 🔴 **`SurfaceInventoryContextTest` over-reports gating.** Its `requiresFunction` resolves the class-level
+   fallback on `hm.getBeanType()`; `FunctionGuardInterceptor:166` resolves on
+   `getMethod().getDeclaringClass()`. They disagree for any handler inherited from `AdminController` into a
+   subclass carrying a class-level annotation — this slice creates three. The tool reports those inherited
+   handlers as gated; the interceptor does not gate them. **The interceptor is the authority**; the
+   inventory's gated/ungated tallies are an upper bound on coverage. The new pin uses the interceptor's axis.
+
+#### 9.25.4 The anti-drift rule blocked the first run — correctly
+
+`FunctionGuardArchTest#noSharedControllerCarriesRequiresFunction` failed on **8** handlers
+(`DashboardController#printToteLabels`, all six `ReplenishOrderController` writes, `UnitLoadController#reprintLabel`)
+because their **classes** are shared with the mobile UI. Each **method** was then verified individually
+against `wms2-mobile-ui@origin/develop` with `git grep` over every tracked file: **zero** mobile callers,
+with positive controls in the same run (`$axios` 34 files, `replenish` 29, `store/` 12) so the zero is
+absence and not a broken search. Mobile replenishment reaches `/replenish`, `/replenish/clientList` and
+`/replenish/requestAmount` on `MobileReplenishController` — a different surface, already gated. All 8
+registered in `REVIEWED_SHARED_METHOD_GATES` + `REVIEWED_SHARED_GATE_FUNCTIONS` with that enumeration,
+rather than the rule being loosened.
+
+#### 9.25.5 ⚠️ The mutation harness destroyed work before it produced a result — read this before writing one
+
+The first harness restored each mutant with `git checkout -- <file>`. **The work was uncommitted**, so
+"restore" reverted to `origin/develop` and silently deleted **17 annotations** across `AdviceController` (7),
+`ReceivingController` (6), `SystemPropertyController` (3) and `UnitLoadController` (1). Every mutant after
+the first then ran against that broken tree. **All four reported KILLED and only the first was real.**
+
+It was caught because M2's diagnostic quoted **M1's** constant — the verdicts were copies of each other.
+A per-mutant verdict that does not name the mutant's own symbol is the tell.
+
+Re-run after committing: **5 of 5 KILLED**, each with its own correct diagnostic, each restore verified
+clean, and the final tree byte-identical to `f3d51631`:
+
+| mutant | killed by |
+|---|---|
+| M1 drop a METHOD gate | `expected [WEB_UI_VIEW_CREATE_INBOUND_BOL] but was [UNGATED]` |
+| M2 drop a CLASS gate | `SystemPropertyController /v3/systemProperty/create … [UNGATED]` |
+| M3 narrow the A7 ANY-of 4 → 3 | the four-member set assertion |
+| M4 rename a route | `ROUTE NOT DEPLOYED (renamed or deleted?)` |
+| M5 swap a constant (B21 → `ACTION_ADJUST_AMOUNT`) | `expected [WEB_UI_VIEW_GOODS_RECEIPT_POSITION] but was [WEB_UI_ACTION_ADJUST_AMOUNT]` |
+
+**M5 is the one that matters** — it kills the §0.G trap directly: the semantically-obvious constant that
+would 403 the `receiving` and `CS-REP` roles holding that screen.
+
+Two rules, both mechanical: **the restore target must be a commit, never the working tree**; and
+**a mutation verdict must be attributed by the mutant's own diagnostic**, or a stale tree reads as a kill.
+Adds to [[mutation-harness-traps]], which had already recorded 9 measured lies from hand-rolled harnesses.
+
+#### 9.25.6 What this slice does NOT close
+
+- **C30–C33** — SBDEV-3154. `recoverStuckPallets` and the three `trigger*`/`testCrmConnectivity` GETs stay
+  ungated until it ships. No UI caller and no menu entry, so the reach is API replay.
+- **The capability, as distinct from the route.** Every gated entity keeps its live SDR write verbs
+  (§9.12); each annotation's comment says so explicitly. **Do not close SBDEV-3017 on this slice.**
+- **The 122 ungated MVC reads** and the **16 POST-as-query report reads** (SBDEV-3142).
+- **`/rest/**`** — SBDEV-3124, blocked on the OMS side.
+- **The 10 boundary rows X1–X10** (§9.9.1). AC-1 as §8.6 rewrote it wants 85, not 75; this ships 71 + 4
+  split = 75, i.e. AC-1 **as originally written**. `runClubLine` and `runTransfer` still run a whole
+  batch from a bare GET. State which reading of AC-1 the ticket closes against.
+
+#### 9.25.7 REVIEW LANE 2026-08-28 — 1 High, 4 Medium, 6 Low. All fixed; commit amended to `01028a37`
+
+One adversarial lane, its own copy, DB access to five tenants. It **confirmed the 71 gates themselves**:
+every constant/screen pairing re-traced endpoint → store/component → `appMenuList.js` → DB, no gate that
+403s a legitimate user, class-level placement safe on all four classes, no OMS-called endpoint gated, and
+the §8.2 and AC-2′ measurements reproduced exactly. The defects were in the **rails and the claims**.
+
+| # | finding | fix |
+|---|---|---|
+| **H1** | 🔴 **The §0.C OMS carve-out had ZERO test coverage.** The lane added a class-level gate to `ClientController` + `BoxTypeController` — the shape of a future "tidy up the duplicate method annotations" refactor — breaking both OMS writes, and **every rail stayed green (28/28)**. The pin was a pure allow-list; `SurfaceInventoryContextTest` only asserts `total > 200`; the shared-controller ArchUnit rule keys on a hard-coded list of four classes that excludes all three carve-outs | 3 rows added asserting the carve-out is **UNGATED** (expected set `""`). Mutation M6 reproduces the exact mutant → now **KILLED**: `"BoxTypeController /v3/boxType/create"="expected [] but was [WEB_UI_VIEW_CASE_TYPE]"` |
+| **M1** | AC-4's "122 ungated mutating" cannot see 10 state-changing GETs (`runClubLine`, `runTransfer`, 6 lane ops, `activateTransferOrder`, `fixPickingPosition`) — the tool calls a GET mutating only on `/delete\|/remove\|/cancel\|/reset\|/create`, so they classify as *reads* **by construction** | Disclosed in the commit message and db-evidence §10. **AC-1 explicitly NOT ticked** — this closes it as originally written, not as §8.6 rewrote it |
+| **M2** | B21's shipped comment justified its constant on the role-name axis the same commit calls unreliable — and measured, `ACTION_ADJUST_AMOUNT` is the **wider** constant (44 users vs 43), so §0.G's "the semantically obvious constant is the wrong one" is unsupported | Comment rewritten to the caller-based reason (`INBOUND_BOL → GOODS_RECEIPT_POSITION` denies nobody). Constant unchanged — it was the right choice for a different reason |
+| **M3** | **`MobileReplenishController` does not exist** (only `MobileReplenishService`). Two comments + §1.2 r5.6 named it; the class is `controller/mobile/ReplenishController`, gated class-level with `MOBILE_UI_VIEW_REPLENISHMENT` — not the `_REPLENISH_REQUEST` the comment claimed, which covers only `/clientList` and `/requestAmount` | Both comments corrected with the real class, line numbers and constant |
+| **M4** | The worklist's stated baseline "5673 / 0 / 67" is off by 17 | Corrected to **5690** (parent `8c676d34`), commit **5691**, delta exactly +1 = the new test |
+| **L1** | db-evidence §7 dismissed the two `⚠ semantics-derived` map entries as "not the constant for any of the 75 rows" — **invalid**, since AC-2′ compares the *screen's* constant to the *endpoint's*, so it matters precisely when they differ | Both measured (Pick Pack→`ORDER` = 0 denied; Dashboard→`PARCEL_PICKING` = 1 archived). Safe — but the argument is the reusable error |
+| **L2** | The pin's rationale for `/v3/dashboard/reprintLabels` was backwards ("gating only /v3/report would close nothing" — method-level makes that inexpressible, and it is `/v3/report` that has the live caller) | Rewritten |
+| **L3** | Asymmetric read coverage: `FixLocationAssignment`'s 2 class-swept reads were pinned, `LabelPrinting`'s **8** were not — so downgrading that class annotation to method-level left the pin green while un-gating all 8 | 8 rows added. Mutation M7 → **KILLED**, naming `defaultPrinterTypes` |
+| **L4** | `test/util/reprentLabelHostSet.spec.js` opens "THE GATE THIS FENCES IS DECIDED, NOT IMPLEMENTED … currently UNGATED" — false the moment this merges | Corrected in the web-ui branch |
+| **L5** | 14 files added an explicit `WmsConstants` import beside an existing wildcard of the same package | Removed |
+| **L6** | The shared worktree was left with a stale INDEX (21 files staged at pre-change content) | Repaired with `git reset`; **cause found and it is a general trap — see below** |
+
+##### 9.25.8 🔑 `cp -a` of a git WORKTREE does not isolate git state
+
+L6's cause was **my own instruction**. I told the lane to isolate itself with
+`cp -a <worktree> <scratch>`. In a worktree, `.git` is a **file**, not a directory:
+
+```
+gitdir: /home/nampark/dev/wms-claude/v2/wms2-api/.git/worktrees/SBDEV-3017-B1
+```
+
+`cp -a` copies that pointer verbatim, so the copy shares the **original's index, HEAD and reflog**. The
+lane's `git checkout <parent> -- src/` wrote into *my* index. Only file contents are isolated; all git
+state is shared.
+
+**The tell:** `git status` showing `MM` on every file while `git diff HEAD` is **empty** — the index is out
+of sync with both HEAD and the worktree. `git reset` repairs it losslessly, but check `git diff HEAD` is
+empty first.
+
+**Isolate a lane with `git worktree add --detach <path> <ref>` or `git clone`** — never `cp -a`, unless the
+copy's `.git` is deleted or the lane is forbidden every writing git command. This is
+[[review-lanes-must-not-share-a-worktree]] in a second shape.
+
+---
+
+### 9.26 SECOND REVIEW ROUND 2026-08-28 — two lanes, converging on one residual. Head is `bd953877`
+
+After §9.25.7's 11 fixes the commit was amended to `01028a37` — and **nobody had reviewed the fixes**. Two
+lanes were run on that delta: the original lane auditing closure of its own findings, and a fresh adversarial
+lane on `git diff f3d51631 01028a37`. Combined: **1 High, 7 Medium, 10 Low across both rounds, all fixed.**
+
+#### 9.26.1 🔑 Both lanes independently found the SAME residual — in my fix for the first round's High
+
+The three §0.C carve-out rows read only `@RequiresFunction`. Measured twice, independently:
+
+```
+@PreAuthorize("hasRole('sb_admin')") on ClientController#importClients   →   5691 tests, 0 failures, BUILD SUCCESS
+```
+
+An OMS principal holds no `ROLE_sb_admin`, so this breaks facility sync **exactly as thoroughly** as the
+annotation shape the rows *did* catch. It is the **more** likely shape: `@EnableMethodSecurity(prePostEnabled
+= true)` is live (`MethodSecurityConfig:9`), `ClientController extends AdminController`, and `AdminController`
+already carries `@PreAuthorize(IS_SB_ADMIN)` on 8+ handlers — and §8.4 explicitly *prefers* `@PreAuthorize`
+for admin surfaces.
+
+**This is the third time on this ticket that a remedy for a measured hole was itself holed** (§9.24 was the
+second). The pattern is now stable enough to name: *a fix aimed at one mechanism fences one mechanism.* Ask
+"how many ways can this outcome be produced?" before calling a guard complete. Here the answer was three:
+
+| mechanism | caught by | diagnostic |
+|---|---|---|
+| `@RequiresFunction` | the carve-out rows | named route |
+| `@PreAuthorize` | the carve-out rows, **only after this fix** | named route |
+| `FunctionGuardInterceptor.GUARDED` membership | `FunctionGuardStartupAssertion:74` | context-load stack trace |
+
+`GUARDED` needs no row — it fail-closes *unannotated* handlers, so the context refuses to boot and the pin
+cannot even load. Recorded in-code so the next reader does not re-derive it as a hole.
+
+#### 9.26.2 Two false claims introduced WHILE FIXING false claims
+
+- **§9.25.7's M3 fix corrected the class name and carried half the old error forward.** It said
+  `/clientList (:91)`; `:91` is `/requestLocation/{input}`, and `/clientList` is at `:155` carrying **no**
+  method annotation. It also cited `:77` as documenting a bare `/v3/replenish` — `:77-79` is a remark on
+  `/fixedLocationUpperBound`, and **there is no bare `/v3/replenish` mapping at all**; every handler on that
+  class declares a path. Verified independently before correcting.
+- **§0.G's retracted role-name claim survived verbatim in a SECOND copy** — the pin test — so for one
+  revision the two comments asserted opposite things. The amended commit message said *"its comment now says
+  so"*, singular; the second lane called that "the one commit-message claim I checked and found only
+  half-true." **Grep the CLAIM, never the file you happened to edit** — [[retitling-a-section-leaves-the-rule-asserted-below-it]]
+  in a new shape.
+
+#### 9.26.3 Rails hardened
+
+- `ROUTE NOT DEPLOYED` no longer truncates mid-sentence on a carve-out row (its template appended an empty
+  expected set).
+- `hasSize(85)` moved to **its own `@Test`**. It sat after `assertThat(wrong).isEmpty()`, which throws first —
+  so the size check was unreachable in precisely the run where someone might have deleted a row to silence the
+  drift.
+- The mutant enumeration in the commit message is now accurate at **nine**, all killed.
+
+#### 9.26.4 What the lanes confirmed, and what it bounds
+
+Neither lane found a defect in the **71 gates**. The fix delta touches only comments, imports and test code —
+every `@RequiresFunction` value, placement and target is byte-identical to the commit the first lane
+validated, so its endpoint-by-endpoint validation still stands. The first lane also re-measured the AC-2′
+pairs across **five tenants** (dev, PRD hydra, three UAT): no live operator is 403'd anywhere.
+
+Final: **5692 / 0 failures / 0 errors / 67 skipped** (baseline 5690 + the 2 pin tests). Head **`bd953877`**,
+PR #232 OPEN. **AC-1 still not closed** — the ten state-changing GETs of §9.25.6 remain open.
+
+#### 9.26.5 Process note: I clobbered my own test run
+
+I started a `mvn -o clean test` and then ran further `mvn` commands in the **same worktree** while it was in
+flight. Its log ends mid-run with no `BUILD` line. Nothing was reported from it, but a partial log is exactly
+the shape that gets read as a result. **One `mvn` at a time per worktree** — the same shared-mutable-state
+rule as [[review-lanes-must-not-share-a-worktree]], applied to myself rather than to a lane.
+
+---
+
+### 9.27 THIRD REVIEW ROUND 2026-08-28 — the fix was incomplete in the SAME way, twice more. Head `81989036`
+
+Round 2's fix for the `@PreAuthorize` residual was itself re-reviewed, and the lane found **two further
+uncovered mechanisms**. Both measured, both now killed. Suite **5693 / 0 / 0 / 67**.
+
+#### 9.27.1 The `@PreAuthorize` fix covered one of FIVE method-security annotations
+
+`MethodSecurityConfig:9` is `@EnableMethodSecurity(prePostEnabled = true, securedEnabled = true,
+jsr250Enabled = true)` — **all three families are enabled**. My fix read `PreAuthorize.class` only.
+
+**Measured:** `@Secured("ROLE_sb_admin")`, `@RolesAllowed("sb_admin")` and `@DenyAll` applied to the three
+carve-out routes **simultaneously** → full suite **GREEN at 5692**. `@DenyAll` denies *everyone* — the most
+total gate the framework offers, on all three OMS writes at once, unnoticed.
+
+⚠ And `securedEnabled` / `jsr250Enabled` are **not pinned**: `MethodSecurityEnablementContractTest:64-67`
+pins only `prePostEnabled`. Both families are live today with nothing asserting they stay that way.
+
+All five (`@PreAuthorize`, `@PostAuthorize`, `@Secured`, `@RolesAllowed`, `@DenyAll`) are now checked.
+
+#### 9.27.2 The `SecurityFilterChain` is a SIXTH axis, invisible to every Spring-context test in this repo
+
+`SecurityConfiguration:157-160`, block C, is a plain prefix list. Adding `"/v3/client/**"` is a one-token
+edit of a shape already present six times over. **Measured:** adding all three carve-out prefixes and
+tightening the authority → all three OMS writes 403 in production, full suite **GREEN at 5692**.
+
+Two structural reasons nothing could see it, both worth keeping:
+
+1. **The bean is never built in the test lane.** `SecurityConfiguration` is
+   `@ConditionalOnProperty(prefix = "rest.security", value = "enabled", havingValue = "true")` (`:43`) and
+   `src/test/resources/application-integration.properties:49` sets `rest.security.enabled=false`. Every
+   Spring-context test here runs under the `integration` profile, so the filter chain does not exist to
+   assert against.
+2. **The one test that reads the file is a comment-citation checker.**
+   `SecurityConfigurationLinePinContractTest` pins line numbers to substrings so prose citing a line still
+   points at what it claims. An *in-place* edit to the existing matcher list shifts no lines and sails
+   through; only an *inserted* line reds it, and then incidentally, as a line-shift rather than an
+   authorization judgement.
+
+New `Sbdev3017OmsCarveOutSourceContractTest` covers it — the documented exception where a source assertion
+is legitimate because no runtime test can reach the invariant. It is deliberately narrow: it flags only
+matchers that **single out** a carve-out path, using an ordinary-`/v3`-traffic control path to separate the
+broad `/v3/**` baseline (`:178`) from a targeted rule, and it fails loudly if that discriminator stops
+holding or if its parser stops finding matchers at all (a vacuous green would be worse than no test).
+
+#### 9.27.3 🔑 My "three gate mechanisms exist" comment was itself a false closed-set claim
+
+Written to close a false claim, it asserted a **complete enumeration** — and that confident count is exactly
+what made §9.27.1 and §9.27.2 invisible. There are at least six mechanisms on this route, seven counting the
+filter chain. Same defect family as the claim it replaced.
+
+**The rule, now stated in the code rather than the count:** say what is covered *here*, what is covered
+*elsewhere and by which rail*, and what is **not** covered — never assert a total. A closed-set claim is a
+load-bearing assertion and needs the same evidence as any other.
+
+#### 9.27.4 Three rounds, one shape
+
+| round | what the lane found | my fix |
+|---|---|---|
+| 1 | the OMS carve-out had **no** test coverage | 3 rows reading `@RequiresFunction` |
+| 2 | those rows miss `@PreAuthorize` | added `@PreAuthorize` |
+| 3 | that misses `@Secured`/JSR-250 **and** the `SecurityFilterChain` | all five annotations + a source contract test |
+
+**Three consecutive rounds each found that my previous fix fenced one mechanism and missed its siblings.**
+The 71 gates were confirmed correct in every round; it was the rails that took three passes. See
+[[a-guard-fences-the-mechanism-you-aimed-at]].
+
+Totals across all rounds: **1 High, 10 Medium, 12 Low — all fixed. Eleven mutants, all killed.**
+**AC-1 still not closed** — the ten state-changing GETs of §9.25.6 remain open.
+
+---
+
+### 9.28 MERGED TO DEVELOP 2026-08-28 — and the four decisions Nam took to close the slice
+
+| repo | PR | merge commit | verified |
+|---|---|---|---|
+| `wms2-api` | **#232** (`81989036`) | **`1f5f8697`** | `merge-base --is-ancestor` ✅ |
+| `wms2-web-ui` | **#95** (`a10aca0`) | **`e629517`** | `merge-base --is-ancestor` ✅ |
+
+API merged first (§8.14.3). Neither PR carried a Flyway migration, so the collision sweep was not applicable
+— confirmed by diffing `db/migration` against `origin/develop` before merging, rather than assumed. Merging to
+`develop` is a dev deploy; promotion to `release`/`main` is dev-ops'.
+
+#### Nam's decisions, 2026-08-28
+
+1. **AC-1 closes as ORIGINALLY written** (option (a)) — "the §1 tables", 75 rows = 71 here + 4 in SBDEV-3154.
+   §8.6's rewritten wording (85 rows, *"every ungated state-changing MVC endpoint on develop"*) is **not**
+   satisfied and is not claimed to be. The ten state-changing GETs are **SBDEV-3155**.
+2. **Merge both PRs.** Done, verified above.
+3. **File the method-security enablement ticket** — **SBDEV-3156**.
+4. Dashboard AC-2′ — details requested; see §9.28.2, which changes the answer.
+
+#### 9.28.1 Tickets spun out of this tranche
+
+| ticket | what |
+|---|---|
+| **SBDEV-3154** | the 4 `AdminActionController` operator-console routes — need 2 new constants + `V2.2.22` |
+| **SBDEV-3155** | the 10 state-changing GETs, **and** the fact that `SurfaceInventoryContextTest` cannot see them by construction, so repeating the audit will never surface them |
+| **SBDEV-3156** | `@EnableMethodSecurity` has `securedEnabled` + `jsr250Enabled` ON with only `prePostEnabled` pinned |
+
+#### 9.28.2 🔴 The Dashboard AC-2′ "failure" is NOT a live break — `WEB_UI_VIEW_ORDER_DETAIL_MONITOR` gates NOTHING
+
+§9.7.1 flagged it, and §9.25.2 and the db-evidence doc both carried it forward as *"one genuine AC-2′ failure,
+5 live users"*. **Re-checked on `origin/develop` before handing it to Nam, and that framing is wrong.**
+
+The population is real: `WEB_UI_VIEW_ORDER_MONITOR` 46 users, `WEB_UI_VIEW_ORDER_DETAIL_MONITOR` 41, so 6 hold
+the Dashboard and not the detail function — `Z-mariaortiz(archived)`, `daniilandriyenko`, `estellavasquez`,
+`josiemarks`, `jovanyaguilera`, `markchilcote` (5 live). Its roles are `super-admin` + five numeric.
+
+**But nothing consults it.** Measured across both repos:
+
+- `src/main` — **zero `@RequiresFunction`** uses it. Its only occurrences are the constant declaration
+  (`WmsConstants:422`), a comment (`:409`), seed rows in `V2.2.00`/`V2.2.19`, and one
+  `accessService.addFunctionToRole` call in **`UtilRestController:408`** — which is annotated `@Service`,
+  **not** `@RestController`, so its `@RequestMapping` methods do not route and that path never executes.
+- `wms2-web-ui` — two hits, neither a gate: a name in `test/support/webFunctionConstants.js`, and a **comment**
+  in `appMenuList.js:116` explaining why the Parcel Picking Report deliberately did **not** reuse it.
+
+⇒ **Nobody is 403'd today, because no gate consults this function.** It is a *latent* trap, not a live defect:
+the day someone gates a Dashboard detail view on it, 5 live users break. That is worth a note on whichever
+ticket eventually gates that screen — it is **not** an incident, and it should not have been carried three
+sections as one.
+
+**The correction generalises.** §9.7.1's "denied population" arithmetic answers *"who would be denied IF this
+function were enforced"*. It says nothing about whether it **is** enforced. Both questions matter and they are
+different; conflating them is [[advertised-capability-is-not-exploitable-capability]] pointed at a gate rather
+than at an endpoint. **Check enforcement before reporting a population as a break.**
+
+---
+
+### 9.29 SBDEV-3017 SCOPE CLOSED 2026-08-28 — Class A split to SBDEV-3157, and the accounting
+
+⚠️ **Scope closed, ticket NOT set to `Closed`.** The ClickUp status ladder in this workspace tracks
+deployment — `on dev` → `on qa` → `ready for deployment` → `on prod` → `Closed`. Tranche 1 is on
+**dev** only, so the ticket stays at `on dev` and rides the ladder; setting `Closed` now would drop
+it out of promotion tracking before it reaches production. Nothing is left to *build* on it.
+
+**Delivered by this ticket:** slice A's enforcement point (PR #187), slice C (#189), the `UserFunction` SDR
+write withdrawal (#209), R1–R8, and tranche 1's 71 MVC gates (#232 + web-ui #95). Measured effect on the
+deployed surface: **gated mutating 291 → 355, ungated mutating 122 → 58.**
+
+Slice A's most durable output was not a gate but a **retraction**: it disproved this ticket's own premise
+that SDR is "structurally ungatable". It is *reachable*; only `WebMvcConfigurer#addInterceptors` fails to
+reach it. Six `src/main` javadocs and the web-ui route guard carried the wrong claim and were corrected.
+
+#### 9.29.1 🔴 The founding complaint is STILL TRUE — and that is why Class A gets its own ticket
+
+*"A user denied the SKU Data menu item still gets data from `curl /v3/itemdata`."* Measured on
+`origin/develop` @ `1f5f8697`:
+
+| | |
+|---|---|
+| exported `@RepositoryRestResource` repositories | **62** |
+| `@RestResource` searches | **375** |
+| class-level `exported = false` | **0** |
+| domain types with write verbs withdrawn | **7** — all authorization-chain (SBDEV-3012/3013/3079) |
+| ⇒ repositories retaining live SDR writes | **55 of 62** |
+| `@RequiresFunction` under `repo/` | **0** (the one grep hit is a comment saying it does not reach) |
+| test proving 403 on a denied `/search/…` | **none** |
+
+That last row **is this ticket's own Class A acceptance criterion**, unmet. It is carried into **SBDEV-3157**
+verbatim as its AC-2 rather than being quietly dropped in the close. **No business entity has ever been gated
+on the SDR axis** — the 7 withdrawals exist to stop privilege escalation, not to gate data.
+
+#### 9.29.2 Where the scope went
+
+| ticket | scope |
+|---|---|
+| **SBDEV-3157** (High) | **Class A — SDR.** The unfinished half |
+| **SBDEV-3142** (High) | the **16** report/monitor POST-as-query reads — enumerated and ready |
+| **SBDEV-3158** (High) | the other **~90** ungated `/v3` MVC reads (106 total) |
+| **SBDEV-3155** (High) | the 10 state-changing GETs + the tool's structural blindness to them |
+| **SBDEV-3154** | the 4 `AdminActionController` routes needing 2 constants + `V2.2.22` |
+| **SBDEV-3156** | `@EnableMethodSecurity` — `securedEnabled`/`jsr250Enabled` on, only `prePostEnabled` pinned |
+| SBDEV-3124 · 3144 · 3116 · 3119 | `/rest/**` · token credentials in the query string · Keycloak mapping · the one real production defect (merged `be3411ca`) |
+
+The 58 remaining ungated *mutating* handlers reconcile exactly against that list: 16 on `/rest/**`, the
+AdminAction routes, SBDEV-3142's POST-as-query reads, and the 3 OMS carve-outs that are deliberately open.
+**Nothing is unaccounted for.**
+
+⚠️ Both the 58 and the 106 are **lower bounds** — `SurfaceInventoryContextTest` over-reports gating wherever a
+class-level annotation meets an inherited `AdminController` handler, and its GET heuristic misses SBDEV-3155's
+ten. Recorded on both child tickets.
+
+#### 9.29.3 What this ticket cost, and the one thing worth carrying forward
+
+Three tranches, four review lanes across three rounds, seven children. The single most transferable lesson is
+**§9.27.3**: three consecutive review rounds each found that my fix fenced *one* gate mechanism and missed its
+siblings — `@RequiresFunction`, then `@PreAuthorize`, then `@Secured`/JSR-250 and the `SecurityFilterChain`.
+The gates themselves were confirmed correct in every round; it was the rails that took three passes.
+
+**Before calling any guard complete, enumerate every way the OUTCOME can be produced — not every way the
+defect you just saw was spelled — and never assert a closed set in a comment.** A confident count is a
+load-bearing claim and needs the same evidence as any other. See
+[[a-guard-fences-the-mechanism-you-aimed-at]].
+
+
+#### 9.29.4 ⚠️ CORRECTION — the SBDEV-3142 widening was retracted the same day
+
+I widened SBDEV-3142 from 16 to 106 ungated reads, and then **Nam revised the ticket policy** and my own
+widening failed it. `search-then-widen` now requires **both** gates:
+
+| gate | SBDEV-3142 | |
+|---|---|---|
+| sibling earlier than `on dev` | `Open` | ✅ passes |
+| **the ADDED scope tiers under T3** | ~90 endpoints of authorization work, multi-file | ❌ **fails** |
+
+Retracted; the remainder is **SBDEV-3158**. The measurement was sound — only the filing decision was wrong.
+
+**Tier the ADDITION on its own**, never the combined ticket and never the host's existing tier. A T3 addition
+is a second project wearing the first one's number, and it silently re-tiers the host: someone picking up an
+enumerated 16-endpoint job would have inherited an open-ended one with nobody deciding that.
+
+A second reason the split is right **regardless of the policy**, and the one that should have caught it
+without a rule: SBDEV-3142's 16 carry a complete enumeration, per-endpoint dataset analysis and a live-probe
+AC. The ~90 carry none of that. Folding them together hides **finished analysis behind unstarted analysis** —
+which is the same failure this plan's own §9 exists to undo.
+
+Policy text: `.claude/skills/wms-triage/SKILL.md` → *Ticket policy*. Summary pointer in `CLAUDE.md` updated to
+match; memory [[consolidate-tickets-dont-file-one-per-finding]] carries the two gates.
+
+---
+
+### 9.30 🔴 §9.28's OMS enumeration was derived from a STALE checkout — corrected 2026-08-28
+
+While working SBDEV-3157 a review lane caught me grepping `v2/oms-laravel-api`'s **working checkout**
+instead of `origin/develop`. That checkout is **838 commits behind** (`76217f75`, an ancestor of
+`7f7b3719`). The same stale tree produced this plan's OMS verification.
+
+| | this plan said | `origin/develop` |
+|---|---|---|
+| OMS `/v3` paths | **8** — 3 creates, 4 SDR reads, 1 SDR search | **10** |
+| missed | — | `v3/client/search/findByClNr` and **`v3/client/{id}`** |
+
+`v3/client/{id}` is the consequential one: `config/wms.php:104` maps `client_update` to it and
+`WmsApiService.php:3281` calls it with **`PATCH`**, its own comment saying *"a Spring Data REST entity
+resource takes one JSON object."* **OMS writes over SDR.**
+
+**The conclusion survives, and was verified rather than assumed.** Both missed paths are SDR, served by
+`RepositoryEntityController` / `RepositorySearchController`. Tranche 1 annotated **MVC controller methods
+only**, and `ClientController` declares no `{id}` mapping and no `/search/` mapping. **No gate this tranche
+added intercepts either path.** What is retracted is the *enumeration offered as evidence* — §0.C's
+carve-out should be read as "the three controller creates", not as a complete picture of OMS's `/v3` usage.
+
+#### 9.30.1 The rule, and why it slipped
+
+**Derive cross-repo claims from `origin/develop` after a fetch, never from a working checkout.** Every
+sub-repo here lags: `wms2-api` 9, `wms2-web-ui` 19, `wms2-mobile-ui` 26, `v1/wms-api` 8,
+`oms-laravel-api` **838**.
+
+`wms-triage`'s probe question 1 already says *"do not trust a local checkout"*. I applied it to `wms2-api`
+and `wms2-web-ui` — both fetched, both read at `origin/develop` — and skipped it for the third repo **in
+the same session**. Consistency across repos is the part that failed, not knowledge of the rule.
+
+**The tell:** a line-number disagreement between two readings of one file (`:86` vs `:104`). If two people
+cite different lines for one symbol, one of them is on a different commit — check the ref before arguing.
+
+**Second-order, and the worse half:** I used the stale reading to **reject a correct review finding**, with
+a five-row evidence table in which every row was true of the stale tree and false of the real one. A
+rejection needs *more* provenance discipline than a claim, because it stops someone else from looking.
+That is now twice in this ticket family — the `@PreAuthorize` residual (§9.27.1) was the first.
+See [[derive-cross-repo-claims-from-origin-develop]].

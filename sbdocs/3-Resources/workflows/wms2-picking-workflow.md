@@ -7,7 +7,7 @@ scope: picking
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-06-01
-last_verified: 2026-07-10
+last_verified: 2026-08-29
 verified_by: code read of v2/wms2-api src/main + state-machine + transaction architecture docs
 related:
   - ../architecture/wms2-state-machine-catalog.md
@@ -249,6 +249,62 @@ For the full transaction + locking picture see [wms2-transaction-osiv-boundary-m
 
 ---
 
+## 9.1 Pick-path ordering (SBDEV-3133, PR #233, merged 2026-08-29)
+
+The route order is decided by `LocationPathOrdering` (`util/`), shared by **all three** comparators so
+the handheld route and the printed tote label cannot drift apart:
+
+| Comparator | Used for |
+|---|---|
+| `InMemoryLocationComparator` | the handheld pick route |
+| `DefaultStrategy` | the printed tote label |
+| `CycleCountStrategy` | cycle-count routes |
+
+### Tiers
+
+1. **Rack row** — and **unzoned racks (`rackrowId == null`) sort after every zoned rack, as one
+   contiguous block.** Two unzoned racks tie here and fall through.
+2. **Rack** ordinal.
+3. **Column and level**, in the configured `PickPathDirection`.
+4. **Deterministic tiebreaks** (name, then id) so a sort never aborts on a tie.
+
+### ⚠ Why tier 1 must not "skip" instead of ordering
+
+Before SBDEV-3133 the comparators compared rack-row ordinals **only when both racks had a rack row**,
+and otherwise fell straight through to the rack tier. Rack ordinals are only meaningful *within* a
+row — every row numbers its racks from 1 — so any pair involving an unzoned rack was decided on a
+number from a different scale, while zoned pairs were still decided on the row tier.
+
+The relation that produces is **cyclic**, not merely wrong. With shelf `{row 1, rack 9}`, shelf
+`{row 2, rack 2}` and unzoned `{rack 5}`:
+
+```
+SH-1-09 < SH-2-02   (row tier: row 1 before row 2)
+SH-2-02 < FB-A      (rack tier: 2 < 5)
+FB-A    < SH-1-09   (rack tier: 5 < 9)
+```
+
+Sorting against a cyclic comparator emits an **arbitrary** order — the reported symptom was a route
+running shelf locations, crossing to another pick area, then returning to *more* shelf locations.
+WineCo hit it with bottle/flow-bin locations that are intentionally unzoned and shared across
+wineries.
+
+`LocationPathOrderingUnitTest.ComparatorContract` guards this — note it asserts the **properties**
+(`isAntisymmetric`, *"is transitive for every triple — the property the old comparator broke"*)
+against the **fixed** comparators; it does not re-run the old ones. Its `mixedFixture()` is the exact
+set above: racks with ordinals 9 (row 1), 2 (row 2) and 5 (unzoned), plus a `LOOSE` location with no
+rack at all. `handheldAndToteLabelAgree` is what pins the handheld route and the printed tote label
+to the same order.
+
+Unzoned racks stay unzoned and shared — they are simply **visited once, at the end of the route**.
+This is the posture `CycleCountStrategy` already took, and the one the comparators already took for a
+location with no rack at all.
+
+⚠ **A comparator that is merely "wrong" and one that is non-transitive are different failure
+classes.** The second can also throw `IllegalArgumentException: Comparison method violates its
+general contract!` from `TimSort` on larger inputs. If you touch these tiers, test the *relation*
+(transitivity across a mixed zoned/unzoned set), not just a couple of expected orderings.
+
 ## 10. Known Landmines
 
 1. **`finalizePicking` writes 5 entities in one TX.** Read §4 in full before modifying any branch. Missing one case produces stuck state (e.g. `Pickingorder=FINISHED` but `Customerorder=STARTED`).
@@ -281,9 +337,10 @@ For the full transaction + locking picture see [wms2-transaction-osiv-boundary-m
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-08-29 | **New §9.1 — pick-path ordering** (SBDEV-3133, wms2-api PR #233, merged 2026-08-29). The four tiers, the three comparators sharing `LocationPathOrdering`, and the cyclic-relation explanation. | Tier logic read directly from `LocationPathOrdering.compareResolved` on `origin/develop`; all three comparators confirmed delegating to it. The worked cycle (rack ordinals 9 / 2 / 5) matches `LocationPathOrderingUnitTest.mixedFixture()` exactly. ⚠ **Correction made during verification:** an earlier draft of §9.1 said that test *"reproduces it against the pre-fix comparators"* — it does not. It asserts `isAntisymmetric` / `is transitive for every triple` against the **fixed** comparators, i.e. it is a regression guard, not a reproduction. Text corrected. **Scoped check — the rest of the doc was NOT re-verified.** | Code + test read on `origin/develop` |
 | 2026-04-19 | `PickingorderBusinessService.finalizePicking` (lines 238-568) + all mobile guards (lines 222-340) + release job release path + merge service + rapid-pick side-door | All file:line refs confirmed against `src/main/java` | Code read + state-machine / transaction architecture docs |
 | 2026-05-08 | Group P verification follow-up (commits da64cc0, 99340b0, 4430824, 892169b, 930be52, b68cbbf, d61040c). Re-confirmed `ReleaseOrderJobService.releaseOrder` pessimistic lock at line 107, `findByIdForUpdate` sites in `MobilePickingService` (4 sites incl. line 400 in `processPick` per the Group-P lock-ordering note in the file), `PickingOrderMergeService.saveAll` at lines 194/198 (state writes still at 127 / 161). `finalizePicking` write sites shifted +1 (line 451/464/485 etc.) and §4 table was rebumped to current line numbers. §6 rapid-pick guard cite updated from `645` to `639` (guard) + `645` (state write). | Code read of v2/wms2-api at HEAD |
 | 2026-06-01 | SBDEV-2381: `confirmPick` now skips the `PICKING_STARTED` outbox enqueue when the CO already advanced (`state ≥ PICKED` OR `pickingconfirmationsent`), snapshot taken before `setState(STARTED)`. §8 note added. | Confirmed against `PickingorderBusinessService.confirmPick` (PR #35, commits 567fba3 + 41ad7d3) | Code read (grep-based) |
 | 2026-07-10 | SBDEV-2512 (v1→v2 port of 30a6ca4): added the overstock `partitionallowed` hold-or-single-pick guard note to §2 and the `rollbackFor` clause to the §9 `releaseOrder` transaction boundary. | Code read of `ReleaseOrderJobService.releaseOrder` on branch `port/SBDEV-2512-partitionallowed-guard` | SBDEV-2512 v2 port |
 
-**Re-verify every 60 days.** Next due: **2026-09-08** — picking is the most change-prone surface; a single PR to `finalizePicking` invalidates §4.
+**Re-verify every 60 days.** Next due: **2026-10-28** — picking is the most change-prone surface; a single PR to `finalizePicking` invalidates §4.

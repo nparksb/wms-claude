@@ -14,7 +14,7 @@ Produces an evidence-driven investigation report at `sbdocs/3-Resources/reports/
 `wms-triage` also owns the rules this skill obeys and does not restate:
 
 - **The floor** — the DB query and the one independent review pass apply to a report exactly as they do to a fix. A hypothesis with no query behind it is not evidence.
-- **The ticket policy** — where a finding goes (fix-in-PR · widen an existing ticket · file one, capped at one per visit and confirmed by Nam · fix tooling defects directly). A report's recommendation section must route each finding through it, not invent its own destinations.
+- **The ticket policy** — where a finding goes (fix-in-PR · a sub-T3 finding onto the ticket you are already in · PROPOSE a new one only for T3 or when that ticket is `on dev` or later, capped at one per visit and confirmed by Nam · fix tooling defects directly). A report's recommendation section must route each finding through it, not invent its own destinations.
 
 ## Trigger
 
