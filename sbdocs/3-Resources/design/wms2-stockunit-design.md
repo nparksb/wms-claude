@@ -2,8 +2,8 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-08-26
-verified_by: Claude (executor)
+last_verified: 2026-08-31
+verified_by: "Claude (SBDEV-3135) — caching section only: expiry policy, cache-key prefix, SpEL example and all eviction method names re-derived from origin/develop. The stock-mutation-path call-site list was NOT re-verified."
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
 
@@ -436,37 +436,84 @@ WMS2 uses Spring Cache with Caffeine as the L1 backing store. Configuration live
 
 ### Cache registry
 
-| Cache name | Max entries | TTL (expireAfterAccess) | What is cached | Key pattern |
-|---|---|---|---|---|
-| `sysprops` | 200 | 5 minutes | `Sysprop` values by syskey | `{facilityCode}:{syskey}` |
-| `clients` | 100 | 5 minutes | `Client` entities by client number or system marker | `{facilityCode}:{clientNumber}` or `{facilityCode}:SYSTEM` |
-| `locations` | 2000 | 5 minutes | `Location` entities by name | `{facilityCode}:{name}` |
-| `itemdata` | 3000 | 5 minutes | `Itemdata` entities by id or by `(clientId, itemNr)` | `{facilityCode}:id:{id}` or `{facilityCode}:{clientId}:{itemNr}` |
+> ⚠ **This section was substantially wrong and was corrected on 2026-08-31 (SBDEV-3135).** Four
+> independent claims were measured false against `origin/develop`: the expiry policy, the cache-key
+> prefix, the SpEL example, and **all five** method names in the eviction table (none of
+> `ItemDataController.updateItemData`, `FileImportController.importItemData`,
+> `SkuRestController.createSku`, `SkuRestController.updateSku`, `ItemdataService.evictItemdataCache`
+> exists anywhere in `src/main`; `ItemdataService` carries **zero** `@CacheEvict`). The tables below
+> are the corrected versions. The authority for cache behaviour is
+> [wms2-caching-strategy.md](../architecture/wms2-caching-strategy.md) — prefer it over this section,
+> which exists only to explain the cache's effect on the stock mutation path.
+>
+> *Not re-verified in that pass:* the "Impact on the stock mutation path" call-site list below. Treat
+> those four bullets as unconfirmed.
 
-All caches use `expireAfterAccess` (not `expireAfterWrite`). An entry that is accessed continuously will never expire — it is only evicted if not accessed within the TTL window.
+| Cache name | Max entries | TTL (`expireAfterWrite`) | What is cached | Key pattern |
+|---|---|---|---|---|
+| `sysprops` | 200 | 2 minutes | `Sysprop` values by syskey | `{tenantName}:{facilityCode}:{syskey}` |
+| `clients` | 100 | 5 minutes | `Client` entities by client number or system marker | `{tenantName}:{facilityCode}:{clientNumber}` or `…:SYSTEM` |
+| `locations` | 2000 | 5 minutes | `Location` entities by name | `{tenantName}:{facilityCode}:{name}` |
+| `itemdata` | 3000 | 5 minutes | `Itemdata` entities by id or by `(clientId, itemNr)` | `{tenantName}:{facilityCode}:id:{id}` or `…:{clientId}:{itemNr}` |
+
+All caches use **`expireAfterWrite`** (`CacheConfig:90`), so the TTL is a **hard** ceiling — an entry
+expires that long after it was written no matter how often it is read. This doc previously asserted
+the opposite (`expireAfterAccess`, "an entry that is accessed continuously will never expire");
+`expireAfterAccess` appears **zero** times in `src/`. Commit `695a4549` (SBDEV-2218, 2026-05-12)
+deliberately moved off the sliding policy to get that hard bound. Note also that `sysprops` is
+**2** minutes, not 5.
 
 `recordStats()` is enabled on every cache — metrics are exported via Micrometer/Actuator.
 
 ### Multi-tenant cache key isolation
 
-Every cache key is prefixed with `TenantContext.getCurrentTenant()?.getFacilityCode()`. This 4-character facility code is the isolation boundary. If `facilityCode` is null (bootstrap / async context), the key prefix becomes `null:` — this is a known risk in scheduled jobs that run without tenant context.
+Every cache key is prefixed with `TenantKeyBuilder.cacheKey(TenantContext.getCurrentTenant())`, which
+returns **`{full tenantName}:{facilityCode}`**.
 
-**Example key construction (SpEL):**
+⚠ **This doc previously said the prefix was `getCurrentTenant()?.getFacilityCode()` alone, and called
+that "the isolation boundary".** That was the SBDEV-3033 defect, not the design: `facilityCode` is
+**not** unique across tenants — on the UAT landlord, warehouse `nywh` is shared by `hydra` and
+`shipitez`, so the two tenants shared entries in all four caches, and because the evict keys had the
+same shape each tenant's writes evicted the other's. `cacheKey` deliberately uses the **full** tenant
+name, unlike `TenantKeyBuilder.buildKey`, whose 4-character truncation is a datasource-routing concern
+and would leave a narrower version of the same collision. Pinned by
+`unit/config/TenantCacheKeyUnitTest`.
+
+With no tenant in context the prefix is the named bucket **`"no-tenant"`**, not `null:` — a deliberate
+choice so scheduled jobs and unauthenticated paths do not throw. Jobs across tenants do still share
+that one bucket, which is the remaining risk (see the caching-strategy §7 row).
+
+**Example key construction (SpEL) — the current, correct form:**
 ```java
 @Cacheable(value = "itemdata",
-    key = "T(net.aim_ai.wms.landlord.config.TenantContext).getCurrentTenant()?.getFacilityCode() + ':id:' + #id")
+    key = "T(net.aim_ai.wms.landlord.config.TenantKeyBuilder).cacheKey("
+        + "T(net.aim_ai.wms.landlord.config.TenantContext).getCurrentTenant()) + ':id:' + #id")
 ```
 
 ### Eviction triggers
 
-| Cache | Eviction trigger | Where |
-|---|---|---|
-| `itemdata` | `@CacheEvict(allEntries = true)` | `ItemDataController.updateItemData`, `FileImportController.importItemData`, `SkuRestController.createSku`, `SkuRestController.updateSku`, `ItemdataService.evictItemdataCache` |
-| `sysprops` | `@CacheEvict` by key | `SyspropService.updateSysprop`, `SystemPropertyController.updateSystemProperty` |
-| `locations` | `@CacheEvict` by key | `LocationService.updateLocation` |
-| `clients` | No explicit eviction observed | Clients rarely change; TTL-based expiry is the only eviction path |
+Verified against **this branch** on 2026-08-31 (review round 4). ⚠ An earlier version of this table was
+verified against `origin/develop` and then never re-derived against the branch it documents, so 3 of its
+4 rows were stale the moment they were written — the mechanisms changed and four write paths were
+missing. **Every method name in the version before that was fictional** — see the warning at the top of
+the section.
 
-**Important:** `itemdata` uses `allEntries = true` on every write — the entire cache is flushed across all tenants on any SKU update. This is safe (correctness over efficiency) but means a burst of SKU imports causes repeated full-cache rebuilds.
+| Cache | Eviction trigger | Where (real names) |
+|---|---|---|
+| `itemdata` | **mixed** | `SkuRestController.create` · `.update` · `.delete` — all three **programmatic**, a `finally` block over an injected `CacheManager`, **no annotation** (SBDEV-3135; an annotation cannot cover an exception escaping after the commit). `FileImportController.importSkus` — `@CacheEvict(allEntries = true)`. `PutawayConfigService` (2 sites) — key-scoped `@Caching` |
+| `sysprops` | **mixed** | `SyspropService.createSystemProperty` · `.setSysvalue` — by key. `SyspropService.getStringDefault` — **programmatic** (SBDEV-3135; its intra-bean call to `createSystemProperty` bypasses that method's own annotation). `SystemPropertyController.updateValue` — by key; **`.createSystemProperty` and `.updateClient` — `allEntries`** (both added SBDEV-3135). `PutawayConfigService` (2 sites) |
+| `locations` | **mixed** | `LocationService.createLocation` — by key. **`.createLocationFromRequest` and `.updateLocation` — `allEntries`**, and **`FileImportController.importLocations` — `allEntries`** (all three added SBDEV-3135). `allEntries` is *required* on `updateLocation`: it can rename, `getByName` is name-keyed, and the old name is not a parameter of the method so no SpEL can reach it |
+| `clients` | `@CacheEvict(allEntries = true)` | **`FileImportController.importClients`**, and **`ClientController.create` · `.setSection` · `.setPrinter` · `.toggleReceiving`** (all five added SBDEV-3135) · `PutawayConfigService` (2 sites, by key) |
+
+`ItemdataService` itself carries **no** `@CacheEvict` — only the two `@Cacheable` readers — and no
+`evictItemdataCache` method. (A private helper of that name does now exist, but on
+`SkuRestController`, added by SBDEV-3135. The fictional name in the old version of this table was
+`ItemdataService.evictItemdataCache`, which still does not exist.)
+
+**Important:** the `itemdata` bulk write paths use `allEntries = true`, so the entire cache is flushed
+— across every tenant sharing the JVM — on any SKU write. That is deliberate (correctness over
+efficiency; a batch can touch many items), but a burst of SKU imports causes repeated full-cache
+rebuilds.
 
 ### Impact on the stock mutation path
 
@@ -483,13 +530,15 @@ All of these are served from the `itemdata` Caffeine cache after the first DB fe
 
 ### Caffeine in `KeycloakService`
 
-`KeycloakService` maintains a separate Caffeine cache (`Cache<String, UserRepresentation>`) instantiated directly (not via Spring Cache):
+`KeycloakService` maintains a separate Caffeine cache (`Cache<String, UserRepresentation>`) instantiated directly (not via Spring Cache) — `KeycloakService:61-64`:
 ```java
 private final Cache<String, UserRepresentation> userCache = Caffeine.newBuilder()
-    .expireAfterAccess(5, TimeUnit.MINUTES)
+    .expireAfterWrite(15, TimeUnit.MINUTES)
     .maximumSize(500)
     .build();
 ```
+⚠ The block above previously read `.expireAfterAccess(5, TimeUnit.MINUTES)` — **both** the policy and
+the duration were wrong; it is `expireAfterWrite(15, …)`. Corrected 2026-08-31 (SBDEV-3135).
 This is not registered in `CacheConfig` and is not visible to Spring's `CacheManager`. It is unrelated to the stock mutation path.
 
 ---

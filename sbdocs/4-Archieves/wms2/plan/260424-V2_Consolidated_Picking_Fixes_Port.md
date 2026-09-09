@@ -1,5 +1,15 @@
 # V2 Consolidated Porting Plan — Picking Fixes
 
+> ⚠ **SBDEV-3250 (2026-09-07) — READ BEFORE ACTING ON ANYTHING BELOW ABOUT LOCK TIMEOUTS.**
+> Every `jakarta.persistence.lock.timeout` hint or property this document adds, recommends or marks
+> **DONE** **had no effect on PostgreSQL**. Hibernate's `PostgreSQLDialect.withTimeout` translates
+> only `0` (`NO_WAIT`) and `-2` (`SKIP_LOCKED`), returning the lock clause unchanged for anything
+> else; `supportsWait()` returns `false`; hibernate-core never issues `SET lock_timeout` itself.
+> Measured: a move waited **30.92 s** on an in-flight pick and then succeeded. Bounds now come from
+> `LockTimeoutHibernateJpaDialect` — `SET LOCAL lock_timeout` (`wms.tenant.lock-timeout-ms`,
+> default 10 s) at tenant-transaction begin — and apply **per lock acquisition**, not per statement.
+
+
 - **Date:** 2026-03-21 (Updated: 2026-03-21 — V2 implementation complete)
 - **Status:** V2 Implemented — All 17 fixes applied (10 ported + 7 new), 8 new tests added, all unit tests pass (37 pre-existing H2/integration context errors unrelated)
 - **Priority:** Critical

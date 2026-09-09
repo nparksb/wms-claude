@@ -4,24 +4,45 @@ ticket: ""
 ticket_url: ""
 type: refactor
 priority: medium
-status: reviewed
+status: archived
+superseded_by: SBDEV-3239
+archived: 2026-09-08
 project: [wms2-api]
 version: v2
 requester: "nam.park@siteboss.net"
 created: 2026-04-20
-updated: 2026-06-22
+updated: 2026-09-06
 related:
   - ./260420-v2-integration-tests-h2-migration-report.md
   - ../../../2-Areas/runbooks/wms1-cancel-packed-parcel.md
 tags:
   - plan
-  - reviewed
+  - superseded
   - wms2
   - refactor
   - testing
   - plpgsql
   - h2
 ---
+
+> **Archive note (2026-09-08).** Archived as **superseded, not completed** — the approach
+> here was rejected on measured grounds by **SBDEV-3239** (now `on dev`, PR #308 merged), not
+> delivered. Its unchecked acceptance boxes are therefore **dropped**, with the reason in the
+> supersession banner above. Findings that outlived the plan are homed on live tickets:
+> SBDEV-3240 (the 9 Category-A classes, incl. the `KeycloakServiceTest` this plan missed),
+> SBDEV-3248 (assertion-free integration tests), SBDEV-3249 (`= 'true'` H2 incompatibility),
+> SBDEV-3258 (the six classes the lane can now run) and SBDEV-3195 (CI now runs the suite).
+> Re-grounding evidence stays at `sbdocs/1-Projects/wms2/plan/260422-testing-rollup-reground/`
+> — deliberately NOT moved, because SBDEV-3239 cites that path and is still live.
+> Acceptance script retired to
+> `sbdocs/4-Archieves/scripts/verify-260420-v2-port-plpgsql-functions-to-java-prekickoff.sh`.
+> No implementation worktree existed for this plan.
+> [!warning] SUPERSEDED 2026-09-06 — do not execute this plan as written.
+> Re-grounded against `origin/develop` @ `d4a6ab8a`. Evidence: [`260422-testing-rollup-reground/`](./260422-testing-rollup-reground/).
+> Superseded by **SBDEV-3239** — _Make the wms2-api integration lane runnable_.
+> Measured 2026-09-06: the whole suite runs in **≈3m45s** (unit 2m01s / integration 1m42s) but is **26 red and 132 skipped**, and `mvn verify` aborts in surefire before the integration lane ever starts. Docker accounts for only **~20s of 225s (~9%)**, so migrating to H2 is not the speed lever this cluster assumed.
+>
+> **OBSOLETE AS WRITTEN — the entire SQL baseline is gone.** History was squashed into `V2.2.00__base_v2_schema.sql` on 2026-07-17 (`cf82ad72`); **no `V1.*` or `V2.1.*` file remains on develop**, so every `V1.2.05:NNN` reference and the whole PR-#47 apparatus is dead. Flyway head is **V2.2.23**, next free **V2.2.24** (not V2.1.17). Three fixes landed in the functions since June — SBDEV-2777 (`V2.2.07`), SBDEV-2801 (`V2.2.08`), SBDEV-2890 (`V2.2.12`) — and all three precede any port **by fact**. Phase D would break four tests that pin the deployed bodies via `pg_get_functiondef`. Port target is **542 lines** of PL/pgSQL and unblocks exactly **one** disabled test method. **Recommendation: do not start.**
 
 # Port PL/pgSQL report functions to Java — v2/wms2-api
 

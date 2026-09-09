@@ -1232,11 +1232,25 @@ check_T_handler_test()      { file_exists "$TST/unit/config/PutawayConfigReposit
 check_T_ctx_test()          { file_exists "$CTXTEST"; }
 # The context-load test is the only thing that catches DI drift across six new
 # beans; it must be @Disabled with the SBDEV-2217 TODO, not silently deleted.
-check_T_ctx_disabled()      { file_contains 'TODO\(SBDEV-2217\)' "$CTXTEST"; }
+# REPOINTED 2026-09-08 (SBDEV-3257). This asserted the file CONTAINS 'TODO(SBDEV-2217)' — i.e. it
+# graded that the DI gate was acknowledged but NOT running. SBDEV-3239 made the lane boot and
+# SBDEV-3257 deleted that stale TODO, which turned this row permanently RED against a strictly
+# BETTER state: the gate now actually executes. A permanently-red row is worse than no row, so it
+# grades the good outcome instead. code_not_contains (not file_not_contains) because a future
+# tombstone comment naming @Disabled would satisfy a plain negative grep and red this against
+# correct code; both helpers fail closed on a missing file.
+check_T_ctx_live()          { code_not_contains '@Disabled' "$CTXTEST"; }
 check_T_ctx_autowires()     { file_contains 'PutawayDestinationResolver' "$CTXTEST"; }
 
 # The landmine assertions must exist AS TESTS, not just as design prose.
-check_T_no_getstringdefault_asserted() { file_contains 'getStringDefault' "$TST/unit/service/PutawayDestinationResolverUnitTest.java"; }
+# REPOINTED 2026-08-30 (SBDEV-3170). This grepped PutawayDestinationResolverUnitTest for
+# 'getStringDefault', which held verify(syspropService, never()).getStringDefault(...). Those
+# assertions covered the CONSTRUCTOR-INJECTED route only -- @InjectMocks cannot wire a mock that is
+# not a constructor parameter, and SyspropService is not one, so a field or static call passed for
+# every implementation. They were replaced by a dependency rule that covers both routes. The row now
+# grades the artifact that actually holds the invariant; pointed at the old file it would grade a
+# comment mentioning the method, or go permanently red once the wording changed -- both useless.
+check_T_no_getstringdefault_asserted() { file_contains 'SyspropService' "$TST/unit/config/PutawayResolverSyspropIsolationArchTest.java"; }
 check_T_null_sku_asserted()            { file_contains_i 'null' "$TST/unit/service/PutawayDestinationResolverUnitTest.java"; }
 check_T_fail_open_asserted()           { file_contains_i 'empty' "$TST/unit/service/LocationConstraintServiceUnitTest.java"; }
 # UnitloadBusinessServiceUnitTest:193,208 pinned the raw-ID text and MUST be
@@ -2123,7 +2137,7 @@ run T-res         "PutawayDestinationResolverUnitTest exists"          check_T_r
 run T-cfg         "PutawayConfigServiceUnitTest exists"                check_T_cfg_test
 run T-hnd         "PutawayConfigRepositoryEventHandlerUnitTest exists" check_T_handler_test
 run T-ctx         "PutawayResolverContextLoadTest exists (DI gate)"    check_T_ctx_test
-run T-ctxdis      "context-load test tagged TODO(SBDEV-2217)"          check_T_ctx_disabled
+run T-ctxlive     "context-load DI gate is LIVE (not @Disabled)"       check_T_ctx_live
 run T-ctxwire     "context-load test autowires the resolver"           check_T_ctx_autowires
 run T-lm1         "landmine A1 asserted as a test"                     check_T_no_getstringdefault_asserted
 run T-lm2         "null-SKU path asserted as a test"                   check_T_null_sku_asserted

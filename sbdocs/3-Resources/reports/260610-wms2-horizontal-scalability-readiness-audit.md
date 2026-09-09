@@ -229,6 +229,9 @@ Priority-ordered backlog (items 1–2 before adding replicas; 3–7 next sprint(
 | 6 | Credential-rotation runbook: evict tenant pool (or rolling restart) when rotating tenant DB credentials; consider config-hash check in `TenantConfigLoader` to auto-evict changed pools | Runbook (+ optional code) | MEDIUM |
 | 7 | Set a PostgreSQL `lock_timeout` (per-tx or datasource-level) so lock waits fail fast instead of consuming pool slots for 30 s; refresh boundary-map stale counts (§5.9); add ArchUnit rule banning bare `@Transactional` in `net.aim_ai.wms.service.*` | Code/docs | LOW-MEDIUM |
 
+> ⚠ **WITHDRAWN 2026-09-07 by SBDEV-3250.** The `jakarta.persistence.lock.timeout` hint this paragraph relies on **never had any effect on PostgreSQL** — `PostgreSQLDialect.withTimeout` translates only `0` and `-2`, `supportsWait()` returns `false`, and hibernate-core never issues `SET lock_timeout`. Measured: a move waited 30.92 s on an in-flight pick and then succeeded. Bounds now come from `LockTimeoutHibernateJpaDialect` (`SET LOCAL lock_timeout`, `wms.tenant.lock-timeout-ms`, default 10 s) at tenant-transaction begin, **per lock acquisition** rather than per statement.
+
+
 Constraint to keep standing: **no PgBouncer in `pool_mode=transaction`** while advisory locks guard the cron jobs.
 
 ~~Draft items 3–5 via `wms-feature-plan`~~ **Done 2026-06-10:** [260610-wms2-multi-replica-hardening](../../4-Archieves/wms2/plan/260610-wms2-multi-replica-hardening.md) (ralplan-approved; Phase A = item 4, Phase B = item 5, Phase C = item 3's replacement regression guard) with acceptance script `sbdocs/9-System/scripts/verify-260610-wms2-multi-replica-hardening.sh`. Items 1–2/6 are deployment/runbook work outside the plan skills.

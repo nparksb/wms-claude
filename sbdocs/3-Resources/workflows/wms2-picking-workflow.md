@@ -7,8 +7,8 @@ scope: picking
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-06-01
-last_verified: 2026-08-29
-verified_by: code read of v2/wms2-api src/main + state-machine + transaction architecture docs
+last_verified: 2026-09-06
+verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-09-02.) Prior: code read of v2/wms2-api src/main + state-machine + transaction architecture docs"
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -72,7 +72,7 @@ For full state-value enumeration see [wms2-state-machine-catalog.md](../architec
          ▼
    Customerorder.state = RAW (or FUTURE_PICKING_DATE)
          │
-         ▼  CustomerorderService.createForRelease() (lines 239-244)
+         ▼  CustomerorderService.setPickingDate()   [was createForRelease() :239-244 — ZERO hits repo-wide, positive control clean; real symbol is setPickingDate at :257, corrected 2026-09-06]
          │
   ┌──────┴────────┐
   │ scheduled?    │
@@ -80,9 +80,10 @@ For full state-value enumeration see [wms2-state-machine-catalog.md](../architec
      │        │
      │ no     │ yes
      │        ▼
-     │   OrderReleaseJob.doCalculation()
-     │   ├─ advisory lock JobLockId.ORDER_RELEASE (100001L)
-     │   ├─ per-tenant: set TenantContext
+     │   OrderReleaseJob.runFor(TriggerSpec)          [SBDEV-3198; was doCalculation()]
+     │   ├─ for each ACTIVE tenant: set TenantContext
+     │   ├─ skip unless this tenant's own schedule == the firing spec
+     │   ├─ advisory lock (ORDER_RELEASE 100001L, tenant_db_configuration.id)   ← TWO-key
      │   └─ for each order in ASSIGNED state:
      │        ReleaseOrderJobService.releaseOrder(...)   [@Transactional REQUIRES_NEW]
      │             ├─ Customerorder.state → ASSIGNED / STARTED
@@ -129,9 +130,14 @@ For full state-value enumeration see [wms2-state-machine-catalog.md](../architec
          │
          ▼  ReleaseExpiredPickingOrdersFromUserJob (every :40s, gated by PICK_TIME_OUT_SYSTEM_ACTIVATED)
          │
-         └─ if Pickingorder.state=PICKED && section.type=RAPID_PICKING && lockedMs > PICK_TIME_OUT_SYSTEM_TIME_OUT_VALUE
-              → clear operatorId, locked_to_operator=false
+         └─ if Pickingorder.lockedtooperator=true && pickinginprogress=false
+              && state<PICKED && section.type=RAPID_PICKING && modified older than PICK_TIME_OUT_SYSTEM_TIME_OUT_VALUE
+              → clear operatorId, lockedtooperator=false
               (state unchanged — the order goes back to the pool for another picker)
+              ⚠ operatorId!=null is deliberately NOT in the predicate. This doc claimed it until 2026-09-08;
+                #285 dropped it so the job also heals an ORPHAN lock (locked, operator_id NULL).
+              ⚠ SBDEV-3205: this predicate was unsatisfiable from 326b20dc (2025-10-31) until 2026-09-02 — the job released nothing
+              ⚠ SBDEV-3262: one row failing no longer aborts the tenant's remaining rows
 ```
 
 ---
@@ -314,7 +320,7 @@ general contract!` from `TimSort` on larger inputs. If you touch these tiers, te
 5. **Merge pass runs quietly.** A new `Pickingorder` can materialize between two scheduler ticks due to `ReplenishOrderJob.mergePickingOrders`. Don't treat unexpected picks as anomalies without checking §7.
 6. **OMS callbacks drop silently on rollback.** Use `message` table to verify delivery — see `picking-notification-drop` archive.
 7. **`ReleaseExpiredPickingOrdersFromUserJob` is off by default.** `PICK_TIME_OUT_SYSTEM_ACTIVATED=false` ships in every environment. Enable it explicitly or rapid-pick orders abandoned mid-flight stay locked indefinitely.
-8. **`Pickingorder.locked_to_operator` is manipulated by both the mobile flow and the release job.** The timeout release (§6) only clears operator binding, not state — it leaves `Pickingorder` in `PICKED` for another operator to claim.
+8. **`Pickingorder.lockedtooperator` is manipulated by both the mobile flow and the release job.** Only the two `rapidPickingScanPackage*` paths in `MobilePickingService` ever set it `true` (they also set `STARTED`); the reserve path sets `operator_id` + `RESERVED` without it. The timeout release (§6) only clears the operator binding, not state — the order stays at whatever sub-`PICKED` state it held (typically `STARTED`) for another operator to claim. ⚠ **SBDEV-3205 (SHIPPED to `develop` 2026-09-03, PRs #284 + #285):** the release query was unsatisfiable from 2025-10-31 to 2026-09-02, so abandoned rapid-pick holds were never released even with `PICK_TIME_OUT_SYSTEM_ACTIVATED=true`. ⚠ **SBDEV-3262:** the ORPHAN-LOCK state (`lockedtooperator = true` with `operator_id NULL`) had a **producer** that #285 never closed — it only taught the consumer to tolerate it and the job to heal it. Three sites cleared `operator_id` without clearing the hold, so the invariant is now enforced in `Pickingorder.setOperatorId`: **clearing `operator_id` also clears `lockedtooperator`**. The rule is DIRECTIONAL — clearing the lock does NOT clear `operator_id`, because five sites keep the operator as provenance for who picked the order. A **second family** of violators never calls `setOperatorId` at all, so no setter guard reaches them: the `state == PICKED → finishPickingOrder(); return;` shape, which occurs at **six** call sites (`MobilePickingService` `:247`, `:274`, `:355`, `:403`, `:592` and `releaseRegularPickingOrder`'s all-picked branch). Only the two rapid-pick completion paths cleared the flag themselves. Fixed once inside **`PickingorderBusinessService.finishPickingOrder`**, where all **ten** of its callers converge — including `AdminActionController`'s force-finish recovery action, which is where an operator resolves a STUCK order and therefore the one most likely to be holding a stale lock. A finished order now clears both `lockedtooperator` and `pickinginprogress` and keeps `operator_id`. ⚠ **PRODUCER-ONLY — this heals no EXISTING orphan.** `finishPickingOrder` throws `ORDER_ALREADY_FINISHED` for `state >= FINISHED` before reaching the clear, so re-finishing an already-stranded row does nothing for it. Such a row needs an operator re-scan or a manual `UPDATE`; the pick-timeout job cannot see it. Measured 2026-09-08: zero such rows on dev and Hydra UAT — but the control (any lock held at all) was also zero, so read that as *the mechanism is unexercised*, not as proof there are none. ⚠ This family is the one **no automatic healer** reaches: the stranded row sits at `FINISHED`/`CANCELED`, which the timeout query excludes via `state < PICKED`. Three paths can still clear it — `rapidPickingScanPackage`, its verify sibling, and `CustomerorderPositionService` on OMS cancellation — but each needs an operator re-scan or an OMS event.
 9. **State-value numeric ordering is load-bearing.** `MobilePickingService` uses `>= PICKED`, `< RESERVED` comparisons. Renumbering constants in `WmsConstants.State` silently breaks these. See [wms2-state-machine-catalog.md](../architecture/wms2-state-machine-catalog.md) §7 item 4.
 
 ---

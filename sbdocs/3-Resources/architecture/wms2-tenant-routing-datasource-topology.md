@@ -7,8 +7,8 @@ scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
 updated: 2026-07-26
-last_verified: 2026-07-26
-verified_by: SBDEV-2727 landmine §10.13 added (active-flag deactivation / split-brain) — code read of landlord/service + config + schedulejob 2026-07-26; other sections carry forward the 2026-06-24 verification
+last_verified: 2026-09-06
+verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-09-02.) Prior: SBDEV-2727 landmine §10.13 added (active-flag deactivation / split-brain) — code read of landlord/service + config + schedulejob 2026-07-26; other sections carry forward the 2026-06-24 verification"
 related:
   - ./wms2-transaction-osiv-boundary-map.md
   - ./wms2-state-machine-catalog.md
@@ -198,24 +198,32 @@ The landlord pool's size of **2** is intentional — under normal load it only s
 
 ### 6.1 Scheduled jobs
 
-`app.cron=false` by default (`application.properties:113`). When enabled, cron jobs each follow the same tenant-iteration pattern — they are **not** auto-tenant-aware.
+`app.cron=false` by default (`application.properties:147` at `d4a6ab8a` — this cite read `:113` and has drifted twice). When enabled, cron jobs each iterate tenants themselves — they are **not** auto-tenant-aware; no `TaskDecorator` is registered, so tenant context is never automatic on a scheduler thread.
 
 ```
-@Scheduled cron triggers OrderReleaseJob.doCalculation()
+CronTrigger fires  →  OrderReleaseJob.runFor(TriggerSpec spec)
+    │                        ↑ SBDEV-3198 (2026-09-03): was doCalculation(Boolean),
+    │                          which no longer exists. The lock moved INSIDE the loop.
     │
-    ├─ advisoryLockService.tryLock(ORDER_RELEASE)     ← pg_try_advisory_lock on landlord
-    │   └─ if already held by another replica → skip
-    │
-    ├─ for (TenantProfile profile : tenantDbConfigurationRepository.findAll()) {
-    │     TenantContext.setCurrentTenant(profile);
-    │     try { ... per-tenant work ... }
-    │     finally { TenantContext.clear(); }
-    │   }
-    │
-    └─ advisoryLockService.unlock(...)
+    └─ for (TenantDbConfiguration c : tenantDbConfigurationRepository.findByActiveTrue()) {
+         TenantContext.setCurrentTenant(profileOf(c));
+         try {
+             TenantSchedule own = deriveSpecForCurrentTenant();
+             if (own == null || !own.spec().equals(spec)) continue;  ← null = tenant is in NO group
+                                                                      (timer sysprops absent/blank)
+             if (!advisoryLockService.tryLock(ORDER_RELEASE, c.getId())) continue;
+             try { ... per-tenant work ... }                 ↑ TWO-key pg_try_advisory_lock
+             finally { advisoryLockService.unlock(ORDER_RELEASE, c.getId()); }
+         } finally { TenantContext.clear(); }
+       }
 ```
 
-Cron jobs present in the codebase (all follow the same shape):
+Cron jobs present in the codebase. ⚠ **They do NOT all follow the shape diagrammed above** — that parenthetical was true before SBDEV-3198 (every job then had a `doCalculation` loop under one fleet-wide lock) and is false now. Three of the eight differ:
+
+- `OutboxDispatcherJob:59` and `RestIdempotencyCleanupJob:50` — `@Scheduled` methods, **one-key** lock, no `TriggerSpec`, no grouping, and not `app.cron`-gated at all.
+- `ReleaseExpiredPickingOrdersFromUserJob:143` — `runFor()` with **no argument**, no `deriveSpecForCurrentTenant`, a single fleet-wide trigger.
+
+And of the five grouped jobs, `CleanUpOldMessagesJob` and `StockSummaryExportJob` additionally wrap the two-key lock in a per-tenant one-key lock. Per-job shapes are tabulated in [wms2-scheduled-jobs-catalog.md](./wms2-scheduled-jobs-catalog.md) §2 and §4 — read them there rather than generalising from this diagram:
 
 | Job | File |
 |---|---|
@@ -228,9 +236,9 @@ Cron jobs present in the codebase (all follow the same shape):
 | `RestIdempotencyCleanupJob` | `schedulejob/RestIdempotencyCleanupJob.java` |
 | `StaleClubBatchCleanupJob` | `schedulejob/StaleClubBatchCleanupJob.java` |
 
-Two infra classes sit alongside the jobs (not jobs themselves): `schedulejob/JobMetrics.java` and `schedulejob/JobMetricsConfiguration.java` — shared Micrometer instrumentation (`wms2.cron.<job>.*` counters/timers) that every job calls. All eight jobs follow the canonical advisory-lock-first / per-tenant-iteration shape.
+Two infra classes sit alongside the jobs (not jobs themselves): `schedulejob/JobMetrics.java` and `schedulejob/JobMetricsConfiguration.java` — shared Micrometer instrumentation (`wms2.cron.<job>.*` counters/timers) that every job calls. ⚠️ **Corrected 2026-09-06: this read "All eight jobs follow the canonical advisory-lock-first / per-tenant-iteration shape", which survived — in stronger words — the correction 12 lines above it.** It is wrong twice over. Not all eight share a shape (see the three exceptions above), and **"advisory-lock-first" is backwards** for the five grouped jobs: the lock is taken *inside* the tenant loop and *after* the spec-membership check, not before the loop (`StaleClubBatchCleanupJob:141` loop → `:158-159` spec filter → `:190` lock). Also note `JobMetrics` is **not** called by every job — `StaleClubBatchCleanupJob` has no `JobMetrics` field or reference at all.
 
-Scheduling wiring lives in `schedulejob/SchedulingConfiguration.java` (`@ConditionalOnProperty(name = "app.cron", havingValue = "true")`, line 24). Cron expressions come from `SyspropService` (system properties table in landlord DB).
+Scheduling wiring lives in `schedulejob/SchedulingConfiguration.java` (`@ConditionalOnProperty(name = "app.cron", havingValue = "true")` at `:30` — this cite read `line 24`). ⚠️ **Two corrections, 2026-09-06.** (a) `los_sysprop` is in the **TENANT** DB, not the landlord DB — `Sysprop` is `@Table(name = "los_sysprop")` and `SyspropService` runs on `tenantTransactionManager` with a `TenantContext`-keyed cache. This matters here more than anywhere: reading a per-tenant table to build a process-wide trigger is precisely the defect SBDEV-3198 fixed (see [wms2-scheduled-jobs-catalog.md](./wms2-scheduled-jobs-catalog.md) §7.8). (b) Cron expressions come from `SyspropService` for **five** of the eight jobs only: `ReleaseExpiredPickingOrdersFromUserJob` hard-codes `"40 * * * * *"`, and `OutboxDispatcherJob` / `RestIdempotencyCleanupJob` take theirs from Spring `@Value` on `app.cron.<job>` in `application.properties` — the exact three exceptions named above.
 
 ### 6.2 Async / parallel code
 
@@ -269,7 +277,17 @@ A new tenant added to the landlord DB is invisible to the app until one of:
 - The app restarts, **or**
 - Someone hits `/v3/tenant/health` for that tenant (the controller validates cache; a miss surfaces as "not found" until a refresh).
 
-There is no push / webhook mechanism.
+A push path DOES exist: **`POST /actuator/tenantpool`** (`TenantPoolEndpoint`, SBDEV-2608) reloads the
+fresh landlord row into the config cache and evicts the live pool, making a new tenant routable without
+waiting out the refresh interval. Two caveats: it is **per-replica** — one call heals only the replica
+that served it — and it **refuses** to rebuild a pool for a tenant with `active = false` (SBDEV-2727).
+
+⚠ Corrected 2026-09-02 (SBDEV-3192). This section previously read "There is no push / webhook
+mechanism." That was written before the endpoint existed and stayed wrong afterwards. Until SBDEV-3192
+the endpoint also **500'd for any facility code shared by two tenants** (it resolved
+`findByWarehouse(facility)` into an `Optional`, and UAT has two `nywh` rows), so the tool an operator
+reaches for during onboarding failed exactly when a second tenant was being onboarded. It now keys on
+`(tenantName, warehouse)`.
 
 ---
 
@@ -311,7 +329,7 @@ This is an unaddressed secret-handling debt — any `application.properties` lea
 4. **Prepared-statement cache vs PgBouncer transaction pooling.** `prepStmtCacheSize=250` per tenant pool assumes the same physical connection is reused across statements. Under transaction pooling, cached statements must be re-prepared on every connection → wasted round-trips. Tune `prepareThreshold=0` on the PgBouncer side or disable client-side cache if you migrate.
 5. **No tenant-pool prewarming.** First request per tenant after restart (or after 15 min idle) pays pool-creation latency (~200–1000 ms). A cold restart during a high-tenant-count deploy is a thundering-herd risk.
 6. **Unbounded `tenantPools` map.** `ConcurrentHashMap` of tenant-key → `HikariDataSource`. Growth is bounded only by tenant count. If tenant count scales significantly, per-instance memory and total PostgreSQL connection count both grow linearly.
-7. **Config refresh is async.** A new tenant in the landlord DB takes up to 5 min (default `wms.tenant.config.refresh-interval-ms`) to become routable. There is no push mechanism. For faster rollouts, decrease the interval or hit `/v3/tenant/health` for the new tenant to at least validate the config exists.
+7. **Config refresh is async.** A new tenant in the landlord DB takes up to 5 min (default `wms.tenant.config.refresh-interval-ms`) to become routable. For faster rollouts, decrease the interval, or force it with `POST /actuator/tenantpool` (§7) — noting that the force-evict is **per-replica**, so a multi-replica deployment needs one call per replica. `/v3/tenant/health` validates that the config exists but does not refresh it. *(Corrected 2026-09-02, SBDEV-3192: this item used to claim "There is no push mechanism.")*
 8. **`TenantFilter` lowercases both headers** (`tenantName.toLowerCase()`, `facilityCode.toLowerCase()`) before building the routing key. Any downstream code that compares against non-lowercased values breaks. The `TenantKeyBuilder` also implicitly lowercases by working on already-lowercased input.
 9. **`/api/public/*` paths bypass tenant setup.** A new public endpoint that accidentally hits tenant-scoped data will fall through to landlord. Audit every new route under `/api/public/` for data-plane reach.
 10. **Landlord password in plain text** (`application.properties:41`). Not a production posture; see §9.

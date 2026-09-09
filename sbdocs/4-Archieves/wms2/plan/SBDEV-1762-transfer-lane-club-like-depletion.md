@@ -25,6 +25,16 @@ tags:
 
 # SBDEV-1762 (v2) — Make Transfer Lanes Function Like Club Lanes
 
+> ⚠ **SBDEV-3250 (2026-09-07) — READ BEFORE ACTING ON ANYTHING BELOW ABOUT LOCK TIMEOUTS.**
+> Every `jakarta.persistence.lock.timeout` hint or property this document adds, recommends or marks
+> **DONE** **had no effect on PostgreSQL**. Hibernate's `PostgreSQLDialect.withTimeout` translates
+> only `0` (`NO_WAIT`) and `-2` (`SKIP_LOCKED`), returning the lock clause unchanged for anything
+> else; `supportsWait()` returns `false`; hibernate-core never issues `SET lock_timeout` itself.
+> Measured: a move waited **30.92 s** on an in-flight pick and then succeeded. Bounds now come from
+> `LockTimeoutHibernateJpaDialect` — `SET LOCAL lock_timeout` (`wms.tenant.lock-timeout-ms`,
+> default 10 s) at tenant-transaction begin — and apply **per lock acquisition**, not per statement.
+
+
 **Ticket:** [SBDEV-1762](https://app.clickup.com/t/SBDEV-1762)
 **Project:** wms2 | **Version:** v2 (`wms2-api`, Java 21 / Spring Boot 3.5.9) | **Type:** feature (behavior toggle)
 **Priority:** medium

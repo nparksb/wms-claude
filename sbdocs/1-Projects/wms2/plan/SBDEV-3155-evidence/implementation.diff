@@ -1,0 +1,259 @@
+diff --git a/src/main/java/net/aim_ai/wms/controller/ClubLineController.java b/src/main/java/net/aim_ai/wms/controller/ClubLineController.java
+index b8f5f425..a32bafa7 100644
+--- a/src/main/java/net/aim_ai/wms/controller/ClubLineController.java
++++ b/src/main/java/net/aim_ai/wms/controller/ClubLineController.java
+@@ -81,6 +81,7 @@ public class ClubLineController extends AdminController {
+     }
+ 
+     // { orderBatchId, locationId }
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_CLUB_LINE)
+     @GetMapping(path= "/assignStagingLane/{orderBatchId}/{locationId}", produces = "application/json")
+     public ResponseEntity<Object> assignStagingLane(@PathVariable("orderBatchId") Long orderBatchId,
+                                                     @PathVariable("locationId") Long locationId,
+@@ -107,6 +108,7 @@ public class ClubLineController extends AdminController {
+         }
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_CLUB_LINE)
+     @GetMapping(path= "/unlinkStagingLane/{orderBatchId}", produces = "application/json")
+     public ResponseEntity<Object> unlinkStagingLane(@PathVariable("orderBatchId") Long orderBatchId,
+                                                     @AuthenticationPrincipal Principal principal) {
+@@ -131,6 +133,7 @@ public class ClubLineController extends AdminController {
+         }
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_CLUB_LINE)
+     @GetMapping(path= "/activateBatch/{orderBatchId}/{locationId}", produces = "application/json")
+     public ResponseEntity<Object> activeBatch(@PathVariable("orderBatchId") String orderBatchId,
+     										  @PathVariable("locationId") Long locationId,
+@@ -158,6 +161,7 @@ public class ClubLineController extends AdminController {
+         }
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_CLUB_LINE)
+     @GetMapping(path= "/runClubLine/{orderBatchId}", produces = "application/json")
+     public ResponseEntity<Object> runClubLine(@PathVariable("orderBatchId") String orderBatchId, @AuthenticationPrincipal Principal principal) {
+         LOG.debug("orderBatchId={}", orderBatchId);
+diff --git a/src/main/java/net/aim_ai/wms/controller/PickingOrderPositionController.java b/src/main/java/net/aim_ai/wms/controller/PickingOrderPositionController.java
+index a1886a65..cfd8ab96 100644
+--- a/src/main/java/net/aim_ai/wms/controller/PickingOrderPositionController.java
++++ b/src/main/java/net/aim_ai/wms/controller/PickingOrderPositionController.java
+@@ -6,7 +6,9 @@ import net.aim_ai.wms.exceptions.FacadeException;
+ import net.aim_ai.wms.exceptions.WebserviceBusinessExceptionClientSide;
+ import net.aim_ai.wms.model.PickingorderPosition;
+ import net.aim_ai.wms.repo.jpa.PickingorderPositionRepository;
++import net.aim_ai.wms.security.RequiresFunction;
+ import net.aim_ai.wms.service.KeycloakService;
++import net.aim_ai.wms.service.WmsConstants;
+ import net.aim_ai.wms.service.PickingorderPositionService;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -42,6 +44,7 @@ public class PickingOrderPositionController extends AdminController {
+     }
+ 
+     // Request Json: { id }
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_PICKING_POSITION)
+     @GetMapping(path= "/fixPickingPosition/{id}", produces = "application/json")
+     public ResponseEntity<Object> fixPickingPosition(@PathVariable("id") Long id, @AuthenticationPrincipal Principal principal) throws WebserviceBusinessExceptionClientSide {
+         LOG.debug("start action unitload={}", id);
+diff --git a/src/main/java/net/aim_ai/wms/controller/TransfersController.java b/src/main/java/net/aim_ai/wms/controller/TransfersController.java
+index dd2cdada..e8b27fa2 100644
+--- a/src/main/java/net/aim_ai/wms/controller/TransfersController.java
++++ b/src/main/java/net/aim_ai/wms/controller/TransfersController.java
+@@ -96,6 +96,7 @@ public class TransfersController extends AdminController {
+         return customerorderService.getCustomerOrderDetails(customerorderRepository.findByOrderbatchId(orderBatchId).get(0).getId());
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_TRANSFER_ORDER)
+     @GetMapping(path= "/reassignTransferLane/{customerOrderId}/{locationId}", produces = "application/json")
+     public ResponseEntity<Object> reassignTransferLane(@PathVariable("customerOrderId") Long customerOrderId,
+                                                        @PathVariable("locationId") Long locationId,
+@@ -122,6 +123,7 @@ public class TransfersController extends AdminController {
+         }
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_TRANSFER_ORDER)
+     @GetMapping(path= "/unlinkTransferLane/{customerOrderId}", produces = "application/json")
+     public ResponseEntity<Object> unlinkTransferLane(@PathVariable("customerOrderId") Long customerOrderId, @AuthenticationPrincipal Principal principal) {
+         LOG.debug("customerOrderId={}", customerOrderId);
+@@ -145,6 +147,7 @@ public class TransfersController extends AdminController {
+         }
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_TRANSFER_ORDER)
+     @GetMapping(path= "/activateTransferOrder/{customerOrderId}/{locationId}", produces = "application/json")
+     public ResponseEntity<Object> activateTransferOrder(@PathVariable("customerOrderId") Long customerOrderId,
+ 											            @PathVariable("locationId") Long locationId,
+@@ -173,6 +176,7 @@ public class TransfersController extends AdminController {
+         }
+     }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_TRANSFER_ORDER)
+     @GetMapping(path= "/assignTransferLane/{customerOrderId}/{locationId}", produces = "application/json")
+     public ResponseEntity<Object> assignTransferLane(@PathVariable("customerOrderId") Long customerOrderId,
+                                                      @PathVariable("locationId") Long locationId,
+@@ -237,6 +241,7 @@ public class TransfersController extends AdminController {
+ //        }
+ //    }
+ 
++    @RequiresFunction(WmsConstants.FunctionEnum.WEB_UI_VIEW_TRANSFER_ORDER)
+     @GetMapping(path= "/runTransfer/{orderId}", produces = "application/json")
+     public ResponseEntity<Object> runTransfer(@PathVariable Long orderId, @AuthenticationPrincipal Principal principal) throws BusinessException {
+         LOG.debug("orderId={}", orderId);
+diff --git a/src/test/java/net/aim_ai/wms/security/Sbdev3017TrancheGateContextTest.java b/src/test/java/net/aim_ai/wms/security/Sbdev3017TrancheGateContextTest.java
+index 844e5c84..3af0660f 100644
+--- a/src/test/java/net/aim_ai/wms/security/Sbdev3017TrancheGateContextTest.java
++++ b/src/test/java/net/aim_ai/wms/security/Sbdev3017TrancheGateContextTest.java
+@@ -331,6 +331,73 @@ class Sbdev3017TrancheGateContextTest extends BaseRollbackIntegrationTest {
+         // row here would fail today. Consequence, stated rather than hidden: a class-level annotation
+         // stacking a function requirement on top of accessAudit's sb_admin gate is NOT covered by this
+         // pin — the three rows above are what catch the class-level mutation.
++
++        // ── SBDEV-3155 — the ten state-changing GETs. ─────────────────────────────────────────────────
++        //
++        // GETs that MUTATE. They are in neither of SBDEV-3017's totals (75 as AC-1 was originally
++        // written, 85 as §8.6 rewrote it) — they are the difference between those two readings, which is
++        // why they got their own ticket rather than a footnote. Scoping is state-change-over-verb: do NOT
++        // "correct" these to reads because the verb is GET.
++        //
++        // Each takes the function that ALREADY gates its screen — SBDEV-3017 §9.16 Option B, ZERO new
++        // constants, so this ticket ships no Flyway migration. The precedent is on these very classes:
++        // SBDEV-3142 put WEB_UI_VIEW_CLUB_LINE on /skus,/unitLoads,/parcels and WEB_UI_VIEW_TRANSFER_ORDER
++        // on the four Transfers reads above. Measured 2026-09-01 across ALL SIX v2 tenant DBs — dev 45/100,
++        // wineco-uat 43/94, hydra-uat 15/19, c1-shipitez 25/36, nywh-shipitez 9/11, hydra PRD 7/9 — all
++        // three constants exist everywhere, so no tenant fails closed. That check is not optional: the
++        // SBDEV-3142 review found WEB_UI_VIEW_PARCEL_PICKING absent from a tenant it had already gated.
++        //
++        // ⚠ /activateBatch is served by a method NAMED activeBatch (ClubLineController:135). Key on the
++        // PATH, as this pin does; a name-keyed assertion written from the ticket text matches nothing.
++        //
++        // ⚠ NO MOBILE CALLER, verified two ways: zero of the ten appear anywhere in wms2-mobile-ui on
++        // origin/develop, and mobile's transfer screen talks to a DIFFERENT controller — mobile's own
++        // TransferOrderController at /transferOrder/*, not /transfers/*. Grepping "transfer" alone
++        // conflates them. So these are single-function gates, not the ANY-of that R12 would otherwise
++        // require.
++        row("ClubLineController",  "/v3/clubLine/assignStagingLane/{orderBatchId}/{locationId}",
++                                                                        "WEB_UI_VIEW_CLUB_LINE");
++        row("ClubLineController",  "/v3/clubLine/unlinkStagingLane/{orderBatchId}",
++                                                                        "WEB_UI_VIEW_CLUB_LINE");
++        row("ClubLineController",  "/v3/clubLine/activateBatch/{orderBatchId}/{locationId}",
++                                                                        "WEB_UI_VIEW_CLUB_LINE");
++        row("ClubLineController",  "/v3/clubLine/runClubLine/{orderBatchId}",
++                                                                        "WEB_UI_VIEW_CLUB_LINE");
++        row("TransfersController", "/v3/transfers/assignTransferLane/{customerOrderId}/{locationId}",
++                                                                        "WEB_UI_VIEW_TRANSFER_ORDER");
++        row("TransfersController", "/v3/transfers/reassignTransferLane/{customerOrderId}/{locationId}",
++                                                                        "WEB_UI_VIEW_TRANSFER_ORDER");
++        row("TransfersController", "/v3/transfers/unlinkTransferLane/{customerOrderId}",
++                                                                        "WEB_UI_VIEW_TRANSFER_ORDER");
++        row("TransfersController", "/v3/transfers/activateTransferOrder/{customerOrderId}/{locationId}",
++                                                                        "WEB_UI_VIEW_TRANSFER_ORDER");
++        row("TransfersController", "/v3/transfers/runTransfer/{orderId}",
++                                                                        "WEB_UI_VIEW_TRANSFER_ORDER");
++        // WEB_UI_VIEW_PICKING_POSITION's FIRST live enforcement anywhere in src/main — its only other
++        // reference outside WmsConstants is UtilRestController, which is @Service, so its mappings do not
++        // route at all. Grants exist fleet-wide (same 45/43/15/25/9/7 populations), so it works; it is a
++        // first, not a repeat, and deserves the extra scrutiny that implies.
++        row("PickingOrderPositionController", "/v3/pickingOrderPosition/fixPickingPosition/{id}",
++                                                                        "WEB_UI_VIEW_PICKING_POSITION");
++
++        // Four siblings that MUST STAY UNGATED — the ONLY thing that catches a class-level annotation on
++        // ClubLineController or TransfersController. Neither class is in FunctionGuardArchTest's
++        // SHARED_CONTROLLERS (that list is exactly StockUnit/Dashboard/ReplenishOrder/UnitLoad), so
++        // nothing else in the repository forbids one, and a class-level default resolves identically for
++        // the ten rows above — the whole tranche would stay green while these reads silently 403.
++        //
++        // These four are ungated TODAY and that is deliberate, not an oversight: the ~90 remaining /v3
++        // MVC reads are SBDEV-3158's scope. When 3158 gates them these rows go red, and updating them is
++        // that ticket's job — a red here is the pin working, not drift.
++        //
++        // No such row is possible for PickingOrderPositionController: fixPickingPosition is its ONLY
++        // declared handler (everything else under /v3/pickingOrderPosition declares in AdminController and
++        // resolves there), so class-level and method-level placement are indistinguishable for it. Stated
++        // rather than left as a silent gap in the mutation coverage.
++        row("ClubLineController",  "/v3/clubLine/orderBatch/{orderBatchId}");
++        row("ClubLineController",  "/v3/clubLine/openClubRun");
++        row("TransfersController", "/v3/transfers/transferOrder/{customerOrderId}");
++        row("TransfersController", "/v3/transfers/openTransfer");
+     }
+ 
+     /** Resolves exactly as {@link FunctionGuardInterceptor} does: method annotation, else DECLARING class. */
+@@ -445,6 +512,10 @@ class Sbdev3017TrancheGateContextTest extends BaseRollbackIntegrationTest {
+      * {@code assertThat(wrong).isEmpty()} threw first, so any run WITH drift never reached the size check —
+      * exactly the run in which someone might have deleted a row to make the drift go away.
+      *
++     * <p><b>145</b> = 131 + <b>14 from SBDEV-3155</b>: the 10 state-changing GETs (4 {@code ClubLine},
++     * 5 {@code Transfers}, 1 {@code PickingOrderPosition}) + 4 sibling reads asserted UNGATED so a
++     * class-level annotation on {@code ClubLineController} or {@code TransfersController} fails here.
++     *
+      * <p><b>131</b> = 123 + <b>8 from SBDEV-3154</b>: 6 gated {@code AdminActionController} operator-console
+      * routes + 2 sibling rows asserted UNGATED. Those 2 are load-bearing, not decoration — measured, with
+      * only the gated rows present, replacing all the method annotations with ONE class-level
+@@ -466,6 +537,6 @@ class Sbdev3017TrancheGateContextTest extends BaseRollbackIntegrationTest {
+     @Test
+     @DisplayName("the pin covers every tranche route and every deliberate carve-out")
+     void thePinHasNotBeenQuietlyShrunk() {
+-        assertThat(EXPECTED).hasSize(131);
++        assertThat(EXPECTED).hasSize(145);
+     }
+ }
+diff --git a/src/test/java/net/aim_ai/wms/security/SurfaceInventoryContextTest.java b/src/test/java/net/aim_ai/wms/security/SurfaceInventoryContextTest.java
+index 8c13f23e..2006e8fd 100644
+--- a/src/test/java/net/aim_ai/wms/security/SurfaceInventoryContextTest.java
++++ b/src/test/java/net/aim_ai/wms/security/SurfaceInventoryContextTest.java
+@@ -47,11 +47,22 @@ import java.util.TreeSet;
+  * "state-change-over-verb" and that scoping is right. Two consequences, both measured 2026-08-28 against
+  * §1's tables: (a) GET handlers that genuinely mutate are labelled {@code read} here — 12 of §1's rows,
+  * including {@code closeInboundBol}, {@code closeOutboundBol}, {@code triggerOrderReplenish},
+- * {@code printLabel}, {@code setDefault}, {@code toggleActiveStatus}, {@code unlinkSelectedPallet},
++ * {@code printLabel}, {@code setDefault}, {@code toggleActiveStatus},
+  * {@code acceptHubAndSpokeBol}, {@code closeIntraCompanyTransfer}. The {@code GET-MUTATE} heuristic below
+- * catches only {@code /delete|/remove|/cancel|/reset|/create} and is <b>advisory</b> — it also produced 2
+- * false positives ({@code OrderCancellationController.listPendingReversals} and {@code .detail}, matched on
+- * "cancellation"). (b) POST-as-query handlers (the report/dashboard {@code export*} family) are labelled
++ * is <b>advisory</b> — it produced 2 false positives
++ * ({@code OrderCancellationController.listPendingReversals} and {@code .detail}, matched on
++ * "cancellation").
++ *
++ * <p><b>SBDEV-3155 widened that heuristic and it is still not complete — do not read the widening as
++ * closure.</b> Five tokens were added ({@code /assign}, {@code /reassign}, {@code /unlink},
++ * {@code /activate}, {@code /run}), taking it from 9 to 15 matches out of 792 registrations with zero new
++ * false positives. {@code unlinkSelectedPallet} moved off this miss-list as a result. What remains
++ * uncaught is roughly twelve further token families that this list itself names —
++ * {@code /close*}, {@code /set*}, {@code /toggle*}, {@code /print*}, {@code /accept*}, {@code /trigger*},
++ * {@code /finish*}, {@code /adjust*}, {@code /move*}, {@code /recover*}, {@code /release*},
++ * {@code /update*} — plus {@code fixPickingPosition}, where the obvious token {@code /fix} was measured at
++ * 1 true positive against 8 false and rejected. <b>Human classification is still not replaceable by this
++ * tool</b>, and a future gating slice must enumerate by hand rather than re-run it and trust a zero. (b) POST-as-query handlers (the report/dashboard {@code export*} family) are labelled
+  * {@code MUTATE} while changing no state. <b>Human classification is not replaceable by this tool.</b>
+  *
+  * <p><b>2. Gate detection is ANNOTATION-ONLY.</b> A programmatic in-body check is invisible, so such a
+@@ -117,9 +128,27 @@ class SurfaceInventoryContextTest extends BaseRollbackIntegrationTest {
+                         || verbs.contains(RequestMethod.POST) || verbs.contains(RequestMethod.PUT)
+                         || verbs.contains(RequestMethod.PATCH) || verbs.contains(RequestMethod.DELETE);
+                 // GET-that-mutates: the §0.C orphan class, e.g. GET /v3/shipperId/delete/{id}
++                //
++                // SBDEV-3155 added the second line's five tokens. Each was measured against the 379
++                // then-`read` rows before being added, and each has ZERO false positives:
++                //   /assign (2) /reassign (1) /unlink (3) /activate (2) /run (2) — 10 matches, 10 true.
++                // (/assign does NOT subsume /reassign — the literal "/assign" is absent from
++                // "/reassignTransferLane" — so both tokens are needed.)
++                //
++                // ⚠ `/fix` was measured and DELIBERATELY REJECTED: 1 true positive
++                // (fixPickingPosition) against 8 false (7 × /v3/fixedAssignment/* reads +
++                // /v3/replenish/fixedLocationUpperBound). Adding it would drop precision from 15/15 to
++                // 16/24 — exactly the "guarantee a steady false-positive rate and train readers to
++                // re-baseline without auditing" failure this class's javadoc cites SBDEV-3089 for.
++                // GET /v3/pickingOrderPosition/fixPickingPosition/{id} therefore still classifies as
++                // `read` and is named in limitation §1 below. It IS gated, and is pinned by
++                // Sbdev3017TrancheGateContextTest — this tool is not what protects it.
+                 String joined = String.join(",", paths).toLowerCase();
+                 boolean getMutates = !isMutating && (joined.contains("/delete") || joined.contains("/remove")
+-                        || joined.contains("/cancel") || joined.contains("/reset") || joined.contains("/create"));
++                        || joined.contains("/cancel") || joined.contains("/reset") || joined.contains("/create")
++                        || joined.contains("/assign") || joined.contains("/reassign")
++                        || joined.contains("/unlink") || joined.contains("/activate")
++                        || joined.contains("/run"));
+ 
+                 String rf = requiresFunction(method, type);
+                 String pa = ann(method, type, PreAuthorize.class);

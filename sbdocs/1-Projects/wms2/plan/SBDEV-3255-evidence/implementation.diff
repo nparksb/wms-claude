@@ -1,0 +1,564 @@
+diff --git a/pom.xml b/pom.xml
+index 4cc1edfd..912f131e 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -17,6 +17,21 @@
+     </parent>
+ 
+     <properties>
++        <!--
++          SBDEV-3255 — JUnit @Tag groups excluded from the FAILSAFE lane by default.
++
++          Indirected through a property on purpose. A literal <excludedGroups>performance</excludedGroups>
++          in <configuration> BEATS a -D, which would make the on-demand run impossible; going through
++          ${failsafe.excludedGroups} keeps `-Dfailsafe.excludedGroups=` working as the override.
++
++          ALSO deliberately NOT named `excludedGroups`. That bare name is the shared user property of
++          BOTH plugins — verified in the descriptors for the versions used here, surefire 3.2.5 and
++          failsafe 3.1.2, each declaring ${excludedGroups} — so `-DexcludedGroups=x` on `mvn verify`
++          would silently filter the unit lane too.
++
++          Run the excluded group on demand with:  mvn verify -Dfailsafe.excludedGroups=
++        -->
++        <failsafe.excludedGroups>performance</failsafe.excludedGroups>
+         <java.version>21</java.version>
+         <maven.compiler.source>21</maven.compiler.source>
+         <maven.compiler.target>21</maven.compiler.target>
+@@ -771,6 +786,28 @@
+                       list drained from three to zero.
+                     -->
+                     <excludes/>
++                    <!--
++                      SBDEV-3255: JUnit @Tag was inert in this POM — no <groups>/<excludedGroups>
++                      existed on either plugin, so all five @Tag sites read as test-selection policy
++                      and selected nothing. This is the wiring.
++
++                      Only `performance` survives as a tag. The other four were deleted rather than
++                      wired, because each was redundant or wrong:
++                        * @Tag("postgres") on MessageRepositoryNativeSearchIT and
++                          MessageCleanupBatchServiceIT — both extend BasePostgresIntegrationTest,
++                          so the engine is guaranteed by the TYPE; the tag restated it.
++                        * @Tag("postgres") on MessageRepositoryIntegrationTest$DeleteMessages —
++                          diagnosed the wrong cause. That group runs on H2 via
++                          BaseRepositoryIntegrationTest and was VACUOUS (deleted=0, and `>= 0`
++                          passed). The cause was transaction visibility, not the engine.
++                        * @Tag("idempotency") on IdempotencyFilterIT — selected nothing and the
++                          class already pins its engine through its base class.
++
++                      Pinned by JUnitTagWiringArchTest: any future @Tag must appear here or in a
++                      workflow, or the build fails. An annotation that looks like policy and is
++                      inert is worse than no annotation.
++                    -->
++                    <excludedGroups>${failsafe.excludedGroups}</excludedGroups>
+                     <argLine>
+                         @{argLine}
+                         --add-opens java.base/java.lang=ALL-UNNAMED
+diff --git a/src/test/java/net/aim_ai/wms/integration/performance/BillofladingServiceFinishTransferPerformanceIT.java b/src/test/java/net/aim_ai/wms/integration/performance/BillofladingServiceFinishTransferPerformanceIT.java
+index 72cff543..5f309829 100644
+--- a/src/test/java/net/aim_ai/wms/integration/performance/BillofladingServiceFinishTransferPerformanceIT.java
++++ b/src/test/java/net/aim_ai/wms/integration/performance/BillofladingServiceFinishTransferPerformanceIT.java
+@@ -20,7 +20,6 @@ import net.aim_ai.wms.repo.jpa.UnitloadTypeRepository;
+ import net.aim_ai.wms.service.BillofladingService;
+ import net.aim_ai.wms.service.WmsConstants;
+ import org.junit.jupiter.api.BeforeEach;
+-import org.junit.jupiter.api.Disabled;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Tag;
+ import org.junit.jupiter.api.Test;
+@@ -69,14 +68,38 @@ import static org.assertj.core.api.Assertions.assertThat;
+  * Testcontainers / cold-JVM / connection-pool-first-acquire variance is real;
+  * the v1 antipattern's ~30 s would still FAIL the 15 s ceiling loudly. A
+  * tighter ratio-to-baseline assertion is also evaluated (see test javadoc).
++ *
++ * <p><b>On-demand only, by POLICY rather than by {@code @Disabled} (SBDEV-3255).</b> This class carries
++ * {@code @Tag("performance")}, and {@code performance} is the failsafe lane's excluded group — see
++ * {@code failsafe.excludedGroups} in the POM. It therefore does not run in CI, which matters now that
++ * the develop workflow gates the deploy on {@code mvn clean verify} and would otherwise execute a
++ * long-running load test in a 45-minute job.
++ *
++ * <p>It previously used {@code @Disabled} for this, because the {@code @Tag} was inert — the POM
++ * configured no groups at all. That was actively harmful: {@code @Disabled} is indistinguishable from a
++ * parked defect, and this test is not broken, it is deliberately on-demand. Run it with:
++ *
++ * <pre>{@code mvn verify -Dfailsafe.excludedGroups= -Dit.test=BillofladingServiceFinishTransferPerformanceIT}</pre>
++ *
++ * <p>🔴 <b>This class does NOT currently pass when you run it (measured 2026-09-09, SBDEV-3255).</b> Its
++ * fixtures have rotted behind the {@code @Disabled} that used to hide them: {@code seedShared} dies at
++ * commit with {@code ConstraintViolationException}. {@link net.aim_ai.wms.model.Location} needs eleven
++ * {@code @NotNull} fields it does not set, and repairing that surfaces
++ * {@link net.aim_ai.wms.model.BillofladingPosition} needing {@code number} and {@code clientId} — it is
++ * entity-by-entity and was left out of SBDEV-3255, whose scope is tag wiring. The repair is tracked
++ * separately; {@code BillofladingServiceFinishTransferIT#newLocation} is the working precedent to copy.
++ * <b>Nothing in CI depends on this</b> — {@code performance} is an excluded group, verified by running
++ * the lane both ways. This note exists so the next person does not read the errors as new.
++ *
++ * <p>The SBDEV-2216 reference above is <b>provenance</b> — this class proves that ticket's AC2. It is not
++ * a blocker and nothing here is waiting on it, so do not sweep it by ticket number (SBDEV-3241 records the
++ * same trap for SBDEV-2099).
+  */
+ @SpringBootTest(classes = StartApplication.class)
+ @ActiveProfiles("integration")
+ @TestPropertySource(properties = "spring.main.allow-bean-definition-overriding=true")
+ @Import(TestDatabaseConfig.class)
+ @Tag("performance")
+-@Disabled("on-demand only — long-running load test for SBDEV-2216 AC2. " +
+-          "Run explicitly with -Dtest=BillofladingServiceFinishTransferPerformanceIT")
+ @DisplayName("BillofladingService.finishTransfer Performance Tests (G2)")
+ class BillofladingServiceFinishTransferPerformanceIT {
+ 
+diff --git a/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryIntegrationTest.java b/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryIntegrationTest.java
+index 43e831a0..bfcca5be 100644
+--- a/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryIntegrationTest.java
++++ b/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryIntegrationTest.java
+@@ -2,13 +2,13 @@ package net.aim_ai.wms.integration.repository;
+ 
+ import net.aim_ai.wms.common.base.BaseRepositoryIntegrationTest;
+ import org.junit.jupiter.api.Disabled;
+-import org.junit.jupiter.api.Tag;
+ import net.aim_ai.wms.model.Message;
+ import net.aim_ai.wms.model.User;
+ import net.aim_ai.wms.repo.jpa.MessageRepository;
+ import net.aim_ai.wms.repo.jpa.UserRepository;
+ import net.aim_ai.wms.repo.projection.MessageDetailView;
+ import net.aim_ai.wms.service.job.MessageCleanupBatchService;
++import org.junit.jupiter.api.AfterEach;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.DisplayName;
+ import org.junit.jupiter.api.Nested;
+@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.data.domain.Page;
+ import org.springframework.data.domain.PageRequest;
++import org.springframework.test.context.transaction.TestTransaction;
+ 
+ import java.time.LocalDateTime;
+ import java.time.Instant;
+@@ -274,52 +275,90 @@ class MessageRepositoryIntegrationTest extends BaseRepositoryIntegrationTest {
+         }
+     }
+ 
++    /**
++     * SBDEV-3255 — this group was <b>vacuous</b>, and the two explanations attached to it were both wrong.
++     *
++     * <p>Measured on {@code c4d920eb}: {@code deleted=0}, {@code firstBatch=0 secondBatch=0}, while the
++     * shipped assertions were {@code >= 0} and {@code <= 2}. All three passed on a DELETE that removed
++     * nothing.
++     *
++     * <p><b>The cause is auditing.</b> These tests called {@code setCreated(now().minusDays(30))} and then
++     * {@code save(...)}, but {@code @EnableJpaAuditing} stamps {@code @CreatedDate} on persist regardless of
++     * a pre-set value ({@link net.aim_ai.wms.model.AbstractBaseEntity}), so every "30-day-old" seed was
++     * written with {@code created = now()}. Diagnostic run in this class:
++     * {@code savedCreated=2026-09-09T14:11:48} against {@code refDate=2026-09-02} — nothing was ever older
++     * than the cutoff, and the DELETE matched nothing <em>correctly</em>.
++     *
++     * <p>{@link #saveCreatedDaysAgo} already existed for exactly this, and its javadoc already documented
++     * the auditing behaviour. This group simply did not use it.
++     *
++     * <p>Two prior diagnoses are retired. The in-file comment blamed the engine (<i>"count varies by
++     * underlying DB"</i>), which is what the removed {@code @Tag("postgres")} encoded; and a
++     * transaction-visibility theory blamed the outer {@code @Transactional} against {@code deleteOnce}'s
++     * {@code REQUIRES_NEW}. The same diagnostic disproves that one: {@code txActive=false
++     * totalAfterCommit=6}, so the rows were committed and visible. The SQL is portable besides —
++     * {@link MessageRepository#deleteMessages} puts its {@code LIMIT} inside the subquery, which PostgreSQL
++     * supports. There was never a dialect problem for a tag to describe.
++     *
++     * <p>Assertions are now exact. The old {@code <=} bound is what let {@code 0} pass.
++     */
+     @Nested
+     @DisplayName("deleteMessages")
+-    @Tag("postgres")
+     class DeleteMessages {
+ 
++        /**
++         * These tests commit their seeds so {@code deleteOnce}'s {@code REQUIRES_NEW} transaction can see
++         * them, which means the base class's rollback cannot reclaim them. Sweep explicitly, or they leak
++         * into sibling groups that count messages.
++         */
++        @AfterEach
++        void sweepCommittedRows() {
++            if (TestTransaction.isActive()) {
++                TestTransaction.flagForCommit();
++                TestTransaction.end();
++            }
++            messageCleanupBatchService.deleteOnce(Date.from(Instant.now().plus(1, ChronoUnit.DAYS)), 10_000);
++        }
++
+         @Test
+         @DisplayName("should delete messages older than reference date with batchSize bind parameter")
+         void shouldDeleteOldMessages() {
+-            // Create an old message
+             testMessage.setNumber("MSG-TO-DELETE");
+-            testMessage.setCreated(LocalDateTime.now().minusDays(30));
+-            Message saved = messageRepository.save(testMessage);
++            Message saved = saveCreatedDaysAgo(testMessage, 30);
++
++            // Commit so deleteOnce's REQUIRES_NEW transaction operates on visible rows.
++            TestTransaction.flagForCommit();
++            TestTransaction.end();
+ 
+-            // Delete messages older than 7 days ago using the new (Date, int) signature.
+-            // Routed via MessageCleanupBatchService.deleteOnce so the REQUIRES_NEW tenantTM tx
+-            // wraps the native @Modifying DELETE (Fix B + D).
+             Date refDate = Date.from(Instant.now().minus(7, ChronoUnit.DAYS));
+             int deleted = messageCleanupBatchService.deleteOnce(refDate, 1000);
+ 
+-            // Verify deletion ran (count varies by underlying DB; >= 0 is the structural assertion).
+-            assertThat(deleted).isGreaterThanOrEqualTo(0);
++            // Assert by id, not by count: the row seeded 30 days back must be the one that went.
++            assertThat(deleted).isPositive();
++            assertThat(messageRepository.findById(saved.getId())).isEmpty();
+         }
+ 
+         @Test
+         @DisplayName("deleteMessages should respect the batchSize LIMIT bind parameter")
+         void deleteMessages_respectsBatchSizeLimit() {
+-            // Seed 5 old messages well beyond the refDate cutoff.
++            // Seed 5 rows genuinely older than the cutoff — via the helper, because a bare
++            // setCreated() is overwritten by auditing (see the class javadoc).
+             for (int i = 0; i < 5; i++) {
+-                Message msg = createTestMessage("MSG-BATCH-" + i, "TEST_PROCESS");
+-                msg.setCreated(LocalDateTime.now().minusDays(30));
+-                messageRepository.save(msg);
++                saveCreatedDaysAgo(createTestMessage("MSG-BATCH-" + i, "TEST_PROCESS"), 30);
+             }
+ 
++            TestTransaction.flagForCommit();
++            TestTransaction.end();
++
+             Date refDate = Date.from(Instant.now().minus(7, ChronoUnit.DAYS));
+ 
+-            // First batch — request at most 2 rows. The native query MUST honour LIMIT :batchSize.
+             int firstBatch = messageCleanupBatchService.deleteOnce(refDate, 2);
+-            // Second batch — request another 2. Together at most 4 of the 5 are now gone.
+             int secondBatch = messageCleanupBatchService.deleteOnce(refDate, 2);
+ 
+-            // Per-batch results must each be bounded by the requested batchSize (the underlying
+-            // database may delete fewer if seed-row creation happened inside an outer tx that
+-            // hasn't visibility-flushed to the DELETE planner; the structural assertion is the
+-            // LIMIT cap, which must never be exceeded).
+-            assertThat(firstBatch).isLessThanOrEqualTo(2);
+-            assertThat(secondBatch).isLessThanOrEqualTo(2);
++            // EXACT, not bounded: with 5 eligible rows each call must remove precisely its LIMIT.
++            // The old `<= 2` is what let 0/0 stand.
++            assertThat(firstBatch).isEqualTo(2);
++            assertThat(secondBatch).isEqualTo(2);
+         }
+     }
+ 
+diff --git a/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryNativeSearchIT.java b/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryNativeSearchIT.java
+index 9235a0a8..1d6816f3 100644
+--- a/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryNativeSearchIT.java
++++ b/src/test/java/net/aim_ai/wms/integration/repository/MessageRepositoryNativeSearchIT.java
+@@ -8,7 +8,6 @@ import net.aim_ai.wms.repo.jpa.UserRepository;
+ import net.aim_ai.wms.repo.projection.MessageDetailView;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.DisplayName;
+-import org.junit.jupiter.api.Tag;
+ import org.junit.jupiter.api.Test;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.data.domain.Page;
+@@ -48,7 +47,6 @@ import static org.assertj.core.api.Assertions.assertThat;
+  * is excluded in {@code pom.xml}.
+  */
+ @DisplayName("MessageRepository native searches — real PostgreSQL")
+-@Tag("postgres")
+ class MessageRepositoryNativeSearchIT extends BasePostgresIntegrationTest {
+ 
+     /**
+diff --git a/src/test/java/net/aim_ai/wms/integration/service/IdempotencyFilterIT.java b/src/test/java/net/aim_ai/wms/integration/service/IdempotencyFilterIT.java
+index 76f89052..a5d4db82 100644
+--- a/src/test/java/net/aim_ai/wms/integration/service/IdempotencyFilterIT.java
++++ b/src/test/java/net/aim_ai/wms/integration/service/IdempotencyFilterIT.java
+@@ -5,7 +5,6 @@ import net.aim_ai.wms.landlord.config.IdempotencyFilter;
+ import net.aim_ai.wms.service.RestIdempotencyService;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.DisplayName;
+-import org.junit.jupiter.api.Tag;
+ import org.junit.jupiter.api.Test;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.cache.CacheManager;
+@@ -49,7 +48,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
+  * cleaned up per test instead.
+  */
+ @DisplayName("SBDEV-3239 — IdempotencyFilter IT: content-derived key (260520 §14)")
+-@Tag("idempotency")
+ @Transactional(propagation = Propagation.NOT_SUPPORTED)
+ class IdempotencyFilterIT extends BasePostgresIntegrationTest {
+ 
+diff --git a/src/test/java/net/aim_ai/wms/integration/service/MessageCleanupBatchServiceIT.java b/src/test/java/net/aim_ai/wms/integration/service/MessageCleanupBatchServiceIT.java
+index c3c27719..de2e68c2 100644
+--- a/src/test/java/net/aim_ai/wms/integration/service/MessageCleanupBatchServiceIT.java
++++ b/src/test/java/net/aim_ai/wms/integration/service/MessageCleanupBatchServiceIT.java
+@@ -4,7 +4,6 @@ import net.aim_ai.wms.common.base.BasePostgresIntegrationTest;
+ import net.aim_ai.wms.repo.jpa.MessageRepository;
+ import net.aim_ai.wms.service.job.MessageCleanupBatchService;
+ import org.junit.jupiter.api.DisplayName;
+-import org.junit.jupiter.api.Tag;
+ import org.junit.jupiter.api.Test;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.beans.factory.annotation.Qualifier;
+@@ -41,7 +40,6 @@ import static org.mockito.Mockito.doAnswer;
+  * from {@link BaseIntegrationTest} is sufficient at runtime.
+  */
+ @DisplayName("MessageCleanupBatchService IT — REQUIRES_NEW proxy semantics")
+-@Tag("postgres")
+ class MessageCleanupBatchServiceIT extends BasePostgresIntegrationTest {
+ 
+     @Autowired
+package net.aim_ai.wms.unit.config;
+
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.core.importer.Location;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Tags;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * SBDEV-3255 — a JUnit {@code @Tag} must be wired to something that reads it.
+ *
+ * <h2>The defect this closes</h2>
+ *
+ * This repository carried {@code @Tag} annotations for months while the POM configured neither
+ * {@code <groups>} nor {@code <excludedGroups>} on surefire or failsafe. <b>Not one of them did
+ * anything.</b> They read as deliberate test-selection policy and were decoration.
+ *
+ * <p>The cost was not cosmetic. {@code BillofladingServiceFinishTransferPerformanceIT} carried
+ * {@code @Tag("performance")} — the author saying "filter this out" — and, because nothing read
+ * tags, <b>also</b> an {@code @Disabled} to actually keep a long-running load test out of the
+ * suite. An {@code @Disabled} is indistinguishable from a parked defect, so a deliberate
+ * on-demand-only test was wearing the marker this repository spent two tickets (SBDEV-3239,
+ * SBDEV-3241) cleaning off genuinely broken ones.
+ *
+ * <h2>Why this rule and not a one-time cleanup</h2>
+ *
+ * Wiring the groups once fixes the four sites that existed. It does not stop the fifth. And the
+ * fifth is cheap to add: {@code @Tag("slow")} on a new class reads exactly like working policy,
+ * compiles, and silently selects nothing.
+ *
+ * <p>⚠ The population is <b>not</b> stable, and this is measured rather than assumed: the ticket
+ * counted four {@code @Tag} sites at {@code cf3486d8} and there were <b>five</b> at
+ * {@code c4d920eb} four days later — a third {@code @Tag("postgres")} arrived in
+ * {@code 5f7d044a}. A census in prose rots; this rule re-derives it on every build.
+ *
+ * <h2>What "wired" means here — and what it deliberately does not prove</h2>
+ *
+ * A group is <b>wired</b> when its name appears in a {@code <groups>} or {@code <excludedGroups>}
+ * element in {@code pom.xml} (resolving a {@code ${property}} indirection through
+ * {@code <properties>}), or in a {@code -Dgroups=} / {@code -D…excludedGroups=} flag in a
+ * workflow under {@code .github/workflows}. Both locations count because they are both real:
+ * {@code performance} is excluded in the POM (everywhere, including developer machines), while a
+ * class that must still run locally but not in CI is excluded in the workflow only.
+ *
+ * <p><b>This rule cannot prove Maven honours the configuration.</b> That is a separate
+ * measurement and it is the one that fails silently in the dangerous direction — a misspelled
+ * {@code excludedGroups} leaves the load test running in CI while every build stays green.
+ * SBDEV-3255 AC-3 discharges it by running the lane and diffing the executed class list, with a
+ * positive control proving the same command does run a neighbouring class. Do not read a green
+ * here as evidence the exclusion works.
+ *
+ * <h2>Instrument, and its blind spots</h2>
+ *
+ * Bytecode, not a source scan — {@code @Tag} is {@code RUNTIME}-retained, so ArchUnit resolves it
+ * by type at whatever level it was declared. That matters concretely: one of the five sites is on
+ * a {@code @Nested} inner class, which a line-window source scan attributes to the enclosing
+ * class, and this tree has roughly 1400 {@code @Nested} sites for that to recur in. Both
+ * {@code @Tag} and its {@code @Repeatable} container {@code @Tags} are read, at class and method
+ * level, directly and meta-annotated.
+ *
+ * <p>Stated blind spots, rather than left for a reader to discover:
+ * <ul>
+ *   <li>The POM/workflow side is a <b>text scan</b>. It answers "does this name appear in a
+ *       filtering position", not "does Maven apply it" — see above.</li>
+ *   <li>A tag value computed at runtime (JUnit permits a {@code TagFilter} or a dynamic
+ *       container's tags) is invisible. There are none today; that is a fact about now.</li>
+ *   <li>It says nothing about whether a wired group is the <i>right</i> policy — only that the
+ *       annotation is connected to a mechanism.</li>
+ * </ul>
+ */
+@DisplayName("SBDEV-3255 — every JUnit @Tag is wired to a groups/excludedGroups filter")
+class JUnitTagWiringArchTest {
+
+    private static final Path POM = Path.of("pom.xml");
+    private static final Path WORKFLOWS = Path.of(".github", "workflows");
+
+    /** {@code <groups>x</groups>} and {@code <excludedGroups>x</excludedGroups>} in the POM. */
+    private static final Pattern POM_GROUPS =
+        Pattern.compile("<(?:excludedGroups|groups)>([^<]*)</(?:excludedGroups|groups)>");
+
+    /** {@code <properties><foo>bar</foo></properties>} entries, for resolving {@code ${foo}}. */
+    private static final Pattern POM_PROPERTY =
+        Pattern.compile("<([A-Za-z0-9._-]+)>([^<>$]*)</\\1>");
+
+    /**
+     * SBDEV-3255 — {@code POM_PROPERTY} alone matches ANY {@code <x>v</x>} element in the file, including
+     * {@code <version>3.1.2</version>}. Resolving a {@code ${...}} against that would let an unrelated
+     * element supply a value and report a tag "wired" when nothing filters on it — a false GREEN, the
+     * dangerous direction. Property lookup is therefore restricted to the text inside {@code <properties>}.
+     */
+    private static final Pattern POM_PROPERTIES_BLOCK =
+        Pattern.compile("<properties>(.*?)</properties>", Pattern.DOTALL);
+
+    /** {@code -Dgroups=a,b}, {@code -DexcludedGroups=a}, {@code -Dfailsafe.excludedGroups=a}. */
+    private static final Pattern CLI_GROUPS =
+        Pattern.compile("-D(?:[A-Za-z0-9._-]+\\.)?(?:excludedGroups|groups)=([^\\s'\"]*)");
+
+    private static JavaClasses testClasses;
+
+    @BeforeAll
+    static void importTestClasses() {
+        ImportOption onlyTestClasses = (Location location) -> location.contains("/test-classes/");
+        testClasses = new ClassFileImporter()
+            .withImportOption(onlyTestClasses)
+            .importPackages("net.aim_ai.wms");
+    }
+
+    @Test
+    @DisplayName("no @Tag names a group that neither the POM nor a workflow filters on")
+    void everyTagIsWired() throws IOException {
+        Set<String> used = tagsInUse();
+        Set<String> wired = wiredGroups();
+
+        // Positive control. A rule whose expected answer is "empty" is indistinguishable from a
+        // broken instrument, and the broken instrument agrees with whatever you were hoping. If
+        // the importer or the annotation reader silently returns nothing, this fails FIRST and
+        // says so, instead of reporting a clean pass over zero classes.
+        assertThat(testClasses)
+            .as("positive control: the importer must actually see the test tree")
+            .hasSizeGreaterThan(1000);
+        assertThat(used)
+            .as("positive control: this repository is known to use @Tag; an empty result means "
+                + "the annotation reader is broken, not that the tags are gone")
+            .isNotEmpty();
+
+        Set<String> unwired = new TreeSet<>(used);
+        unwired.removeAll(wired);
+
+        assertThat(unwired)
+            .as("@Tag(%s) selects nothing: no <groups>/<excludedGroups> in pom.xml and no "
+                + "-Dgroups/-DexcludedGroups in .github/workflows names it. Either wire it or "
+                + "delete it - an annotation that looks like test-selection policy and is inert "
+                + "is worse than no annotation. Tags in use: %s; wired: %s",
+                unwired, new TreeSet<>(used), new TreeSet<>(wired))
+            .isEmpty();
+    }
+
+    /** Every distinct {@code @Tag} value declared anywhere in the compiled test tree. */
+    private static Set<String> tagsInUse() {
+        Set<String> tags = new HashSet<>();
+        for (JavaClass type : testClasses) {
+            collect(tags, type.tryGetAnnotationOfType(Tag.class).orElse(null),
+                          type.tryGetAnnotationOfType(Tags.class).orElse(null));
+            for (JavaMethod method : type.getMethods()) {
+                collect(tags, method.tryGetAnnotationOfType(Tag.class).orElse(null),
+                              method.tryGetAnnotationOfType(Tags.class).orElse(null));
+            }
+        }
+        return tags;
+    }
+
+    private static void collect(Set<String> into, Tag single, Tags repeated) {
+        if (single != null) {
+            into.add(single.value());
+        }
+        if (repeated != null) {
+            Stream.of(repeated.value()).map(Tag::value).forEach(into::add);
+        }
+    }
+
+    /** Group names the build actually filters on, from the POM and the workflows. */
+    private static Set<String> wiredGroups() throws IOException {
+        Set<String> wired = new HashSet<>();
+
+        // 🔴 SBDEV-3255 — strip comments BEFORE scanning. These are text regexes, so without this a POM
+        // comment that merely DISCUSSES <excludedGroups>performance</excludedGroups> is read as real
+        // configuration. Measured: removing the actual <excludedGroups> wiring left this rule GREEN,
+        // because the explanatory comment beside the property still matched. That is a false GREEN in the
+        // dangerous direction — prose fabricating the wiring the rule exists to verify.
+        String pom = stripXmlComments(Files.readString(POM));
+        // Only text inside <properties> may supply a ${...} value — see POM_PROPERTIES_BLOCK.
+        Map<String, String> properties = new HashMap<>();
+        Matcher block = POM_PROPERTIES_BLOCK.matcher(pom);
+        while (block.find()) {
+            Matcher property = POM_PROPERTY.matcher(block.group(1));
+            while (property.find()) {
+                properties.put(property.group(1), property.group(2).trim());
+            }
+        }
+        Matcher groups = POM_GROUPS.matcher(pom);
+        while (groups.find()) {
+            addAll(wired, resolve(groups.group(1).trim(), properties));
+        }
+
+        if (Files.isDirectory(WORKFLOWS)) {
+            List<Path> files;
+            try (Stream<Path> walk = Files.walk(WORKFLOWS)) {
+                files = walk.filter(Files::isRegularFile).collect(Collectors.toList());
+            }
+            for (Path file : files) {
+                Matcher cli = CLI_GROUPS.matcher(stripHashComments(Files.readString(file)));
+                while (cli.find()) {
+                    addAll(wired, cli.group(1).trim());
+                }
+            }
+        }
+        return wired;
+    }
+
+    /** {@code ${failsafe.excludedGroups}} -> the property's value; anything else is a literal. */
+    private static String resolve(String raw, Map<String, String> properties) {
+        if (raw.startsWith("${") && raw.endsWith("}")) {
+            return properties.getOrDefault(raw.substring(2, raw.length() - 1), "");
+        }
+        return raw;
+    }
+
+    /** JUnit group expressions are comma-separated; blanks mean "filter on nothing". */
+    private static void addAll(Set<String> into, String expression) {
+        Stream.of(expression.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .forEach(into::add);
+    }
+
+    /** Remove {@code <!-- ... -->} so a comment discussing a filter is not mistaken for one. */
+    private static String stripXmlComments(String xml) {
+        return xml.replaceAll("(?s)<!--.*?-->", "");
+    }
+
+    /**
+     * Remove {@code #} comments from a workflow file, for the same reason. A real {@code -D} flag lives in
+     * a {@code run:} line; the workflows here also DISCUSS flags at length in comments. Erring is safe in
+     * one direction only, and this errs toward "not wired" (a false RED, which someone investigates)
+     * rather than toward fabricating wiring.
+     */
+    private static String stripHashComments(String yaml) {
+        return yaml.lines()
+            .map(line -> {
+                int hash = line.indexOf('#');
+                return hash < 0 ? line : line.substring(0, hash);
+            })
+            .collect(Collectors.joining("\n"));
+    }
+}

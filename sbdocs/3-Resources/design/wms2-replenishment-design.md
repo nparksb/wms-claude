@@ -2,8 +2,8 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-07-20
-verified_by: Claude (executor)
+last_verified: 2026-09-06
+verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-09-01.) Prior: Claude (executor)"
 tags: [wms2, replenishment, fix-location, stock, inventory]
 ---
 
@@ -86,10 +86,10 @@ Replenishment moves inventory from bulk storage areas into picking/flow-bin loca
 
 **Maintenance half** — `ReplenishmentOrderMaintenanceService` periodically recalculates open `PROCESSABLE` orders: adjusting requested amounts, redirecting to better source stock if the original becomes unusable, and cancelling orders whose destination is already sufficiently stocked.
 
-**Job orchestrator** — `ReplenishOrderJob.doCalculation()` drives the entire pipeline on a cron schedule, iterating over all tenants.
+**Job orchestrator** — `ReplenishOrderJob` drives the entire pipeline on a cron schedule. Since SBDEV-3198 (2026-09-03) it does so through two entry points rather than one: `runFor(TriggerSpec)` on the scheduled path, which walks every active tenant and processes those whose own schedule matches the firing trigger, and `runForCurrentTenant()` on the manual/admin path, for the caller's tenant only. Both call the same private `replenish(String tenantName)` — the pipeline body below, extracted verbatim from the deleted `doCalculation(Boolean)`.
 
 ```
-ReplenishOrderJob.doCalculation()
+runFor(spec) / runForCurrentTenant()  →  replenish(tenantName)
   │
   ├─ mergePickingOrders()
   ├─ deleteEmptyFixAssignmentWithoutStockToReplenish()
@@ -445,13 +445,20 @@ fulfillMultipleUnitLoads(request)
 
 ## §8 `ReplenishOrderJob` Integration
 
-`ReplenishOrderJob` is the cron orchestrator. It is not a `@Scheduled` bean itself — it is triggered externally (by a scheduler that reads the `REPLENISHMENT_TIMER_MINUTE` and `REPLENISHMENT_TIMER_HOUR` sysprops). The `doCalculation(Boolean isCronJob)` method runs the full pipeline.
+`ReplenishOrderJob` is the cron orchestrator. It is not a `@Scheduled` bean itself — `SchedulingConfiguration` registers it programmatically on the `TaskScheduler`.
+
+⚠ **Rewritten 2026-09-06 (SBDEV-3198, PR #304).** Two claims here were falsified by that change:
+
+- **`doCalculation(Boolean isCronJob)` is gone** — deleted, not renamed, and absent from all of `src/main`. Entry points are now `runFor(TriggerSpec)` (scheduled, all matching tenants), `runForCurrentTenant()` (manual/admin, one tenant, returns whether it ran), and `deriveSpecForCurrentTenant()` (package-private; reads this tenant's own timer sysprops and zone, and throws if `TenantContext` is unset). The pipeline body is the private `replenish(String tenantName)` — `:415` at `d4a6ab8a`.
+- **The schedule is no longer read once for the whole fleet.** It used to read `REPLENISHMENT_TIMER_MINUTE`/`_HOUR` under whichever single tenant the boot probe happened to land on, and applied that one tenant's hour/minute to every tenant in the process. Each tenant now fires on **its own** configured time, via one `CronTrigger` per distinct firing specification.
 
 ### Concurrency guards
 
-Two-layer guard:
-1. **Distributed lock** — `AdvisoryLockService.tryLock(REPLENISH_ORDER)` acquires a PostgreSQL advisory lock. Prevents duplicate execution across replicas in a multi-pod deployment.
-2. **JVM-local guard** — `AtomicBoolean RUNNING` prevents overlapping executions within the same JVM.
+Three layers, and the middle one is the load-bearing change:
+
+1. **Distributed lock, per `(job, tenant)`** — `advisoryLockService.tryLock(JobLockId.REPLENISH_ORDER, tenantDbConfigurationId)`, the **two-key** `pg_try_advisory_lock` form. Two tenants firing at the same instant no longer contend; previously one fixed key per job meant N−1 tenants skipped silently at DEBUG. ⚠ A tenant whose `tenant_db_configuration.id` does not narrow to `int4` cannot be locked at all and is skipped **every** occurrence, with an ERROR naming the id — there is no fallback to the one-key form.
+2. **Per-row optimistic locking** — the real correctness guarantee for the pipeline's writes. ⚠ **Two different counts, and they are not the same set** (re-derived 2026-09-06 at `d4a6ab8a`): **8 of the 9** private write methods **catch** `OptimisticLockException` / `OptimisticLockingFailureException`, but only **6 of the 9** page through candidate ids via `PageRequest`. The two that catch without paging are `triggerRegularReplenishment`, which iterates `getRefillFixedLocationIds()` **unbounded**, and `recalculateReplenishmentOrderWithoutFixedLocationAssignment`, which has no loop at all — its catch wraps a single service call, so "per row" does not describe it either. All four touched entities (`Replenishorder`, `FixLocationAssignment`, `Itemdata`, `Pickingorder`) inherit `@Version` from `AbstractBaseEntity`. `mergePickingOrders` is the exception: its conflict propagates to the outer per-tenant `catch`, aborting that tenant's whole occurrence rather than just that section — safe, but a coarser failure-isolation blast radius, and deliberately preserved. The two `ReplenishmentOrderMaintenanceService` calls use a different mechanism again — a pessimistic `findByIdForUpdate` (`SELECT … FOR UPDATE`) — though the lock sits one hop down: both loop and call `recalculateOrder`, which takes it. ⚠ The two paths differ in transaction shape: one goes through the proxy (`self.recalculateOrder`), the other deliberately uses a plain `this.` call because proxying there would mark the shared outer transaction rollback-only — the service's own comment explains why. The pessimistic lock is taken either way, but on one path it runs **inside the caller's transaction**, which "stronger mechanism" hides.
+3. **JVM-local `AtomicBoolean RUNNING`** — unique among the six scheduled jobs and deliberately kept through the D′ conversion. ⚠ **It is a resource throttle, not a correctness guard**: this is the largest job body in the subsystem (nine sequential bulk operations per tenant, six of which page). Its scope is shared between `runFor()` and `runForCurrentTenant()`, matching its pre-D′ scope exactly.
 
 ### Tenant iteration
 
@@ -478,7 +485,7 @@ Both `NEW_CRON_JOB_ACTIVATED` and `REPLENISHMENT_TIMER_ACTIVATED` must be `true`
 | 4 | `cancelReplenishmentIfFlowbinIsFull()` | Cancels orders where `stockUnit.amount >= fla.upperbound`. Returns affected IDs. |
 | 5 | `generateReplenishmentForItemDataWithoutFixedAssignment()` | Generates orders for items with open customer orders but no FLA. Uses `FIX_LOCATION_ASSIGNMENT_DEFAULT_VALUE_UPPER_BOUND` as the amount. |
 | 6 | `generateReplenishmentForItemDataWithFixedAssignmentWithOrders()` | Generates orders for FLA items where demand exceeds stock. Uses native query to find eligible FLA IDs. |
-| 7 | `triggerRegularReplenishment()` | Periodic refill of FLAs below their upper bound (the `getRefillFixedLocations` query). |
+| 7 | `triggerRegularReplenishment()` | Periodic refill of FLAs below their **lower** bound (the `getRefillFixedLocations` query). The lower bound is the trigger; the upper bound is the fill target used to size the order. |
 | 8 | `updateReplenishmentOrderPriority()` | Syncs replenish order priority with customer order priority. Two passes: (a) reset to `PRIORITY_VERY_LOW` orders with no matching customer orders; (b) elevate to match `max(customerOrder.prio)` for orders that have active customer demand. |
 | 9 | `recalculateReplenishmentOrderWithoutFixedLocationAssignment()` | Back-fills `destinationId` on orders that gained a FLA since creation. |
 | 10 | `recalculateForItem` / `recalculateOpenOrders` | Calls `ReplenishmentOrderMaintenanceService` — targeted for affected items, or cadence-gated full recalc if nothing changed. |
@@ -564,7 +571,7 @@ Both branches block with `BusinessException` (rejecting the move, HTTP 422) if t
 
 | Method | Purpose |
 |---|---|
-| `getRefillFixedLocations(replenishOrderStatus)` | FLAs eligible for refill: `stockUnit.amount < fla.upperbound` AND no open replenish order at that state. |
+| `getRefillFixedLocations(replenishOrderStatus)` | FLAs eligible for refill: `stockunit.amount < fla.lowerbound` (the **lower** bound triggers; `ReplenishGeneratorService` then sizes the order as `upperbound - currentAmount`), `fla.active`, no open replenish order below that state on either the assignment's location or its item, and at least one unlocked unreserved source stock unit in a replenishable area. SBDEV-3153 split the open-order exclusion into two `NOT EXISTS` clauses — one per column — because the previous single clause joined them with `OR`, which Postgres cannot index (885.9ms to 59.2ms on dev). The FROM/WHERE is shared with `getRefillFixedLocationIds` via the `REFILL_ELIGIBILITY_FROM_WHERE` constant. |
 | `getRefillFixedLocationIds(replenishOrderStatus)` | ID-only variant of above (lighter query for the job loop). |
 | `findByItemdataIdIn(ids)` | Bulk FLA fetch by itemdata IDs — used by maintenance service `RecalcContext` builder. |
 

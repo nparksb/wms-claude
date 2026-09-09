@@ -1499,6 +1499,9 @@ caller, not for a caller already holding `Adviceposition` plus the Inbound Locat
 The original (now-insufficient) reasoning: `Adviceposition` is locked
 by no other path, so no cycle is introduced via *that* row. Lock timeout is the configured
 `jakarta.persistence.lock.timeout`. Archived SBDEV-2229 hardened this method's
+
+> ⚠ **WITHDRAWN 2026-09-07 by SBDEV-3250.** The `jakarta.persistence.lock.timeout` hint this paragraph relies on **never had any effect on PostgreSQL** — `PostgreSQLDialect.withTimeout` translates only `0` and `-2`, `supportsWait()` returns `false`, and hibernate-core never issues `SET lock_timeout`. Measured: a move waited 30.92 s on an in-flight pick and then succeeded. Bounds now come from `LockTimeoutHibernateJpaDialect` (`SET LOCAL lock_timeout`, `wms.tenant.lock-timeout-ms`, default 10 s) at tenant-transaction begin, **per lock acquisition** rather than per statement.
+
 TOCTOU reads, so the chain is already the reviewed version.
 
 ---

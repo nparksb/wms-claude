@@ -89,9 +89,37 @@ The new client is born correct: timezone-explicit schema, no v1 seed cruft, no c
 
 ### Why this is safe *here* specifically
 
-`flyway-core` is `<scope>test</scope>` in `v2/wms2-api/pom.xml` — **Flyway never runs in production**, and there is no `flyway_schema_history` on production tenant DBs (all migration is manual `psql`). Therefore:
+> ⚠️ **CORRECTED 2026-09-01 — the paragraph that stood here was false, and acting on it breaks a tenant permanently.**
+> It read: *"`flyway-core` is `<scope>test</scope>` … **Flyway never runs in production**, and there is no
+> `flyway_schema_history` on production tenant DBs (all migration is manual `psql`)."* All three clauses are wrong on
+> `main`, `release` **and** `develop`. `flyway-core` is **runtime** scope (SBDEV-2801; the pom comment reads *"Runtime
+> scope (was test)"*), `app.flyway.migrate-on-startup=true`, and `StartupFlywayMigrator` migrates the landlord plus
+> every active tenant DB **on every boot**. Production's own history proves it: `wh01_hydra_v2` took six migrations
+> within one second at 2026-08-26 15:26:43.
+>
+> **Why this mattered:** a tenant DB provisioned by hand with `psql` has a populated schema and **no**
+> `flyway_schema_history`. Tenant migrations run with `baselineOnMigrate(false)`, so that database is **skipped on
+> every boot, forever** — it never receives another schema change. The skip is logged at `ERROR` and counted into the
+> `stale_total` gauge, but **the boot stays green**, so nothing fails visibly. See
+> [`260901-wms2-multitenancy-readiness-audit.md`](../reports/260901-wms2-multitenancy-readiness-audit.md) §B5.
+>
+> **If you have already provisioned a DB this way**, repair it once with
+> `db/backfill-flyway-history.sh --dbname <db> --owner <tenant role> --up-to <applied watermark>`, after which every
+> deploy migrates it automatically.
 
-- There is **no checksum or baseline-version constraint** preventing a squashed baseline. Shipping `V2.0.00` cannot break any existing DB, because nothing replays migrations against existing DBs.
+Flyway **does** run in production, on every boot. A squashed greenfield baseline is still safe here, but for a
+narrower reason than the original text gave — a brand-new database is empty, so `baselineOnMigrate(false)` is
+satisfied by Flyway creating the history table from the first migration it applies. That reasoning holds **only**
+for a genuinely empty database. Therefore:
+
+- ⚠️ **CORRECTED 2026-09-01.** This bullet used to read: *"There is **no checksum or baseline-version constraint**
+  preventing a squashed baseline. Shipping `V2.0.00` cannot break any existing DB, because nothing replays migrations
+  against existing DBs."* Its premise was the false paragraph above, and **its conclusion is false too**. Flyway
+  replays against every active tenant DB on every boot and **does** validate checksums and versions, so introducing a
+  squashed `V2.0.00` into `db/migration/` would be validated against every existing tenant's
+  `flyway_schema_history` — the exact breakage the old bullet promised was impossible. A squashed baseline must
+  therefore live **outside** the runtime migration location, or be introduced with an explicit
+  `ignoreMigrationPatterns` / baseline plan per existing tenant. Do not ship one on this bullet's authority.
 - You are free to keep the historical scripts in the repo (they document provenance and still serve scenarios B/C) while routing greenfield onboarding to the squashed baseline.
 
 ---

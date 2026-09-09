@@ -128,7 +128,11 @@ run AC4   "AC-4 confirmPick skips STARTED when picked"     mvn_test_passes Picki
 run AC5   "AC-5/15 club emits RELEASE->STARTED->FINISHED"  mvn_test_passes CustomerorderBatchServiceUnitTest
 run AC15b "AC-15 historytote UUID stable / write once"     mvn_test_passes ManageOrderServiceUnitTest
 run AC3   "AC-3/10 cross-tick gate holds higher-id row"    mvn_verify_passes OutboxClaimOrderingIT
-run AC11  "AC-11 race-free concurrent enqueue + id-order"  mvn_verify_passes OutboxConcurrentEnqueueIT
+# 2026-09-09 (SBDEV-3258): the class now holds TWO tests — a concurrent one (no rollback, distinct
+# ids) and a sequential one carrying the id-order assertion, which is deterministic there. Both
+# clauses still run, so this row is still meaningful. It remains no evidence for §10.7's call-site
+# invariant, which no runtime test observes (see the plan's §10 item 7).
+run AC11  "AC-11 race-free concurrent enqueue + id-order (id-order now asserted sequentially)"  mvn_verify_passes OutboxConcurrentEnqueueIT
 run AC12  "AC-12/13 terminal hold + no leak/no stall"      mvn_verify_passes OutboxTerminalHoldIT
 run AC14  "AC-14 EXPLAIN uses aggregate_order index"       mvn_verify_passes OutboxClaimExplainIT
 run AC16  "AC-16 V2.1.14 applies + rerun-idempotent"       mvn_verify_passes OutboxMigrationV1124IT

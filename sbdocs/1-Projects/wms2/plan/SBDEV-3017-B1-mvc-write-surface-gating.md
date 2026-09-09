@@ -3926,6 +3926,11 @@ pins only `prePostEnabled`. Both families are live today with nothing asserting 
 
 All five (`@PreAuthorize`, `@PostAuthorize`, `@Secured`, `@RolesAllowed`, `@DenyAll`) are now checked.
 
+> ✔ **The general half was closed by SBDEV-3156 on 2026-09-01.** `securedEnabled` and `jsr250Enabled` are
+> now `false` and all three attributes are pinned; the four de-armed annotations are banned from `src/main`.
+> The narrative above is left intact — it is the measurement that created SBDEV-3156, and its present-tense
+> "live today" sentence is that ticket's origin statement.
+
 #### 9.27.2 The `SecurityFilterChain` is a SIXTH axis, invisible to every Spring-context test in this repo
 
 `SecurityConfiguration:157-160`, block C, is a plain prefix list. Adding `"/v3/client/**"` is a one-token

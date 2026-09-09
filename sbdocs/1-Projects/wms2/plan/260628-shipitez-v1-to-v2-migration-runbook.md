@@ -6,7 +6,7 @@ project: [wms2]
 version: v2
 requester: nam.park@siteboss.net
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-09-09
 db_verified: true
 related:
   - ../../../2-Areas/wms-utc-timezone-migration/README.md
@@ -22,9 +22,11 @@ tags: [plan, wms2, utc, migration, run-record, shipitez]
 > phases, gates, scripts, rollback matrix, and validated facts — lives in the SOP:
 > [**2-Areas/wms-utc-timezone-migration/README.md**](../../../2-Areas/wms-utc-timezone-migration/README.md).
 > This document holds **ShipItEZ's** specifics and (as it progresses) the results of each execution
-> against that SOP. As of 2026-06-28 **nothing has been executed** — only a read-only readiness check
-> (§3). The NY and LA conversion math is already proven by the Hydra (NY) and WineCo (LA) runs (SOP §5);
-> these runs inherit that, they do not re-prove it.
+> against that SOP. **Status: both tracks have executed Phases A–F.** NY §4.2 (2026-06-28, still valid —
+> not refreshed since). LA §4.1 (2026-06-28) was **discarded by a v1 data reload on 2026-09-09** and
+> re-completed in §4.4 — **read §4.4, not §4.1, for LA's current state.** The NY and LA conversion math is
+> already proven by the Hydra (NY) and WineCo (LA) runs (SOP §5); these runs inherit that, they do not
+> re-prove it.
 
 **Client:** ShipItEZ — **two warehouses, two databases, two separate runs**, each its own uniform source
 write-TZ. Per the SOP, one run per warehouse DB; this single record tracks both tracks:
@@ -49,9 +51,12 @@ write-TZ. Per the SOP, one run per warehouse DB; this single record tracks both 
    `America/New_York` in `application-shipitez_wh2.properties` (NY) and `America/Los_Angeles` in
    `application-shipitez_wh1.properties` (LA) — both env files match (§3). (The `user.timezone=LA` line in
    both is the JVM default, not the write path — ignore it.)
-2. **Both DBs are clean pre-bridge v1 snapshots.** Each has 0 timestamptz cols (91 `wtz`), 11 v1 reporting
-   views, and **none** of `outbox_message` / `rest_idempotency` / `customerorder_cancellation_log` /
-   `flyway_schema_history` / `API_TIMESTAMP_FORMAT`. Correct starting state — bridge + UTC not yet run.
+2. **Both DBs *were* clean pre-bridge v1 snapshots — as of 2026-06-28 only.** Each then had 0 timestamptz
+   cols (91 `wtz`), 11 v1 reporting views, and **none** of `outbox_message` / `rest_idempotency` /
+   `customerorder_cancellation_log` / `flyway_schema_history` / `API_TIMESTAMP_FORMAT`.
+   ⚠️ **Both are now migrated** (NY §4.2; LA §4.4) — do **not** read this row as current state. LA was
+   reloaded from v1 prod on 2026-09-09 and re-migrated the same day; a future reload returns it to the
+   v1 shape **and re-arms the `stock_history2` abort** (§4.4).
 3. **Re-id'd V2.1.08/09 no-op/insert cleanly on both** — syskey ids 140–143 are **free** in both DBs (§3),
    so the bridge inserts the stale-club/pick-path syskeys with no PK collision; no v1-compat branch.
 4. **seqentities differs by warehouse** — NY is a clean single island; **LA is a dual/multi-island id space
@@ -219,6 +224,82 @@ human phases G–K identical to Track B.
 
 ---
 
+### 4.4 Track B (LA, `wh01_shipitez_v2`) — DB REFRESHED + migration COMPLETED 2026-09-09
+
+The LA UAT DB was **reloaded from v1 production** (`wh01_shipitez`, prd host, MCP `wms1-shipitez1`)
+on 2026-09-09, which discarded the 2026-06-28 conversion (§4.1) and re-armed the `stock_history2`
+trap. A partial re-migration then ran at **04:52** — author/process unrecorded, **not** via this
+toolkit (no logs in any `WORK_DIR`). This session diagnosed and completed it.
+
+**State found at 13:15 (read-only probe).** The DB was ~85% migrated, **not** clean v1 as reported:
+
+| Aspect | Found | Verdict |
+|---|---|---|
+| Data | stockrecord 1,662,574 vs live v1 1,662,651 (77-row write drift), max_id within 4,343 | recent copy of v1 prod ✓ |
+| Bridge V2.1.01–16 | bridge tables, syskeys 139–145, OMS host `api-oms.uat.sbo.li`, `API_TIMESTAMP_FORMAT=LEGACY` | applied ✓ |
+| UTC tables + views V1.2.01–04 | 100 timestamptz / 3 naive, 11 views | applied ✓ |
+| **Conversion math** | v1 id `121606688` `2026-09-08 11:49:01.982` naive-LA → v2 `18:49:01.982+00` = **+7h PDT** | **correct ✓** |
+| **V1.2.05 functions** | all 4 still `timestamp without time zone` | **NOT applied ✗** |
+| **V2.2.01–23 deltas** | flyway history claimed all applied; 12+ demonstrably absent | **NOT applied ✗** |
+
+**Cause 1 — `V1.2.05` aborted on `stock_history2` again.** The v1 reload restored the client-custom
+`stock_history2`. Its `specific_name` is `stock_history2_<oid>`, which **matches V1.2.05's own
+assertion pattern** `specific_name LIKE 'stock_history%'` → the assertion raises, the transaction
+rolls back atomically, and **all four** functions stay naive. This is §4.1's deviation recurring;
+it will recur on **every** future v1 reload until the toolkit converts functions dynamically.
+
+**Cause 2 — `backfill-flyway-history.sh` was run WITHOUT `--up-to`.** All 24 rows (`V2.2.00`–`V2.2.23`)
+carry the *identical* microsecond `installed_on` (`04:52:39.157032`) — the backfill signature. The
+script's own header says: *"Cap the range with `--up-to` so you record exactly what was applied and
+no more."* Uncapped, it recorded 23 unapplied deltas as SUCCESS. Because **runtime Flyway is
+default-ON** ([[sbdev-2801-runtime-flyway-default-on]]), the app would have read that history, found
+nothing pending, and **never applied V2.2.01–23** — silent permanent drift, including the
+`V2.2.08`/`V2.2.12` transaction-report NULL-amount fix.
+
+Three independent proofs the history lied: every `V2.2.04–17` seeded sysprop absent (0 rows, with
+`los_sysprop` populated as positive control); `V2.2.03`'s four `replenishorder.moved_*` columns
+absent; `V2.2.02`'s `lock_overview_all_view` absent. **Positive control:** NY (`wh02_shipitez_v2`,
+not refreshed) had **4/4** of the same markers present where LA had 0/4 — so the absences were real,
+not a broken query.
+
+**Remediation (operator quiesced the app; sustained-zero gate 13:25:50→13:26:36, 4×15s reads).**
+
+| Step | Action | Result |
+|---|---|---|
+| backup | fresh `pg_dump -Fc` (June dumps predate the refresh → useless) | ✅ `shipitez_c1wh_pre_completion_20260909_1320.dump`, 315 MB, `pg_restore --list` 481 entries |
+| rewind | `EXTERNAL_BACKUP_DUMP` repointed from the nonexistent `wh01_shipitez.dump` to the real dump | ✅ `00-restore.sh` usable for the first time on this client |
+| 1 | `V1.2.05a__convert_stock_history2_CLIENT.sql` — **converted** (not dropped) `stock_history2` to timestamptz; body verbatim from `pg_get_functiondef`, only the param type changed | ✅ |
+| 2 | `schema/V1.2.05` — 3 standard fns, DROP naive + CREATE timestamptz | ✅ |
+| 3 | `V2.2.01`…`V2.2.23` in order via psql (`V2.2.00` skipped — the bridge supplied that watermark) | ✅ 23/23 |
+| verify | `verify-completion.sql` | ✅ **27/27 PASS** |
+| bookkeeping | corrected `installed_on`/`installed_by` for the 23 rows (versions/checksums untouched) | ✅ |
+| validate | independent `flyway validate` + `info` against the tenant DB | ✅ 24 migrations valid, schema `2.2.23`, **0 pending** |
+
+**Row-count invariant:** all six data tables **+0** (stockrecord 1,662,574 · unitload_record 872,906 ·
+inventory_record 3,368,286 · pickingorder_position 264,179 · customerorder 107,201 · replenishorder
+5,417). Only the seed tables grew: `los_sysprop` +17, `mywms_function` +2,
+`mywms_role_mywms_function` +29. (The June `baseline_rowcounts.csv` is **not** a valid comparison for
+this run — it predates the refresh by 2.5 months.)
+
+> **Why convert `stock_history2` rather than drop it (§4.1 dropped it).** Its only use of the
+> parameter is `sr.modified > $1` / `bp.modified > $1`. Those columns are now timestamptz, so a naive
+> parameter forces an implicit cast of `$1` through the **session** TimeZone — a silent,
+> session-dependent shift of the report boundary. Converting removes that bug; dropping would only
+> re-arm the abort on the next reload.
+
+**Artifacts:** `/home/nampark/data/migration/tmp/shipitez-c1wh-completion-20260909/`
+(`V1.2.05a__convert_stock_history2_CLIENT.sql`, `apply-completion.sh`, `verify-completion.sql`,
+`apply.log`, `verify-out.txt`, `pre/post_apply_rowcounts.csv`, `wait-quiesce.sh`).
+
+**Remaining (human):** Phase G scale-up · Phase H `09-smoke` + go/no-go · Phase I frontends ·
+Phase J `API_TIMESTAMP_FORMAT`→`ISO8601_UTC` (≥1 stable day) · Phase K drop `rest_idempotency_predrain`.
+
+**Two toolkit/process fixes this run earns (see §5):** the refresh procedure must cap the backfill
+with `--up-to`, and `V1.2.05` should convert `public` functions dynamically instead of a fixed list
+of 3.
+
+---
+
 ## 4.3 Planned phase flow (per SOP §3)
 
 Same flow for both tracks (NY uses `_America_New_York` variants; LA uses the `db/migration` originals):
@@ -261,6 +342,20 @@ production budget):**
   alignment script at `data/migration/shipitez/change-db-owner.sql` (run as `postgres`).
 - **LA seqentities review (§3.1):** likely inherited Hydra UAT seed data — re-check on the real prod DB;
   not a UTC blocker.
+- ✅ **Recovery point — CLOSED for LA 2026-09-09.** `EXTERNAL_BACKUP_DUMP` now points at a real, verified
+  dump (`shipitez_c1wh_pre_completion_20260909_1320.dump`, 315 MB); `00-restore.sh` works. **NY still has
+  the nonexistent `wh02_shipitez.dump` path** — fix before any NY re-run.
+- 🔧 **PROCESS FIX (owner: whoever runs the UAT refresh).** The 2026-09-09 refresh ran
+  `backfill-flyway-history.sh` **without `--up-to`**, recording 23 unapplied deltas as SUCCESS. With
+  runtime Flyway default-ON that silently freezes the tenant at the bridge watermark forever. The refresh
+  procedure must either cap the backfill at the watermark actually applied (`--up-to 2.2.00`) and let the
+  app's Flyway apply the rest, **or** apply `V2.2.01+` for real before backfilling. Detect with: every
+  `installed_on` sharing one microsecond ⇒ a backfill, not a run.
+- 🔧 **TOOLKIT FIX — `V1.2.05` should convert `public` functions dynamically.** It converts a hard-coded
+  list of 3 and then asserts over the *pattern* `specific_name LIKE 'stock_history%'`, which its own fixed
+  list cannot satisfy when a client-custom sibling exists. This has now aborted Phase F **twice** on the
+  same DB (2026-06-28 §4.1, 2026-09-09 §4.4) and will recur on every v1 reload. `01-preflight` should also
+  flag non-standard `public` functions. (§4.1 already logged this as a candidate; it has now recurred.)
 - **PREP-9 landlord `tenant_discovery.timezone`** per warehouse (NY / LA). OMS host already `api-oms.uat.sbo.li`.
 - **PREP-6 on each DB host:** the MCP probe can't see host disk — measure on the real host (both DBs are
   small, but measure).

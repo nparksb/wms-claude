@@ -101,6 +101,14 @@ check "control: userRole ALLOWED for admin"      200 "$T_ADM" "userRole"
 # Two rows moving to 405 while two stayed at 404 was the correct outcome, not a partial failure. Had all
 # four moved, something would have withdrawn a resource that a screen writes to.
 #
+# 🔴 SUPERSEDED 2026-09-04 (SBDEV-3183). `client` and `sysprop` are still on the must-stay-writable
+# list — nothing above was wrong about the RESOURCE — but the specific VERBS these two rows probe were
+# each independently found to have zero legitimate caller and were withdrawn (item DELETE for client,
+# item PATCH for sysprop), while each resource's real live verb (client PATCH, sysprop PUT/DELETE)
+# stays open. "Must stay writable" was never the same claim as "every verb on it stays open" — see the
+# 2026-09-04 note further below for what actually changed and why one of these two rows can no longer
+# prove what its name says.
+#
 # Corroborated the same run by OPTIONS Allow, read in the NEGATIVE direction only (see the caveat below):
 #   /v3/itemdata/{id}  ->  HEAD,GET,OPTIONS                     write verbs gone
 #   /v3/client/{id}    ->  HEAD,DELETE,GET,OPTIONS,PUT,PATCH    write verbs retained
@@ -113,6 +121,24 @@ check "control: userRole ALLOWED for admin"      200 "$T_ADM" "userRole"
 #
 # Account choice is load-bearing here exactly as it is above: `sbtest` is a plain wms_user. If these
 # rows are run as `panderson` they prove nothing, because he holds every function.
+#
+# 🔴 STRUCTURAL BLIND SPOT, found re-running this script live on 2026-09-04 (SBDEV-3183): a
+# nonexistent-id probe CANNOT distinguish "withdrawn" from "open" for PATCH, ever — regardless of
+# what RestConfiguration says. Traced to spring-data-rest-webmvc 4.5.7's argument resolution, not the
+# controller body: PersistentEntityResourceHandlerMethodArgumentResolver.read() has a PATCH branch —
+#   objectToUpdate.map(it -> readPatch(...)).orElseThrow(() -> new ResourceNotFoundException())
+# — which throws 404 during ARGUMENT RESOLUTION, before patchItemResource's body (and its
+# verifySupportedMethod(PATCH, ITEM) call) ever runs. So a withdrawn PATCH and an open-but-missing-row
+# PATCH are indistinguishable by this technique: both 404. This is NOT true for PUT (the same
+# resolver's PUT branch falls back to a plain read() for a missing id instead of throwing, so
+# putItemResource's body — and its verifySupportedMethod / verifyPutForCreation checks — always runs)
+# or DELETE (no request-body argument at all, so verifySupportedMethod runs unconditionally first).
+# Net: a nonexistent-id probe is reliable for PUT and DELETE, and NOT reliable for PATCH. Do not add a
+# new PATCH-vs-missing-id row expecting it to catch a withdrawal — it structurally cannot. Verifying a
+# PATCH withdrawal live needs a probe against a REAL existing row with an idempotent body (this file's
+# existing rows deliberately avoid that shape for safety — see above); the reliable check for a PATCH
+# withdrawal in this codebase is the unit-test level pin against ResourceMetadata.getSupportedHttpMethods(),
+# not this script.
 
 echo "  --- SBDEV-3157: SDR write half WITHDRAWN on dev; reads + 11 kept-writable still ungated ---"
 
@@ -130,12 +156,52 @@ check  "non-admin: SDR sysprop list STILL OPEN"   200 "$T_NON" "sysprop?size=1"
 
 # The writes, post-withdrawal. 47 of the 58 writable resources had their write verbs removed; the other
 # 11 kept theirs because a UI writes to them at their SDR path, and those close only via the gate.
+#
+# RE-MEASURED ON DEV 2026-09-04 (SBDEV-3183 item-verb sweep, PRs #290/#295/#297/#299/#300, deployed
+# build develop-529444c7). Both rows below moved or were reclassified since the 2026-08-29 baseline:
+#   client  DELETE  404 -> 405   CONFIRMED LIVE. `client` item DELETE was withdrawn — audited to zero
+#                                legitimate callers in either UI or OMS (SBDEV-3183 item-verb sweep,
+#                                PR #295). `client` item PATCH stays open (editShipper.vue); this row
+#                                only ever probed DELETE, so the row's own claim was always narrower
+#                                than "client is writable" — it is now correctly 405.
+#   sysprop PATCH   404 == 404   OBSERVED UNCHANGED, but the claim this row's name made ("UNGATED") is
+#                                now WRONG, not merely stale. Sysprop item PATCH WAS ALSO withdrawn by
+#                                the same sweep (zero legitimate PATCH caller — the two live writers,
+#                                editParamAndConfig/editWarehouseDetail, are both PUT) — but per the
+#                                structural-blind-spot note above, a nonexistent-id PATCH probe cannot
+#                                observe that; it would read 404 whether PATCH is withdrawn or not.
+#                                Renamed to say what this row actually establishes.
 checkm "non-admin: SDR itemdata DELETE WITHDRAWN"  405 "$T_NON" DELETE "itemdata/999999999"
 checkm "non-admin: SDR stockunit DELETE WITHDRAWN" 405 "$T_NON" DELETE "stockunit/999999999"
-checkm "non-admin: SDR client DELETE UNGATED"      404 "$T_NON" DELETE "client/999999999"
-checkm "non-admin: SDR sysprop PATCH UNGATED"      404 "$T_NON" PATCH  "sysprop/999999999" '{}'
+checkm "non-admin: SDR client DELETE WITHDRAWN"    405 "$T_NON" DELETE "client/999999999"
+checkm "non-admin: SDR sysprop PATCH (probe blind to withdrawal — see note above)" \
+                                                    404 "$T_NON" PATCH  "sysprop/999999999" '{}'
+
+# ── SBDEV-3183 · PUT-for-creation (ExposureConfiguration.disablePutForCreation). Added 2026-09-04. ──
+#
+# Closes a DIFFERENT bypass than the DELETE/PATCH rows above: PUT /v3/<resource>/{unused-id} on a type
+# whose item PUT stays open (boxtype, sysprop, userGroup, userRole all keep item PUT for their real UI
+# callers) reaches the identical unguarded creation path a whole-representation POST would have, unless
+# ExposureConfiguration.disablePutForCreation() is set for that type (PR #300). Unlike the PATCH row
+# above, a nonexistent-id probe IS reliable here: spring-data-rest-webmvc 4.5.7's argument resolver
+# degrades gracefully for a missing id on PUT (no ResourceNotFoundException, unlike PATCH), so
+# putItemResource's body — and its verifyPutForCreation() check — always runs regardless of whether the
+# id exists. 405 here means the check fired before anything could be created; unlike this file's other
+# rows, a WRONG result on this one (200/201) would mean a real row was created at a Hibernate-assigned
+# id, not literally 999999999 — @GeneratedValue(strategy = SEQUENCE) overwrites the URL id.
+#
+# MEASURED ON DEV 2026-09-04, immediately before and after, via direct DB query (dev_wh01_om1 / wineco
+# wsl): boxtype/los_sysprop/mywms_group/mywms_role count and max(id) were read before this block ran and
+# confirmed byte-identical after — all four blocked with zero rows created, corroborating the 405s
+# below rather than trusting the HTTP status alone.
+checkm "non-admin: SDR boxtype PUT-for-creation WITHDRAWN"   405 "$T_NON" PUT "boxtype/999999999"   '{}'
+checkm "non-admin: SDR sysprop PUT-for-creation WITHDRAWN"   405 "$T_NON" PUT "sysprop/999999999"   '{}'
+checkm "non-admin: SDR userGroup PUT-for-creation WITHDRAWN" 405 "$T_NON" PUT "userGroup/999999999" '{}'
+checkm "non-admin: SDR userRole PUT-for-creation WITHDRAWN"  405 "$T_NON" PUT "userRole/999999999"  '{}'
 
 echo "  ---"
 echo "  Result: $pass pass, $fail fail"
 echo "  NOTE: a PASS on an *_UNGATED or *_STILL_OPEN row confirms the EXPOSURE, not a healthy system."
+echo "  NOTE: the sysprop PATCH row's 404 is NOT evidence of exposure — see the 2026-09-04 note above;"
+echo "        PATCH withdrawal cannot be observed by a nonexistent-id probe. Trust the unit tests for it."
 [ "$fail" -eq 0 ] || exit 1

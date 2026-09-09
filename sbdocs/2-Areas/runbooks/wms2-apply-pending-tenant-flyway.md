@@ -6,8 +6,8 @@ version: "wms2-api develop (dev) / release (uat) / main (prd)"
 scope: wms2-api v2 / DEV + UAT + PRODUCTION
 owner: nam.park@siteboss.net
 created: 2026-07-27
-updated: 2026-07-30
-last_verified: 2026-07-30
+updated: 2026-09-01
+last_verified: 2026-09-01
 verified_by: nam.park@siteboss.net
 alert: "Deploy prerequisite — schema behind the environment's branch; 500s on replenishment monitor / lock report; 'column does not exist' after deploy"
 severity: SEV3
@@ -23,6 +23,33 @@ tags:
   - production
   - multi-tenant
 ---
+
+> ## ⚠️ NOTE 2026-09-01 — the branch is right; the branch HEAD is not the deployed image
+>
+> **PRD does track `main`** (promotion flow: `develop` → `release` → `main`). An earlier edit to this
+> runbook claimed prd tracked `release` — that was **wrong and has been reverted**, along with the
+> matching change to `apply-pending-tenant-flyway.sh`. The claim came from a snapshot taken
+> mid-promotion and is a good illustration of the real hazard below.
+>
+> **The real hazard: `origin/main` HEAD and the running production image drift in BOTH directions,
+> within a single day.** Measured 2026-09-01:
+>
+> | Time | prd running (`/api/public/version`) | `origin/main` HEAD | Relationship |
+> |---|---|---|---|
+> | ~15:00 | wms2-api **0.0.21** (V2.2.21) | v0.0.17 (V2.2.16) | main **BEHIND** prd by 5 migrations |
+> | ~16:30 | wms2-api **0.0.21** (unchanged) | v0.0.22 (V2.2.23) | main **AHEAD** of prd |
+>
+> `main` lagged because the promotion merge had not run yet; two hours later it led because the
+> deploy had not run yet. **Neither direction is an error — both are normal mid-cycle states.**
+>
+> Why it matters here: `--status` computes the pending set from the checkout's migration files. If
+> the checkout leads the deployed image you get an **over**-report (safe, noisy). If it lags, you get
+> an **under**-report — the silent direction §4.4 warns about, and the state that existed at 15:00.
+>
+> **So before any `--env prd` run:** read `https://wms-api.sbo.li/api/public/version`, and check out
+> the tag matching that version rather than assuming `origin/main` HEAD is what production runs. The
+> branch guard proves you are on the right *branch*, never on the right *commit*.
+
 
 # Runbook: Apply pending tenant Flyway scripts (DEV / UAT / PRD)
 
@@ -107,7 +134,8 @@ tags:
   `25062` / `25061`). The host/port must be rewritten — the driver script does this from the
   `--env` profile, overridable via `--tenant-host/--tenant-port`.
 - **Each environment tracks its own branch** (`develop` on DEV, `release` on UAT, `main` on
-  PRD), so "the migration set" is branch-dependent. A checkout on the wrong branch produces a
+  PRD), so "the migration set" is branch-dependent. See the banner at the top: the branch is right,
+  but its HEAD is not necessarily the deployed commit. A checkout on the wrong branch produces a
   wrong pending list in the dangerous direction — see §4.4 and §8.6.
 - **The landlord role is not the same everywhere.** DEV/UAT use `wms_landlord`; PRD uses
   **`wms2_landlord_app`** against a landlord DB named **`wms2_landlord`**. Both the DB name and

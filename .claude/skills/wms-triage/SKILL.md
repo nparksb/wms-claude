@@ -238,6 +238,46 @@ join table as its denominator, hiding the 44 users who hold no group — a facto
 direction that understated the exposure. **When two instruments disagree, that disagreement IS the
 finding**, not an inconvenience to resolve by picking one.
 
+**Corollary 2 — a scan whose expected answer is ZERO must carry a positive control.** A broken instrument
+and a true zero are indistinguishable, and the failure is silent in the direction that confirms whatever you
+were hoping. Add one probe to the same scan whose answer you already know to be non-zero; if the control
+does not come back, the zero means nothing.
+
+Measured on SBDEV-3156, where the zero was the whole basis for the decision. A bytecode scan for five
+method-security annotations returned `0` for all five — including `@PreAuthorize`, which has 38 uses. The
+cause: **`grep` on this workspace is `ugrep`, not GNU grep, and it silently SKIPS binary files unless `-a`
+is passed**, exiting 1 exactly as a genuine no-match does. So:
+
+- **`grep -r` over `.class`, `.jar`, or any binary needs `-a`.** Without it you get a confident, clean,
+  wrong zero. `git grep` is unaffected (it is git's own implementation, and its targets are text).
+- Note the near-miss: the false zero pointed at the *same conclusion* as the true answer. It would have
+  shipped as the measurement justifying the change, and nothing downstream would have caught it. A positive
+  control is the only thing that separates those two cases.
+
+This generalises past grep. Any negative result — an empty result set, a passing pure-negative test, a
+`0 rows` DB query — carries the same burden, which is the same reason the ArchUnit rules in this repo put
+their non-vacuity guard on the set **scanned** rather than the set **found**.
+
+**And it extends past zero: a scan whose expected answer is *"only these"* needs a control too.** This is
+the same rule, and missing it is how the discipline gets applied unevenly — measured on SBDEV-3156, where a
+review lane found the pattern before the author did. Everything measured *inside* `src/main` was taken with
+two instruments and a positive control and came back exact. The two claims that broke were both about
+things **outside** it, where the instrument was single and uncontrolled:
+
+- *"the descriptors appear in only spring-security-core's four processor classes and resteasy-core"* — a
+  second scan of the same 304 jars, matching the bare class-name form instead of the annotation descriptor
+  form, returned **4 jars, not 2**. Neither run was wrong; they answered different questions. The material
+  conclusion (nothing **carries** one) survived, the enumeration did not.
+- *"committed on no branch — checked every remote ref"* — the check swept refs for a **path**. The thing it
+  was looking for had been **renamed**, so it existed on `origin/develop` the whole time and the sweep
+  reported the literal truth about that path while being completely wrong about the world.
+
+So: an enumeration offered as closed (*only*, *exactly these*, *nowhere else*) must say **what it matched**
+— the exact string, the exact axis — because a second instrument matching a *different* spelling of the same
+idea will legitimately disagree, and that disagreement looks like a contradiction when it is really two
+answers to two questions. **And a path-shaped or name-shaped search cannot establish absence of a thing that
+can be renamed**; use `git log --all --follow`, or search for the invariant the thing asserts, not its name.
+
 
 ## Ticket policy — findings go on the ticket you are already in
 
@@ -249,7 +289,9 @@ That is the whole rule. Everything below is how to apply it, not additional hurd
 
 - **"The existing ticket" means the one you are working in.** You no longer have to find a code-path sibling before a finding has somewhere to go. Add it to the ticket that surfaced it, as a comment naming `file:line`, the tier of the added scope, and what a fix would involve.
 - **Tier the ADDED scope on its own** — not the combined ticket, and not the host's existing tier. Ten more endpoints on a gating ticket is T3 work whether or not the host already says T3.
-- **T3 additions are proposed, never filed.** Authorization · data integrity · a Flyway migration · multi-repo · irreversible · root cause unknown. A T3 addition is not an addendum, it is a second project wearing the first one's number, and it silently re-tiers a ticket someone picked up as an afternoon's work. State the finding, say it is T3 and why, and let Nam decide. Hard cap of **one proposed ticket per fix visit**.
+- **T3 additions are proposed, never filed.** Authorization · data integrity · a Flyway migration · multi-repo · irreversible · root cause unknown. A T3 addition is not an addendum, it is a second project wearing the first one's number, and it silently re-tiers a ticket someone picked up as an afternoon's work. State the finding, say it is T3 and why, and let Nam decide.
+
+  **No cap on how many you propose (Nam, 2026-09-07 — the previous "one per fix visit" is withdrawn).** The cap was aimed at proposal *spam*; what it actually produced was proposal *suppression*. A visit that genuinely surfaces four T3 findings should report four — dropping three of them to satisfy an arithmetic limit loses exactly the findings the visit was for, and they are not recovered later because nothing remembers them. The real discipline is unchanged and is about quality, not count: **every proposal names its evidence, its blast radius, and what it would cost** — and a proposal you cannot ground in a `file:line`, a query result or a measured run is not a proposal, it is a hunch, and those still do not get written down. Rank them; say which one you would do first and why.
 - **The filing test still applies to the T3 branch: would you accept a standalone PR for it?** If no, it is a comment, not a ticket — even at T3.
 - **Never drop a finding to stay tidy.** A finding recorded only in a plan **dies when that plan is archived**; that is why findings belong on tickets. The lever is fewer *tickets* per finding, not fewer findings.
 - Correcting a stale citation or line number in an existing ticket is always free — do it.

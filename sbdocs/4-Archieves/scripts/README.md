@@ -21,6 +21,7 @@ Acceptance / verification harnesses (`verify-<plan-id>.sh`) whose paired plan ha
 
 | Verification script | Archived plan |
 |---|---|
+| `verify-260420-v2-port-plpgsql-functions-to-java-prekickoff.sh` | [260420-v2-port-plpgsql-functions-to-java](../wms2/plan/260420-v2-port-plpgsql-functions-to-java.md) — plan **superseded** by SBDEV-3239, not completed; this was a pre-kickoff baseline gate |
 | `verify-260520-content-derived-idempotency-key.sh` | [260520-content-derived-idempotency-key](../wms2/plan/260520-content-derived-idempotency-key.md) |
 | `verify-260520-picking-finished-oms-notification-fix.sh` | [260520-picking-finished-oms-notification-fix](../wms2/plan/260520-picking-finished-oms-notification-fix.md) |
 | `verify-260521-customerorderbatchservice-runclubline-self-invocation-tx-fix.sh` | [260521-customerorderbatchservice-runclubline-self-invocation-tx-fix](../wms2/plan/260521-customerorderbatchservice-runclubline-self-invocation-tx-fix.md) |

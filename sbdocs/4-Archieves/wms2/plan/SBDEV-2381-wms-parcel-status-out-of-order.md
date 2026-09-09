@@ -339,7 +339,7 @@ Then delete the three Phase 4 calls (797–799) and **retire all three** depreca
 | 9 | Cache invalidation | No | `outbox_message` not cached |
 | 10 | External notifications (OMS) | No | POST stays after-claim, no tx; sequential dispatch preserved; `event_version` added |
 
-**Evidence (Yes rows):** #6/#8 — id-allocation race-freedom proven by AC-11 (2-thread Testcontainers, asserts per-CO id-monotonicity under concurrency); cross-tick + terminal correctness by AC-12/AC-13.
+**Evidence (Yes rows):** #6/#8 — id-allocation race-freedom proven by AC-11 (2-thread Testcontainers). ⚠️ **Corrected 2026-09-09 — read this, my earlier annotation was wrong.** I annotated these rows saying SBDEV-3280 *withdrew* AC-11's second clause. **It did not.** SBDEV-3258 (PR #326, merged to `develop` the same day) fixed the same flake first and better: it **split the class into two tests** — a concurrent one with no ordering assertion, and a new `sequentialEnqueue_earlierRowGetsLowerId` which enqueues sequentially and keeps the `isLessThan` assertion, where it is deterministic. **Both AC-11 clauses are still implemented**; the id-monotonicity one simply moved to a setup that can actually guarantee the order. The "under concurrency" wording is still wrong — the ordering is now asserted SEQUENTIALLY — and race-freedom itself rests on BIGSERIAL plus `outbox_message_pkey`, not on that test; cross-tick + terminal correctness by AC-12/AC-13.
 
 ### v2-only constraint checklist
 
@@ -369,7 +369,7 @@ Then delete the three Phase 4 calls (797–799) and **retire all three** depreca
 | Test class | Asserts | AC |
 |---|---|---|
 | `OutboxClaimOrderingIT` | claim returns id-ordered; cross-tick gate holds higher-id FINISHED while lower-id STARTED is PENDING/IN_FLIGHT | AC-3, AC-10 |
-| `OutboxConcurrentEnqueueIT` | 2 threads (confirmPick/finishPicking + reenqueue) enqueue for same CO → no rollback, no lost notification; **STARTED gets the lower id (per-CO id-monotonicity under concurrency)** | AC-11 |
+| `OutboxConcurrentEnqueueIT` | 2 threads enqueue for same CO → no rollback, no lost notification. ⚠️ **SBDEV-3258 split this class into two tests (2026-09-09).** The concurrent test keeps the no-rollback/distinct-ids half; a new sequential test `sequentialEnqueue_earlierRowGetsLowerId` carries "STARTED gets the lower id", where the ordering is established by the setup rather than raced for. Both clauses implemented | AC-11 |
 | `OutboxTerminalHoldIT` | STARTED→FAILED_TERMINAL (HTTP 400 stub) ⇒ FINISHED held, NOT dispatched; stuck-aggregate alert/metric fires; FINISHED-only CO (no STARTED) still dispatches | AC-12, AC-13 |
 | `OutboxClaimExplainIT` | `EXPLAIN (ANALYZE)` on claim+gate uses `index_outbox_message_aggregate_order` (no seq scan), probing IN_FLIGHT/FAILED_TERMINAL | AC-14 |
 | `OutboxMigrationV1124IT` (class name retains the historical "V1124" label) | V2.1.14 applies cleanly on a fresh Testcontainers schema AND is idempotent on a simulated failed-rerun (INVALID index → DROP IF EXISTS recovers) | AC-16 |
@@ -406,7 +406,7 @@ Then delete the three Phase 4 calls (797–799) and **retire all three** depreca
 | Backward STARTED gets a higher id and OMS accepts it as newer | Low | High | Fix F-ii enqueue-time skip is the dispatch-side guard; OMS stale-rejection (paired ticket) is the backstop; documented SPOF. |
 | Retiring 3 dispatchers breaks an un-audited caller | Low | Med | grep confirms only Phase 4 (797–799) calls them; verify-script NEGATIVE check on all 3 names. |
 | Double tote-label write / `historytote` UUID overwrite | Low | Med | `buildPickedPayloadJson` once per club CO; STARTED uses `buildPickingStartedPayloadJson`; AC-15 asserts UUID stability. |
-| id-ordering silently breaks if a future caller enqueues a CUSTOMER_ORDER event without the CO `FOR UPDATE` lock | Low | High | **Load-bearing invariant documented in §10**; AC-11 asserts per-CO id-monotonicity under concurrency to guard regressions. |
+| id-ordering silently breaks if a future caller enqueues a CUSTOMER_ORDER event without the CO `FOR UPDATE` lock | Low | High | **Load-bearing invariant documented in §10**. ⚠️ **The stated mitigation does not cover this risk (2026-09-09).** AC-11's id-monotonicity assertion still exists (moved to a sequential test by SBDEV-3258), but it never guarded THIS risk: the test holds no CO row lock and calls no production Java code, so it cannot observe a future caller enqueueing without the lock. **This risk is effectively UNMITIGATED** — not because the assertion went, but because it never reached the call sites. A static call-site rule is proposed on SBDEV-3280. |
 
 Verify script: `sbdocs/9-System/scripts/verify-SBDEV-2381-wms-parcel-status-out-of-order.sh`.
 
@@ -434,7 +434,7 @@ Verify script: `sbdocs/9-System/scripts/verify-SBDEV-2381-wms-parcel-status-out-
 4. **Backward transition into Picking is ALWAYS invalid.** **PRIMARY guard = the WMS enqueue-time skip** (Fix F-ii: don't emit a backward STARTED). The monotonic `id`/event_version is a best-effort ordering signal that also enables OMS replay/stale-rejection — it is **NOT** the primary guard (R7; the earlier "sequence is the primary guard" framing was fail-open and is withdrawn).
 5. **Ordering key = existing `id` (BIGSERIAL), not a synthetic sequence** (R1/R6). Removes the MAX+1 race wholesale.
 6. **Cross-tick gate is FAIL-CLOSED** (R2): a `FAILED_TERMINAL` lower-`id` sibling HOLDS later events; held aggregates are alerted (stuck-aggregate metric), never silently regressed and never silently forever-stalled.
-7. **Load-bearing invariant (N1):** per-CO `id` ordering is guaranteed by the CO `findByIdForUpdate` lock serializing the STARTED producer (`confirmPick:528/618`) and FINISHED producer (`finishPickingOrder:192`). **Any future CUSTOMER_ORDER enqueue that does not hold the CO row lock silently reintroduces the 43% inversion.** AC-11 guards this under concurrency.
+7. **Load-bearing invariant (N1):** per-CO `id` ordering is guaranteed by the CO `findByIdForUpdate` lock serializing the STARTED producer (`confirmPick:528/618`) and FINISHED producer (`finishPickingOrder:192`). **Any future CUSTOMER_ORDER enqueue that does not hold the CO row lock silently reintroduces the 43% inversion.** AC-11 guards this under concurrency. ⚠️ **Overstated, and arguably never true.** `OutboxConcurrentEnqueueIT` holds no CO row lock and calls no production Java code (its `enqueue()` is hand-written SQL), so it never observed this invariant. Its id-ordering assertion originally raced two unserialized threads and asserted the ordering §10.7 promises only *under the lock* — constructing the very scenario this sentence warns about, and reddening CI intermittently. SBDEV-3258 moved that assertion to a **sequential** test where it is deterministic, so the assertion survives; what does NOT survive is the claim that it guards §10.7 "under concurrency". §10.7's invariant is call-site discipline, which no runtime test can observe; a static rule is proposed on SBDEV-3280.
 
 ### Open Questions / Risks to track
 
@@ -492,7 +492,7 @@ Verify script at `sbdocs/9-System/scripts/verify-SBDEV-2381-wms-parcel-status-ou
 - **AC-6** emitted POST carries `event_version == outbox row id` (dispatcher-injected).
 - **AC-8** regression: simulate the observed pair (id 49/50) → dispatch STARTED→FINISHED.
 - **AC-10** cross-tick: FINISHED not claimed/sent while a lower-`id` STARTED is still PENDING/IN_FLIGHT.
-- **AC-11** concurrent enqueue (confirmPick/finishPicking + reenqueue) on the SAME CO never rolls back a legit notification (id race-free; no UNIQUE) **and STARTED gets the lower `id` (per-CO id-monotonicity under concurrency — guards the §10.7 invariant).** Testcontainers, 2 threads.
+- **AC-11** concurrent enqueue (confirmPick/finishPicking + reenqueue) on the SAME CO never rolls back a legit notification (id race-free; no UNIQUE) **and STARTED gets the lower `id`.** Testcontainers, 2 threads. ⚠️ **Restructured 2026-09-09 (SBDEV-3258):** the second clause no longer runs "under concurrency" — it moved to a sequential test where the ordering is established rather than raced for. Both clauses are implemented; only the concurrency framing of the second was wrong.
 - **AC-12** STARTED→FAILED_TERMINAL (HTTP 400 stub) ⇒ FINISHED NOT dispatched ahead; stuck-aggregate alert fires.
 - **AC-13** FINISHED-only CO (STARTED skipped, R3 case a) dispatches normally; STARTED-went-terminal CO (R3 case b) is held+alerted, never silently forever-stalled.
 - **AC-14** `EXPLAIN(ANALYZE)` on claim+gate uses `index_outbox_message_aggregate_order` (no seq scan), probing IN_FLIGHT/FAILED_TERMINAL.

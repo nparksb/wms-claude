@@ -1,7 +1,8 @@
 # TDD-Gate Scaffold — P3 "Replace pg_advisory_lock for test portability" (v2/wms2-api)
 
 Pre-implementation scaffold for plan
-`sbdocs/1-Projects/wms2/plan/260421-v2-replace-pg-advisory-lock.md`.
+`sbdocs/4-Archieves/wms2/plan/260421-v2-replace-pg-advisory-lock.md` (archived 2026-09-08 —
+**superseded** by SBDEV-3239, not delivered; read its archive note before using this scaffold).
 Nothing here has been copied into `v2/wms2-api/src/`; no `mvn` was run. This directory mirrors the
 eventual `src` layout so the files are copy-ready. The gate is **RED** until P3 is implemented;
 **GREEN == acceptance** of the §6 criteria.

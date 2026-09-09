@@ -380,7 +380,9 @@ Same applies to `MessageService.createMessageInNewTransaction`: a `Message` row 
 
 ### 10.5 Pessimistic locks with no timeout can exhaust the connection pool
 
-All 5 `PESSIMISTIC_WRITE` repositories have no `jakarta.persistence.lock.timeout` hint. Under concurrent picking or BOL close, threads queue on the row lock and hold their HikariCP connections. Once the pool is exhausted, new requests fail with connection-acquire timeouts. v2 addressed this on two of the five repositories; v1 has no mitigation.
+All 5 `PESSIMISTIC_WRITE` repositories have no `jakarta.persistence.lock.timeout` hint. Under concurrent picking or BOL close, threads queue on the row lock and hold their HikariCP connections. Once the pool is exhausted, new requests fail with connection-acquire timeouts.
+
+> ⚠ **CORRECTED 2026-09-07 (SBDEV-3250).** This used to end "v2 addressed this on two of the five repositories; v1 has no mitigation" — implying a v1/v2 gap that did not exist. v2's hints were **inert**: PostgreSQL has no `FOR UPDATE … WAIT n`, and Hibernate's dialect discards every value but `0` and `-2`. Until SBDEV-3250, v1 and v2 had the **same** unbounded wait; v2 merely documented a bound it did not have, which is worse than v1's silence because it stopped anyone looking. v2 now bounds every tenant lock wait at the transaction manager (`SET LOCAL lock_timeout`); **v1 still has no mitigation**, and a per-query hint ported from v2 would not give it one.
 
 **Diagnosis**: connection pool exhaustion during high-throughput picking windows; `HikariPool-1 - Connection is not available` in logs.
 

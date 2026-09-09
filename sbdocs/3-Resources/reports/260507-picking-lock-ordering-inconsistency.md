@@ -213,6 +213,9 @@ This recommendation does NOT trigger a downstream `wms-bugfix-plan`, so no `veri
 3. **Cron `releaseOrder` interaction:** `ReleaseOrderJobService.releaseOrder` (line 107) takes a CO `findByIdForUpdate` inside `@Transactional(REQUIRES_NEW)` per order. If the cron fires at the moment a `processPick` is mid-flight on a child PO of the same CO, the cron's CO lock blocks until processPick commits. This is normal blocking, not deadlock — but worth noting if the cron is observed timing out.
 4. **PostgreSQL `lock_timeout` setting:** Verified 2026-05-07 via grep across `v2/wms2-api/src/main/resources/` and `v2/wms2-api/src/main/java/net/aim_ai/wms/landlord/` — **no `lock_timeout` or `lockTimeout` configured anywhere in v2.** PostgreSQL default applies (i.e., `lock_timeout` = 0 → wait indefinitely until `deadlock_timeout` fires at default 1s for true deadlocks). A non-zero `lock_timeout` would surface contention earlier and convert hang-into-deadlock-detection into hang-into-fast-retry. Out of scope for this investigation; flagging for SRE consideration if Q1 (production-log evidence) shows non-trivial contention.
 
+> ⚠ **WITHDRAWN 2026-09-07 by SBDEV-3250.** The `jakarta.persistence.lock.timeout` hint this paragraph relies on **never had any effect on PostgreSQL** — `PostgreSQLDialect.withTimeout` translates only `0` and `-2`, `supportsWait()` returns `false`, and hibernate-core never issues `SET lock_timeout`. Measured: a move waited 30.92 s on an in-flight pick and then succeeded. Bounds now come from `LockTimeoutHibernateJpaDialect` (`SET LOCAL lock_timeout`, `wms.tenant.lock-timeout-ms`, default 10 s) at tenant-transaction begin, **per lock acquisition** rather than per statement.
+
+
 ---
 
 ## 10. References

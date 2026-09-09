@@ -60,16 +60,29 @@ echo "verify-SBDEV-2237 — MobilePickingService.selectAndReservePickingOrder lo
 echo "  PROJECT_ROOT=$PROJECT_ROOT"
 echo
 
+
 # === §A — PickingorderRepository lock timeout (Fix B / AC1) ====================
+#
+# ⚠ RETIRED 2026-09-07 by SBDEV-3250 — rows A1, A2 and A3 are now PERMANENTLY RED and that is correct.
+# They assert the @QueryHints(jakarta.persistence.lock.timeout=1000) annotation and its import, both
+# of which SBDEV-3250 DELETED because the hint never had any effect on PostgreSQL: the dialect
+# translates only 0 and -2 and returns the lock clause unchanged otherwise. The behaviour A1 was
+# standing in for -- a bounded wait -- is now real for the first time, delivered by SET LOCAL
+# lock_timeout at tenant-transaction begin and pinned by TenantLockTimeoutIT.
+#
+# A permanently-red row is worse than no row, because it is indistinguishable from unfinished work.
+# The three rows BELOW are therefore reported via the script's own skip() helper -- which counts
+# them into the SKIP total -- rather than deleted, so a reader still sees what AC1 once asserted
+# and why it stopped being the right assertion.
 
-run A1 "AC1 — @QueryHints(jakarta.persistence.lock.timeout=1000) on findByIdForUpdate" \
-    file_contains 'jakarta\.persistence\.lock\.timeout.*"1000"|"1000".*jakarta\.persistence\.lock\.timeout' "$REPO"
+skip A1 "AC1 — @QueryHints(jakarta.persistence.lock.timeout=1000) on findByIdForUpdate" \
+     "retired by SBDEV-3250: the hint was inert on PostgreSQL and has been deleted"
 
-run A2 "AC1 — QueryHints import present" \
-    file_contains 'import org\.springframework\.data\.jpa\.repository\.QueryHints;' "$REPO"
+skip A2 "AC1 — QueryHints import present" \
+     "retired by SBDEV-3250: the import went with the annotation"
 
-run A3 "AC1 — QueryHint import present (jakarta.persistence.QueryHint)" \
-    file_contains 'import jakarta\.persistence\.QueryHint;' "$REPO"
+skip A3 "AC1 — QueryHint import present (jakarta.persistence.QueryHint)" \
+     "retired by SBDEV-3250: the import went with the annotation"
 
 echo
 

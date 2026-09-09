@@ -254,14 +254,25 @@ None uses a non-default isolation level — everything relies on PostgreSQL's `R
 | `ReplenishorderRepository` | 27 | `Replenishorder` |
 | `UnitloadRepository` | 29 | `Unitload` |
 | `LocationRepository` | 49 | `Location` |
-| `PickingorderRepository` | 22, 26 | `Pickingorder` (single + batch) — **1s `jakarta.persistence.lock.timeout` hint** on `findByIdForUpdate` (SBDEV-2237) |
+| `PickingorderRepository` | 22, 26 | `Pickingorder` (single + batch) — carried a 1s `jakarta.persistence.lock.timeout` hint (SBDEV-2237) until SBDEV-3250 removed it as inert |
 | `LosSequencenumberRepository` | 21 | `LosSequencenumber` |
 | `CustomerorderRepository` | 25 | `Customerorder` |
-| `CustomerorderBatchRepository` | 26 | `CustomerorderBatch` — **5s `jakarta.persistence.lock.timeout` hint** |
-| `BillofladingRepository` | 26 | `Billoflading` — **5s `jakarta.persistence.lock.timeout` hint** |
+| `CustomerorderBatchRepository` | 26 | `CustomerorderBatch` — carried a 5s hint until SBDEV-3250 removed it as inert |
+| `BillofladingRepository` | 26 | `Billoflading` — carried a 5s hint until SBDEV-3250 removed it as inert |
 | `CustomerorderPositionRepository` | 24 | `CustomerorderPosition` (sibling-read lock in `confirmPick`/`finishPickingOrder` — SBDEV-2223) |
 
-No `PESSIMISTIC_READ` anywhere — all pessimistic sites take a write lock. `CustomerorderBatch` and `Billoflading` bound their wait to 5s; `PickingorderRepository.findByIdForUpdate` bounds to 1s (SBDEV-2237, interactive pick-claim path).
+No `PESSIMISTIC_READ` anywhere — all pessimistic sites take a write lock.
+
+> ⚠ **CORRECTED 2026-09-07 (SBDEV-3250).** This paragraph used to read "`CustomerorderBatch` and
+> `Billoflading` bound their wait to 5s; `PickingorderRepository.findByIdForUpdate` bounds to 1s". **None of
+> those hints bounded anything.** Hibernate's `PostgreSQLDialect.withTimeout(String,int)` translates only
+> `0` (`NO_WAIT`) and `-2` (`SKIP_LOCKED`) and returns the lock clause unchanged for every other value;
+> `PostgreSQLDialect.supportsWait()` returns `false`; and the literal `lock_timeout` appears in zero
+> hibernate-core classes, so Hibernate never issued the GUC either. Measured behaviourally too: a move
+> waited **30.92 s** on an in-flight pick and then succeeded. Every one of these waits was unbounded.
+> Bounds now come from `LockTimeoutHibernateJpaDialect`, which issues `SET LOCAL lock_timeout`
+> (`wms.tenant.lock-timeout-ms`, default 10 s) when a tenant transaction begins — so the bound applies to
+> **all 15** `@Lock(PESSIMISTIC_WRITE)` methods in this section, not the three that used to advertise one.
 
 ### 8.3 Retry — `OptimisticLockRetry` utility
 
@@ -304,10 +315,12 @@ No business-logic scheduler runs in-process. Replenish / release / cron-autoflus
 
 ## 10. Known Landmines
 
-1. **Bare `@Transactional` silently uses landlord.** The `@Primary` marker on `landlordTransactionManager` means a tenant-data write without an explicit qualifier commits to the wrong DB — or throws "entity not managed" if the entity type isn't mapped on that EMF. Always qualify on tenant code.
+1. **Bare `@Transactional` silently uses landlord — in `net.aim_ai.wms.service`, NOT in `net.aim_ai.wms.repo.jpa`.** The `@Primary` marker on `landlordTransactionManager` means a tenant-data write without an explicit qualifier commits to the wrong DB — or throws "entity not managed" if the entity type isn't mapped on that EMF. Always qualify on tenant **service** code.
+
+> ⚠ **QUALIFIED 2026-09-07 (SBDEV-3250).** This entry used to state the rule unconditionally, and that over-generalisation cost real time: three review passes used it to conclude that six bare-`@Transactional` bulk-DML methods in `net.aim_ai.wms.repo.jpa` were writing tenant tables under the landlord manager. **They are not.** Spring Data's `TransactionalRepositoryProxyPostProcessor` builds each repository proxy's `TransactionInterceptor` with `transactionManagerBeanName` taken from `@EnableJpaRepositories(transactionManagerRef = ...)`, and `determineTransactionManager` falls back to that name when the annotation names none — so a bare `@Transactional` on a **repository interface** defaults to `tenantTransactionManager`, the opposite of a `@Service`. Measured two ways: the interceptor reports `tenantTransactionManager`, and the bulk `@Modifying` update executes at all, which it could not under a landlord transaction (`executeUpdate()` needs a transaction on the tenant `EntityManager`). Pinned by `TenantRepositoryTransactionManagerContextTest`. The genuine hazard is that `transactionManagerRef` is load-bearing: delete it and all six move to landlord with no annotation changing.
 2. **Scheduled methods see no tenant.** `TenantContext` is ThreadLocal; the scheduler thread never had it set. New cron jobs that need tenant data must enumerate tenants and `set` the context per iteration. Root-cause pattern of `260331-cron-job-autoflush-optimistic-lock-debug-plan.md`.
 3. **`LosSequencenumber` has both `@Version` AND `PESSIMISTIC_WRITE`.** The `@Version` is defensive — the pessimistic lock is the primary mechanism. Don't remove the version field without verifying all call sites route through `findByIdForUpdate()`.
-4. **Most pessimistic locks have no timeout.** `CustomerorderBatch` and `Billoflading` use a 5s `jakarta.persistence.lock.timeout`; `PickingorderRepository.findByIdForUpdate` uses 1s (SBDEV-2237, interactive pick-claim). The rest will wait for the full Hikari connection-acquire window under row contention, contributing to pool-exhaustion incidents (see `260424-connection-pool-exhaustion-fix-plan.md`).
+4. **Pessimistic lock waits are bounded at the transaction manager, not per query (SBDEV-3250, 2026-09-07).** This entry used to say two repositories bound to 5s and one to 1s. That was wrong in the direction that mattered: the `jakarta.persistence.lock.timeout` hints were discarded by the PostgreSQL dialect and **all 15 sites waited forever**, holding a Hikari connection for the whole wait — the pool-exhaustion mechanism this entry describes was therefore worse, not better, than recorded. `LockTimeoutHibernateJpaDialect` now issues `SET LOCAL lock_timeout` at tenant-transaction begin. Do not re-add a per-query hint: on PostgreSQL only `0` and `-2` mean anything, so a hint is either a no-op or a `NOWAIT`/`SKIP LOCKED` you did not intend.
 5. **`REQUIRES_NEW` ×29 = 29 connections held briefly per outer loop iteration.** Under the current per-tenant pool sizing this is a dominant factor in pool pressure during replenish bursts. See `260405-PgBouncer_Connection_Pool_Strategy_2026-04-05.md`.
 6. **`TenantDynamicRoutingDataSource` falls back to landlord when no context is set** (line 40). A bug that clears the ThreadLocal mid-request would route subsequent writes to landlord without an error until a schema mismatch surfaces downstream.
 7. **Post-commit hooks can silently no-op.** If `TransactionSynchronizationManager.isSynchronizationActive()` is `false` at the call site, the sync is never registered. When a service method that uses `registerSynchronization` is invoked outside a transaction (e.g. from a test or an unusual caller), the side-effect simply drops.

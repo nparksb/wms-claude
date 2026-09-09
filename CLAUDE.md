@@ -108,7 +108,7 @@ Features skew one tier higher than a bug fix of the same size. When in doubt go 
 
 **The floor never scales** — at every tier including T0: one DB query confirming the symptom · one failing test first, failing for the right reason · **mutation-check every new assertion** (break what it protects, confirm red) · one independent review, never self-approve · full suite compared against the known baseline. Those five are ~20 minutes and are where essentially every real defect in this repo has been found.
 
-**Ticket policy, row hygiene, and the triage probe itself live in `wms-triage/SKILL.md` only.** They used to be duplicated here and in `wms-bugfix-plan`, and the two copies contradicted each other on whether a finding belongs in a plan or a ticket. One-line version (**revised 2026-08-28**): **a fix found during analysis or implementation goes onto the EXISTING ticket when its own tier is under T3; a T3 finding is PROPOSED, never filed, capped at one per fix visit and Nam confirms it. The single carve-out: if that ticket is already `on dev` or later, propose a new one instead — adding scope to shipped code corrupts the status ladder** — but read the skill, do not work from this summary.
+**Ticket policy, row hygiene, and the triage probe itself live in `wms-triage/SKILL.md` only.** They used to be duplicated here and in `wms-bugfix-plan`, and the two copies contradicted each other on whether a finding belongs in a plan or a ticket. One-line version (**revised 2026-08-28**): **a fix found during analysis or implementation goes onto the EXISTING ticket when its own tier is under T3; a T3 finding is PROPOSED, never filed, and Nam confirms it. The single carve-out: if that ticket is already `on dev` or later, propose a new one instead — adding scope to shipped code corrupts the status ladder** — but read the skill, do not work from this summary. ⚠ **The old "one proposal per fix visit" cap was withdrawn 2026-09-07** (Nam): it suppressed findings rather than spam. Propose everything you can ground in evidence — ranked, each with its blast radius and cost — and say which you would do first.
 
 **Knowing a plan's actual state — run `sbdocs/9-System/scripts/plan-state.sh <TICKET>` (added 2026-08-20).** Do not read state out of a plan's `status:` frontmatter: it is hand-written prose, nothing validates it, and on SBDEV-2968 it claimed "implementation NOT started, working trees EMPTY" while the worktrees held 46 dirty paths carrying the finished implementation. The probe derives state instead — worktree branch/HEAD/commits-ahead/dirty-count/base-staleness, the verify script on both roots with the authoritative one named, open prerequisites parsed from §5.1, and the list of things no probe can answer. `--fetch` for live base staleness, `--tests` to run the suites. Two traps it encodes, both of which produce plausible walls of honest-looking reds: **verify scripts do not share a `PROJECT_ROOT` convention** (37 of 44 want the sub-repo root like `v2/wms2-api`, 7 want the monorepo root — pass the wrong shape and every path assertion fails), and **rows that shell out to `mvn`/`yarn` red spuriously when the toolchain is off PATH**, since bash's 127 records as an ordinary FAIL.
 
@@ -290,7 +290,15 @@ When in doubt, announce the intent ("Reading `BillofladingService.java` lines 55
 
 - All projects use `.env` files for configuration (gitignored)
 - Keycloak URLs, realms, and client IDs are environment-specific
-- **v1/wms-api** and **v2/wms2-api**: Jasypt encryption for sensitive properties (`ENC(...)` format, requires `-Djasypt.encryptor.password`)
+- **v1/wms-api**: Jasypt encryption for sensitive properties (`ENC(...)` format, requires
+  `-Djasypt.encryptor.password`). ⚠️ Its Dockerfile uses `PBEWithMD5AndDES` + `ZeroSaltGenerator`;
+  zero salt makes every ciphertext deterministic, so identical plaintexts encrypt identically.
+- **v2/wms2-api**: **no property encryption.** Jasypt was removed — its auto-configuration cannot load
+  under Spring Boot 3 (`spring.factories` is no longer read for auto-configuration), so it silently
+  decrypted nothing and an `ENC(...)` property would be used **literally**. Do not copy the v1 Jasypt
+  config forward. Secrets arrive as env vars / `SPRING_*` overrides, though
+  `landlord.datasource.password` is still a committed literal, and tenant Keycloak credentials sit
+  plaintext in the landlord DB (`tenant_auth_configuration`).
 - Never commit `.env`, `auth.json`, `config.php`, `local.php`, or `*_dev.properties` files
 
 ## API Documentation

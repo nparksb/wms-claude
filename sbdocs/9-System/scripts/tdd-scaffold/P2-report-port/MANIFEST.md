@@ -1,7 +1,8 @@
 # P2 Report-Port — TDD Gate Scaffold (MANIFEST)
 
 Pre-implementation TDD-gate scaffold for **plan P2**:
-`sbdocs/1-Projects/wms2/plan/260420-v2-port-plpgsql-functions-to-java.md`
+`sbdocs/4-Archieves/wms2/plan/260420-v2-port-plpgsql-functions-to-java.md` (archived 2026-09-08 —
+**superseded** by SBDEV-3239, whose recommendation was "do not start"; read the archive note first)
 
 Target: `v2/wms2-api` (Java 21, Spring Boot 3.5.x, JUnit 5, Mockito 5, AssertJ,
 Testcontainers-PostgreSQL, `NamedParameterJdbcTemplate`, Jakarta namespace).

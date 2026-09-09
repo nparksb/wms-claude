@@ -4,12 +4,12 @@ ticket: "SBDEV-3169"
 ticket_url: "https://app.clickup.com/t/868kyb3rj"
 type: "bugfix"
 priority: "high"
-status: "reviewed (2 lanes, all findings applied) — NOT implementation-ready: the 62-row rule table is not review-complete"
+status: "Slices 0+1 MERGED + all 19 post-merge review findings MERGED (api 3b0d0ca6 then 2e757457 / web-ui 3117aca). Gate ships at OFF; V2.2.23 seeds the mode row. Slices 2-4 still blocked on the 62-row rule table review"
 project: ["wms2"]
 version: "v2"
 requester: "Nam Park"
 created: "2026-08-29"
-updated: "2026-08-29"
+updated: "2026-08-31"
 db_verified: true
 db_verification_note: >
   Verified 2026-08-29 against dev_wh01_om1 (tenant wineco / facility wsl) via the wms2-wineco-dev
@@ -203,6 +203,15 @@ change how this ticket is prioritised relative to its siblings.
 is an admin screen — see §1.5.
 
 ### 1.4 The user population — measured in the DB, because role names lie and HTTP undercounted
+
+> ⚠️ **Re-measured 2026-08-31 on `dev_wh01_om1`; the figures below have MOVED and the table is not
+> re-derived.** Now **100** users (was 99), **625** join rows (was 626), **126**
+> `mywms_group_mywms_user` rows (was 127). The four view functions
+> (`WEB_UI_VIEW_USER_MANAGEMENT`, `_ROLE`, `_GROUP`, `_FUNCTION`) each have **37 holders**, so a typical
+> gate denies **63**, not 61. The shape of the finding is unchanged — a clear majority of users are
+> denied every screen that renders this data and were served the data anyway — but do not quote the
+> older numbers as current. Prerequisite **P1** (per-tenant re-run on UAT and prd) is still open and
+> still gates Slice 4.
 
 Verified against `dev_wh01_om1` on 2026-08-29 (MCP `wms2-wineco-dev`). The graph is
 `mywms_group_mywms_user` → `mywms_group_mywms_role` → `mywms_role_mywms_function`.
@@ -460,7 +469,7 @@ From `3169-lane-functions.md`. Controllers that serve an SDR-exported entity and
 | `PickingOrderPositionController` | 2 | 0 |
 | `CustomerOrderPositionController` | 2 | 0 |
 | `SystemController` | 3 | 0 |
-| `ReportController` | 15 | **1** — only `reprintLabels:314`; all 14 `export*` / `*View` handlers ungated |
+| `ReportController` | 14 | **1** — only `reprintLabels`; the other 13 (10 `export*` POSTs + 3 `*View` GETs) ungated |
 
 **`ReportController` is the sharpest case**: `StockView`, `LockOverview*`,
 `ViewWarehouseLocationReport`, `InventoryRecord`, `FlowbinMonitorView`, `OrderDetailMonitorView`,
@@ -816,9 +825,19 @@ the outcome, do not fence the one instance you were handed. A path pin on `losSe
 have shipped, looked complete, and left nine.
 
 **Severity — availability, stated precisely rather than dramatically.** An SDR `GET` runs in a
-transaction that commits at request end, so the lock is held for the request, not indefinitely, and
-v2 carries a global lock timeout (`PickingorderRepository.findByIdForUpdate` sets an explicit
-`jakarta.persistence.lock.timeout=1000`). So this is not an indefinite-hold outage. It is a clean
+transaction that commits at request end, so the lock is held for the request, not indefinitely.
+
+> ⚠ **CORRECTED 2026-09-07 (SBDEV-3250).** This paragraph went on to say "and v2 carries a
+> global lock timeout (`PickingorderRepository.findByIdForUpdate` sets an explicit
+> `jakarta.persistence.lock.timeout=1000`)". **v2 carried no such bound.** That hint, and the four
+> other declarations like it, were discarded by Hibernate's PostgreSQL dialect; every pessimistic
+> wait in v2 was unbounded until SBDEV-3250 landed `SET LOCAL lock_timeout` at tenant-transaction
+> begin. The severity verdict below still holds — it rested on the request-scoped transaction, not
+> on the timeout — but one of its two supporting legs was imaginary, and the DoS lever was
+> correspondingly sharper than stated: a held lock blocked writers for as long as the attacker's
+> request ran, with no server-side bound at all.
+
+So this is not an indefinite-hold outage. It is a clean
 **denial-of-service lever**: any authenticated `wms_user` can repeatedly take `PESSIMISTIC_WRITE` on
 hot rows and make legitimate warehouse write paths fail with lock timeouts. No confidentiality
 impact beyond the plain reads those entities already expose.
@@ -879,7 +898,7 @@ step whose blast radius is the 61 users a typical gate denies, of whom the 17 pa
 ## 7. Testing Plan
 
 ### Unit
-- `SdrFunctionRulesTest` — any-of semantics; unknown type → `Optional.empty()`; rule set is immutable.
+- `SdrFunctionRulesUnitTest` — any-of semantics; unknown type → `Optional.empty()`; rule set is immutable.
 - `FunctionGuardInterceptorSdrBranchTest` — package detection: an SDR declaring class enters the
   branch, one of ours does not, and **a synthetic class in a hypothetical new SDR sub-package also
   enters it** (this is the assertion that makes Fix A's package check meaningful rather than
@@ -916,7 +935,7 @@ export SDKMAN_DIR="$HOME/.sdkman"; source "$SDKMAN_DIR/bin/sdkman-init.sh"
 mvn -o test-compile -q
 mvn -o org.pitest:pitest-maven:mutationCoverage \
   -DtargetClasses=net.aim_ai.wms.security.SdrFunctionRules \
-  -DtargetTests='net.aim_ai.wms.unit.security.SdrFunctionRulesTest'
+  -DtargetTests='net.aim_ai.wms.unit.security.SdrFunctionRulesUnitTest'
 ```
 Use PIT, not a hand-rolled harness: patch-and-recompile harnesses produced measured false results at
 least five times across three sessions on this codebase. Read survivors per
@@ -1032,8 +1051,19 @@ Ticket AC-1…AC-8 apply verbatim. This plan adds:
   cheap, and it belongs in Slice 3's prerequisites. The *conclusion* (grant, don't exempt) holds
   either way.
 
-- **Q2 — Is `GET /v3` (root index) denied outright, or gated on any-function-held?** §2.5. Deny is
-  the safer default and is what §4 Fix D assumes; confirm before Slice 0.
+- ~~**Q2**~~ — **RESOLVED 2026-08-31 (Nam): denied, but MODE-GATED.** Deny at `ENFORCE_RULED` and
+  `FAIL_CLOSED`; allow at `OFF` and `SHADOW`.
+
+  ⚠ This **deviates from Fix D's decision-table row 3**, which says *"deny, independent of mode"*. Those
+  two cannot both hold: an unconditional deny makes Slice 0 non-inert and non-revertible, and Slice 0's
+  whole purpose is landing the mechanism without changing behaviour. Row 3 should be read as amended.
+
+  Supporting measurement, 2026-08-31: `GET /v3`, `/v3/profile` and the ALPS descriptors have **no caller
+  found** in `wms2-web-ui`, `wms2-mobile-ui` or `oms-laravel-api config/wms.php` at `origin/develop`.
+  Two hits merely strip `"/v3"` from a base URL to build a different one
+  (`components/common/VersionBadge.vue`, `plugins/initTenantAuth.client.js`). That is a grep-derived
+  negative, so `SHADOW` emits `wms2.authz.sdr.would_deny{domainType=none, function=index}` — the counter
+  is how the claim gets checked against real traffic before the deny goes live.
 - ~~**Q3**~~ — **CLOSED by review**: zero. `git grep "@RepositoryRestController|@BasePathAwareController"`
   over `origin/develop -- src/main` in `wms2-api` returns nothing, so Fix A's package check skips
   nothing of ours.
@@ -1120,3 +1150,265 @@ paragraph warns against:
 every number exactly. Everything that broke was a **claim of completeness or a citation**: "every
 caller", "exactly six", "the six paths", "no controller at all", "two independent corroborations",
 "v1 has none". Where this plan says *all*, *only*, *every* or *no*, distrust it and re-derive.
+
+---
+
+## 13. Implementation Status — Slices 0 and 1 (MERGED 2026-09-01)
+
+**Merged to `develop`.** Slices 2, 3 and 4 are untouched and remain blocked on the 62-row rule table
+review (`SBDEV-3169-evidence/3169-lane-functions.md`, 31 of 62 rows PROPOSED).
+
+| | |
+|---|---|
+| wms2-api | **PR #255 → `3b0d0ca6`** |
+| wms2-web-ui | **PR #104 → `3117aca`** |
+| Prerequisite merged first | wms2-api **PR #254 → `8aba7de1`** — cleared the red `develop` SBDEV-2573 caused |
+| Merged `develop` verified | **5937 tests, 0 failures, 0 errors, 67 skipped**, graded on the MERGE COMMIT rather than the branch |
+
+🔴 **MERGED WITH THE INDEPENDENT REVIEW GATE UNMET.** Four lanes — conformance, security, code
+review, adversarial fact-check — were dispatched into an isolated worktree and all four died on a
+usage limit having written **zero** reports. Nam directed the merge with that stated. So this code has
+had **no independent reader**; the floor's *"one independent review pass, never self-approve"* was not
+satisfied, and no later green suite changes that.
+
+The containment is that the mechanism shipped at `OFF` with no sysprop row in any tenant, so the merge
+was a deploy of dormant code. **The debt becomes live the moment a tenant is advanced. Do not move any
+tenant past `SHADOW` until a review pass has run.**
+
+🔴 **The verb-agnostic scope was never adjudicated either** — see landmine 2. It is desirable
+behaviour that nobody signed off on.
+
+| | |
+|---|---|
+| API branch | `feature/SBDEV-3169-sdr-read-gating-slice1` in `.claude/worktrees/wms2-api/SBDEV-3169` |
+| API HEAD | `de159089` (2 commits) |
+| API base | `origin/develop` @ `a44a2fb8` — **rebased TWICE mid-flight**, see landmine 3 |
+| web-ui HEAD | `128165a` (1 commit) on `origin/develop` @ `5d8abaf` |
+| Full API suite | **5937 tests, 1 failure, 0 errors, 67 skipped.** ⚠️ That 1 failure is **PRE-EXISTING ON `develop`** — landmine 6. Measured on a clean `origin/develop` checkout: identical failure, none of my commits present. This change contributes **zero** new failures |
+| Full web-ui suite | **75 suites / 1137 tests, 0 failures** |
+| Targeted | 91 tests across 7 new classes, 5 of them the AC-2 context lane |
+| Mutation (AC-6) | **PIT 86/86 killed (100%)** on the `Sdr*` main classes, up from 59/86 on the first pass |
+| Verify script | none — correct for this plan; the assertions are in JUnit/Jest |
+
+### What shipped
+
+`SdrFunctionGuard` (Fixes A, B, D) · `SdrFunctionRules` (Fix C + the 8 Slice 1 rules) ·
+`SdrGuardMode` + `SdrGuardModeProvider` (the four-valued per-tenant mode) · `SdrVerdict` ·
+`SdrRuleStartupAssertion` + `SdrRuleStartupCheck` (Fix E) · three new `AccessDecision.Reason`
+constants · the `FunctionGuardInterceptor` branch · the web-ui consumer switch for Fix F'.
+
+**Ships at `OFF`.** The sysprop row does not exist and an absent or unparseable value parses to `OFF`,
+so merging changes no behaviour. Enabling is two deliberate operator steps **per tenant**:
+
+```sql
+-- step 1, measure: watch wms2.authz.sdr.would_deny and wms2.authz.sdr.unruled
+INSERT INTO los_sysprop (syskey, sysvalue, groupname, description)
+VALUES ('WMS2_SDR_READ_GUARD_MODE', 'SHADOW', 'SECURITY',
+        'SBDEV-3169 Spring Data REST function gate: OFF|SHADOW|ENFORCE_RULED|FAIL_CLOSED');
+-- step 2, enforce
+UPDATE los_sysprop SET sysvalue = 'ENFORCE_RULED' WHERE syskey = 'WMS2_SDR_READ_GUARD_MODE';
+```
+
+No Flyway migration, per **P5**. ⚠️ Consequence worth stating: with no row the key does **not** appear
+on the sysprop admin screen, so the first enable is a DB statement, not a UI action.
+
+### Acceptance criteria
+
+| AC | Verdict |
+|---|---|
+| **AC-1** 409 read paths classified | **PARTIAL, by design.** 8 of 62 domain types ruled; the boot log and `SdrRuleInventoryContextTest` enumerate the 54 unruled. Full classification is Slice 2/3 |
+| **AC-2** denied caller gets **403** on a `/search/…` path | ✅ **MET — and this is the criterion SBDEV-3017 set for Class A and never met.** `SdrReadGateEnforcementContextTest` drives a real MockMvc dispatch through `WebConfig`'s `MappedInterceptor` **bean** → SDR's `RepositoryRestHandlerMapping` → `preHandle` → the guard → 403, asserting the `reason` / `requiredFunction` / `status` body fields the mobile UI's toast depends on. Nothing in the decision path is stubbed; only the mode and `AccessService` are, both being *inputs* |
+| **AC-3** entitled caller not denied | ✅ unit + context. OMS untouched: its SDR paths (`Client`, `Itemdata`, `Shipperid`, `Boxtype`, `Printer`) intersect none of the 8 |
+| **AC-4** the 11 kept-writable resources gated on **write** verbs | **PARTIAL and unplanned — see the finding below.** The guard is verb-agnostic, so `UserGroup` and `UserRole` (2 of the 11) get their SDR writes gated as a side effect. The other 9 are unruled and untouched. `DELETE /v3/client/{id}` and `PATCH /v3/sysprop/{id}` are **not** addressed |
+| **AC-5** startup fails when a rule matches no live handler | ✅ `SdrRuleStartupCheck` throws on a stale rule or an unresolvable override key. ⚠️ The **reverse** direction the plan also asks for (exported type with no rule fails the boot) is deliberately **not** a throw — the mode is a per-tenant sysprop and there is no tenant context at `afterSingletonsInstantiated`. Covered by `SdrRuleInventoryContextTest` + `wms2.authz.sdr.unruled` instead |
+| **AC-6** mutation-checked | ✅ PIT 86/86 |
+| **AC-7** full suite vs a freshly measured baseline | ✅ **5937 / 0 / 0 / 67 skipped on the merge commit `3b0d0ca6`**, re-measured independently by the conformance lane. (The figures 5899 and "5937 with 1 failure" appearing elsewhere in this section were pre-merge; the 1 failure was SBDEV-2573's, cleared by PR #254.) |
+| **AC-8** `smoke-wms2-user-authz-dev.sh` re-run on dev | ❌ **NOT DONE.** Needs the deployed branch and the `sbtest` password; it is a post-merge step |
+
+### Deliberate deviations from the plan
+
+1. **Fix D row 3 → mode-gated**, not "independent of mode". §10-Q2.
+2. **P8's "tag `wms2.authz.denied` by domain type" → a separate `wms2.authz.sdr.*` metric family.**
+   Micrometer keys a meter by name *plus tag keys*, so adding a tag on one code path would create a
+   second series under an existing name — rejected by some backends, misread by every dashboard. The
+   separate family also makes the SDR rollout independently observable, which is what P8 wants.
+3. **Fix E's reverse direction is a test and a metric, not a boot throw.** Reason above.
+4. **Fix D row 6 is ALSO mode-gated**, and this deviation went undeclared until the conformance lane
+   found it (S1). Plan row 6 says "deny" with no mode qualifier; the code denies an unresolvable
+   `{repository}` only when the mode enforces. Same direction and same rationale as the approved row-3
+   deviation — Slice 0 must ship inert — and it was deliberately tested; it simply was not written down.
+   Read Fix D rows 3 **and** 6 as amended to "per mode".
+
+### Landmines found during implementation that the plan did not predict
+
+1. 🔴 **Four of the seven SDR dispatch classes are PACKAGE-PRIVATE** in `spring-data-rest-webmvc`
+   4.5.7 — `RepositoryEntityController`, `RepositorySearchController`,
+   `RepositoryPropertyReferenceController`, `RepositorySchemaController`. Only `RepositoryController`,
+   `ProfileController` and `alps.AlpsController` are public. So the "explicit class list" alternative
+   Fix A rejected as *fragile* is in fact a **compile error** — the tests load them via
+   `Class.forName`. Fix A's conclusion was right; its stated reason was weaker than the truth.
+2. 🔴 **The guard is verb-agnostic, and the class was originally misnamed `SdrReadGuard`.** Nothing
+   inspects the HTTP method, so a rule covers reads *and* every write verb SDR still publishes for that
+   type. Renamed to `SdrFunctionGuard` and pinned by two tests. This is **scope beyond "Slice 1 gates
+   reads"** and is flagged rather than absorbed: the one-line narrowing, if wanted, is a safe-method
+   check at the top of `evaluate`.
+3. ⚠️ **`origin/develop` moved TWICE mid-flight, the second time in BOTH repos.** First SBDEV-3142
+   PR #252 (wms2-api), bringing a **new 569-line
+   `ReportReadGateUnitTest`** that constructs `FunctionGuardInterceptor`. Since this change adds a
+   constructor argument, that file was a 12th construction site that did not exist when the sweep ran.
+   Caught only by re-sweeping `new FunctionGuardInterceptor(` **after** the fast-forward. Then
+   SBDEV-2573 landed as PR #253 (wms2-api) **and** PR #102 (wms2-web-ui), requiring a second rebase of
+   both branches — clean, no file overlap. Two `develop` merges inside one working session, across two
+   repos. Re-run the construction-site grep and re-measure the baseline immediately before merge; do
+   not trust either from earlier in the session.
+
+   ⚠️ A sweep lies in the other direction too: my own re-sweep reported
+   `FunctionGuardWiringUnitTest:128` unpatched because it looked only one line ahead while the added
+   argument sat on the third. The compiler is the oracle, not the grep.
+4. ⚠️ **Two in-code citations went stale and were fixed in the same commit**:
+   `RequiresFunction.java` said gating SDR "needs a rule source … until then", and
+   `PutawayConfigService.java:370` quoted `FunctionGuardInterceptor`'s javadoc *by line number* at
+   `:41, :87-92` — lines this change rewrote. The latter is now cited by quoted content.
+6. 🔴 **`develop` IS RED RIGHT NOW, and not because of this change — SBDEV-2573 broke it.**
+   `TestIdentifierCountArchTest.noTestIdentifierEncodesASetSize` fails on two methods added by
+   SBDEV-2573 commit `d287e8ea`: `WmsConstantsPriorityUnitTest.fromOmsLevel_mapsAllFiveLevels` and
+   `toOmsLevel_mapsAllFiveCodes`. Both encode a set size ("Five") in the test NAME — exactly what the
+   ArchUnit rule **this ticket added in PR #241** forbids.
+
+   Verified by checking out a clean `origin/develop` @ `a44a2fb8` in a separate worktree and running
+   that test alone: identical failure. So the memory *"wms2 develop is GREEN — a red suite is now a
+   SIGNAL, not the baseline"* is currently **stale**, and this is the signal.
+
+   **FIXED on a separate branch, 2026-09-01** — `chore/SBDEV-2573-name-priority-tests-for-the-property`
+   @ `4670ecea`, worktree `.claude/worktrees/wms2-api/SBDEV-2573-test-names`. One file, 4 lines: two
+   method names and two `@DisplayName`s renamed for the property instead of the quantity. No assertion
+   touched, coverage unchanged (24 tests before and after — both are `@ParameterizedTest` over an
+   inline `@CsvSource`, so the rows are the coverage). Full suite on that branch: **5846 tests, 0
+   failures**. Cherry-picked onto this ticket's HEAD and re-run: `TestIdentifierCountArchTest` 3/3
+   green, so this branch's single failure is confirmed to clear once the chore merges. Kept as its own
+   PR rather than folded in here — unrelated scope, and SBDEV-2573 is already on `develop`.
+
+   ⚠️ **A finding about SBDEV-3169's OWN rule came out of this** (`TestIdentifierCountArchTest`,
+   PR #241) — it catches roughly half the notation space, measured:
+   its `@DisplayName` pattern requires a **digit** while its method pattern requires a
+   **number-word**, and the method pattern is **case-sensitive** on `All`/`Exactly`. Consequences:
+   **34** existing `@DisplayName`s carrying a number-word count are invisible to it, and
+   `ReplenishOrderJobPaginationTest:131` `void allSixSubOps_usePagedQuery()` escapes **both** patterns
+   (lowercase `all` + number-word). Widening the patterns is ~T2 because of those 34 sites, so it is
+   NOT bundled anywhere — recorded here and belongs as a comment on this ticket.
+
+7. ⚠️ **Concurrent Maven runs in one worktree produce a wall of credible reds.** A `mvn clean test`
+   racing PIT and a foreground `mvn test` in the same worktree reported **21 failures / 238 errors**;
+   run alone the same tree is **0/0**. Never grade a suite that shared its `target/` with another build.
+
+### Still open in `sbdocs` (not code)
+
+`3-Resources/architecture/wms2-keycloak-role-matrix.md` line 570 still says
+`FunctionGuardInterceptor` "structurally cannot reach" the SDR API roots, and line 502 says SDR
+"still exposes the group/role join tables". Both need revising once this merges; `last_verified`
+should move with them.
+
+---
+
+## 14. Post-merge review — the pass that should have run before the merge (2026-09-01)
+
+Slices 0+1 merged with the independent review gate **unmet**: four lanes were dispatched pre-merge and all
+four died on a usage limit having written nothing. They were re-run against the merge commit `3b0d0ca6`
+after the limit reset. **Four reports, 165 tests run by the lanes themselves**, at
+`scratchpad/reviews/{conformance,security,codereview,factcheck}.md`.
+
+Verdict: **no bypass found**, the decision table is sound, and `SdrReadGateEnforcementContextTest` was
+confirmed genuinely non-vacuous (the lane probed the routes and saw real 200s, so the `not403()` assertions
+constrain something). **2 High, 9 Medium, 8 Low**, two published claims wrong, three defects nobody asked
+about. All fixed and **MERGED as PR #257 → `2e757457`**. Merged `develop` re-verified on the merge commit:
+**5970 tests, 0 failures, 0 errors, 67 skipped**, with `V2.2.23`, the four SDR fence call sites and
+`findByUsername`'s un-export all confirmed present.
+
+### The two that mattered
+
+**H1 / F2 — "it ships at OFF so merging changes no behaviour" was FALSE, and that claim was the
+justification for merging without review.** `SyspropService.getSysvalue` is
+`@Cacheable(unless = "#result == null")` and the mode row did not exist, so the miss was **never cached**:
+every SDR request ran a `los_sysprop` query against a 5-connection pool, from the moment Slices 0+1 merged.
+Two lanes found it independently. `SyspropService:258` already carried a comment documenting that exact
+trap. Fixed by **V2.2.23**, which seeds the row at `OFF`.
+
+**F1 — the gate could not protect its own kill switch.** `WMS2_SDR_READ_GUARD_MODE` is a plain
+`los_sysprop` row; `Sysprop` keeps its SDR write surface (must-stay-writable 11) and is one of the 54
+unruled types, so the guard allowed writes to it *by design*. A zero-function `wms_user` — the exact
+population the gate exists to stop — could disable it tenant-wide in one request. Two details made it worse
+than an overwrite: `parse()` resolves **any** unrecognised value to `OFF`, and `findSysvalueBySyskey` is
+`ORDER BY client_id LIMIT 1`, so a row at a *lower* `client_id` **shadows** the operator's rather than
+colliding. Not deferrable to Slice 4, because `Sysprop` must stay writable.
+
+Fixed three ways, deliberately overlapping: the syskey is refused on create/save/delete in
+`PutawayConfigRepositoryEventHandler` (the SDR route — chosen because SDR is *proven* to fire that bean's
+hooks, where a fresh `@RepositoryEventHandler` would need its own evidence), refused in
+`SystemPropertyController` (the MVC route), and V2.2.23 seeds at `client_id = 0`, the floor of the entity
+id space, so nothing legitimate can sort below it.
+
+### Design finding, decided by Nam
+
+**F3 — the 4-way union's justification was inverted.** It gated 7 of 8 types on
+`{USER_MANAGEMENT, ROLE, GROUP, FUNCTION}` because `store/admin/group.js:203` reads
+`/userRole/{id}/functions` from the Groups screen. Measured: `WEB_UI_VIEW_ROLE`, `_GROUP` and `_FUNCTION`
+appear in **zero** files across both UIs. The only live gate is `pages/admin.vue:59` on
+`WEB_UI_VIEW_USER_MANAGEMENT`, which covers all of `UserManagementMain`; Groups/Roles/Functions are ungated
+**tabs inside it**. So "an administrator holding only `WEB_UI_VIEW_GROUP`" described a user who cannot open
+the screen. **Narrowed to `{WEB_UI_VIEW_USER_MANAGEMENT}`** — zero behaviour change (holder sets measured
+identical on four tenants) and it closes a latent widening: six roles carrying a strict subset already
+exist (`ROLE000064/108/128` → `_FUNCTION` only, `ROLE000067/111/131` → `_GROUP` only), each bound to one
+empty group, one membership row from live.
+
+### Everything else fixed
+
+| # | Finding | Fix |
+|---|---|---|
+| M1 | `Set.of` is salt-randomised, so `X-Authz-Denied`, the body, the log and the metric tag differed **per replica** and changed on restart | `ordered()` → `LinkedHashSet`; ordering pinned on a multi-element fixture |
+| M2 | `metadataOrNull` swallowed any `RuntimeException`, reported a valid rule as stale, and `SdrRuleStartupCheck` turned that into a boot failure with the cause **erased** | exception propagates |
+| M3 | `SdrRuleStartupCheck` had **no test at all** — deleting its throw left the suite green | 7 tests, fixture-based so the violation branches actually execute |
+| M4 | SDR denial logged `Denied null on RepositoryEntityController` — named neither what nor why; `domainTypeLabel` was computed and discarded | resource threaded into the log |
+| M5 | a null `requiredFunction` omitted `X-Authz-Denied`, re-arming the mobile client's refresh-retry-logout for a denial no refresh can fix | header set unconditionally, falling back to the reason name |
+| M6+M7 | the case-insensitive path fallback was **dead code** resting on a **false** claim (`/v3/shipperId` is `ShipperIdController`, MVC — not SDR), and its lowercase aliases shared one map with exact paths, so a case-differing pair would resolve to the **wrong domain type** | both deleted; row 6 was doing the real work. A collision now logs at ERROR |
+| M8 / S2 | `wms2.authz.sdr.unruled` fired only at `SHADOW` — blind in `ENFORCE_RULED`, the mode the rollout runs in | fires at every non-`OFF` mode |
+| S3 | the invariant test **never called `preHandle`** — it asserted a detector property, so hoisting the attribute read stayed green | real pin with a live guard; mutant kills it attributably |
+| S4 | AC-2b proven on 2 of 4 path shapes; the association shape had its permissive half proven and its restrictive half assumed | all four proven at dispatch level |
+| F4 | `findByUsername` was still **exported** with zero callers — switching the UI off it left the arbitrary-username oracle fully open, and open at `OFF` means open everywhere | `@RestResource(exported = false)`, pinned at method level |
+| F5 / L2 | javadoc promised `wms2.authz.sdr.mode_read_failed`; **no code emitted it**, so the documented visibility of the one deliberate fail-open was fictional | metric implemented and asserted |
+| F6 | `isSpringDataRestHandler` fails open on a null `Package` — an unmarked fail-open | marked, with why it is correct |
+| F8 | Fix E validated rule **keys** but never **values**; a typo'd function name compiles and is a silent deny-everyone | validated reflectively against `FunctionEnum`, wired into the boot check |
+| L1 | row 6's stated purpose was what row 3 does; both javadocs asserted it | corrected |
+| L3 | `BOOTSTRAP_READS` was a public field **nothing consulted** — an exemption list that cannot exempt, reading as audited | deleted; reasoning kept as prose, and a test now pins the **absence** of any exemption member |
+| L4 | a null `ResourceMappings` NPE'd the guard where `SdrRuleStartupCheck` tolerates it — a 403-or-allow decision became a 500 | treated as an empty surface, landing on row 6 |
+
+### Published claims corrected
+
+- **The URI-template list was incomplete.** A **seventh** route carries `{repository}`:
+  `GET /{repository}/search` (`RepositorySearchController`, plus OPTIONS/HEAD). It was always gated — it
+  resolves `{repository}` with `{search}` absent, so it falls to the type rule — but the omission sat in the
+  paragraph the code's own `LOG.warn` tells a reader to check against the jar.
+- **"Unwritable" was overstated.** Name strings, `Class.forName`, and the public RUNTIME-retained
+  `@BasePathAwareController` meta-annotation all compile; only the `Set<Class<?>>` *class-literal* form is a
+  compile error. Package detection is the **better** design, not the only possible one.
+- **The javadoc named the wrong shadowing class.** `GET /v3/user` is shadowed by `TokenController:147`, not
+  `UserController`. Load-bearing, not pedantry: `UserController` is in `GUARDED` and carries a class-level
+  `@RequiresFunction`, so the old sentence made an **ungated** shadow read as gated. `TokenController` is in
+  neither and carries no gate annotation. Nothing leaks — it returns only the caller's own principal.
+- **The §7 PIT recipe named `SdrFunctionRulesTest`, which does not exist.** As written the command reports
+  every mutant `NO_COVERAGE` — a silent false negative that would tell a future reader the class is
+  untested. Corrected to `SdrFunctionRulesUnitTest`. Also: there are **seven** `Sdr*` main types, not five;
+  the earlier count silently excluded the enum and the record, i.e. `SdrGuardMode`, whose predicates the
+  whole decision table keys on.
+
+### Counts reconciled
+
+Three different figures appeared across the merged commits: `63 of 100`, `61 of 99`, `44 of 99`. Measured
+2026-09-01 on `dev_wh01_om1`: **100 users; 63 hold none of the four view functions; 46 hold zero functions
+at all** (not 44). The last two figures also conflated two different populations — "denied these four" and
+"holds nothing" are not the same set. Every other number in §0–§1 reproduced **exactly**, including the
+stronger set-identity form of claim 8 (`array_agg(DISTINCT uid ORDER BY uid)` collapses to one distinct
+holder set). The join-table trap §1.4 warns about was quantified: counting off
+`mywms_group_mywms_user` yields "hold none = 17" against the correct 63, a **3.7×** understatement.
+
+Also measured: **`mywms_user_mywms_role` is empty**, so the `UserUserRole` rule currently gates a table with
+no rows — not a reason to drop it, but it strengthens the Slice 2 un-export case.

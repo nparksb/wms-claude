@@ -1,0 +1,153 @@
+/advice                   |web   |store/receiving/createPo.js:107               |POST  |/advice/update                            |MVC         |/advice/update
+/advice                   |web   |store/receiving/createPo.js:94                |POST  |/advice/create                            |MVC         |/advice/create
+/advice                   |web   |store/receiving/inboundNotices.js:135         |GET   |/advice/detailView                        |MVC         |/advice/detailView
+/advice                   |web   |store/receiving/inboundNotices.js:146         |POST  |/advice/setPurchaseOrderNumber            |MVC         |/advice/setPurchaseOrderNumber
+/advice                   |web   |store/receiving/inboundNotices.js:163         |POST  |/advice/closeInboundBol                   |MVC         |/advice/closeInboundBol
+/advice                   |web   |store/receiving/inboundNotices.js:187         |DELETE|/advice/                                  |TRUNCATED   |cands=/advice/acceptHubAndSpokeBol/{id}/{locationId},/advice/adviceDetailsById/{id},/advice/closeInboundBol,/advice/closeInboundBol/{id},/advice/create,/advice/detailView,/advice/exportInboundNotice,/advice/fixHubAndSpokePalletIssues,/advice/setPurchaseOrderNumber,/advice/update
+/advice                   |web   |store/receiving/inboundNotices.js:212         |GET   |/advice/acceptHubAndSpokeBol/             |TRUNCATED   |cands=/advice/acceptHubAndSpokeBol/{id}/{locationId}
+/advice                   |web   |store/receiving/inboundNotices.js:234         |POST  |/advice/exportInboundNotice               |MVC         |/advice/exportInboundNotice
+/advice                   |web   |store/receiving/inboundNotices.js:277         |GET   |/advice/detailView                        |MVC         |/advice/detailView
+/advice                   |web   |store/receiving/inboundNotices.js:288         |GET   |/advice/adviceDetailsById/                |TRUNCATED   |cands=/advice/adviceDetailsById/{id}
+/advice                   |web   |store/receiving/inboundNotices.js:380         |PATCH |/advice/                                  |TRUNCATED   |cands=/advice/acceptHubAndSpokeBol/{id}/{locationId},/advice/adviceDetailsById/{id},/advice/closeInboundBol,/advice/closeInboundBol/{id},/advice/create,/advice/detailView,/advice/exportInboundNotice,/advice/fixHubAndSpokePalletIssues,/advice/setPurchaseOrderNumber,/advice/update
+/boxtype                  |web   |components/receiving/open/receive/receivingForm.vue:558|GET   |/boxtype/search/findByAdvicePositionId    |SDR         |SEARCH findByAdvicePositionId
+/boxtype                  |web   |store/masterData/packaging.js:116             |PUT   |/boxtype/                                 |TRUNCATED   |cands=NONE
+/boxtype                  |web   |store/masterData/packaging.js:89              |DELETE|/boxtype/                                 |TRUNCATED   |cands=NONE
+/boxtype                  |web   |store/receiving/createPo.js:71                |GET   |/boxtype/search/findByBoxtypeprocesstype  |TRUNCATED   |cands=NONE
+/client                   |web   |components/admin/shippers/shipperList.vue:205 |GET   |/client/detailViewById/                   |TRUNCATED   |cands=/client/detailViewById/{id}
+/client                   |web   |components/receiving/open/receive/receivingForm.vue:565|GET   |/client/receivingPrintIdByNumber/         |TRUNCATED   |cands=/client/receivingPrintIdByNumber/{number}
+/client                   |web   |store/admin/client.js:26                      |GET   |/client                                   |TRUNCATED   |cands=/client/allClients,/client/create,/client/detailView,/client/detailViewById/{id},/client/{id}/effectivePutawayDestination,/client/receivingPrintIdByNumber/{number},/client/setPrinter,/client/setSection,/client/toggleReceiving
+/client                   |web   |store/admin/configuration.js:264              |GET   |/client/                                  |TRUNCATED   |cands=/client/allClients,/client/create,/client/detailView,/client/detailViewById/{id},/client/{id}/effectivePutawayDestination,/client/receivingPrintIdByNumber/{number},/client/setPrinter,/client/setSection,/client/toggleReceiving
+/client                   |web   |store/admin/configuration.js:388              |-     |/client/{id}                              |COMMENTED-OUT|
+/client                   |web   |store/admin/configuration.js:499              |GET   |/client/                                  |TRUNCATED   |cands=/client/allClients,/client/create,/client/detailView,/client/detailViewById/{id},/client/{id}/effectivePutawayDestination,/client/receivingPrintIdByNumber/{number},/client/setPrinter,/client/setSection,/client/toggleReceiving
+/client                   |web   |store/admin/shippers.js:24                    |GET   |/client/detailView                        |MVC         |/client/detailView
+/client                   |web   |store/admin/shippers.js:35                    |POST  |/client/create                            |MVC         |/client/create
+/client                   |web   |store/admin/shippers.js:59                    |PATCH |/client/                                  |TRUNCATED   |cands=/client/allClients,/client/create,/client/detailView,/client/detailViewById/{id},/client/{id}/effectivePutawayDestination,/client/receivingPrintIdByNumber/{number},/client/setPrinter,/client/setSection,/client/toggleReceiving
+/client                   |web   |store/admin/shippers.js:72                    |GET   |/client/                                  |TRUNCATED   |cands=/client/allClients,/client/create,/client/detailView,/client/detailViewById/{id},/client/{id}/effectivePutawayDestination,/client/receivingPrintIdByNumber/{number},/client/setPrinter,/client/setSection,/client/toggleReceiving
+/client                   |web   |test/store/admin/shippersPutaway.spec.js:7    |-     |/client/{id}                              |COMMENTED-OUT|
+/customerorder            |web   |components/outbound/bol/outboundBolDetailsTable.vue:200|GET   |/customerorder/                           |TRUNCATED   |cands=NONE
+/customerorder            |web   |store/common/order.js:15                      |PATCH |/customerorder/                           |TRUNCATED   |cands=NONE
+/customerorder            |web   |store/masterData/customerOrder.js:29          |GET   |/customerorder                            |TRUNCATED   |cands=NONE
+/customerorder            |web   |store/masterData/customerOrder.js:46          |GET   |/customerorder/search/findByKeyword       |TRUNCATED   |cands=NONE
+/customerorder            |web   |store/processes/transferPicking.js:143        |GET   |/customerorder/                           |TRUNCATED   |cands=NONE
+/customerorderBatch       |web   |store/outbound/club.js:316                    |-     |/customerorderBatch/                      |COMMENTED-OUT|
+/cyclecount               |web   |store/internalOps/cycleCount.js:250           |PATCH |/cyclecount/                              |TRUNCATED   |cands=NONE
+/goodsreceiptposition     |web   |store/receiving/inboundNotices.js:333         |GET   |/goodsreceiptposition/search/findByAdvicepositionId|TRUNCATED   |cands=NONE
+/itemdata                 |web   |store/internalOps/createCc.js:44              |GET   |/itemdata/search/findByClientIdIn         |TRUNCATED   |cands=NONE
+/itemdata                 |web   |store/receiving/createPo.js:59                |GET   |/itemdata/search/findByClientId           |TRUNCATED   |cands=NONE
+/itemunit                 |web   |store/masterData/packaging.js:78              |GET   |/itemunit                                 |SDR         |COLLECTION
+/itemunit                 |web   |store/masterData/skuUnit.js:51                |GET   |/itemunit                                 |TRUNCATED   |cands=NONE
+/location                 |web   |store/masterData/locationType.js:63           |PUT   |/location/createLocationType              |MVC         |/location/createLocationType
+/location                 |web   |store/masterData/locationType.js:82           |POST  |/location/updateLocationType              |MVC         |/location/updateLocationType
+/location                 |web   |store/masterData/storageLocation.js:118       |PUT   |/location/create                          |MVC         |/location/create
+/location                 |web   |store/masterData/storageLocation.js:137       |POST  |/location/update                          |MVC         |/location/update
+/location                 |web   |store/masterData/storageLocation.js:53        |GET   |/location/detailView                      |MVC         |/location/detailView
+/location                 |web   |store/masterData/storageLocation.js:73        |DELETE|/location/                                |TRUNCATED   |cands=/location/create,/location/createLocationType,/location/detailView,/location/locationDetailsById/{id},/location/update,/location/updateLocationType
+/location                 |web   |store/masterData/storageLocation.js:85        |GET   |/location/locationDetailsById/            |TRUNCATED   |cands=/location/locationDetailsById/{id}
+/location                 |web   |store/outbound/outboundBols.js:277            |GET   |/location/search/findByGateTrue           |SDR         |SEARCH findByGateTrue
+/location                 |web   |store/receiving/inboundNotices.js:200         |GET   |/location/search/getAllCrossDockingLanes  |SDR         |SEARCH getAllCrossDockingLanes
+/locationArea             |web   |store/internalOps/createCc.js:55              |GET   |/locationArea                             |SDR         |COLLECTION
+/locationArea             |web   |store/masterData/functionalArea.js:51         |GET   |/locationArea                             |TRUNCATED   |cands=NONE
+/locationRack             |web   |store/masterData/storageLocation.js:106       |GET   |/locationRack                             |SDR         |COLLECTION
+/locationType             |web   |store/masterData/locationType.js:109          |DELETE|/locationType/                            |TRUNCATED   |cands=NONE
+/locationType             |web   |store/masterData/locationType.js:51           |GET   |/locationType                             |TRUNCATED   |cands=NONE
+/message                  |web   |store/admin/serviceLogs.js:29                 |GET   |/message                                  |TRUNCATED   |cands=/message/detailView,/message/messageDetailsById/{id},/message/resend/{messageId}
+/message                  |web   |store/admin/serviceLogs.js:50                 |GET   |/message/detailView                       |MVC         |/message/detailView
+/message                  |web   |store/admin/serviceLogs.js:64                 |GET   |/message/search/findByKeyword             |TRUNCATED   |cands=NONE
+/message                  |web   |store/admin/serviceLogs.js:78                 |GET   |/message/resend                           |TRUNCATED   |cands=/message/resend/{messageId}
+/message                  |web   |store/admin/serviceLogs.js:95                 |GET   |/message/messageDetailsById/              |TRUNCATED   |cands=/message/messageDetailsById/{id}
+/printer                  |web   |store/admin/configuration.js:246              |GET   |/printer/printLabel/                      |TRUNCATED   |cands=/printer/printLabel/{labelKey}
+/printer                  |web   |store/admin/printer.js:105                    |GET   |/printer/delete/                          |TRUNCATED   |cands=/printer/delete/{printerId}
+/printer                  |web   |store/admin/printer.js:134                    |GET   |/printer/setDefault/                      |TRUNCATED   |cands=/printer/setDefault/{printerId}
+/printer                  |web   |store/admin/printer.js:151                    |POST  |/printer/testPrinter                      |MVC         |/printer/testPrinter
+/printer                  |web   |store/admin/printer.js:171                    |GET   |/printer/search/findByType                |TRUNCATED   |cands=NONE
+/printer                  |web   |store/admin/printer.js:182                    |GET   |/printer/printerDetailsById/              |TRUNCATED   |cands=/printer/printerDetailsById/{id}
+/printer                  |web   |store/admin/printer.js:36                     |GET   |/printer                                  |SDR         |COLLECTION
+/printer                  |web   |store/admin/printer.js:47                     |PUT   |/printer/update                           |MVC         |/printer/update
+/printer                  |web   |store/admin/printer.js:71                     |POST  |/printer/create                           |MVC         |/printer/create
+/printer                  |web   |store/dashboard/pickpackMonitor.js:133        |GET   |/printer/outboundTotePrinters             |MVC         |/printer/outboundTotePrinters
+/printer                  |web   |store/handlingUnits/container.js:195          |GET   |/printer/inboundPrinters                  |MVC         |/printer/inboundPrinters
+/printer                  |web   |store/reports/parcelPicking.js:116            |GET   |/printer/search/findByType                |SDR         |SEARCH findByType
+/receivingDtoView         |web   |components/receiving/open/receive/receivingForm.vue:613|GET   |/receivingDtoView/search/findByAdvicepositionid|TRUNCATED   |cands=NONE
+/receivingDtoView         |web   |store/receiving/inboundNotices.js:302         |GET   |/receivingDtoView/search/findByAdvicenumber|TRUNCATED   |cands=NONE
+/receivingDtoView         |web   |store/reports/data.js:26                      |GET   |/receivingDtoView/search/findByKeyword    |TRUNCATED   |cands=NONE
+/receivingDtoView         |web   |store/reports/receiving.js:61                 |GET   |/receivingDtoView/search/findByKeyword    |TRUNCATED   |cands=NONE
+/replenishorder           |web   |store/internalOps/replenishments.js:169       |GET   |/replenishorder/                          |TRUNCATED   |cands=NONE
+/section                  |mobile|store/picking.js:188                          |GET   |/section/search/findByName                |SDR         |SEARCH findByName
+/section                  |mobile|store/picking.js:390                          |GET   |/section                                  |SDR         |COLLECTION
+/section                  |web   |store/masterData/section.js:102               |GET   |/section/getPickingTypes                  |MVC         |/section/getPickingTypes
+/section                  |web   |store/masterData/section.js:113               |GET   |/section/sectionDetailsById/              |TRUNCATED   |cands=/section/sectionDetailsById/{id}
+/section                  |web   |store/masterData/section.js:61                |GET   |/section/detailView                       |MVC         |/section/detailView
+/section                  |web   |store/masterData/section.js:73                |DELETE|/section/                                 |TRUNCATED   |cands=/section/create,/section/detailView,/section/getPickingTypes,/section/sectionDetailsById/{id}
+/section                  |web   |store/masterData/section.js:85                |POST  |/section/create                           |MVC         |/section/create
+/shipperid                |web   |store/reports/inventory.js:129                |GET   |/shipperid                                |SDR         |COLLECTION
+/stockView                |web   |store/reports/inventory.js:69                 |GET   |/stockView/search/findByKeyword           |TRUNCATED   |cands=NONE
+/stockrecord              |web   |store/reports/stockUnit.js:51                 |GET   |/stockrecord/search/findByKeyword         |TRUNCATED   |cands=NONE
+/stockrecord              |web   |store/reports/stockUnit.js:98                 |GET   |/stockrecord/stockRecordDetailsById/      |TRUNCATED   |cands=/stockrecord/stockRecordDetailsById/{id}
+/stockunit                |mobile|components/replenish/shared/OrderHeaderBlock.vue:74|GET   |/stockunit/search/getAmountAvailable      |SDR         |SEARCH getAmountAvailable
+/stockunit                |web   |store/internalOps/replenishments.js:197       |GET   |/stockunit/search/getStockUnitsForReplenishment|TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/configuration.js:104              |GET   |/sysprop/search/findByGroupname           |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/configuration.js:127              |PUT   |/sysprop/                                 |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/configuration.js:179              |DELETE|/sysprop/                                 |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/configuration.js:212              |GET   |/sysprop/search/findByGroupname           |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/configuration.js:224              |PUT   |/sysprop/                                 |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/configuration.js:263              |GET   |/sysprop/                                 |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/management.js:111                 |GET   |/sysprop                                  |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/management.js:171                 |GET   |/sysprop/search/findByGroupname           |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/management.js:183                 |GET   |/sysprop/search/findByGroupname           |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/management.js:233                 |PUT   |/sysprop/                                 |TRUNCATED   |cands=NONE
+/sysprop                  |web   |store/admin/mgmt/overview.js:20               |GET   |/sysprop/search/findByGroupname           |TRUNCATED   |cands=NONE
+/unitload                 |web   |store/handlingUnits/container.js:111          |GET   |/unitload/search/findByCarrierunitloadId  |SDR         |SEARCH findByCarrierunitloadId
+/unitloadRecord           |web   |store/reports/container.js:49                 |GET   |/unitloadRecord/search/findByKeyword      |TRUNCATED   |cands=NONE
+/unitloadRecord           |web   |store/reports/container.js:96                 |GET   |/unitloadRecord/unitloadRecordDetailsById/|TRUNCATED   |cands=/unitloadRecord/unitloadRecordDetailsById/{id}
+/unitloadType             |web   |store/masterData/unitLoadType.js:51           |GET   |/unitloadType                             |TRUNCATED   |cands=NONE
+/unitloadType             |web   |store/receiving/createPo.js:82                |GET   |/unitloadType                             |SDR         |COLLECTION
+/user                     |mobile|store/home.js:183                             |GET   |/user/getAllRoles/                        |TRUNCATED   |cands=/user/getAllRoles/{username}
+/user                     |mobile|store/home.js:210                             |GET   |/user/getAllRoles/                        |TRUNCATED   |cands=/user/getAllRoles/{username}
+/user                     |mobile|store/index.js:77                             |GET   |/user/isWmsUser/                          |TRUNCATED   |cands=/user/isWmsUser/{username}
+/user                     |web   |components/admin/userManagement/users/editUser.vue:158|-     |/user/isOmsUser/                          |COMMENTED-OUT|
+/user                     |web   |components/admin/userManagement/users/user.vue:304|GET   |/user/                                    |TRUNCATED   |cands=/user/addUserToWarehouseGroup,/user/bulkEditUsers,/user/create,/user/createUser,/user/deleteUserByUsername,/user/delete/{userId},/user/existsInKeycloak,/user/findUserByUsername,/user/findUserGroupsByUsername,/user/findUsers,/user/getAffiliatedGroups,/user/getAllRoles/{username},/user/getDetails,/user/getKeycloakUser,/user/importUser,/user/isWarehouseUser,/user/isWmsUser/{username},/user/removeUserFromWarehouseGroup,/user/resetPassword,/user/saveUserGroups,/user/update,/user/updateUser,/user/userDetailsById/{id}
+/user                     |web   |store/admin/management.js:126                 |GET   |/user                                     |MVC         |/user
+/user                     |web   |store/admin/user.js:105                       |POST  |/user/create                              |MVC         |/user/create
+/user                     |web   |store/admin/user.js:123                       |GET   |/user/delete/                             |TRUNCATED   |cands=/user/delete/{userId}
+/user                     |web   |store/admin/user.js:179                       |GET   |/user/userDetailsById/                    |TRUNCATED   |cands=/user/userDetailsById/{id}
+/user                     |web   |store/admin/user.js:195                       |POST  |/user/bulkEditUsers                       |MVC         |/user/bulkEditUsers
+/user                     |web   |store/admin/user.js:217                       |POST  |/user/getKeycloakUser                     |MVC         |/user/getKeycloakUser
+/user                     |web   |store/admin/user.js:228                       |POST  |/user/importUser                          |MVC         |/user/importUser
+/user                     |web   |store/admin/user.js:240                       |GET   |/user/isWarehouseUser                     |MVC         |/user/isWarehouseUser
+/user                     |web   |store/admin/user.js:261                       |GET   |/user/existsInKeycloak                    |MVC         |/user/existsInKeycloak
+/user                     |web   |store/admin/user.js:275                       |POST  |/user/addUserToWarehouseGroup             |MVC         |/user/addUserToWarehouseGroup
+/user                     |web   |store/admin/user.js:289                       |POST  |/user/removeUserFromWarehouseGroup        |MVC         |/user/removeUserFromWarehouseGroup
+/user                     |web   |store/admin/user.js:43                        |GET   |/user/getDetails                          |MVC         |/user/getDetails
+/user                     |web   |store/admin/user.js:59                        |GET   |/user/                                    |TRUNCATED   |cands=/user/addUserToWarehouseGroup,/user/bulkEditUsers,/user/create,/user/createUser,/user/deleteUserByUsername,/user/delete/{userId},/user/existsInKeycloak,/user/findUserByUsername,/user/findUserGroupsByUsername,/user/findUsers,/user/getAffiliatedGroups,/user/getAllRoles/{username},/user/getDetails,/user/getKeycloakUser,/user/importUser,/user/isWarehouseUser,/user/isWmsUser/{username},/user/removeUserFromWarehouseGroup,/user/resetPassword,/user/saveUserGroups,/user/update,/user/updateUser,/user/userDetailsById/{id}
+/user                     |web   |store/admin/user.js:69                        |POST  |/user/saveUserGroups                      |MVC         |/user/saveUserGroups
+/user                     |web   |store/admin/user.js:87                        |POST  |/user/update                              |MVC         |/user/update
+/user                     |web   |store/index.js:118                            |GET   |/user/isWmsUser/                          |TRUNCATED   |cands=/user/isWmsUser/{username}
+/user                     |web   |store/index.js:132                            |GET   |/user/getAllRoles/                        |TRUNCATED   |cands=/user/getAllRoles/{username}
+/user                     |web   |store/index.js:218                            |GET   |/user/getAllRoles/                        |TRUNCATED   |cands=/user/getAllRoles/{username}
+/user                     |web   |store/index.js:273                            |GET   |/user/getAffiliatedGroups                 |MVC         |/user/getAffiliatedGroups
+/userFunction             |web   |store/admin/function.js:27                    |GET   |/userFunction                             |TRUNCATED   |cands=NONE
+/userFunction             |web   |store/admin/management.js:141                 |GET   |/userFunction                             |TRUNCATED   |cands=NONE
+/userFunction             |web   |store/admin/management.js:158                 |GET   |/userFunction/search/findByKeyword        |TRUNCATED   |cands=NONE
+/userGroup                |web   |store/admin/group.js:109                      |-     |/userGroup                                |COMMENTED-OUT|
+/userGroup                |web   |store/admin/group.js:110                      |GET   |/userGroup/search/findByConnectorFalse    |SDR         |SEARCH findByConnectorFalse
+/userGroup                |web   |store/admin/group.js:122                      |GET   |/userGroup                                |TRUNCATED   |cands=/userGroup/create,/userGroup/delete/{groupId},/userGroup/saveGroupRoles,/userGroup/userGroupDetailsById/{id}
+/userGroup                |web   |store/admin/group.js:133                      |POST  |/userGroup/saveGroupRoles                 |MVC         |/userGroup/saveGroupRoles
+/userGroup                |web   |store/admin/group.js:148                      |PUT   |/userGroup                                |TRUNCATED   |cands=/userGroup/create,/userGroup/delete/{groupId},/userGroup/saveGroupRoles,/userGroup/userGroupDetailsById/{id}
+/userGroup                |web   |store/admin/group.js:160                      |POST  |/userGroup/create                         |MVC         |/userGroup/create
+/userGroup                |web   |store/admin/group.js:189                      |GET   |/userGroup/                               |TRUNCATED   |cands=/userGroup/create,/userGroup/delete/{groupId},/userGroup/saveGroupRoles,/userGroup/userGroupDetailsById/{id}
+/userGroup                |web   |store/admin/group.js:224                      |GET   |/userGroup/delete/                        |TRUNCATED   |cands=/userGroup/delete/{groupId}
+/userGroup                |web   |store/admin/group.js:258                      |GET   |/userGroup/search/findByName              |TRUNCATED   |cands=NONE
+/userGroup                |web   |store/admin/group.js:272                      |GET   |/userGroup/userGroupDetailsById/          |TRUNCATED   |cands=/userGroup/userGroupDetailsById/{id}
+/userGroupUser            |web   |store/admin/group.js:190                      |GET   |/userGroupUser/search/findByGrouplistId   |SDR         |SEARCH findByGrouplistId
+/userRole                 |web   |store/admin/group.js:203                      |GET   |/userRole/                                |TRUNCATED   |cands=/userRole/create,/userRole/delete/{roleId},/userRole/saveRoleFunctions,/userRole/userRoleDetailsById/{id}
+/userRole                 |web   |store/admin/role.js:103                       |POST  |/userRole/saveRoleFunctions               |MVC         |/userRole/saveRoleFunctions
+/userRole                 |web   |store/admin/role.js:118                       |PUT   |/userRole                                 |TRUNCATED   |cands=/userRole/create,/userRole/delete/{roleId},/userRole/saveRoleFunctions,/userRole/userRoleDetailsById/{id}
+/userRole                 |web   |store/admin/role.js:133                       |POST  |/userRole/create                          |MVC         |/userRole/create
+/userRole                 |web   |store/admin/role.js:164                       |GET   |/userRole/delete/                         |TRUNCATED   |cands=/userRole/delete/{roleId}
+/userRole                 |web   |store/admin/role.js:194                       |GET   |/userRole/search/findByName               |TRUNCATED   |cands=NONE
+/userRole                 |web   |store/admin/role.js:211                       |GET   |/userRole/userRoleDetailsById/            |TRUNCATED   |cands=/userRole/userRoleDetailsById/{id}
+/userRole                 |web   |store/admin/role.js:62                        |-     |/userRole                                 |COMMENTED-OUT|
+/userRole                 |web   |store/admin/role.js:63                        |GET   |/userRole/search/findByConnectorFalse     |SDR         |SEARCH findByConnectorFalse
+/userRole                 |web   |store/admin/role.js:74                        |GET   |/userRole/search/findByConnectorFalse     |SDR         |SEARCH findByConnectorFalse
+/userRole                 |web   |store/admin/role.js:89                        |GET   |/userRole                                 |TRUNCATED   |cands=/userRole/create,/userRole/delete/{roleId},/userRole/saveRoleFunctions,/userRole/userRoleDetailsById/{id}
+/viewWarehouseLocationReport|web   |store/reports/skuLocation.js:61               |GET   |/viewWarehouseLocationReport/search/findByKeyword|TRUNCATED   |cands=NONE

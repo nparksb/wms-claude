@@ -3228,6 +3228,8 @@ binds `putawayStaging` and that `:191` already throws the neutral `unitloadTypeN
 | | `tier4WhenNothingConfigured` | ⇒ `STANDARD_PUTAWAY_LANE` by name |
 | | **`blankSysvalueFallsThrough`** | `''`, `'   '` ⇒ tier 4, **not** a parse failure (landmine A2) |
 | | **`nullItemdataSkipsTierOne`** | `resolve(null, client, typeId)` returns non-null; `itemdataRepository` never touched (§3.1.4 / `AdviceRestController:684`) |
+> **SUPERSEDED 2026-08-30 (SBDEV-3170)** — `neverCallsGetStringDefault` / `neverCallsGetSysvalue` were deleted and REPLACED, not removed. They asserted over an `@Mock SyspropService` that is not a constructor parameter of `PutawayDestinationResolver`, so they covered the constructor-injected route only: measured, a ctor param makes them fail, but a field or static call passed for every implementation. `PutawayResolverSyspropIsolationArchTest` now asserts the same invariant as a dependency rule, covering both routes. 
+
 | | **`neverCallsGetStringDefault`** | `verify(syspropService, never()).getStringDefault(any(), any(), any(), any())` — landmine A1 as an executable assertion |
 | | **`neverCallsGetSysvalue`** | landmines A3 + A4 as an executable assertion |
 | | **`workstationScopedRowIsIgnored`** | a `DEFAULT_PUTAWAY_LOCATION` row on a non-`DEFAULT` workstation is not read (landmine A6) |

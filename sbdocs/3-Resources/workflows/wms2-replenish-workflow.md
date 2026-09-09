@@ -4,7 +4,8 @@ type: workflow
 project: wms2
 status: stable
 created: 2026-04-19
-last_verified: 2026-05-08
+last_verified: 2026-09-06
+verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-05-08.)"
 tags: [wms2, workflow, replenish]
 ---
 
@@ -12,7 +13,7 @@ tags: [wms2, workflow, replenish]
 
 ### Flow Overview
 
-- Replenish work is continuously prepared by ```ReplenishOrderJob.doCalculation```, which (once enabled) executes a pipeline of housekeeping tasks—merge tote-on-cart picks, delete empty fixed assignments, cancel unreachable or flow-bin-full orders, generate new replenishments for both fixed/non-fixed items, update priorities, and recalc open orders—so the system always has up-to-date PROCESSABLE replenish orders ready for execution [(src/main/java/net/aim_ai/wms/schedulejob/ReplenishOrderJob.java (lines 57-88))](/src/main/java/net/aim_ai/wms/schedulejob/ReplenishOrderJob.java#L57-L88).
+- Replenish work is continuously prepared by ```ReplenishOrderJob``` — via ```runFor(TriggerSpec)``` on the cron path or ```runForCurrentTenant()``` on the manual path, both delegating to the private ```replenish(tenantName)``` (⚠ **updated 2026-09-06**: the ```doCalculation``` entry point named here until now was deleted by SBDEV-3198 on 2026-09-03) — which (once enabled) executes a pipeline of housekeeping tasks—merge tote-on-cart picks, delete empty fixed assignments, cancel unreachable or flow-bin-full orders, generate new replenishments for both fixed/non-fixed items, update priorities, and recalc open orders—so the system always has up-to-date PROCESSABLE replenish orders ready for execution (`src/main/java/net/aim_ai/wms/schedulejob/ReplenishOrderJob.java:415-463` at `d4a6ab8a` — the old `#L57-L88` deep link pointed at code that no longer exists).
 
 - When a shortage is detected (either proactively via the job, reactively after an order is completed, or on-demand via the `/v3/replenish/requestAmount` endpoint), ```ReplenishGeneratorService``` picks up the request: ```refillFixedLocations``` walks the fixed assignments and computes each assignment’s missing quantity, while ```requestReplenish``` simply passes the operator-entered amount straight into ```calculateOrder```. Both paths select a source stock/unit load, populate client/item/destination metadata, set the state to PROCESSABLE, and reserve the requested amount so the goods are locked for that task [(src/main/java/net/aim_ai/wms/service/ReplenishGeneratorService.java (lines 48-145); src/main/java/net/aim_ai/wms/service/mobile/MobileReplenishService.java (lines 508-525))](/src/main/java/net/aim_ai/wms/service/ReplenishGeneratorService.java#L48-L145).
 

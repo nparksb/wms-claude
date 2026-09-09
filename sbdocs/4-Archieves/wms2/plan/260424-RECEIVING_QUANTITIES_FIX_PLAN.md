@@ -1,5 +1,15 @@
 # Receiving Quantities Not Updating — Root Cause Analysis & Fix Plan
 
+> ⚠ **SBDEV-3250 (2026-09-07) — READ BEFORE ACTING ON ANYTHING BELOW ABOUT LOCK TIMEOUTS.**
+> Every `jakarta.persistence.lock.timeout` hint or property this document adds, recommends or marks
+> **DONE** **had no effect on PostgreSQL**. Hibernate's `PostgreSQLDialect.withTimeout` translates
+> only `0` (`NO_WAIT`) and `-2` (`SKIP_LOCKED`), returning the lock clause unchanged for anything
+> else; `supportsWait()` returns `false`; hibernate-core never issues `SET lock_timeout` itself.
+> Measured: a move waited **30.92 s** on an in-flight pick and then succeeded. Bounds now come from
+> `LockTimeoutHibernateJpaDialect` — `SET LOCAL lock_timeout` (`wms.tenant.lock-timeout-ms`,
+> default 10 s) at tenant-transaction begin — and apply **per lock acquisition**, not per statement.
+
+
 **Date:** 2026-02-23
 **Branch:** `v2-tmp/np51-receiving-formance`
 **Related:** `docs/plan/260424-RECEIVING_PERFORMANCE_PLAN.md` (Phases 1–4 complete)

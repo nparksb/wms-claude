@@ -28,7 +28,25 @@ tags:
 
 How to stand up a **WMS v2 tenant database**. There are **two** ways, for two different situations. This guide explains which to use, summarizes each end-to-end, and points at the authoritative scripts/runbooks.
 
-> **Foundational fact (applies to both paths):** the v2 app **does not run Flyway at runtime** — migrations are applied **manually by an operator** (`psql`/`flyway` CLI) against the **tenant** database, then the tenant is registered in the landlord DB. (See the UTC migration plan §0.5.) So "setting up the DB" is always a deliberate provisioning step, never something the running service does on boot.
+> ⚠️ **CORRECTED 2026-09-01 — the "Foundational fact" that stood here was false, and following it breaks a tenant permanently.**
+>
+> It read: *"the v2 app **does not run Flyway at runtime** — migrations are applied **manually by an operator**
+> (`psql`/`flyway` CLI) … never something the running service does on boot."*
+>
+> **The opposite is true on `main`, `release` and `develop`.** `app.flyway.migrate-on-startup=true` and
+> `StartupFlywayMigrator` migrates the landlord plus **every active tenant DB on every boot** (SBDEV-2801).
+> Production's own history shows it: `wh01_hydra_v2` applied six migrations within one second at
+> 2026-08-26 15:26:43.
+>
+> **The actual foundational fact:** provisioning must leave the tenant DB in a state Flyway can take over.
+> A schema populated by hand with **no `flyway_schema_history`** is skipped on **every** boot, forever —
+> tenant migrations run with `baselineOnMigrate(false)`. The skip logs at `ERROR` and increments the
+> `stale_total` gauge, but the boot stays green, so nothing visibly fails. This is how `wh01_hydra_v2` sat
+> nine migrations behind for twelve days in August 2026.
+>
+> **Repair for an already-hand-provisioned DB:** run `db/backfill-flyway-history.sh --dbname <db>
+> --owner <tenant role> --up-to <applied watermark>` once; every deploy migrates it automatically after that.
+> Full analysis: [`260901-wms2-multitenancy-readiness-audit.md`](../reports/260901-wms2-multitenancy-readiness-audit.md) §B5.
 
 ---
 

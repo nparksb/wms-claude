@@ -1,12 +1,14 @@
 ---
 title: "WMS v2 Integration Tests — H2 Migration Feasibility Report"
 type: plan
-status: reviewed
+status: archived
+superseded_by: SBDEV-3239
+archived: 2026-09-08
 version: v2
 scope: wms2-api
 owner: "nam.park@siteboss.net"
 created: 2026-04-20
-updated: 2026-06-22
+updated: 2026-09-06
 last_verified: 2026-06-22
 verified_by: "re-grounded against HEAD — reviewed & approved 2026-06-22"
 related:
@@ -14,13 +16,30 @@ related:
   - ../../../2-Areas/wms-v1-v2-sync/README.md
 tags:
   - plan
-  - reviewed
+  - superseded
   - wms2
   - testing
   - h2
   - testcontainers
   - integration-tests
 ---
+
+> **Archive note (2026-09-08).** Archived as **superseded, not completed** — the approach
+> here was rejected on measured grounds by **SBDEV-3239** (now `on dev`, PR #308 merged), not
+> delivered. Its unchecked acceptance boxes are therefore **dropped**, with the reason in the
+> supersession banner above. Findings that outlived the plan are homed on live tickets:
+> SBDEV-3240 (the 9 Category-A classes, incl. the `KeycloakServiceTest` this plan missed),
+> SBDEV-3248 (assertion-free integration tests), SBDEV-3249 (`= 'true'` H2 incompatibility),
+> SBDEV-3258 (the six classes the lane can now run) and SBDEV-3195 (CI now runs the suite).
+> Re-grounding evidence stays at `sbdocs/1-Projects/wms2/plan/260422-testing-rollup-reground/`
+> — deliberately NOT moved, because SBDEV-3239 cites that path and is still live.
+> No implementation worktree existed for this plan.
+> [!warning] SUPERSEDED 2026-09-06 — do not execute this plan as written.
+> Re-grounded against `origin/develop` @ `d4a6ab8a`. Evidence: [`260422-testing-rollup-reground/`](./260422-testing-rollup-reground/).
+> Superseded by **SBDEV-3239** — _Make the wms2-api integration lane runnable_.
+> Measured 2026-09-06: the whole suite runs in **≈3m45s** (unit 2m01s / integration 1m42s) but is **26 red and 132 skipped**, and `mvn verify` aborts in surefire before the integration lane ever starts. Docker accounts for only **~20s of 225s (~9%)**, so migrating to H2 is not the speed lever this cluster assumed.
+>
+> **~70% of the facts still hold; the ordering does not.** Falsified: the 18-marker count (now **23** in the integration tree, **61** repo-wide); "the H2 default lane has no Docker dependency" (**false since ~2026-07-30** — 10 active default-lane classes start their own `PostgreSQLContainer`, 9 added after the June re-grounding, so §5.5'\''s "stop Docker, `mvn verify` green" cannot pass); and the §4.3 enumerated bound (breached by ~21 classes). Phase 4 (PG-lane landlord wiring) should run **before** Phase 2 — it now blocks **14** classes, 11 added since June, accruing ~1.4/month. A 9th Category-A class the plan misses: `service/KeycloakServiceTest:23`.
 
 # WMS v2 Integration Tests — H2 Migration Feasibility Report
 

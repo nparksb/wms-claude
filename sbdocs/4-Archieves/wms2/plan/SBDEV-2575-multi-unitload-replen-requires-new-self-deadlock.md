@@ -299,6 +299,9 @@ Optional<Stockunit> findByIdForUpdate(@Param("id") Long id);
 
 - 5000 ms matches `BillofladingRepository:27`; `Pickingorder:33` uses 1000 ms. Pick **5000 ms** (stock rows can be held briefly by a concurrent pick/transfer; 1 s risks false negatives). O‑1 flags for reviewer.
 - **The hint demonstrably works in this exact PG/Hibernate stack** — no need to hedge: `PickingorderRepository.java:29` documents that a move "fast-yield[s] to an … 1000ms timeout," i.e. `jakarta.persistence.lock.timeout` fires here. (Manual test 8.3 still confirms it for stock rows.)
+
+> ⚠ **REFUTED 2026-09-07 by SBDEV-3250.** This sentence — "the hint demonstrably works in this exact PG/Hibernate stack — no need to hedge" — is the origin of a claim that was false everywhere it was later repeated. The hint never reached PostgreSQL. Whatever the original demonstration showed, it was not the hint bounding a lock wait.
+
 - **Scope limit:** this per-query hint covers only the explicit `PESSIMISTIC_WRITE` (`findByIdForUpdate`) — i.e. **Bug 1b**. It does **not** cover the plain child INSERT (**Bug 1a**), whose collision is resolved solely by Fix A's single-tx + flush ordering. A session-level `lock_timeout`/`statement_timeout` would be needed to bound an INSERT wait, but Fix A removes that wait entirely, so it is not required here.
 
 ### Fix D (recommended): run `refillFixedLocations()` + `recalculateOpenOrders(true)` **after** the transactional core commits

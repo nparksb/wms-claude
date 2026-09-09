@@ -31,6 +31,16 @@ tags:
 
 # SBDEV-2074 (V2): Replenishment Reservations Not Released/Reassigned When Unit Load Moved to a Non-Replenishable Location
 
+> ⚠ **SBDEV-3250 (2026-09-07) — READ BEFORE ACTING ON ANYTHING BELOW ABOUT LOCK TIMEOUTS.**
+> Every `jakarta.persistence.lock.timeout` hint or property this document adds, recommends or marks
+> **DONE** **had no effect on PostgreSQL**. Hibernate's `PostgreSQLDialect.withTimeout` translates
+> only `0` (`NO_WAIT`) and `-2` (`SKIP_LOCKED`), returning the lock clause unchanged for anything
+> else; `supportsWait()` returns `false`; hibernate-core never issues `SET lock_timeout` itself.
+> Measured: a move waited **30.92 s** on an in-flight pick and then succeeded. Bounds now come from
+> `LockTimeoutHibernateJpaDialect` — `SET LOCAL lock_timeout` (`wms.tenant.lock-timeout-ms`,
+> default 10 s) at tenant-transaction begin — and apply **per lock acquisition**, not per statement.
+
+
 > **Archived 2026-07-20** — implemented and merged via wms2-api PR [#82](https://github.com/SiteBossInc/wms2-api/pull/82) (→ develop).
 > Acceptance script retained at `sbdocs/9-System/scripts/verify-SBDEV-2074-replen-reservation-reassign-on-nonreplenishable-move.sh`.
 

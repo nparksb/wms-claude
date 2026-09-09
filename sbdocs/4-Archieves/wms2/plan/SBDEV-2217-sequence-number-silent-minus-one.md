@@ -21,6 +21,16 @@ tags:
 
 # SBDEV-2217 — Sequence-number generation hardening (v2)
 
+> ⚠ **SBDEV-3250 (2026-09-07) — READ BEFORE ACTING ON ANYTHING BELOW ABOUT LOCK TIMEOUTS.**
+> Every `jakarta.persistence.lock.timeout` hint or property this document adds, recommends or marks
+> **DONE** **had no effect on PostgreSQL**. Hibernate's `PostgreSQLDialect.withTimeout` translates
+> only `0` (`NO_WAIT`) and `-2` (`SKIP_LOCKED`), returning the lock clause unchanged for anything
+> else; `supportsWait()` returns `false`; hibernate-core never issues `SET lock_timeout` itself.
+> Measured: a move waited **30.92 s** on an in-flight pick and then succeeded. Bounds now come from
+> `LockTimeoutHibernateJpaDialect` — `SET LOCAL lock_timeout` (`wms.tenant.lock-timeout-ms`,
+> default 10 s) at tenant-transaction begin — and apply **per lock acquisition**, not per statement.
+
+
 **Ticket:** [SBDEV-2217](https://app.clickup.com/t/868jj31rh)
 **Project:** wms2/wms2-api | **Version:** v2 (Java 21 / Spring Boot 3.x) | **Type:** bug fix
 **Priority:** High (Tier 1 — silent data corruption class)

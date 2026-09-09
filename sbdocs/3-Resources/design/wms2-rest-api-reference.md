@@ -1,6 +1,7 @@
 ---
 title: WMS v2 REST API Reference — net.aim_ai.wms.controller.rest
 last_verified: 2026-06-11
+partial_verification: "2026-09-06 SBDEV-3198 doc-drift pass — re-derived ONLY §5.2 GET /rest/stockcount/triggerStockCount against origin/develop d4a6ab8a. The rest of this doc still carries its 2026-06-11 date and was NOT re-checked; at 87 days it is in the yellow zone and due a full pass."
 tags: [api, rest, oms-integration, wms2]
 ---
 
@@ -810,6 +811,25 @@ HTTP 200 OK
 ```
 
 > ⚠️ **Technical note:** This runs the job synchronously in the HTTP thread. For large warehouses this may be a long-running call. Use with caution in production.
+
+> [!warning] **Two behaviour changes as of SBDEV-3198 (merged 2026-09-03, live on dev). Both are visible to OMS callers and neither changes the request or the status code.**
+>
+> **1. Scope narrowed from every tenant to the caller's tenant.** The handler now calls
+> `stockSummaryExportJob.runForCurrentTenant()` (`StockCountRestController:111` at `d4a6ab8a`);
+> it previously called `doCalculation(...)`, which iterated **every active tenant** in the process.
+> The tenant is resolved from `TenantContext`, i.e. from the **`X-Tenant-ID` + `facility_code`
+> headers** — so a caller that omitted them and relied on the old all-tenants fan-out now exports
+> nothing. Send the headers.
+>
+> **2. HTTP 200 no longer means the export ran.** `triggerStockCount()` returns `void` and
+> **discards** `runForCurrentTenant()`'s boolean, so the response is an empty 200 in all of these
+> cases: the export completed; no `TenantContext` (refused, ERROR logged); no landlord
+> `tenant_db_configuration` row for that tenant/warehouse (refused rather than exporting without
+> lock protection); the tenant's id does not narrow to `int4` (refused); the per-tenant advisory
+> lock was already held by the scheduled group or another manual trigger (skipped, DEBUG); or the
+> export threw. **Do not treat 200 as an acknowledgement.** Confirm from the job's own metrics
+> (`tenantSuccess` / `tenantFailure` / `tenantSkippedNotActivated`) or the export's downstream
+> effect. See [wms2-scheduled-jobs-catalog.md](../architecture/wms2-scheduled-jobs-catalog.md) §4.
 
 ---
 

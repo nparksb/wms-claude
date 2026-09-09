@@ -4,15 +4,16 @@ type: workflow
 project: wms2
 status: stable
 created: 2026-04-19
-last_verified: 2026-07-10
+last_verified: 2026-09-06
+verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-07-10.)"
 tags: [wms2, workflow, replenish]
 ---
 
 # Multi-Unit Load Replenishment Endpoint Plan
 
 ## Background
-- The existing workflow (`docs/replenish-workflow.md`) already explains how replenish work is generated in `ReplenishOrderJob.doCalculation`, converted into `Replenishorder` entities through `ReplenishGeneratorService.calculateOrder`, and executed end-to-end in `MobileReplenishService` (loading the order, validating source/destination, and calling `finishReplenishmentOrder` to transfer stock and trigger follow-up refills).
-- `docs/replenish-order-creation.md` documents that *every* order goes through `ReplenishGeneratorService.calculateOrder`, which enforces item/destination validation, picks a source stock unit, reserves quantity, and persists the order before any mobile workflow interacts with it. To keep that invariant while injecting authoritative source/destination data, this plan introduces `ReplenishGeneratorService.createOrderFromTemplate`, a companion that mirrors every validation/persistence/reservation step from `calculateOrder` but accepts the explicit `Stockunit`, location, and quantity. The template order referenced by `orderId` is reused (not recreated) for the first unit load, while every ad-hoc multi-unit-load order is instantiated through the new method.
+- The existing workflow ([wms2-replenish-workflow.md](./wms2-replenish-workflow.md) — the `docs/replenish-workflow.md` path this used to cite predates the vault layout) already explains how replenish work is generated in `ReplenishOrderJob` (⚠ `doCalculation` until 2026-09-03; now `runFor(TriggerSpec)` / `runForCurrentTenant()` → `replenish(tenantName)`, per SBDEV-3198), converted into `Replenishorder` entities through `ReplenishGeneratorService.calculateOrder`, and executed end-to-end in `MobileReplenishService` (loading the order, validating source/destination, and calling `finishReplenishmentOrder` to transfer stock and trigger follow-up refills).
+- [wms2-replenish-order-creation.md](./wms2-replenish-order-creation.md) documents that *every* order goes through `ReplenishGeneratorService.calculateOrder`, which enforces item/destination validation, picks a source stock unit, reserves quantity, and persists the order before any mobile workflow interacts with it. To keep that invariant while injecting authoritative source/destination data, this plan introduces `ReplenishGeneratorService.createOrderFromTemplate`, a companion that mirrors every validation/persistence/reservation step from `calculateOrder` but accepts the explicit `Stockunit`, location, and quantity. The template order referenced by `orderId` is reused (not recreated) for the first unit load, while every ad-hoc multi-unit-load order is instantiated through the new method.
 - The new endpoint needs to respect both flows: (1) fulfill the provided `orderId` through the same validations and finishing logic the mobile workflow already uses, and (2) create additional ad-hoc orders using the documented creation logic, but allowing explicit source unit loads, locations, quantities, and order numbers derived from the template order.
 
 ## Goals

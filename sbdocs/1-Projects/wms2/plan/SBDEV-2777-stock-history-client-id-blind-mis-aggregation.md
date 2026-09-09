@@ -1025,11 +1025,19 @@ moved only where predicted.
 
 ## 15. Implementation Status
 
-**MERGED to `develop` 2026-07-31 (PR #112, merge `7d9aee6`). NOT applied to any database.**
+**MERGED to `develop` 2026-07-31 (PR #112, merge `7d9aee6`).**
 
-> The app does not run Flyway at runtime, so merging changes nothing operationally — every
-> tenant still returns the blind numbers. `status` stays **`reviewed`**, not `implemented`,
-> until the migration is actually applied and the §8.3 before/after capture is recorded.
+> ⚠️ **CORRECTED 2026-09-01 — this block previously read "NOT applied to any database" and justified it with
+> *"The app does not run Flyway at runtime, so merging changes nothing operationally — every tenant still
+> returns the blind numbers."* Both halves are false.**
+>
+> The app **does** run Flyway at runtime (`app.flyway.migrate-on-startup=true`, SBDEV-2801), and
+> **V2.2.07 `fix stock history client id aggregation` is applied on production** — measured on
+> `wh01_hydra_v2` 2026-09-01: `installed_on = 2026-08-17 16:07:05`, `success = true`. It went in on a
+> boot-time batch, not an operator round.
+>
+> So the fix is **live on prd**, not pending. What remains genuinely outstanding is the §8.3 before/after
+> capture, which was never recorded. Verify the current numbers before treating this plan as open work.
 > The two open acceptance criteria are the apply and the per-tenant delta capture.
 
 | Item | State |
