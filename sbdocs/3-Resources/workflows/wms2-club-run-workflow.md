@@ -6,7 +6,7 @@ version: v2
 scope: club-run
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
+updated: 2026-09-10
 last_verified: 2026-06-01
 verified_by: code read of v2/wms2-api CustomerorderBatchService + ClubLineController + BillofladingService
 related:
@@ -94,8 +94,11 @@ RAW (0) → ORDER_BATCH_ACTIVATED (520)
   │  Phase 1: Validation + Lock                                      │
   │    pessimistic lock on CustomerorderBatch row                    │
   │    state guard: ACTIVATED or STAGING_LANE_ASSIGNED required      │
-  │    [CustomerorderBatchService:606]                               │
+  │    [CustomerorderBatchService.validateClubLine]                  │
   │    batch.state = ORDER_BATCH_CLUB_RUN_IN_PROGRESS (527)          │
+  │    stock check on the staging lane                               │
+  │    SIZE CAP: active-order count vs WMS_CLUBLINE_MAX_BATCH_SIZE   │
+  │      → refuses the run; see §9.12                                │
   │                                                                   │
   │  Phase 2: Per-order processing                                   │
   │    for each Customerorder in batch:                              │
@@ -105,7 +108,7 @@ RAW (0) → ORDER_BATCH_ACTIVATED (520)
   │        Customerorder.historytote = UUID (synthetic tote)         │
   │                                                                   │
   │  Phase 3: Finalize                                               │
-  │    finalizeClubLine()  [line 689]                                │
+  │    finalizeClubLine()                                            │
   │    each Customerorder.state → PACKED                             │
   │    each CustomerorderPosition.state → PACKED                     │
   │    batch.state = ORDER_BATCH_CLUB_RUN_FINISHED (530)             │
@@ -140,7 +143,6 @@ RAW (0) → ORDER_BATCH_ACTIVATED (520)
 | `runClubLine(CustomerorderBatch)` | 679 | `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` → `FINISHED` via `finalizeClubLine` | batch, Customerorder, CustomerorderPosition, Pickingorder, Stockunit, Unitload | RELEASED_FOR_PICKING, PICKING_STARTED, PICKING_FINISHED (via `ClubLineOrderProcessor` + `ManageOrderService`) | Multi-phase — Phases 1–3 transactional; Phase 4 fire-and-forget |
 | `finalizeClubLine(Long batchId, List<Customerorder>)` | 632 | `ORDER_BATCH_CLUB_RUN_FINISHED` (530); orders → `PACKED` | batch, Customerorder, CustomerorderPosition | none (callbacks fire from `runClubLine` parent) | yes |
 | `rollbackClubLineState(Long batchId, int originalState)` | 656 | reverts batch to `originalState` | batch only | none | yes, `rollbackFor = Exception.class` (broad — intentional) |
-| `cancelBatch(CustomerorderBatch, Principal)` | 221 | `CANCELED` (800) | batch, Customerorder, CustomerorderPosition, Pickingorder, Unitload, Stockunit | `WEBSERVICE_ORDER_BATCH_CANCELLED` (line 265) | yes |
 | `finalizeBatchIfComplete(Long)` | 346 | rolls batch to `FINISHED` or `CANCELED` depending on child state | batch, Customerorder | none | **NOT transactional** — rollup only |
 
 ---
@@ -207,7 +209,7 @@ Most callbacks below fire post-commit via `TransactionSynchronizationManager.reg
 | `WEBSERVICE_ORDER_BATCH_PALLETIZED` | `ManageOrderService.customerOrderPalletized` | 413 | After palletize (downstream BOL workflow) |
 | `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK` | `ManageOrderService.customerOrderLoadedToTruck` | 474 | After truck load |
 | `WEBSERVICE_ORDER_BATCH_SHIPPED` | `BillofladingService.closeBOL` | 653 | On BOL close — terminal notification |
-| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `CustomerorderBatchService.cancelBatch` | 265 | Batch cancel — **activation gated by `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` (default `false`)** |
+| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `CustomerorderService.cancelOrder` (one enqueue **per order**, `aggregate_type='CUSTOMER_ORDER'`) | — | Cancel — ⚠ **no activation gate in v2**; the sysprop of that name is inert (SBDEV-3332). ⚠ Was cited here as `CustomerorderBatchService.cancelBatch:265`; that method was deleted as unreachable dead code under **SBDEV-3354** (2026-09-14) and never emitted this callback in production. There is no batch-scoped enqueue. |
 
 Archived bug `Club_Order_Cancellation_OMS_Fix` was a post-commit ordering issue where a callback fired before the cancel actually persisted. The fix: never fire callbacks inside `@Transactional` — always via `registerSynchronization`.
 
@@ -238,11 +240,18 @@ This is the only codebase location that "reverts" a state transition. Do not cop
 
 Club runs can be cancelled at three distinct points, each with different cascade shape:
 
+⚠ **CORRECTED 2026-09-14 (SBDEV-3354).** The first two rows of this table named
+`CustomerorderBatchService.cancelBatch:221` as the before-run and during-run cancel path. **That method
+had no route and no caller in any commit of this repository's history, and was deleted.** Every club cancel — before, during, or after a run —
+goes through the per-order path. *Deriving method:*
+`git grep -n "cancelBatch" origin/develop -- 'src/main/**/*.java'` returned only its own declaration;
+*positive control:* the same grep over `src/test` returned 54 occurrences across 4 classes.
+
 | When | Method | Cascade |
 |---|---|---|
-| Before run started (`ORDER_BATCH_ACTIVATED` or `ORDER_BATCH_STAGING_LANE_ASSIGNED`) | `CustomerorderBatchService.cancelBatch:221` | Full cascade — batch + all orders + all pickingorders + all unitloads. Fires `WEBSERVICE_ORDER_BATCH_CANCELLED` (if activated). |
-| During run (`ORDER_BATCH_CLUB_RUN_IN_PROGRESS`) | Same `cancelBatch` — same cascade; rolls back any in-progress picks | Relies on pessimistic batch lock — can't cancel while `runClubLine` holds the row lock |
-| Post-run per-order cancel (single `CustomerorderService.cancelOrder`) | `CustomerorderService:300` | Single-order cascade; if `historytote != null` triggers rapid-pick side-door (§6.1) |
+| Before run started (`ORDER_BATCH_ACTIVATED` or `ORDER_BATCH_STAGING_LANE_ASSIGNED`) | `OrderRestController.cancelPositions` → `CustomerorderService.cancelOrder` per order | **One transaction per order, not per batch** — a batch can end up partially cancelled. One `WEBSERVICE_ORDER_BATCH_CANCELLED` enqueue per order (if activated). Batch row reaches `CANCELED` by rollup via `finalizeBatchIfComplete`. |
+| During run (`ORDER_BATCH_CLUB_RUN_IN_PROGRESS`) | Same per-order path | Still bounded by the pessimistic batch lock — a cancel cannot proceed while `runClubLine` holds the row lock |
+| Post-run per-order cancel | `CustomerorderService.cancelOrder` | Single-order cascade; if `historytote != null` triggers rapid-pick side-door (§6.1) |
 
 Key archived fixes: `Club_Order_Cancellation_Fix_Plan`, `Cancel_Club_Parcels_Packed_State_Fix` (the pack-guard regression), `RunClubLine_Cancelled_Order_Fix_Plan`.
 
@@ -256,7 +265,7 @@ See [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §5 for
 - Phase 2 per-order work (`ClubLineOrderProcessor.processOrder`) — per-order `@Transactional("tenantTransactionManager")`, typically with `REQUIRES_NEW` so one bad order doesn't abort the run.
 - Phase 3 `finalizeClubLine` — single transaction. All orders move to `PACKED` atomically; batch to `ORDER_BATCH_CLUB_RUN_FINISHED`. **SBDEV-2381:** also performs up to 3 `outboxService.enqueue` (RELEASE/STARTED/FINISHED) per club CO inside this same tenant tx — a failed enqueue rolls the whole finalize back.
 - Phase 4 callbacks — `PALLETIZED` / `LOADED_TO_TRUCK` remain post-commit fire-and-forget. The RELEASE/PICKING_STARTED/PICKING_FINISHED notifications are **no longer here** (SBDEV-2381 moved them into the Phase-3 finalize tx via the outbox).
-- `cancelBatch` — single transaction. Entire cascade succeeds atomically or rolls back.
+- **Batch cancel — one transaction PER ORDER, not one per batch.** `cancelPositions` loops `cancelOrder`; open-in-view is false so each order gets its own persistence context, and a failure on one order does not roll back its siblings. The old entry here claimed `cancelBatch` made the whole cascade atomic; that method was deleted under SBDEV-3354 (§7).
 - `rollbackClubLineState` — new transaction (`rollbackFor = Exception.class`); runs after Phase 1 commit, before re-throwing.
 
 See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §7 for the overall `REQUIRES_NEW` inventory.
@@ -268,7 +277,7 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 1. **Phase 1 of `runClubLine` commits state to `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` before the rest runs.** If Phase 2 or 3 throws, `rollbackClubLineState` must revert in its own transaction. Any refactor that tries to wrap all 4 phases in one `@Transactional` will lose the "observable mid-run state" property — tools like the `/activeClubRun` endpoint depend on it.
 2. **`historytote = UUID` drives the rapid-pick cancel side-door.** Removing the UUID write breaks club cancellation (order stays stuck in picking instead of returning to pool). See [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §7.
 3. **`ORDER_BATCH_CLUB_RUN_FINISHED` is NOT terminal.** The batch eventually reaches `FINISHED` (700) via BOL close. Don't treat `CLUB_RUN_FINISHED` as a stop state.
-4. **`WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` defaults to `false`.** Tenants that want OMS cancel notifications must flip it explicitly. Otherwise cancels are silent to OMS.
+4. **~~`WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` defaults to `false`~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` has exactly two references in `src/main` — its own declaration in `WmsConstants` and a **commented-out** seed line in `UtilRestController` — so no code reads it. v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (v1 does read it; do not carry the v1 behaviour across.)
 5. **`finalizeBatchIfComplete` is NOT a cancel trigger.** It's a post-cancel rollup — don't invoke it directly to "force" batch cancel.
 6. **No mobile path.** Club runs are desktop-only. Adding mobile support requires parallel mobile controllers + services; the `runClubLine` orchestration is currently web-UI-bound.
 7. **The pack-guard regression pattern** (`Cancel_Club_Parcels_Packed_State_Fix`): guards at `CustomerorderService:382, 554` block normal cancel when orders are already `PACKED` or `PALLETIZED`. The force path (`forceCancelOrder`) bypasses this — but a plain `cancelOrder` on a club-run-finished order must get through the guard first.
@@ -276,6 +285,12 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 9. **Pessimistic batch lock during `runClubLine`** prevents concurrent cancel. A cancel request on a running batch will block until the run completes or fails — admins may see "cancel hung" when they're actually waiting on the lock.
 10. **`OrderBatchType` matters**. Only `CLUB`-typed batches go through the club flow. Non-CLUB batches follow a different path even through the same entry points. Check `orderBatch.getType()` before assuming club semantics.
 11. **⚠ `ClubLineSkuDto.amountAvailable` GATES the "Run Club Line" button — it is not a display value.** `CustomerorderBatchService.getClubLineSKUOverview` fills it from `StockunitRepository.getAmountAvailable(staginglaneId, itemdataId)`, a **single-location** query, and `clubRuns/itemsTable.vue`'s `disableRun` computed blocks the button while **any** line has `amountAvailable < amountRequired`. **Repointing it at a warehouse-wide figure enables the run against an EMPTY lane.** ⚠ Its `else` arm is also load-bearing: leaving `amountAvailable` null makes `null < required` **false** in JavaScript, so `disableRun` returns false and the button enables — the same regression by a side door. SBDEV-2951 therefore added a **separate additive** `amountOnHand` field and an "On hand" column, kept the `Total at Lane` header, and left every gate untouched. This flow shares that DTO and both SKU-overview shapes with the transfer flow, so **a change to one must be made to both** — they have drifted before (the club copy carried a dead `amount != 0` branch the transfer copy lacked, collapsed by SBDEV-2951). See [wms2-transfer-order-workflow.md](./wms2-transfer-order-workflow.md) §10 item 12 and plan `SBDEV-2951-transfer-club-available-counts-lane-only`.
+
+12. **⚠ A club run is refused above `WMS_CLUBLINE_MAX_BATCH_SIZE` active orders, and the cap has ONE surface — the sysprop.** Checked in `validateClubLine` (grep `"exceeds maximum allowed ("`), *after* the pessimistic lock and the staging-lane stock check, so an over-cap run still takes the lock and runs the O(n) stock validation before rejecting. Seeded at **5000** by `V2.2.27` (SBDEV-3304); a tenant with no row falls back to `CustomerorderBatchService.DEFAULT_MAX_CLUB_LINE_BATCH_SIZE`, which reads the same constant, so seeded and unseeded resolve identically. Non-numeric, blank or `< 1` falls back and logs — a `0` row would otherwise reject **every** club run in that tenant, including single-order ones — and a value above `CLUBLINE_MAX_BATCH_SIZE_CEILING` (10 000) clamps, as a typo guard rather than a throughput statement.
+
+    **The history is the landmine.** Until SBDEV-3304 the cap came from a Spring property `wms.clubline.max-batch-size`, whose **env-var spelling is byte-identical to the sysprop key**. It was set in no properties file, so it configured nothing, while an operator who set "it" could not tell which of the two they had set — and the two behave completely differently (the sysprop is per tenant and effective on the next run; the property was process-wide, because wms2-api is deployed once per *environment*, not once per warehouse). **That property has been deleted.** If you are debugging "I raised the limit and nothing changed", establish which surface was touched — and do not reintroduce a property here.
+
+13. **⚠ Raising the cap does not make a large club run finish inside the request.** `runClubLine` is a synchronous `GET` with a one-transaction-per-order Phase 2, and `finalizeClubLine` does 3 outbox enqueues **plus** a tote `saveAll` per order inside a single transaction (~3,885 rows for a 1295-order batch). The only measurement available is from **v1** — every club batch on every reachable tenant predates its tenant's own `V2.2.00` baseline, so **the v2 club path has never been observed running at any size**. On that v1 run (441 orders) per-order cost grew **9.1× within the single run**, i.e. quadratic, extrapolating to **45–70 minutes** for 1295 orders. Tracked in **SBDEV-3310**; its first step is measurement, not implementation.
 
 ---
 
@@ -299,5 +314,8 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 |---|---|---|---|
 | 2026-04-19 | `CustomerorderBatchService` methods (activateOrderBatch, assignStagingLaneToOrderBatch, runClubLine, finalizeClubLine, rollbackClubLineState, cancelBatch, finalizeBatchIfComplete); `ClubLineController` all endpoints; `TransfersController` endpoints; `BillofladingService.transferOrder` + `closeBOL` batch-cascade; `ManageOrderService` club-specific UUID path; OMS callback wiring | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-06-01 | SBDEV-2381: Phase-4 fire-and-forget RELEASE/PICKING_STARTED/PICKING_FINISHED removed from `runClubLine`; now `outboxService.enqueue` per CO in-tx inside `finalizeClubLine` (ascending ids, failed enqueue rolls back finalize). `ManageOrderService.customerOrderReleaseForPicking/customerOrderPickingStarted/customerOrderPicked` retired to no-op shims. §6.2 table + §8 Phase-3/4 boundaries updated. | Confirmed against `CustomerorderBatchService.finalizeClubLine` / `runClubLine` and `ManageOrderService` shims (PR #35, commits 567fba3 + 41ad7d3) | Code read (grep-based) |
+
+| 2026-09-10 | **SBDEV-3304 — club-line size cap.** Added the Phase-1 size-cap step (§3), landmines §9.12 (the cap and its single surface) and §9.13 (why raising it does not shorten a run). Replaced two stale line citations — the doc pointed at `CustomerorderBatchService:606` and `:689`, which are now a blank line and `return sb.toString();` respectively — with method names, which relocate themselves. **Scope note: this was NOT a full re-verification of the document**, so `last_verified` is deliberately left at 2026-06-01 and the doc remains overdue. Only the cap path was read. | §3, §9 updated; the rest unverified since 2026-06-01 | Claude (SBDEV-3304), on Nam's request |
+| 2026-09-14 | **SBDEV-3354 — `cancelBatch` deleted.** Four claims in this doc named `CustomerorderBatchService.cancelBatch` as the club batch-cancel path: the §6 method table row, the §6 OMS callback table, the §7 cancellation-paths table (two of its three rows) and the §8 transaction-boundary bullet asserting batch-atomicity. The method had no route, no caller and no production message; it was deleted. All four now describe the real path — `OrderRestController.cancelPositions` looping `cancelOrder`, one transaction per order, partial success possible. **Scope: the `cancelBatch` claims only** — `last_verified` stays at 2026-06-01 and the doc remains overdue. | `git grep` on `origin/develop` (1 `src/main` occurrence → 0; positive control 54 in `src/test`) plus Hydra PRD `outbox_message`: 0 rows of the pair only `cancelBatch` wrote, against a positive control of 3 rows of the same `process_type` under `aggregate_type='CUSTOMER_ORDER'`. | SBDEV-3354 implementation |
 
 **Re-verify every 60 days.** Next due: **2026-07-31** — club-run area has multiple active and recently archived plans; high rate of change warrants more frequent re-verification than typical workflows.

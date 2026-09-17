@@ -147,7 +147,7 @@ Regardless of A1, reduce sequence serialization by generating N unit load number
 Add a configurable maximum batch size (e.g., 500 orders) at the top of `runClubLine()`. Reject batches above the limit with a clear error message.
 
 **Changes required:**
-1. Add `wms.clubline.max-batch-size` property (default 500)
+1. Add `wms.clubline.max-batch-size` property (default 500) — ⚠ later **removed** by SBDEV-3304; see the status note below
 2. Add validation at the start of `runClubLine()`
 
 ---
@@ -223,7 +223,7 @@ After the `entityManager.clear()` at line 636, re-fetch `billOfLading` from the 
 |----------|------|----------|--------|----------------|--------|
 | 1 | Fix `closeBOLs` self-call (B1) | Extract batch orchestrator | Medium | **HIGH** — eliminates the multi-BOL mega-transaction | **DONE** — `BillofladingBatchService` created, controller updated, per-BOL TX isolation with error aggregation |
 | 2 | Split `runClubLine` per-order (A1) | Extract order processor service | Medium-High | **HIGH** — reduces lock hold from O(N*M) to O(M) | **DONE** — `ClubLineOrderProcessor` created, `runClubLine()` split into validate/process/finalize phases, new `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` state added |
-| 3 | Batch size guard (A3) | Quick validation | Low | **MEDIUM** — prevents pathological cases immediately | **DONE** — configurable `wms.clubline.max-batch-size` property (default 500), checked in `validateClubLine()` |
+| 3 | Batch size guard (A3) | Quick validation | Low | **MEDIUM** — prevents pathological cases immediately | **DONE** — checked in `validateClubLine()`. ⚠ SUPERSEDED by SBDEV-3304 (2026-09-10): the `wms.clubline.max-batch-size` property named here was **deleted** — it was set in no properties file, so it configured nothing, while its env-var spelling collided byte-for-byte with the sysprop key. The cap is now set only by the per-tenant `WMS_CLUBLINE_MAX_BATCH_SIZE` sysprop (seeded at 5000 by V2.2.27), clamped to `CLUBLINE_MAX_BATCH_SIZE_CEILING` |
 | 4 | Lock timeouts (B2) | Query hint annotations | Low | **MEDIUM** — prevents indefinite blocking | **DONE** — 5s `jakarta.persistence.lock.timeout` on `BillofladingRepository` and `CustomerorderBatchRepository` `findByIdForUpdate` |
 | 5 | Bulk sequence generation (A2) | New method + refactor | Medium | **MEDIUM** — eliminates N sub-TXs | Backlog |
 | 6 | HttpRestService timeouts | RestClient config | Low | **MEDIUM** — safety net for all HTTP calls | Backlog |

@@ -311,7 +311,7 @@ Why two steps? TRANSFER marks "in flight between warehouses" — neither side ha
 7. **Entity locks on Unitload + Stockunit during TRANSFER** prevent intra-facility moves of in-flight stock. Clearing these locks manually (e.g. via SQL) during a stuck transfer is the wrong fix — invoke `finishTransfer` with the right transferId.
 8. **Palletize guard `state < PALLETIZED`**. Only advances; never regresses. Force-paths in cancel (`forceCancelOrder`) bypass this. A custom admin flow that tries to "un-palletize" must also clear the pallet unit load linkage, or state and physical reality diverge.
 9. **Palletize's post-commit hook must capture the order list + pallet *before* commit.** The closure variable `capturedOrders` / `capturedPallet` in `palletise` is there for a reason — reading these from the EMF after commit can return stale state under OSIV-disabled config.
-10. **`WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` default is `false`** (tenant routing §11 table). Cancels mid-BOL-flow don't notify OMS by default; enable the sysprop per-tenant.
+10. **~~`WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` default is `false`~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` has exactly two references in `src/main` — its own declaration in `WmsConstants` and a **commented-out** seed line in `UtilRestController` — so no code reads it. v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (v1 does read it; do not carry the v1 behaviour across.)
 
 ---
 

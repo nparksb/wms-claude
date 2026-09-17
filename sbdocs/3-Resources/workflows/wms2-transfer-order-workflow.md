@@ -118,7 +118,7 @@ Source warehouse
   │
   ▼   Advice.state = CREATED/OPEN → FINISHED
   │   Positions bulk-updated to FINISHED
-  │   Post-commit: WEBSERVICE_ACCEPT_TRANSFER fires to OMS (line 406)
+  │   Outbox-enqueued in-tx: WEBSERVICE_ACCEPT_TRANSFER → OMS (see §7)
   │
   │   Source warehouse closes the intracompany BOL
   │       Web UI: /v3/billOfLading/closeIntraCompanyTransfer/{transferId}
@@ -244,11 +244,31 @@ The `TRANSFER_INTRACOMPANY` type is the only one that triggers the two-step clos
 
 | Callback | Fired from | Source-side or destination-side |
 |---|---|---|
-| `WEBSERVICE_ORDER_BATCH_SHIPPED` | `BillofladingService.closeBOL` (line 653) | Source — after BOL enters `TRANSFER` state |
-| `WEBSERVICE_ACCEPT_TRANSFER` | `AdviceService.acceptTransferAdvice` (line 406) | Destination — when receiving advice is accepted |
-| `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `AdviceService.acceptHubAndSpokeAdvice` (line 251) | Destination — for HUB_AND_SPOKE type only (distinct flow) |
+| `WEBSERVICE_ORDER_BATCH_SHIPPED` | `BillofladingService.closeBOL` | Source — after BOL enters `TRANSFER` state |
+| `WEBSERVICE_ACCEPT_TRANSFER` | `AdviceService.acceptTransferAdvice` | Destination — when receiving advice is accepted |
+| `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | `AdviceService.acceptHubAndSpokeAdvice` | Destination — for HUB_AND_SPOKE type only (distinct flow) |
 
-All post-commit via `omsNotificationService.sendAfterCommit(...)` or `TransactionSynchronizationManager.registerSynchronization`. See [wms2-end-to-end-request-journey.md §5](../architecture/wms2-end-to-end-request-journey.md).
+⚠ **Corrected 2026-09-10 (SBDEV-3311).** This paragraph previously read *"All post-commit via
+`omsNotificationService.sendAfterCommit(...)` or `TransactionSynchronizationManager.registerSynchronization`"*.
+That has been **false since SBDEV-2238 Phase 2** and it contradicted
+[wms2-oms-integration-map.md](../architecture/wms2-oms-integration-map.md). All three callbacks above go through
+the **transactional outbox** — `outboxService.enqueue(OutboxMessage.builder()…)` inside the caller's tenant
+transaction, dispatched later by `OutboxDispatcherJob`. Verified on `origin/develop` @ `22d19474`:
+`AdviceService.acceptTransferAdvice` ends with `outboxService.enqueue(… .processType(WmsConstants.MessageProcessType.ADVICE_ACCEPT_TRANSFER) …)`
+and contains no `sendAfterCommit` call.
+
+The distinction is load-bearing, not cosmetic: `enqueue` is `Propagation.MANDATORY`, so the notification row
+commits atomically with the state change and is retried by the dispatcher; `sendAfterCommit` is fire-and-forget
+with no retry **and its guard is inverted** (SBDEV-3267 — `isActualTransactionActive()` is `true` inside
+`afterCommit`, so nested call sites silently drop the POST, the `message` row and the metric). Anyone reasoning
+about delivery guarantees from the old sentence would have reached the opposite conclusion about whether a
+transfer callback can be lost.
+
+⚠ **Every `(line NNN)` reference in §3, §4.3, §4.4 and §8 of this document is stale by roughly 420 lines**
+(measured 2026-09-10). Grep the quoted symbol instead. Line numbers were removed from the table above for
+that reason.
+
+See [wms2-end-to-end-request-journey.md §5](../architecture/wms2-end-to-end-request-journey.md).
 
 ---
 

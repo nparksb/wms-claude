@@ -1,0 +1,5 @@
+# develop-baseline — excerpt (full log was ~6MB, trimmed to the evidential lines)
+
+[WARNING] Tests run: 6498, Failures: 0, Errors: 0, Skipped: 1
+[INFO] BUILD SUCCESS
+[INFO] Total time:  04:10 min

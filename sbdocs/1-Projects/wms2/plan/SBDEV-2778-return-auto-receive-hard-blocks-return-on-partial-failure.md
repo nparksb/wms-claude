@@ -5,14 +5,14 @@ ticket_url: "https://app.clickup.com/t/868kj2bv4"
 type: "bugfix"
 severity: "high"
 priority: "urgent"
-status: "STALE BASE — RE-GROUND BEFORE ANY WORK (flagged 2026-08-20). The rev4 note (2026-08-09) rests on two claims that are now FALSE: that ReceivingService.java is byte-identical to its pre-2731 state, and that SBDEV-2732 step 15's diversion gate is unimplemented. Since then 67b015e, 9ed8822, cb562b3 and b950e17 landed the pick-face placement gate directly into ReceivingService (+68/-8), and ReturnAdviceAutoReceiveService took +104/-11 from 478b652 and b950e17. H1 — the primary hypothesis and the whole \"trigger still present\" argument — is plausibly ALREADY FIXED. The core defect (any recoverable receive failure hard-blocking the whole return) may survive, but every line anchor in section 0 and section 5 is stale and the RCA needs redoing. This is the SBDEV-2781 pattern repeating: git fetch and diff per repo BEFORE enumerating sites."
+status: "RE-GROUNDED AND IMPLEMENTED 2026-09-14 (F1, F2, F3-narrowed) on branch bugfix/SBDEV-2778-soft-fail-return-auto-receive, rebased onto origin/develop. The 2026-08-20 STALE-BASE flag was CORRECT: H1 is fixed on develop (ReceivingService diverts a pick-face destination via divertPickFaceToLane instead of throwing), and the F3 probe design was stale twice over. See REVISION 4. NOT merged, NO PR yet."
 project: ["wms2-api", "oms-laravel-api"]
 version: "v2"
 requester: "Brent Campbell"
 assignee: "Nam Park / David Oppenheim"
 created: "2026-08-05"
-updated: "2026-08-05"
-revision: 3
+updated: "2026-09-14"
+revision: 4
 db_verified: partial
 db_verified_note: >
   PARTIAL. Prod Hydra (the environment the incident was reported on) is NOT reachable from the
@@ -70,6 +70,147 @@ tags:
 **Severity:** high | **Priority:** urgent
 **Status:** draft rev2 — architect review applied; pending consensus review
 **Date:** 2026-08-05
+
+> ## ✅ REVISION 4 — re-grounded against current `origin/develop` and implemented, 2026-09-14
+>
+> The rev3 document was flagged STALE BASE on 2026-08-20. That flag was **correct**, and re-grounding
+> changed the work materially. Base was **772 commits** behind at the start of this session.
+>
+> ### What the re-grounding found
+>
+> | # | Finding | Evidence | Effect |
+> |---|---|---|---|
+> | 1 | **H1 is ALREADY FIXED.** The trigger of Brent's 2026-08-05 prod failure no longer reaches the throw | `ReceivingService` now diverts a pick-face destination: `putawayDestinationResolver.divertPickFaceToLane(putaway, ...)` guarded by `pickFace && putaway.source() != STANDARD_PUTAWAY_LANE`. Landed in `478b6528`, `67b015ef`, `b950e170` | §2 H1 and the whole "trigger still present" argument are **withdrawn** |
+> | 2 | **The core defect SURVIVES.** `executeInternal` still hard-threw on any receive failure | `throw new WebserviceBusinessExceptionClientSide(RETURN_AUTO_RECEIVE_PARTIAL, ...)` inside the per-position loop, on `origin/develop` at session start | **F1 is still needed** — implemented |
+> | 3 | **The putaway reason codes are no longer reachable as designed.** `resolveRefs` calls `requireUsablePlacement` **pre-persist** | an unusable destination is now a clean 400 with no advice row; it cannot arrive as a mid-loop partial failure | F3's vocabulary **narrowed** — see below |
+> | 4 | **The F3 probe read putaway TIER 1**, which V2.2.13 deliberately NULLed on most SKUs | develop's `itemdata()` fixture sets `putawaylocationId` to `null`; the gate's copy set `900L`. Git auto-merged both **without a conflict** | the probe would have misreported for essentially every real SKU |
+>
+> ### What shipped
+>
+> - **F1** — `execute()` returns an `AutoReceiveOutcome` (SUCCESS / PARTIAL / SKIPPED) instead of
+>   throwing. The advice stays OPEN so the dock path can still receive the rest. `create()` is not
+>   `@Transactional`, so the pre-fix throw left the advice and positions `1..k-1` **committed** while
+>   OMS rolled its own return transaction back.
+> - **F2** — the controller returns **200-with-warning**, not 204 (OMS short-circuits on 204 and never
+>   parses the body). `status` stays `"success"` so `isFailureResponse` does not trip. The
+>   `ADVICE_IMPORT` audit row records 200 and the rendered description.
+> - **F3 (narrowed)** — `diagnose()` reports only `PRINTER_UNREACHABLE`, `ZPL_TEMPLATE_MISSING`,
+>   `CONFIG_MISSING`; everything else is `UNKNOWN` + correlation id. `PUTAWAY_LOCATION_REJECTED` and
+>   `PUTAWAY_LOCATION_MISSING` were **removed from the enum**, with T6/T6b/T7. Decision: Nam,
+>   2026-09-14.
+> - The `RETURN_AUTO_RECEIVE_PARTIAL` template grew 4 → 6 conversions and is now explicitly
+>   positional (`%N$s`). Bare `%1s` is **not** positional in Java, so the trailing two arguments —
+>   the reason code and the correlation id — were being silently dropped.
+>
+> ### Verification
+>
+> - `ReturnAdviceAutoReceiveServiceUnitTest` 64 tests green; `AdviceRestControllerUnitTest` green.
+> - **PIT**, scoped to the class: 93 mutations, **74 killed**, up from 72. Both new kills are
+>   attributable and closed real gaps — the `oms_integration`-ABSENT branch (the live path on any
+>   tenant without V2.2.09; UAT measured at **0 rows**) and the unpinned `skipped_no_positions`
+>   counter.
+> - Three anti-drift rails that the gate's own code tripped are fixed: an unregistered
+>   `SecurityConfiguration` pin, a count encoded in a test name, and two null-blind `never()` matchers.
+>
+> ### DB verification (floor item 1)
+>
+> On **WineCo UAT** (`RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED = 'true'` since 2026-09-10): **0** RETURN
+> advices in a partial or stuck state out of 2,796. The zero carries a **positive control** — the same
+> detector found 11 mixed-state REGULAR advices and 133 zero-receipt RETURN advices (the known v1-era
+> phantom closures, matching the documented count exactly). So the defect is structurally live but has
+> **not been triggered on the reachable environment**. ⚠ The reported environment is **prod Hydra**,
+> whose MCP would not connect this session — probes P1/P2 in §2 remain **unrun**.
+>
+> ### Independent review — 4 lanes, 2026-09-14/15
+>
+> First fan-out (Opus) died on a weekly model limit having written NOTHING; re-run on Sonnet. An idle
+> lane is not a passing review, so the lanes were re-run rather than counted.
+>
+> **Cleared.** The critic lane attacked the F3 narrowing directly and could not break it:
+> `PutawayDestinationResolver.resolve()` reads tier 1 (per-SKU), tier 2 (per-CLIENT), and tiers 3/4
+> (global), and `unitloadtypeId` is resolved ONCE before the position loop — so the memo key
+> `putawaylocationId + "\0" + clientId` captures every degree of freedom the resolver actually has.
+> Two SKUs of one client with a null tier 1 CANNOT resolve differently. The deletion of
+> `PUTAWAY_LOCATION_REJECTED`/`PUTAWAY_LOCATION_MISSING` is therefore soundly justified.
+>
+> **Fixed in this pass** (all findings, Low included, per Nam 2026-08-26):
+>
+> | Lane | Sev | Finding | Resolution |
+> |---|---|---|---|
+> | correctness | Med | `isAutoReceiveEnabled()` read twice (batch guard + per-advice), so a sysprop flip between them could let a multi-RETURN batch through and silently overwrite the first outcome | read at most once per request, lazily (eager would break AC12's single-consultation pin) |
+> | conformance | **High** | the warning body had only `code`/`reason`/`correlation_id`/`description`, but the plan's OMS-side F4 indexes `advice`/`sku`/`received`/`total` — every read would have silently fallen back to a generic value | added the four discrete fields; both are caller-supplied echo already present in `description`, so no new disclosure |
+> | conformance + correctness | Med/Low | a SKIPPED outcome takes the warned branch and emitted a 200 with `description: null`, `correlation_id: null` — the same unreadable-audit-row blindness this ticket exists to close | `skipped()` now renders via `RETURN_AUTO_RECEIVE_ABORTED`; new controller test **T14b** pins it |
+> | conformance | Med | **T16 was vacuous** on its headline claim — `execute()` is mocked at the controller layer, so the cause could never reach the body and `doesNotContain(SECRET_LOCATION_NAME)` passed unconditionally | reframed to what it actually proves (the controller adds no printer/CUPS/sysprop context). The real cause-text guard is **T12**, which throws the genuine exception through the real `execute()` |
+> | conformance | Low | fixtures orphaned by the T6/T6b/T7 deletion | removed |
+> | correctness | Low | `diagnose()` javadoc claimed "any throw degrades to UNKNOWN"; the catch is `RuntimeException` | wording corrected, with the reason the catch is deliberately not widened |
+>
+> **Security — analysed and DEFERRED, deliberately.** The lane rated High: a warned response is now a
+> 2xx, `RestIdempotencyService.persistResponse` keeps 2xx (dropping the claim row only for non-2xx),
+> and the G-e business-failure carve-out in `IdempotencyFilter` is gated on
+> `v3AllowListed && carriesErrors(...)` — an allow-listed `/v3` path with an `"errors"` key — so it
+> never fires for `/rest/advice/create` with a `"warning"` key. A byte-identical retry is therefore
+> REPLAYED from cache for up to 7 days instead of re-executing.
+>
+> **Its recommended fix was rejected, with evidence.** Dropping the claim row would make an OMS retry
+> re-execute `create()`, which hits the duplicate-`referenceId` guard at `AdviceRestController:231`
+> → `ENTITY_ALREADY_EXITS` → OMS's "already been advised to WMS … contact support to reconcile" —
+> *precisely the permanently-stuck return this ticket exists to eliminate*. Caching the warned 200 is
+> the safer behaviour; a resubmit was never the recovery path (the advice is left OPEN for the dock).
+> The invariant and its reasoning are now pinned in a comment at the 200/204 branch so a future
+> reader does not "fix" it back into the bug.
+>
+> ### NEW defect this change introduces — OMS side, DECIDED, not yet fixed
+>
+> `QaReturnService.php:386` logs
+> `'received_in_wms' => $wmsResult !== null && ($wmsResult['status'] ?? '') !== 'skipped'`. That reads
+> OMS's OUTER standardized status, which is `'success'` for a PARTIAL by design — so a partial receive
+> now logs as fully received. **Before F2 this was unreachable**: a PARTIAL always threw before that
+> line. Log-only, single occurrence, no consumer — but it is the one OMS-side breadcrumb, and it is
+> now affirmatively wrong rather than merely absent.
+>
+> **DECISIONS (Nam, 2026-09-15).** Fix as a SECOND PR under this ticket, AFTER the wms2-api PR lands —
+> the ticket is `in development` (below `on dev`), so the finding belongs on this ticket, and going
+> second means the `warning` key actually exists to write a test against. Shape: `received_in_wms`
+> stays a boolean meaning a COMPLETE receive (a partial is false), plus new log fields carrying the
+> warning's reason and received/total, so the line becomes diagnostic rather than a bare true/false.
+>
+> ⚠ **NOT a one-liner — do not scope it as one.** Before F2 the flag was CORRECT:
+> `$wmsResult['status'] === 'skipped'` is OMS's OWN local value (returned by `sendReturnRestockAdvice`
+> when every item is damaged and nothing is sent), and any WMS failure threw before the log line was
+> reached — so non-skipped genuinely meant a full receive. F2 introduces a third state that a boolean
+> cannot carry, which is a design change, not a tweak.
+>
+> Scoping facts for whoever picks it up:
+> - The warning arrives at `$wmsResult['data']['warning']`. WMS's warned body has no top-level `data`
+>   key, so `processWmsResponse`'s `'data' => $responseData['data'] ?? $responseData` nests the WHOLE
+>   body under `data`. The key is absent until the WMS side deploys, so the read is null-safe and
+>   either merge order is safe — it is simply not CORRECT until WMS ships.
+> - **Zero existing coverage**: nothing under `tests/` references `updateReturnManagement` or
+>   `received_in_wms`. Failing-test-first means WRITING coverage, not extending it.
+> - **No measured baseline** for this repo's `php artisan test`. Measure develop's first, or the
+>   result cannot be interpreted.
+> - The main checkout sits on `develop`, 4 commits behind origin — use a per-ticket worktree off a
+>   freshly fetched `origin/develop`, never an in-place edit.
+>
+> ### Correction to REVISION 4's "Still open"
+>
+> "OMS does not yet surface the warning" **understated it**. The critic traced the whole path:
+> `formatReturnResponse` is a fixed 15-field array with no field that could carry a warning, and
+> `QaReturnController::manageReturn` hardcodes "Return managed successfully" on every non-throwing
+> path. A partial and a clean return are today **byte-for-byte identical** to the operator. The two
+> Returns-workflow ACs need an OMS **backend contract change**, not a frontend pass — scope the
+> follow-up accordingly. Relatedly, `UNKNOWN` + a correlation id is honest but **engineering**-
+> actionable, not operator-actionable; the three named reasons genuinely are operator-facing.
+
+> ### Still open
+>
+> - No PR. Not merged.
+> - The ticket's damaged-disposition / mixed-disposition ACs remain blocked **OMS-side**:
+>   `QaReturnService::buildReturnAdvicePositions` filters to `qty_undamaged > 0`, so WMS is never told
+>   damaged units came back. Same root blocker as SBDEV-1512.
+> - OMS does not yet surface the new `warning` envelope to the operator — the WMS half of
+>   "display an actionable error" is done, the OMS half is not.
+
 
 > ## 🔴 REVISION 2 — architect review applied 2026-08-05
 >

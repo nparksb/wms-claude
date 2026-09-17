@@ -104,19 +104,56 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 |------------|-----------------|-------------|-------------|---------|
 | `WEBSERVICE_ORDER_BATCH_SHIPPED` | `/services/call/finishedShipping` | BOL closed (`closeBOL`) | `BillofladingService.closeBOL()` | `BillOfLadingWebServiceDto` (includes BOL ID, pallets, orders, seal, truck, carrier, shared unique BOL ID, tracking device ID, transfer ID, source/destination warehouse) |
 
-> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). Five additional call-sites were migrated in SBDEV-2238 Phase-2 (2026-05-19): `CustomerorderService.cancelOrder`, `CustomerorderBatchService.cancelBatch`, `AdviceService.acceptHubAndSpokeAdvice`, `AdviceService.close`, and `AdviceService.acceptTransferAdvice` — see §2.3 and §2.4 notes. The remaining 11 `sendAfterCommit` call-sites are deferred to Phase-3.
+> **SBDEV-2221 pilot (2026-05-17):** `BillofladingService.closeBOL` no longer calls `omsNotificationService.sendAfterCommit`. Instead it calls `OutboxService.enqueue(OutboxMessage)` **inside the still-open BOL transaction** — the outbox row and the BOL state change commit atomically. The `OutboxDispatcherJob` (every 15 s, advisory lock 100008L) then polls `outbox_message` and POSTs to OMS via `HttpRestService.postWithIdempotencyKey`. Serialisation failure now throws `FacadeException` and rolls back the BOL state change (was silently swallowed before). Five additional call-sites were migrated in SBDEV-2238 Phase-2 (2026-05-19): `CustomerorderService.cancelOrder`, `CustomerorderBatchService.cancelBatch` *(deleted 2026-09-14, SBDEV-3354)*, `AdviceService.acceptHubAndSpokeAdvice`, `AdviceService.close`, and `AdviceService.acceptTransferAdvice` — see §2.3 and §2.4 notes. The remaining 11 `sendAfterCommit` call-sites are deferred to Phase-3.
 
 ### 2.3 Cancellation Callbacks
 
 | Sysprop key | Default OMS path | Triggered by | Java method | Condition |
 |------------|-----------------|-------------|-------------|-----------|
-| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | Batch cancelled in WMS | `CustomerorderBatchService.cancelBatch()` | Always when a batch is cancelled |
 | `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | Individual order cancelled from within WMS | `CustomerorderService.cancelOrder()` | Only when `cancellationFromWithinWMS=true`; uses `WEBSERVICE_STOCK_COUNT_URL` key — see note |
-| `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` | _(flag, not URL)_ | Global toggle for cancel callbacks | — | Default `false`; when `false`, cancel callbacks from `CustomerorderBatchService` are still sent (key is consulted as a gate in v1; v2 sends unconditionally via `cancelBatch`) |
+| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | Deferred cancel of an already-picked order | `PickingorderBusinessService` | `aggregate_type='CUSTOMER_ORDER'`, same process type |
+| `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` | _(flag, not URL)_ | Global toggle for cancel callbacks | — | Default `false`. In v1 the key is consulted as a gate; v2 sends unconditionally. |
 
-> **Note on CustomerorderService cancel:** When `cancellationFromWithinWMS=true`, `cancelOrder()` sends a notification using the `WEBSERVICE_STOCK_COUNT_URL_KEY` sysprop (not the cancel URL). The `MessageProcessType` is `ORDER_BATCH_CANCELLED_FROM_WMS`. This is a known inconsistency — the stock-count URL is reused to signal a WMS-initiated cancellation.
+⚠ **CORRECTED 2026-09-14 (SBDEV-3354).** This table previously carried a row reading
+*"Batch cancelled in WMS → `CustomerorderBatchService.cancelBatch()` → Always when a batch is
+cancelled"*, and the activation row said v2 *"sends unconditionally via `cancelBatch`"*. **`cancelBatch`
+had no route and no caller and has been deleted.** A batch cancel arrives at
+`OrderRestController.cancelPositions` (`POST /rest/order/cancelPositions`), which loops
+`CustomerorderService.cancelOrder` — so it produces **N per-order enqueues, never one batch-scoped
+message**.
 
-> **SBDEV-2238 Phase-2 (2026-05-19):** `CustomerorderBatchService.cancelBatch` and `CustomerorderService.cancelOrder` no longer call `omsNotificationService.sendAfterCommit`. Both now call `outboxService.enqueue(OutboxMessage)` inside the still-open tenant transaction — the outbox row and the state change commit atomically. `aggregateType` is `CUSTOMER_ORDER_BATCH` (for `cancelBatch`) and `CUSTOMER_ORDER` (for `cancelOrder`). Serialisation failure throws `FacadeException` and rolls back the state change. `UtilRestController.resetOrdersInReleasedStatus` (admin loop) wraps `cancelOrder` in try/catch so a serialisation failure logs-and-continues rather than aborting the loop.
+⚠ **`process_type` alone does not identify the producer.** Both producer rows above (the flag row is
+not a producer) write `ORDER_BATCH_CANCELLED_FROM_WMS`; the discriminator is `aggregate_type`, and both
+surviving producers write `CUSTOMER_ORDER`. The `CUSTOMER_ORDER_BATCH` variant died with `cancelBatch`. *Deriving method:*
+`git grep -n "ORDER_BATCH_CANCELLED_FROM_WMS" origin/develop -- 'src/main/**'` (2026-09-14). Runtime
+corroboration: Hydra PRD `outbox_message` holds **0** rows of the `CUSTOMER_ORDER_BATCH` pair against a
+positive control of 3 rows of the same process type under `CUSTOMER_ORDER`; *blind spot:* that table
+only reaches back to 2026-07-13.
+
+> **Note on CustomerorderService cancel** *(corrected 2026-09-15, SBDEV-3332 — the previous version of
+> this note was wrong on both of its claims)*: `cancelOrder()` reads
+> `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_URL_KEY`, **not** the stock-count sysprop, and it
+> enqueues **unconditionally** — `cancellationFromWithinWMS` does not gate the notification at all (it
+> gates only whether a PACKED/PALLETIZED order is eligible for `forceCancelOrder`). There is no
+> "reused stock-count URL" inconsistency to carry forward. *Deriving method:*
+> `grep -n "STOCK_COUNT" src/main/java/net/aim_ai/wms/service/CustomerorderService.java` returns
+> nothing; repo-wide, `WEBSERVICE_STOCK_COUNT` has exactly three live readers and none is a cancel
+> path (`StockSummaryExportJob`, `MessageDummyController`, plus a commented-out seed line in
+> `UtilRestController`).
+
+> **SBDEV-3332 (2026-09-15) — the two cancel emitters are now deduplicated against each other.** Both
+> `CustomerorderService.cancelOrder` and `PickingorderBusinessService.cleanUpCancelledOrder` set
+> `idempotencyKey = WmsConstants.CANCELLED_IDEMPOTENCY_KEY_PREFIX + customerOrder.getId()`
+> (`"CO-CANCELLED-<id>"`). Because `outbox_message.idempotency_key` carries
+> `uk_outbox_message_idempotency_key UNIQUE`, a second `ORDER_BATCH_CANCELLED_FROM_WMS` for one
+> customer order is now a constraint violation rather than a second message to OMS. The key is
+> deliberately **shared** between the two sites: the invariant is one cancellation signal per customer
+> order, and the two sites are two emitters of one business event. ⚠ The protection is bounded by
+> outbox retention — `OutboxDispatchService` deletes SENT rows older than the retention window
+> (`repo.deleteSentOlderThan`), after which the key is free again. Same bound applies to the sibling
+> `CO-PICKED-` / `CO-PICKING-STARTED-` / `CO-PICKING-RELEASED-` keys.
+
+> **SBDEV-2238 Phase-2 (2026-05-19)** *(historical — `cancelBatch` was deleted 2026-09-14, SBDEV-3354; read the `cancelBatch` half of this note as a record of what that method did, not as live behaviour)*: `CustomerorderBatchService.cancelBatch` and `CustomerorderService.cancelOrder` no longer call `omsNotificationService.sendAfterCommit`. Both now call `outboxService.enqueue(OutboxMessage)` inside the still-open tenant transaction — the outbox row and the state change commit atomically. `aggregateType` is `CUSTOMER_ORDER_BATCH` (for `cancelBatch`) and `CUSTOMER_ORDER` (for `cancelOrder`). Serialisation failure throws `FacadeException` and rolls back the state change. `UtilRestController.resetOrdersInReleasedStatus` (admin loop) wraps `cancelOrder` in try/catch so a serialisation failure logs-and-continues rather than aborting the loop.
 
 ### 2.4 Inbound Advice Callbacks (AdviceService)
 
@@ -265,7 +302,7 @@ This sysprop is defined in `WmsConstants` and its commented-out provisioning cod
 | `WEBSERVICE_ORDER_BATCH_PALLETIZED` | No | **Yes** | v2-only; new lifecycle stage |
 | `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK` | No | **Yes** | v2-only; new lifecycle stage |
 | `WEBSERVICE_ORDER_BATCH_SHIPPED` | Yes | Yes | v2 payload enriched with `sharedUniqueBolId`, `trackingDeviceId`, `sourceWarehouse`, `destinationWarehouse` |
-| `WEBSERVICE_ORDER_BATCH_CANCELLED` | Yes | Yes | v2 fires from `cancelBatch` unconditionally; v1 gated by `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` flag |
+| `WEBSERVICE_ORDER_BATCH_CANCELLED` | Yes | Yes | v2 fires **per order** from `cancelOrder` unconditionally; v1 gated by `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` flag. ⚠ Previously read *"v2 fires from `cancelBatch`"* — that method was deleted 2026-09-14 (SBDEV-3354); v1 still has it. |
 | `WEBSERVICE_CLOSE_ADVICE` | Yes | Yes | Same |
 | `WEBSERVICE_ACCEPT_TRANSFER` | Yes | Yes | Same |
 | `WEBSERVICE_ACCEPT_HUB_AND_SPOKE` | Yes | Yes | Same |

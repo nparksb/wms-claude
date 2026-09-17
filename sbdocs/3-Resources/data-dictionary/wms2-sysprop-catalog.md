@@ -6,9 +6,9 @@ version: v2
 scope: sysprops
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-08-13
-last_verified: 2026-08-13
-verified_by: "Full constant extraction (133 keys) against origin/develop + live los_sysprop read across 5 DEV+UAT tenant DBs + every post-V2.2.00 Flyway sysprop seed traced to its consumer, 2026-08-13. Earlier baseline: reports/260730-wms2-sysprop-current-value-census.md"
+updated: 2026-09-10
+last_verified: 2026-09-10
+verified_by: "§11 re-verified 2026-09-10: 6 new post-V2.2.00 keys (V2.2.17/22/23/24) added, live los_sysprop re-read across all 6 v2 tenant DBs including Hydra PRD for the first time. Prior full-surface pass: 133-key constant extraction against origin/develop, 2026-08-13. Earlier baseline: reports/260730-wms2-sysprop-current-value-census.md"
 related:
   - ../reports/260730-wms2-sysprop-current-value-census.md
   - ../architecture/wms2-scheduled-jobs-catalog.md
@@ -27,7 +27,7 @@ tags:
 # WMS v2 — System Property (Sysprop) Catalog
 
 **Scope:** Every `sysprop` key consumed by `v2/wms2-api` · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-08-13
+**Owner:** Nam Park · **Last verified:** 2026-09-10
 
 ---
 
@@ -591,12 +591,19 @@ resolver. The typed writer re-creates it when absent, so deleting does not lock 
 
 ## 11. Flyway-Seeded Keys — Provenance, Live State, Default-Change Semantics
 
-*Added 2026-08-13. Covers every `los_sysprop` seed after the `V2.2.00` base schema.*
+*Added 2026-08-13; seeds and live state re-verified 2026-09-10. Covers every `los_sysprop` seed after
+the `V2.2.00` base schema.*
 
 ### 11.1 The seeds
 
-Eight of the sixteen post-`V2.2.00` migrations touch `los_sysprop`; the rest are views, functions and
-tables only. Twelve keys merged, one unmerged.
+Fourteen of the twenty-five post-`V2.2.00` migrations touch `los_sysprop`; the rest are views,
+functions and tables only. **19 keys, all merged** (as of `origin/develop` 2026-09-10).
+
+⚠ **One further key is IN FLIGHT and is deliberately excluded from that 19 and from §11.3's `/19`
+denominator**: `WMS_CLUBLINE_MAX_BATCH_SIZE` (V2.2.27, SBDEV-3304, PR #343 open). It is listed in the
+table and in §11.2 so the next reader finds it, but counting it would make "all merged" false. Fold it
+into the counts when #343 merges — at which point the migration total also moves (V2.2.26 is likewise
+unmerged, on PR #341).
 
 | Migration | Key | Seeded value | Group | Ticket |
 |---|---|---|---|---|
@@ -612,7 +619,14 @@ tables only. Twelve keys merged, one unmerged.
 | V2.2.15 | `PRINTING_ZPL_FLOWBIN_LABEL` | ZPL, 298 ch | Labels | — |
 | V2.2.15 | `PRINTING_ZPL_OVERSTOCK_LABEL` | ZPL, 112 ch | Labels | — |
 | V2.2.16 | `PRINTING_ZPL_UNIT_LOAD_ID_LABEL` | ZPL, 171 ch | Labels | — |
+| V2.2.17 | `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` | `false` (**shadow mode**) | Operation Options | SBDEV-2994 |
+| V2.2.22 | `WEBSERVICE_ORDER_BATCH_UPDATE_PRIORITY` | *derived* from the `…_CANCELLED` host → `/services/call/updateBatchPriority`; else `CHANGE-ME-FOR-NEW-CLIENT/…` | Backend | SBDEV-2573 |
+| V2.2.22 | `WEBSERVICE_ORDER_BATCH_UPDATE_PRIORITY_ACTIVATED` | `false` | Backend | SBDEV-2573 |
+| V2.2.23 | `WMS2_SDR_READ_GUARD_MODE` | `OFF` | Backend | SBDEV-3169 |
+| V2.2.24 | `WEBSERVICE_ORDER_BATCH_UPDATE_PICKING_DATE` | *derived* as above → `/services/call/updatePickingDate`, `NULLIF`-guarded | Backend | SBDEV-3273 |
+| V2.2.24 | `WEBSERVICE_ORDER_BATCH_UPDATE_PICKING_DATE_ACTIVATED` | `false` | Backend | SBDEV-3273 |
 | **V2.2.11 — applies OUT OF ORDER** | `ADJUSTMENT_ALERT_POLL_ACTIVATED` | `false` | Operation Options | SBDEV-2658 |
+| **V2.2.27 — NOT merged (PR #343)** | `WMS_CLUBLINE_MAX_BATCH_SIZE` | `5000` | Operation Options | SBDEV-3304 |
 
 Three things `ls db/migration/` will not tell you:
 
@@ -637,44 +651,62 @@ Three things `ls db/migration/` will not tell you:
 | `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED` | **nothing — see 11.4** | nothing |
 | `OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED` | `sampleStuckAggregates():317` runs the read-only `findStuckAggregateStats()` per tenant per dispatcher tick (15 s) and emits the held-aggregate gauge | returns `null`, no gauge row for that tenant |
 | `RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED` | a `type=RETURN` advice is received **and closed at create time** | (only literal `false`) advice stays OPEN, received at the dock via `POST /v3/receiving/receive` |
+| `WMS_CLUBLINE_MAX_BATCH_SIZE` *(in flight — PR #343)* | **not a gate — a numeric ceiling.** `CustomerorderBatchService.validateClubLine` refuses a club run whose active-order count exceeds it, with a message naming the value enforced. Clamped at both ends: `< 1` or non-numeric falls back to the code default (a `0` row would otherwise reject every club run in that tenant, including single-order ones); above `CLUBLINE_MAX_BATCH_SIZE_CEILING` (10 000) it clamps — a typo guard, **not** a throughput measurement | falls back to `CustomerorderBatchService.DEFAULT_MAX_CLUB_LINE_BATCH_SIZE`, which reads this same seeded value, so absent and seeded resolve identically. ⚠ There is **no** Spring property any more: SBDEV-3304 deleted `wms.clubline.max-batch-size`, whose env-var spelling was byte-identical to this key. This sysprop is the only surface |
 | `REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS` | destination accepted when its area has `useforpicking = true`, no FLA created — club locations become valid | destination must be a flowbin with an FLA |
 | `DEFAULT_PUTAWAY_LOCATION` | (location id) tier 3 of `SKU > merchant > warehouse > PutAwayLane` | blank = not configured, falls through to tier 4 |
 | `ADJUSTMENT_ALERT_POLL_ACTIVATED` | `GET /v3/stockrecord/adjustmentAlerts` serves adjustment stockrecords to the web-UI bell/toast poller | returns an empty item list — the bell stays silent (absent row = OFF) |
 | 5 × `PRINTING_ZPL_*` | not toggles — the template *is* the output (§7.1) | blank/missing throws `No ZPL template configured` |
+| `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` | `DestinationEligibilityService` **refuses** a Move Stock destination whose lock is not `NOT_LOCKED` or which sits at the Shipped location | **shadow mode** — the rule is still evaluated and a `SBDEV-2994 shadow: would have refused …` WARN logged, but the move is allowed. That WARN is the instrument: one full operating cycle at zero lines, then flip. The Nirvana-sentinel refusal is **not** governed by this row (unconditional, SBDEV-2995) |
+| `WEBSERVICE_ORDER_BATCH_UPDATE_PRIORITY_ACTIVATED` | `PriorityChangeNotificationService` enqueues an outbox message on every batch- or order-level priority change | no notification; OMS `batch_criteria.priority` keeps the value chosen at batching time. Needs a real URL in `…_UPDATE_PRIORITY` **and** the OMS endpoint deployed first |
+| `WEBSERVICE_ORDER_BATCH_UPDATE_PICKING_DATE_ACTIVATED` | `PickingDateChangeNotificationService` enqueues an outbox message on every `CustomerorderService.setPickingDate` | no notification; OMS `order.requested_ship_date` goes stale (QA on SBDEV-2945). Same URL + endpoint prerequisite |
+| `WMS2_SDR_READ_GUARD_MODE` | not a boolean — `OFF` \| `SHADOW` \| `ENFORCE_RULED` \| `FAIL_CLOSED`. `SHADOW` measures `wms2.authz.sdr.would_deny`; `ENFORCE_RULED` enforces | `OFF`, and **any unrecognised value also parses to `OFF`** (`SdrGuardMode.parse`). ⚠ Deliberately **not API-writable** — `SystemPropertyController` and `PutawayConfigRepositoryEventHandler` refuse this syskey on every write verb; SQL is the only path (finding F1) |
 
-### 11.3 Live state — DEV and UAT, 2026-08-13
+### 11.3 Live state — all six v2 tenant DBs, 2026-09-10
 
-**DEV** (landlord `dev_landlord`, one active tenant):
+Read directly with `psql` against the DSNs in `~/.claude.json` (the MCP servers were unreachable that
+session; the DBs were not — see [[wms-mcp-tools-not-surfaced-use-psql-direct]]). **Hydra PRD is
+included for the first time.**
 
-| Tenant | DB | Flyway head | Keys present | Deviations from seed |
-|---|---|---|---|---|
-| wineco/wsl ✅ active | `dev_wh01_om1` | 2.2.16, 0 failed | 12/12 | `TRANSFER_LANE_PARTIAL_DEPLETION`=**true**, `REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES`=**true** |
-| hydra/nywh ⛔ inactive | `wh01_hydra_v2` | **no `flyway_schema_history`** | **0/12** | — |
-| shipitez/c1wh ⛔ inactive | `wh02_hydra` | not checked | — | — |
-| shipitez/nywh ⛔ inactive | `wh01_hydra` | not checked | — | — |
+| Env | Tenant | DB | Flyway head | Keys /19 | Deviations from seed |
+|---|---|---|---|---|---|
+| **PRD** | hydra/nywh ✅ (the only v2 PRD tenant, `active=t`) | `wh01_hydra_v2` :25061 | **2.2.21**, 0 failed | **14/19** | none among the 14 — but **V2.2.22/23/24's 5 keys are absent** |
+| UAT | wineco/wsl | `wh01_om1_v2` | 2.2.23, 0 failed | 17/19 | none — `REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS` is back to `false` (it was `true` on 2026-08-13) |
+| UAT | hydra/nywh | `wh01_hydra_v2` | 2.2.24, 0 failed | 19/19 | none |
+| UAT | shipitez/nywh | `wh02_shipitez_v2` | 2.2.24, 0 failed | 19/19 | `TRANSFER_LANE_PARTIAL_DEPLETION`=**true**, `REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES`=**true**, `REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS`=**true** |
+| UAT | shipitez/c1wh | `wh01_shipitez_v2` | 2.2.24, 0 failed | 19/19 | same three = **true** |
+| DEV | wineco/wsl | `dev_wh01_om1` :25060 | 2.2.25, 0 failed | 19/19 | `TRANSFER_LANE_PARTIAL_DEPLETION`=**true**, `REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES`=**true**, `ADJUSTMENT_ALERT_POLL_ACTIVATED`=**true** |
 
-**UAT** (all four active, all `uat.sbo.li`, all head 2.2.16 / 0 failed):
+Uniform across all six: exactly one row per key, `client_id = 0`, `workstation = 'DEFAULT'`, groupname as
+seeded. No duplicates, no client- or workstation-scoped copies, no NULL-groupname strays. All five ZPL
+templates byte-identical to the seed (md5-compared) on all six. `DEFAULT_PUTAWAY_LOCATION` blank
+everywhere (tier 3 unconfigured). `RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED` = `true` everywhere.
+`WMS2_SDR_READ_GUARD_MODE` = `OFF` on all five DBs that have it.
 
-| Tenant | DB | Keys present | Deviations from seed |
-|---|---|---|---|
-| wineco/wsl | `wh01_om1_v2` | 12/12 | `REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS`=**true** |
-| hydra/nywh | `wh01_hydra_v2` | 12/12 | none |
-| shipitez/c1wh | `wh01_shipitez_v2` | 12/12 | none |
-| shipitez/nywh | `wh02_shipitez_v2` | 12/12 | none |
+⚠ **PRD is two migrations behind `origin/main`** (main's head is V2.2.23; `release` is at 2.2.24,
+`develop` at 2.2.25). Hydra PRD's last Flyway run was **2026-08-26 15:26 UTC**, which is what dates the
+running image — so on PRD today the SBDEV-2573 priority notification and the SBDEV-3273 picking-date
+notification have **no URL row and no gate row**, i.e. both features are unavailable there, not merely
+switched off. Both arrive with the next PRD deploy (Flyway runs at boot).
 
-Every row on every DB: exactly one row, `client_id = 0`, `workstation = 'DEFAULT'`, groupname as seeded.
-No duplicates, no client-scoped copies, no NULL-groupname strays. All five ZPL templates byte-identical
-to the seed (md5-compared) on all five. `ADJUSTMENT_ALERT_POLL_ACTIVATED` absent everywhere.
+⚠ **The `WMS2_SDR_READ_GUARD_MODE` uncached-miss cost has not yet reached PRD, and cannot.** The row is
+absent on PRD, which is the condition §11.4-adjacent finding H1 describes (a `null` result is never
+cached, so every SDR request re-queries). But `SdrGuardModeProvider` first landed 2026-08-31, *after*
+PRD's 2026-08-26 boot, so the guard code is not in the running image. Because `StartupFlywayMigrator`
+runs at boot, the deploy that brings the provider also applies V2.2.23 — code and row arrive together
+and the window never opens. Do not "fix" this by seeding the row ahead of the deploy.
 
-⚠ **The dev hydra DB is unmanaged.** `wh01_hydra_v2` on dev has no `flyway_schema_history` and none of
-the 12 keys despite holding 129 sysprop rows — a legacy psql-provisioned copy. `StartupFlywayMigrator`
-calls `.baselineOnMigrate(false)` for tenants, so it is skipped and never auto-baselined; it is also
-`active = false` in `dev_landlord`, so the app would not migrate it anyway. Repair once with
-`db/backfill-flyway-history.sh --up-to <watermark>` before trusting anything tested against it.
+⚠ **`ADJUSTMENT_ALERT_POLL_ACTIVATED` is now seeded on all six** and is **`true` on DEV only**. The
+2026-08-13 pass recorded it as absent everywhere; V2.2.11's out-of-order application closed that.
 
-⚠ **The two wineco environments are inverse configurations.** Dev has both lane toggles ON and
-non-flowbin OFF; UAT has both lane toggles OFF and non-flowbin ON. Nothing is broken, but **dev is not
-a rehearsal of UAT for any of those three features**.
+⚠ **No two environments are configured alike for the three replenishment/transfer toggles.** The two
+shipitez UAT tenants have all three ON; wineco UAT has all three OFF; DEV has two of three ON; PRD has
+all three OFF. **No environment rehearses PRD for these features, and UAT does not rehearse itself.**
+The 2026-08-13 entry called the two wineco environments "inverse configurations" — that specific shape
+is gone (wineco UAT flipped non-flowbin back to `false`), but the general warning holds and is now
+broader.
+
+⚠ The dev `wh01_hydra_v2` unmanaged-DB warning from 2026-08-13 was **not** re-checked in this pass; it
+is `active = false` in `dev_landlord` and is not one of the six DBs above.
 
 ### 11.4 `OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED` is inert
 
@@ -822,4 +854,8 @@ The `UtilRestController` case is expected — it's a generic read-any-sysprop ad
 
 | 2026-08-14 | **Label-printing rollout prerequisites** (new §7.1a). Traced `resolveTotePattern`'s three-step order and confirmed `PRINTING_PATTERN_DEFAULT_TOTE_LABEL` is the **last** resort, not the first — both wineco DBs' `DEFAULT-%1$06d` is inert because step 2 derives `T-%1$04d` from the scan pattern. Read `PRINT_CASE_LABEL`, `STRING_PATTERN_PICKING_TOTE`, the printer table and `los_sequencenumber` on all 5 tenants. **Found: `wh01_shipitez_v2` has no `OUTBOUND_TOTE` printer** (hard blocker); all 5 capped at **10,000** tote IDs by 4-digit scan patterns; no tenant has a `PICKING_TOTE_DEFAULT` sequence row, so the first generated tote is `X-0000` (`SequenceTransactionService` creates at 0 and returns 0). | 4 of 5 tenants ready; 1 blocked on a missing printer row | Nam Park — live MCP reads + `origin/develop` |
 
-**Re-verify every 90 days.** Next due: **2026-11-11** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.
+| 2026-09-10 | **§11 re-verification + live read of all 6 v2 tenant DBs (first PRD read).** Diffed `origin/develop`'s post-`V2.2.00` seeds against §11: **6 undocumented keys** found and added — `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` (V2.2.17, SBDEV-2994 shadow mode), `WEBSERVICE_ORDER_BATCH_UPDATE_PRIORITY` + `_ACTIVATED` (V2.2.22, SBDEV-2573), `WMS2_SDR_READ_GUARD_MODE` (V2.2.23, SBDEV-3169), `WEBSERVICE_ORDER_BATCH_UPDATE_PICKING_DATE` + `_ACTIVATED` (V2.2.24, SBDEV-3273). §11.1 recount 13 → **19 keys across 14 of 25 post-base migrations**. §11.2 gained a row per new flag; §11.3 rewritten. Found: **PRD is 2 migrations behind `main`** and lacks all 5 of the V2.2.22–24 keys, so both OMS notification features are absent there rather than off; the SDR-guard uncached-miss cost cannot reach PRD because code and row ship on the same boot; `ADJUSTMENT_ALERT_POLL_ACTIVATED` is now seeded everywhere and `true` on DEV; the three replenishment/transfer toggles differ in **every** environment. | §11 coverage **19/19**; 6/6 DBs 0 failed at heads 2.2.21 (PRD) / 2.2.23 / 2.2.24 ×3 / 2.2.25 (DEV) | Nam Park — direct `psql` reads (MCP servers unreachable) + `origin/develop` grep |
+
+| 2026-09-10 | **`WMS_CLUBLINE_MAX_BATCH_SIZE` added to §11.1/§11.2 (SBDEV-3304, V2.2.27, PR #343 — NOT merged).** Listed but **excluded from the 19-key count and §11.3's `/19` denominator**, because that count is scoped to `origin/develop`; fold it in on merge. Live state at the time of writing, measured with a positive control on `STALE_CLUB_BATCH_CLEANUP_ACTIVATED` in each DB: present on **c1wh-shipitez-uat only** (`5000`, `workstation='DEFAULT'`, `client_id=0`, group `Operation Options`) and **created by hand through System Settings**, not by the seed — the incident that produced SBDEV-3304. Absent on `nywh-shipitez-uat`, `nywh-hydra-uat`, `wsl-wineco-uat`. The seed is idempotent and non-destructive (`WHERE NOT EXISTS` on `syskey` **and** `workstation='DEFAULT'`), so c1wh keeps its operator-set value. Note for §12: this key has a `*_DEFAULT_VALUE` constant AND the code default reads it, so the two cannot drift — `ClublineMaxBatchSizeSeedConsistencyTest` pins the constant to the migration literal. | §11 coverage 19/19 merged + 1 in flight | Claude (SBDEV-3304), on Nam's request |
+
+**Re-verify every 90 days.** Next due: **2026-12-09** — sysprop surface grows slowly; major additions (typically 2-3 keys per quarter) should be spot-checked against this catalog.

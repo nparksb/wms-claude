@@ -10,11 +10,20 @@ owl/
 │   ├── oms/                     # OMS — PHP 5.6, Zend Framework 2
 │   ├── wms-api/                 # WMS API — Java 8, Spring Boot 2.3.7, Maven, PostgreSQL
 │   ├── wms-web-ui/              # WMS Web UI — Nuxt 2, Vue 2, Vuetify 2
-│   └── wms-mobile-ui/          # WMS Mobile UI — Nuxt 2, Vue 2, Vuetify 2
+│   ├── wms-mobile-ui/          # WMS Mobile UI — Nuxt 2, Vue 2, Vuetify 2
+│   ├── qa-api/                  # QA station backend — Python Flask. OMS v1 ONLY.
+│   ├── qa-ui/                   # QA station UI — Nuxt 2. OMS v1 ONLY.
+│   ├── carrier-integration/     # (undocumented)
+│   └── label-automation/        # (undocumented)
 ├── v2/                          # Modern stack
 │   ├── oms-laravel-api/         # OMS API — PHP 8.4, Laravel 12, MySQL + MongoDB
 │   ├── wms2-api/                # WMS API — Java 21, Spring Boot 3.5.9, Maven, PostgreSQL
-│   ├── omsv2-UI/                # OMS UI — React 18, TypeScript, Vite 5, MUI v7 + shadcn
+│   ├── siteboss-frontend/       # ⭐ THE OMS v2 UI — React 19 / Vite 7 / MUI v7 MONOREPO
+│   │                            #    apps/: admin cms owl pos qa shared siteboss website
+│   │                            #    QA Manager = apps/qa (returns live in
+│   │                            #    apps/qa/src/containers/Returns/)
+│   ├── omsv2-UI/                # ⚠ NOT the deployed OMS v2 UI — a Lovable prototype
+│   │                            #    (omsv2.lovable.app). No QA surface at all.
 │   ├── wms2-web-ui/             # WMS Web UI — Nuxt 2, Vue 2, Vuetify 2
 │   └── wms2-mobile-ui/         # WMS Mobile UI — Nuxt 2, Vue 2, Vuetify 2
 ├── sbdocs/                      # Obsidian vault — PARA-organized documentation
@@ -132,7 +141,8 @@ Each sub-project has its own `CLAUDE.md` with detailed architecture, patterns, a
 | `v1/wms-api` | `v1/wms-api/CLAUDE.md` | Comprehensive |
 | `v2/oms-laravel-api` | `v2/oms-laravel-api/CLAUDE.md` | Comprehensive |
 | `v2/wms2-api` | `v2/wms2-api/CLAUDE.md` | Comprehensive |
-| `v2/omsv2-UI` | `v2/omsv2-UI/CLAUDE.md` | Comprehensive |
+| `v2/siteboss-frontend` | — | **MISSING** — the OMS v2 UI monorepo has no CLAUDE.md yet |
+| `v2/omsv2-UI` | `v2/omsv2-UI/CLAUDE.md` | Comprehensive — but describes the **prototype**, not the deployed OMS v2 UI |
 | `v2/wms2-web-ui` | `v2/wms2-web-ui/CLAUDE.md` | Comprehensive |
 
 ## Tech Stack Summary
@@ -152,7 +162,8 @@ Each sub-project has its own `CLAUDE.md` with detailed architecture, patterns, a
 |---------|----------|-----------|----------|------|
 | oms-laravel-api | PHP 8.4 | Laravel 12 | MySQL + MongoDB | 8000 |
 | wms2-api | Java 21 | Spring Boot 3.5.9 | PostgreSQL | 8088 (dev), 8080 (prod) |
-| omsv2-UI | TypeScript | React 18 / Vite 5 / MUI v7 | — | 8080 |
+| **siteboss-frontend** | JavaScript (JSX) | React 19 / Vite 7 / MUI v7 — **monorepo, 8 apps** | — | per-app |
+| omsv2-UI | TypeScript | React 18 / Vite 5 / MUI v7 + shadcn | — | 8080 |
 | wms2-web-ui | JavaScript | Nuxt 2.15 / Vue 2 / Vuetify 2 | — | 3000 |
 | wms2-mobile-ui | JavaScript | Nuxt 2.15 / Vue 2 / Vuetify 2 | — | 3001 |
 
@@ -228,7 +239,19 @@ mvn test                             # Run tests
 mvn verify                           # Integration tests (Testcontainers)
 ```
 
-### v2/omsv2-UI (React 18)
+### v2/siteboss-frontend (React 19 monorepo) — THE OMS v2 UI
+```bash
+cd v2/siteboss-frontend
+npm install
+npm run dev --workspace @siteboss-frontend/qa   # run one app (qa | owl | admin | pos | cms | siteboss | website)
+npx cypress open --component                    # component tests (specs: apps/**/src/**/*.cy.jsx)
+npx cypress run  --component
+npm run storybook                               # :6006
+```
+⚠ The root `npm test` is a stub that exits 1 — tests are Cypress component specs, not a `test` script.
+⚠ Branching differs from the Java/PHP repos: **`main` is the development branch**, `qa` is QA/staging, `production` is production (see `BRANCHING.md`). Do **not** assume a `develop` branch here.
+
+### v2/omsv2-UI (React 18) — Lovable prototype, NOT the deployed OMS v2 UI
 ```bash
 cd v2/omsv2-UI
 npm install && npm run dev           # Dev server :8080
@@ -270,7 +293,7 @@ When in doubt, announce the intent ("Reading `BillofladingService.java` lines 55
 - The `owl/` monorepo umbrella is **not** itself a git repository — it is a locally-maintained working directory that groups the sub-project clones for convenience.
 - `sbdocs/` is also **not** in git — it is a locally-maintained Obsidian vault. Treat it as filesystem-only: use plain `mv` (not `git mv`) when archiving plans, and never assume you can recover an `sbdocs/` change via `git checkout`.
 - Each sub-project (e.g. `v1/wms-api`, `v2/oms-laravel-api`, `v2/omsv2-UI`) **is** its own independent git repository nested inside this monorepo. Git operations belong inside those sub-project directories.
-- **Branching**: main/develop/feature/* pattern
+- **Branching**: main/develop/feature/* pattern — **except `v2/siteboss-frontend`**, where `main` IS the development branch and the ladder is `main` → `qa` → `production` (`BRANCHING.md`). Reading `main` there as "production" inverts it.
 - **CI/CD**: GitLab CI with tag-driven deployments (dev-*, qa-*, ua-*, v* for production)
 - **v2/oms-laravel-api** and **v2/omsv2-UI** use GitHub Actions
 
@@ -283,8 +306,22 @@ When in doubt, announce the intent ("Reading `BillofladingService.java` lines 55
 - **v2/oms-laravel-api**: Controllers → Services → Repositories → Models. 40+ carrier integrations. Laravel Reverb WebSockets.
 
 ### Frontend Apps
+- **`v2/siteboss-frontend` is THE OMS v2 UI.** React 19 / Vite 7 / MUI v7 monorepo. `apps/`: `admin`, `cms`, `owl`, `pos`, `qa`, `shared`, `siteboss`, `website`. Tests are **Cypress component specs** (`apps/**/src/**/*.cy.jsx`), config at the repo root; the root `test` script is a stub (`exit 1`) — run Cypress, not `npm test`.
+- **`v2/omsv2-UI` is NOT the deployed OMS v2 UI.** It is a Lovable prototype (`@lovable.dev/mcp-js`, `lovable-tagger`, `/.lovable/oauth/consent`, Cypress pointed at `omsv2.lovable.app`). Its `main` last moved 2026-05-11 and it has **no QA surface on any branch** — verified by `git log --all -S'QA Manager'` returning nothing in its entire history. Do not target it for OMS v2 work.
 - **Nuxt/Vue apps** (wms-web-ui, wms-mobile-ui): Vuex state management, Keycloak auth plugin, axios with retry, Vuetify 2 Material Design.
-- **omsv2-UI** (React): MUI v7 + shadcn/ui dual library strategy, TanStack React Query, React Hook Form + Zod validation.
+
+### ⚠ QA splits by OMS version — getting this wrong targets the wrong system
+
+QA is **part of the OMS**, and the QA code lives in a different repo per OMS version. The `v1/` directory prefix makes `v1/qa-api` and `v1/qa-ui` look like shared infrastructure serving both versions. **They are not — they are OMS v1 only.** SBDEV-1512 was planned against them by mistake and had three of its four phases retargeted.
+
+| QA surface | OMS v1 | OMS v2 |
+|---|---|---|
+| UI | `v1/qa-ui` (Nuxt 2 / Vue 2) | **`v2/siteboss-frontend` → `apps/qa`** — reached via the **Application Switcher** icon → *QA Manager*. Returns: `apps/qa/src/containers/Returns/` (`Returns.jsx`, `ManageReturns.jsx`, `useReturns.jsx`, `Returns.cy.jsx`) |
+| Backend | `v1/qa-api` (Python Flask) | **`v2/oms-laravel-api`** — `routes/legacy-qa.php` (base `/old_code/qa/v1`, Flask-shaped for compatibility), `app/Services/Qa/`, `ReturnManagementService`, models `ParcelReturn` / `ReturnMgmtLut` / `ReturnOrder` |
+
+The v2 counterpart of qa-api's `build_wms_create_advice_request` is **`app/Services/Qa/QaReturnService.php::buildReturnAdvicePositions`**, which calls the WMS the same way (`WmsApiService` → `PUT {host}/rest/advice/create`).
+
+Combined with the standing *v1 is reference-only, v2 is the only target* rule, `v1/qa-*` is off-limits for new work.
 
 ## Environment & Secrets
 

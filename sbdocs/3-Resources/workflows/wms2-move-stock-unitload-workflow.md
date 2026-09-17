@@ -6,9 +6,9 @@ version: v2
 scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-08-28
-last_verified: 2026-08-29
-verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired)
+updated: 2026-09-14
+last_verified: 2026-09-14
+verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired); source-lock row re-verified 2026-09-14 against origin/develop d80b5083 for SBDEV-3341 (it was wrong)
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -95,7 +95,7 @@ MobileMoveUnitloadService.scanDestination()        [line 205]  @Transactional(te
 
 | Method | Line | What changes |
 |---|---|---|
-| `transferUnitLoadToLocation(Unitload, Location, ignoreLock, code, ref, null)` | 108 | `unitload.storagelocationId = destination.id`; clears `carrierunitloadId` if was nested; recursively transfers children; writes `unitload_record` |
+| `transferUnitLoadToLocation(Unitload, Location, ignoreLock, code, ref, null)` | 108 | `unitload.storagelocationId = destination.id`; clears `carrierunitloadId` if was nested; recursively transfers children; writes `unitload_record`. ⚠️ `ignoreLock` gates **only the destination location's** lock — there is deliberately **no** source guard (not the unit load's own lock, not the source location's, not the carried stock's), because truck loading relocates pallets of `PICKED_FOR_GOODSOUT` stock at `ignoreLock=false`. SBDEV-3341; see the method javadoc. |
 | `transferUnitLoadToCarrier(Unitload source, Unitload destination, code, ref, null)` | 179 | `source.carrierunitloadId = destination.id`; validates no circular parent chain |
 
 **Optimistic-lock retry** wraps the carrier-clear step at line 161–166 via `optimisticLockRetry.executeWithRetry(...)`.
@@ -144,14 +144,18 @@ retirement removed. Measured at retirement time, zero unitloads matched `^SU-[0-
 WineCo dev or Hydra UAT, so the auto-create branch had produced nothing.
 
 What the retired path guarded, and whether the live path guards it too. ⚠️ **This table has now been
-wrong twice.** The first draft claimed four gaps; a verifier lane knocked out two; a code-review lane
-then knocked out a third. Corrected 2026-08-28 against the code — **only one of the four is actually
-absent, and it is a deliberate divergence, not a gap:**
+wrong three times.** The first draft claimed four gaps; a verifier lane knocked out two; a code-review
+lane then knocked out a third. Corrected 2026-08-28 — and **the correction was itself wrong**: the
+"source stock unit is locked" row asserted a guarantee that did not hold, because it enumerated call
+sites of one primitive rather than routes through the method (SBDEV-3341, 2026-09-14). Both defects
+have the same shape, which is worth stating once: *a completeness claim must name the axis it
+searched.* "Four of its six call sites" was true and irrelevant — the gap was on a route that called
+a different primitive:
 
 | Guard | On the live path (`StockunitService.transferStock`)? |
 |---|---|
 | Destination is Nirvana | ✅ **yes** — `:177` calls `destinationEligibilityService.assertCanReceiveStock(unitLoad)` on the existing-container branch, and that sentinel refusal sits **outside** the `TRANSFER_DESTINATION_ELIGIBILITY_ENABLED` gate (`DestinationEligibilityService:115`). Shipped by **SBDEV-2994 Fix B**. |
-| Source stock unit is locked | ✅ **yes, and broader than the retired check** — `StockunitBusinessService.transferStockToUnitLoad:293-297` throws for **any** `entityLock != NOT_LOCKED` when `ignoreLock == false`, which is what `transferStock` passes at four of its six call sites. The retired path tested `ON_HOLD` alone. The two `ignoreLock = true` sites are the damaged-stock branches, deliberately. |
+| Source stock unit is locked | ✅ **yes — but only since SBDEV-3341, and this row was WRONG until then.** `StockunitBusinessService.transferStockToUnitLoad` throws for **any** `entityLock != NOT_LOCKED` when `ignoreLock == false`, and `transferStock` passes `false` at four of its six calls to *that* primitive (the two `ignoreLock = true` sites are the damaged-stock branches, deliberately). ⚠️ **That enumeration counted calls to one primitive and concluded about the whole method.** `transferStock` has a second movement route: when `amount == amountToTransfer && no FLA && single SU` it relocates the whole container via `UnitloadBusinessService.transferUnitLoadToLocation`, which has **no source-lock guard at all** — so a locked source passed silently on exactly that route. SBDEV-3341 added `StockunitService.assertWholeContainerSourceUnlocked` at that call site, checking the same three sources with the same message shape. The primitive's own missing guard is deliberate and stays — see its javadoc. |
 | Flowbin `FixLocationAssignment` SKU match | ✅ **yes** — `:230-232`, `"Flow bin has different SKU "`. The retired path spelled it `"Flowbin has different SKU "` (no space), which is what made it look absent. |
 | Destination must be a FLOWBIN when it is a Location | ❌ **absent — deliberately.** The retired path threw `"Destination is not a flowbin!"`; the live path takes an `else` branch at `:232` and relocates or creates a unit load at the location instead. Restoring the refusal would be a **regression** in capability, not a fix. |
 

@@ -4,12 +4,12 @@ ticket: "SBDEV-3244"
 ticket_url: "https://app.clickup.com/t/868m240ba"
 type: "bug"
 priority: "high"
-status: "pending approval"
+status: "on dev"
 project: ["wms2"]
 version: "v2"
 requester: "Nam Park"
 created: "2026-09-09"
-updated: "2026-09-09"
+updated: "2026-09-10"
 db_verified: true
 related:
   - "../../../3-Resources/design/wms2-replenishment-design.md"
@@ -25,7 +25,7 @@ tags: [plan, sbdev-3244, replenishment, pessimistic-lock, optimistic-lock, trans
 
 > **⭐ SCOPE — A-narrow (Nam, 2026-09-09; §12 Q1 resolved).** This plan ships **F1–F5 and F7–F9 only**. F6, F10 and F11 are **dropped** and the whole wide-scope programme is handed to **[SBDEV-3286](https://app.clickup.com/t/868m3fzwv)** — *"Pre-lock entity load makes findByIdForUpdate throw StaleObjectStateException — 15 sites across picking, BOL, parcel monitor and receiving"*.
 >
-> **What this plan therefore does and does not fix.** It fixes the **ten non-transactional `triggerReplenishmentMaintenance` callers and the cron** — every path on which `recalculateForItem` opens its own transaction, which is where the committed integration test reproduces. It does **not** fix the two `@Transactional` callers, `StockunitService.setLockOnHold` (operator *"Set On Hold"*) and `FixLocationAssignmentService.move`: their own pre-loads sit in the transaction `recalculateForItem` joins, so on those two paths the throw **relocates** to `ensureValidSource` instead of disappearing (§2.3). **Do not close this plan believing "Set On Hold" is fixed** — it is not, and it is SBDEV-3286's.
+> **What this plan therefore does and does not fix.** It fixes the cron and the **nine** unannotated `triggerReplenishmentMaintenance` callers **on the call paths where `recalculateForItem` genuinely opens its own transaction** — which is where the committed integration test reproduces. (Nine, not ten: §1 derives 11 call sites, of which 2 are `@Transactional`.) ⚠ One of those nine, `createFixedLocationAssignment`, is itself reached from `@Transactional` pre-loading callers on most of its six call sites (§3.1); **those paths are not fixed either** and are SBDEV-3286's (§0.3 item 3). It does **not** fix the two `@Transactional` callers, `StockunitService.setLockOnHold` (operator *"Set On Hold"*) and `FixLocationAssignmentService.move`: their own pre-loads sit in the transaction `recalculateForItem` joins, so on those two paths the throw **relocates** to `ensureValidSource` instead of disappearing (§2.3). **Do not close this plan believing "Set On Hold" is fixed** — it is not, and it is SBDEV-3286's.
 
 > **Citation form.** File + a distinctive quoted snippet, never a line number. Earlier revisions broke this rule three times, and two of the three ranges volunteered *as corrections* were themselves wrong. Do not reintroduce line numbers.
 
@@ -67,7 +67,7 @@ Every residual below is a *real* HIT that A-narrow does not close. Mechanism in 
 6. **R9 — `setLockOnHold`'s detached-`merge` version check.** The controller hands it a detached `Stockunit` and the method ends `stockunitRepository.save(stockUnit)`; a wrapper `@Version` routes `save` to `merge`, and `DefaultMergeEventListener` throws `StaleObjectStateException` when the detached version differs from the loaded target. A different mechanism from this plan's, and the reason **AC-2 case (a) for `setLockOnHold` is unsatisfiable in every scope** (§8.1).
 7. **F6 itself** — `UnitloadBusinessService.processTransfer`'s BLOCK_REALIGN loop. Dropped here for the reason in §4.10; it belongs to 3286 behind items 2–5.
 
-**Also proposed on the SBDEV-3244 ticket, not filed:** the remaining lock-site HITs and UNDETERMINED sites, ranked with blast radius and cost in `scratchpad/analysis-3244.md` §12.4 — headed by `PickingorderBusinessService.finishPickingOrder`/`.confirmPick` (hottest operator path), `ParcelMonitorViewService.palletise` (cheapest) and `StockunitBusinessService.transferStockToUnitLoad` (6 locks, 12 callers, highest cost); plus `PickLineRealignmentService.lockOwningPickingorders`, which calls `findByIdForUpdate` and **discards the return value**, five in-source comments promising a freshness the provider does not deliver, and the native twin `getStockUnitsByItemDataIdForUpdate` (`nativeQuery = true` — cannot throw, silently discards the freshly-locked values).
+**Already on SBDEV-3286** (its ranked HIT list, its 8-site UNDETERMINED walk and its misleading-comment section): the remaining lock-site HITs and UNDETERMINED sites, ranked with blast radius and cost in `scratchpad/analysis-3244.md` §12.4 — headed by `PickingorderBusinessService.finishPickingOrder`/`.confirmPick` (hottest operator path), `ParcelMonitorViewService.palletise` (cheapest) and `StockunitBusinessService.transferStockToUnitLoad` (6 locks, 12 callers, highest cost); plus `PickLineRealignmentService.lockOwningPickingorders`, which calls `findByIdForUpdate` and **discards the return value**, the in-source comments promising a freshness the provider does not deliver (the ticket owns that count), and the native twin `getStockUnitsByItemDataIdForUpdate` (`nativeQuery = true` — cannot throw, silently discards the freshly-locked values).
 
 Also out: the cron's **stale-read** exposure (detached `Stockunit`s in `ctx`, arithmetic on that snapshot). Not a lock failure; F2 removes it as a side effect — a bonus, not a claim.
 
@@ -79,7 +79,7 @@ Two concurrent `recalculateForItem(itemDataId)` calls for one item: the winner c
 
 The SBDEV-2234 pair invariant **holds** (84/84) and the loser writes nothing. **The damage is entirely to the caller** — and at least two of the eleven callers are `@Transactional`, so for them the damage is their own committed work being discarded: `StockunitService.setLockOnHold` (the ON_HOLD write, the stock-change message and the unit-load relocation are all rolled back) and `FixLocationAssignmentService.move` (the move is rolled back).
 
-⚠ **Those are exactly the two paths A-narrow does not fix** (§0's scope box, §2.3, §8.1's AC-2 note). This plan removes the defect on every path where `recalculateForItem` opens its own transaction — the cron and the ten unannotated callers, including the one the integration test drives; the two operator actions above stay exposed until SBDEV-3286 lands, and §9 item 2 requires the implementation report to say so.
+⚠ **Those are exactly the two paths A-narrow does not fix** (§0's scope box, §2.3, §8.1's AC-2 note). This plan removes the defect on every path where `recalculateForItem` opens its own transaction — the cron and the nine unannotated callers, including the one the integration test drives — excepting the `createFixedLocationAssignment` call paths that run inside a caller's transaction (§3.1); the two operator actions above stay exposed until SBDEV-3286 lands, and §9 item 2 requires the implementation report to say so.
 
 *Derivation of "at least two of eleven":* every `triggerReplenishmentMaintenance(` call site mapped to its enclosing method by walking back to the nearest 4-space signature and reading the annotation block above it; reproduced independently by the critic lane's Python walker and re-run this pass (7 sites in `FixLocationAssignmentService`, 4 in `StockunitService` = 11, matching the in-source comment's own figure); positive control `setLockOnHold` reports TX=YES. Two blind spots, both material — a meta-annotation would be missed, and **an unannotated enclosing method reached from a transactional caller is still inside a transaction** (§3.1 names the family that exploits this), which is why the predicate the code obeys is the runtime `isActualTransactionActive()` (F7). Read it as a floor, not a count.
 
@@ -155,7 +155,7 @@ recalculateForItem  ❌ findByStateAndItemdataId → List<Replenishorder> MANAGE
 
 **The invariant, stated at the scope this plan actually delivers:** *within the transaction **`recalculateForItem` opens itself**, the first touch of any entity this subsystem will write under a lock is the locking finder itself.*
 
-⚠ **It does NOT extend to a transaction opened by a caller, and the earlier revision's unqualified wording was false.** Five producer families put a `Replenishorder` or `Stockunit` into a joined persistence context at READ before the recalc runs; A-narrow converts none of them. The fifth — and the one that proves the unqualified claim cannot be repaired by fixing "the two AC-2 callers" either — is the **`createFixedLocationAssignment` family**: that method carries no `@Transactional`, its last statement before `return` is `triggerReplenishmentMaintenance(itemData.getId());`, and it has **six call sites across four files**. Three of the six are `@Transactional` *and* pre-load:
+⚠ **It does NOT extend to a transaction opened by a caller, and the earlier revision's unqualified wording was false.** Five producer families put a `Replenishorder` or `Stockunit` into a joined persistence context at READ before the recalc runs; A-narrow converts none of them. The fifth — and the one that proves the unqualified claim cannot be repaired by fixing "the two AC-2 callers" either — is the **`createFixedLocationAssignment` family**: that method carries no `@Transactional`, its last statement before `return` is `triggerReplenishmentMaintenance(itemData.getId());`, and it has **six call sites across four files**. **Four** of the six are `@Transactional` *and* pre-load:
 
 | Call site | Enclosing method's annotation | Same-transaction pre-load before the call |
 |---|---|---|
@@ -163,7 +163,9 @@ recalculateForItem  ❌ findByStateAndItemdataId → List<Replenishorder> MANAGE
 | `service/mobile/MobilePutAwayService.java` → `storeBoxOnLocation` | `@Transactional(value = "tenantTransactionManager", …)` | `Stockunit sourceStockUnit = stockunitRepository.findByUnitloadId(unitLoad.getId()).get(0);`, four lines earlier |
 | `service/mobile/MobileMoveUnitloadService.java` → `scanDestination` | `@Transactional(value = "tenantTransactionManager", …)` | three `stockunitRepository.findByUnitloadId(sourceUnitLoad.getId())` loads earlier in the method |
 
-The other three are excluded, each for a named reason: `StockunitService.transferStock` (`@Transactional`) reaches it only on the flowbin branch, which loads no `Stockunit` or `Replenishorder` entity beforehand — `stockUnit` is the method parameter; `MobileReplenishService.checkDestination` (`@Transactional`) does load a `Replenishorder` via `readReplenishOrder`, but **after** the `createFixedLocationAssignment` call, not before; and `MobileReplenishService.assignDestinationForMultiUnitLoads` is reached only from `fulfillMultipleUnitLoads`, which carries no `@Transactional` (its own javadoc: *"deliberately NOT `@Transactional`"*).
+The fourth is `MobileReplenishService.assignDestinationForMultiUnitLoads`: its only call site is inside **`fulfillMultipleUnitLoadsTx`** (`@Transactional`), which pre-loads `Replenishorder template = replenishorderRepository.findById(request.getOrderId())` immediately before the call. The non-transactional `fulfillMultipleUnitLoads` reaches it via `self.fulfillMultipleUnitLoadsTx(request)` — a `self.` proxy hop whose stated purpose is to make the `@Transactional` engage. ⚠ Blind spot this exposed: the signature walker sees only the **immediately-enclosing** method, so a `self.`-proxied `@Transactional` wrapper one hop up is missed unless the caller trace is walked by hand.
+
+The other two are excluded, each for a named reason: `StockunitService.transferStock` (`@Transactional`) reaches it only on the flowbin branch, which loads no `Stockunit` or `Replenishorder` entity beforehand — `stockUnit` is the method parameter; `MobileReplenishService.checkDestination` (`@Transactional`) does load a `Replenishorder` via `readReplenishOrder`, but **after** the `createFixedLocationAssignment` call, not before;.
 
 *Method / blind spots:* `git grep -n createFixedLocationAssignment -- src/main` for the six sites (three further hits in that grep are javadoc prose), then a Python enclosing-signature walker for each site's method and annotation block, plus a ranged read of each method to place the pre-load relative to the call. The walker reads the annotation lines immediately above the signature, so a meta-annotation is missed, and it cannot see a transaction opened by a `TransactionTemplate`. Positive control: the same walker reports `setLockOnHold` and `move` as the only two annotated of the eleven `triggerReplenishmentMaintenance` sites, reproducing §1's figure.
 
@@ -171,7 +173,7 @@ Handed to SBDEV-3286 as §0.3 item 3. **Nothing in this plan's acceptance criter
 
 ### 3.2 Key files
 
-`service/ReplenishmentOrderMaintenanceService.java` (subject: both entry points, `RecalcContext`, `ensureValidSource`, `redirectSource`, sibling site 6) · `service/ReplenishmentOrderSourceSyncService.java` (sibling site 7) · `service/StockunitBusinessService.java` (site 5 — **read-only for this plan**, §4.6) · `service/StockunitService.java` and `service/FixLocationAssignmentService.java` (F7 comment only) · `repo/jpa/ReplenishorderRepository.java` and `repo/jpa/StockunitRepository.java` (new scalar projections — both SDR-exported classes, §5.1) · `landlord/config/LockTimeoutHibernateJpaDialect.java` (read-only; the bound R2 relies on). Follow the project `CLAUDE.md` file-size heuristic — grep + ranged read — for all of them.
+`service/ReplenishmentOrderMaintenanceService.java` (subject: both entry points, `RecalcContext`, `ensureValidSource`, `redirectSource`, sibling site 6) · `service/ReplenishmentOrderSourceSyncService.java` (the second half of site 6) · `service/StockunitBusinessService.java` (site 5 — **read-only for this plan**, §4.6) · `service/StockunitService.java` and `service/FixLocationAssignmentService.java` (F7 comment only) · `repo/jpa/ReplenishorderRepository.java` and `repo/jpa/StockunitRepository.java` (new scalar projections — both SDR-exported classes, §5.1) · `landlord/config/LockTimeoutHibernateJpaDialect.java` (read-only; the bound R2 relies on). Follow the project `CLAUDE.md` file-size heuristic — grep + ranged read — for all of them.
 
 ---
 
@@ -283,7 +285,7 @@ Everything F6/F10/F11 would have covered is in §0.3, by name, against SBDEV-328
 
 | # | File | Change | Fix |
 |---|---|---|---|
-| 1 | `repo/jpa/ReplenishorderRepository.java` | +3 scalar projections | F1, F2, F5 |
+| 1 | `repo/jpa/ReplenishorderRepository.java` | **+4** scalar projections (`findIdsByState`, `findIdsByStateAndItemdataId`, `findStockunitIdsByIdIn`, `findIdByStateLessThanAndStockunitId`) | F1, F2, F5 |
 | 2 | `repo/jpa/StockunitRepository.java` | +`findUnitloadIdsByIdIn` | F2 |
 | 3 | `service/ReplenishmentOrderMaintenanceService.java` | entry points → id lists; `recalculateOrder(Long, RecalcContext)`; `RecalcContext` drops `stocksById`/`getStock`; `ensureValidSource` + `redirectSource` lock-first; sibling probe → id; both WARN lines → `id=`; comments | F1–F5, F8 |
 | 4 | `service/ReplenishmentOrderSourceSyncService.java` | probe → id | F5 |
@@ -427,11 +429,11 @@ Every assertion here is either a runtime concurrency property (AC-1, AC-4, AC-5,
 | # | Risk | Sev | Mitigation |
 |---|---|---|---|
 | R1 | **The fix moves the throw to a site nobody enumerated.** The sweep's blind spots are real and one already fired: it cannot see a pre-load in a caller that joins the transaction (§2.3). | High | For the in-scope shape: §8.3's T1 companion with a forced source-version bump. ⚠ **T1 is structurally blind to the caller shape** — its class-level `NOT_SUPPORTED` is the one shape where caller pre-loads are absent. A-narrow therefore has **no** instrument on the transactional-caller paths, by design; §8.1's AC-2 note and §9 item 2 record that, and SBDEV-3286 carries the instrument. |
-| R2 | **Redirect-path lock ordering** flips `target → current` to `current → target`. | Med | Unordered by id in *both* shapes, so the ABBA exposure pre-exists and no ordering edge is added. Postgres aborts row-lock deadlocks (40P01) rather than hanging; `lock_timeout` bounds each acquisition. Deterministic id-ordering belongs to the separately-proposed ticket. |
+| R2 | **Redirect-path lock ordering** flips `target → current` to `current → target`. | Med | ⚠ **MITIGATION WITHDRAWN — 2026-09-10, tail review M-1.** This cell claimed the shapes were *"unordered by id in both, so the ABBA exposure pre-exists and no ordering edge is added"*, and the implementation replaced that with an argument that the mirrored pair is *unreachable*. **Three successive versions of that argument were each wrong.** The last covered only the differing-area case: the candidate comparator separates candidates just when the areas differ, and two sources whose unit loads moved within the SAME replenishable area are each unusable to their own order (the `!locationId.equals(order.getRequestedlocationId())` route in `isSourceUsable` — the SBDEV-2492 scenario) while remaining offered candidates to the other. Nor is a 3-cycle excluded. **What ships is an ACCEPTED, BOUNDED residual, not a proof**: PostgreSQL aborts a row-lock cycle with `40P01`, or SBDEV-3250's per-acquisition `lock_timeout` fires first (`recalculateForItem` rethrows via `hasSqlCause`; `recalculateOpenOrders` logs and skips). The Java comment states VERIFIED vs NOT ESTABLISHED and stops. **To close it: acquire the two stock-unit locks in ascending id order** — a lock-topology change needing its own ticket and test, not a comment fix. |
 | R3 | **A-narrow relocates rather than removes the throw on the two operator paths**, so a UAT tester may read a still-500 "Set On Hold" as "the fix did not work". | Med | §8.7 tells the tester to expect it and how to tell the relocation apart (stack lands on `ensureValidSource` or the merge, not on `recalculateOrder`'s first statement); §9 item 2 forces the report to say it; SBDEV-3286 is filed and linked. |
 | R4 | **One extra row lock per skipped order** (the `manuallyoverridepriority` guard under the lock). | Low | Held for one select. ⚠ Contention is **not** bounded to "another recalculation of the same order" on the `recalculateForItem` path — the plain `this.` call holds it to the host transaction's commit (§7 row 4). Zero rows in the measured UAT population carry the flag, so it is currently unobservable in production data and its only coverage is a unit pin (a manually-overridden order is skipped *after* the locking read, with no `save`) added alongside the AC-3′ pins. |
 | R5 | **A new `@Query` method silently becomes an SDR read surface.** | Med | `@RestResource(exported = false)` on all of them (§5.1). ⚠ grepping for it does not establish class-level export status. |
-| R6 | **The 1670-line unit test has `lenient()` stubbing** (its own comment: *"the three original stubs were dead in 20-25 callers apiece"*), so a signature change across 7 call sites can produce a green suite that exercises less than before. | Med | Concrete instrument: **remove `lenient()` from the stubs the changed tests touch** and let `STRICT_STUBS` (already the default) report the unnecessary stubbings, plus the `verifyNoMoreInteractions` §8.2 now requires. ("Diff the executed stub set" was not executable — Mockito emits no such artefact.) |
+| R6 | **The 1670-line unit test has `lenient()` stubbing** (its own comment: *"the three original stubs were dead in 20-25 callers apiece"*), so a signature change across 7 call sites can produce a green suite that exercises less than before. | Med | ⚠ **MITIGATION CHANGED — Nam, 2026-09-10.** The original instrument (*remove `lenient()` and let `STRICT_STUBS` report*) was **not** used; the implementation went the other way and **added** `lenient()` to `mockRefetch` plus two new helpers (`stubContextProjections`, `stubSource`'s `findById` mirror), so net lenient coverage over the changed tests went **up**. Reason it had to: SBDEV-3250's rethrow pair asserts `never()).findByIdForUpdate(2L)` — the abort is the thing under test — so the second order's stub is deliberately unreached, and strictness fails those tests on a stub their author never wrote, with exception text advising deletion of a stub other tests need. Flagged as review finding M7 rather than done silently; Nam accepted the deviation. **Substitute instrument, now in place: `verifyNoMoreInteractions` on both repositories in all three pinned tests of `ReplenishmentFirstTouchInvariantUnitTest`** — mutation-checked (adding an unnamed non-locking finder dies with `NoInteractionsWanted`). ⚠ Its own limit, stated: two of the three use `ignoreStubs(...)`, which marks stubbed-and-invoked calls as verified, so a newly added finder is caught there only **if nobody stubs it**; the `recalculateOpenOrders` test uses the bare, stronger form. ("Diff the executed stub set" was never executable — Mockito emits no such artefact.) |
 | R7 | **Fixing a false claim tends to produce a new one.** | Med | Fired **three** times on this plan before implementation started: the volunteered line ranges; the `transferStock` blanket claim; the round-2 `transferStock`-is-`@Transactional` derivation and the re-worded-but-still-unwritable AC-6b clause (§4.9, §8.4). §9 item 8 makes the independent read of the correction passes and of §13 mandatory. |
 | R8 | **Zero prd exposure could be read as "no need to ship".** | Low | The cron is live every minute (§2.4); exposure begins with the first `PROCESSABLE` order. Ship before that, not after. |
 
@@ -484,5 +486,141 @@ Rounds 1 (architect + critic) and 2 (architect). Round-1 dispositions are collap
 | **N-6 (Medium)** — the previous revision's §4.10 (now §4.9) reached a true conclusion about `transferStock` by an argument the code refutes | **Accepted; argument replaced.** The sentence is kept and the **indirect** route named (`transferStock` → `createFixedLocationAssignment` → `triggerReplenishmentMaintenance` → `recalculateForItem`), with the SBDEV-2033 comment quoted so the next reviewer's grep does not read as a refutation. **One correction to the finding:** the indirect route and N-3's `CODE_MANUAL_TRANSFER` pre-load sit on **mutually exclusive branches** of `transferStock`, so they cannot compound in one call | §4.9's ⚠ block |
 | **N-7 · N-8 · N-9 (Low)** — F1 destroys the order number in both WARN lines · T5's fixture needs a two-sided bound and a "still PROCESSABLE" precondition · §4.1's "neither caller" is under-derived | **All accepted, each decided in the plan rather than the diff.** N-7: log the id (`replenishOrder id={}`, `orderId`), no re-fetch inside a catch on a rollback-marked transaction, downstream log-grep consequence recorded. N-8: bound is `0 < getAvailableIncludingReservation < 84`, with `cancelOrder`'s non-effect on `requestedamount` verified. N-9: both callers named and verified — `schedulejob/ReplenishOrderJob` and `MobileReplenishService.fulfillMultipleUnitLoads`, the latter not `@Transactional` — with the instrument's blind spot stated | §4.1's WARN paragraph and consequence (b); §8.5; §8.3's T5 paragraph |
 | Round-1 architect §5 item 5 — project the `manuallyoverridepriority` flag instead of locking the skipped row | **Rejected** (round 2 confirmed the rejection is fair). One caveat recorded: if a tenant ever uses the flag at scale, the projection is the mitigation — the rejection is not a permanent bar | §4.1 consequence (a) |
-| Critic Part 4 / round-3 brief — length mandate (~400–450) | **MISSED, and stated as missed.** 1001 → 501 → **488**, measured with `wc -l` on the file itself, not on a wrapped snapshot. Round 2 claimed "~470" against a 501-line file (the 965/966 figure some briefs carry is the *wrapped* snapshot, not this file); that class of error is not repeated. Removing F6/F10/F11 took out ~55 lines; the pass's own obligations put back ~43 (§0.3's seven named residuals, §3.1's six-call-site derivation table, §4.10's two substantive drop reasons, §8.1's AC-2 deletion argument, nine round-2 disposition rows). Every remaining line is a decidable claim, an instrument, or a blind-spot statement — getting to 450 means deleting one of those, which is the wrong trade | throughout |
-**Length, measured: 488 lines** (`wc -l`, 2026-09-09, after the A-narrow pass). ⚠ This figure has been misstated twice already — once as "~470" when the file was 966, then via a footer and a §13 row that pointed at each other. Re-derive it with `wc -l`; do not trust any number written here. The drop from 501 comes from removing F6/F10/F11 (the previous revision's §4.8 and §4.11, §5 rows 5/6c, two §6 steps, R3's old text, §8.2's AC-2 encoding block, §0.2 rows 8–9), partly offset by §0.3's residual list, §3.1's producer table and this table's round-2 rows.
+| Critic Part 4 / round-3 brief — length mandate (~400–450) | **MISSED, and stated as missed.** Removing F6/F10/F11 took out ~55 lines; this pass's own obligations put back ~43 (§0.3's seven named residuals, §3.1's call-site derivation table, §4.10's two substantive drop reasons, §8.1's AC-2 deletion argument, the round-2 disposition rows). Every remaining line is a decidable claim, an instrument, or a blind-spot statement — getting to 450 means deleting one of those, which is the wrong trade. ⚠ **No line count is stated here on purpose.** Four successive passes each wrote a figure that was wrong by the time it was read, including two that pointed at each other; the number changes on every edit, so `wc -l` is the only honest answer | throughout |
+**Length:** run `wc -l` on this file. ⚠ Deliberately not stated as a number — see the §13 row above. The drop from the pre-A-narrow revision comes from removing F6/F10/F11 (that revision's §4.8 and §4.11, §5 rows 5/6c, two §6 steps, R3's old text, §8.2's AC-2 encoding block, §0.2 rows 8–9), partly offset by §0.3's residual list, §3.1's producer table and §13's round-2 rows.
+
+
+---
+
+## 14. Implementation Status
+
+**MERGED to `develop` 2026-09-10 21:58 UTC** as merge commit `2545fa7b` (PR #342). Status `pr submitted` → `on dev`,
+and **the deploy is confirmed, not assumed**: the post-merge push run `34535053269` finished
+`test: success` → `build: success` (the image job declares `needs: test`, so a red suite would have
+skipped it silently), and `GET https://wms-api.dev.sbo.li/api/public/version` returns
+`develop-2545fa7b3d6d71b8d677e11fb3919b64a3de3c4a` — byte-identical to the merge commit, with
+`drift: false`. That endpoint is the check to repeat before any dev retest; a merge alone does not
+prove a redeploy.
+
+**Branch** `bugfix/SBDEV-3244-stale-version-at-lock-read` off `origin/develop` @ `0c8cc722`.
+**Worktree** `.claude/worktrees/wms2-api/SBDEV-3244`.
+**PR:** https://github.com/SiteBossInc/wms2-api/pull/342 — **MERGED 2026-09-10 21:58 UTC** into
+`develop` as merge commit `2545fa7b` (merge-commit style, matching the repo's convention; branch not
+deleted, the worktree still holds it until `archive-plan`). 6 inline review notes posted, 3 of them
+rewritten after the tail review.
+**Merge commit on the branch:** `67caa399` (merged `origin/develop` @ `22d19474` in, 0 conflicts).
+
+⚠ Base `0c8cc722` is newer than the `84083464` this plan cites. The only in-scope file in the delta
+is `StockunitBusinessService`, comment-only (a stale TDD-GATE STUB marker); `changeReservedAmount` is
+structurally intact, so §4.6 and the mechanism hold.
+
+### Commits
+
+| SHA | What |
+|---|---|
+| `0ec8c757` | TDD gate — 8 failing assertions, attributable by stack origin |
+| `7b4e4661` | Step 1 — the five id projections, all `@RestResource(exported = false)` |
+| `4318527a` | **F1** — id-based entry points, `recalculateOrder(Long, RecalcContext)`, guards under the lock, WARN → `id=` |
+| `a15858ca` | **F2+F3+F4** — `RecalcContext` carries no `Stockunit`; source and redirect target loaded under their locks |
+| `8461a238` | **F5** — both sibling probes read an id |
+| `941fb517` | **AC-3′** behavioural pins, mutation-checked |
+| `36a0a3c3` | **F7+F8+F9** — comment corrections |
+| `e823d18c` | Review lanes 1–3: 7 Medium, 14 Low, and a real test leak |
+| `3f7a82f2` | Delta review: two false claims **in my own corrections** |
+| `bb270f03` | Docs + PR text after the delta review |
+| `67caa399` | Merge `origin/develop` @ `22d19474` (SBDEV-3285), 0 conflicts |
+| `ca2ca3f8` | **Tail review** (6th lane): lock-ordering proof WITHDRAWN → accepted bounded residual; 4 doc claims re-asserted after being withdrawn elsewhere; a THIRD copy of the inverted refill claim |
+| `e2f82ad7` | Tail review's last item: the refresh-site claim aligned across doc, test and memory — **9 known-backwards** sites, not 9 unexamined |
+
+### Tests
+
+⚠ `origin/develop` **moved during review**, `0c8cc722` → `22d19474` (SBDEV-3285). Merged in, zero
+conflicts. Figures below are post-merge, against a **measured** merge-target baseline.
+
+| Lane | develop `22d19474` | this branch | delta |
+|---|---|---|---|
+| surefire | 6405 / 0 fail / 0 err / 1 skip | **6412 / 0 / 0 / 1** | **+7** = 4 contract + 3 pin tests |
+| failsafe | 381 / 0 fail / 0 err / 31 skip | **385 / 0 / 0 / 31** | **+4** = the new IT |
+
+Re-measured after the tail-review fixes at `ca2ca3f8` (`mvn clean verify`, BUILD SUCCESS): **identical
+figures**, which is the expected result for a round that changed comments, docs and one assertion
+message. `e2f82ad7` touches one assertion message only, so that class was re-run alone afterwards —
+4 tests, 0 failures, 0 errors.
+
+Zero failures, zero errors, skips unchanged. ⚠ Not "completely green" — 31 failsafe + 1 surefire
+skips persist, identical to baseline; an earlier draft of this section dropped that column.
+No verify script (T3 opt-in declined, §9.1).
+
+⚠ **Overlap with SBDEV-3285, and a correction.** An earlier draft said "better than the true
+baseline, which had 4 `OrderReleaseSectionQueryIT` errors". That was an *inference* — no full run at
+`origin/develop` existed when it was written. It is now settled two ways: SBDEV-3285 fixed those same
+four errors independently while this branch was in review (`00337dcb` "bound
+OrderReleaseSectionQueryIT's teardown window (fixes 4 lane errors)"), and the merge target measures
+clean. The two fixes are **complementary, not duplicative** — 3285 bounded the SWEEP, this change
+fixes a SOURCE — so neither makes the other redundant. ⚠ "the two leakers" was itself wrong and is
+corrected here (tail review M-3): this PR fixes **one** pre-existing leaker,
+`ReplenishmentOrderMaintenanceServiceIntegrationTest`, whose `ITEMDATA = 9951L` is the exact
+`Key (id)=(9951)` in 3285's quoted FK error. The new IT reproduced the same mechanism on this branch
+under its own id (`9921`) but did not exist on develop, so it caused none of the errors 3285
+measured. And `ReplenReassignOnNonReplenishableMoveIT`, which 3285's commit message names as a
+leaker, **already carried `@AfterEach` on `origin/develop`** (`git grep -c AfterEach` on that ref
+returns 2) and is not in this diff — worth passing back to that ticket's owner, since it is merged.
+
+New/changed test classes: `ReplenishmentStaleVersionAtLockReadIntegrationTest` (new, 4 tests),
+`ReplenishmentIdProjectionContractUnitTest` (new, 4), `ReplenishmentFirstTouchInvariantUnitTest`
+(new, 3), plus `ReplenishmentOrderMaintenanceServiceIntegrationTest`, `…UnitTest` (50),
+`…ReassignTest` (11), `ReplenishmentOrderSourceSyncServiceTest`, `…BranchTest`,
+`TestClassTransactionManagerArchTest`.
+
+### Acceptance
+
+| AC | Verdict |
+|---|---|
+| AC-1 | ✅ both throw points closed, isolated per entity by the new IT |
+| **AC-2** | ⛔ **NOT DELIVERED — by design.** *"Set On Hold" and FLA move remain exposed; the throw relocates to `ensureValidSource`; SBDEV-3286 owns them.* |
+| AC-3′ | ✅ structural (reflection) + behavioural (Mockito) pins, both mutation-checked attributably |
+| AC-4 | ✅ tolerance block deleted; 84/84 invariant and its positive control retained |
+| AC-5 | ✅ asserts the **recomputed** `requestedamount` (50) with a two-sided bound and a still-`PROCESSABLE` precondition |
+| AC-6a / AC-6b | ✅ pin + rail. ⚠ The rail's originally committed mutation recipe was **false**; corrected (needs ambient tx **and** an entity prefetch) |
+| AC-7 | ✅ both files, rule instead of a count |
+
+### Landmines this implementation found that the plan did not predict
+
+1. **A committed IT fixture is not isolated by client id.** Both replenishment ITs run
+   `NOT_SUPPORTED` and cleaned up only in `@BeforeEach`. `OrderReleaseSectionQueryIT` sweeps **by id
+   watermark** (`DELETE FROM itemdata WHERE id > ?`), so the surviving rows broke its FK. Both now
+   delete in `@AfterEach`. Precisely: **one** of the two pre-dated this ticket
+   (`ReplenishmentOrderMaintenanceServiceIntegrationTest`, and it is the one 3285's FK error names);
+   the other is this branch's own new IT, which ships clean rather than being repaired.
+2. **My first baseline was measured at the gate commit**, which already contained the new IT — so it
+   was never a pre-change measurement, and I mis-attributed four errors as pre-existing. An
+   independent lane caught it with a green-alone isolation probe.
+3. **A version bump through `jdbcTemplate` self-deadlocks** against a lock the holder's own
+   transaction owns: it is a standalone autocommit `DataSource` outside the tenant `lock_timeout`, so
+   it hangs with no deadlock report.
+4. **`findByIdForUpdate` does not refresh, only locks** — and a `refresh` placed after it is
+   unreachable, because the locking read throws first. Measured across the whole of `src/main`, not
+   just this path: **all 10** `entityManager.refresh(` sites (8 in `StockunitBusinessService`, 2 in
+   `UnitloadBusinessService`) sit within six lines AFTER a `findByIdForUpdate` on the same variable.
+   So SBDEV-3286 inherits nine sites already **known** to be backwards, not nine unexamined ones.
+   Blind spot of both instruments (this one and design §7's): a refresh reached indirectly through a
+   helper, or placed further from its lock than the window.
+5. **R7 fired six times.** Every correction pass on this ticket introduced a new false claim,
+   including two comment-only ones that three behaviour-focused lanes missed and only a delta review
+   caught. §9 item 8's independent read is not optional. The sixth: reviewing the delta-review fixes
+   found that the restored lock-ordering argument had a case it did not cover, plus four doc sites
+   re-asserting claims withdrawn elsewhere in the same file. **The pattern is now measured, not
+   suspected: a fix pass needs its own review, and the review must grep the CLAIM rather than
+   re-read the section that was edited.**
+
+### Deliberately not done
+
+AC-2 (SBDEV-3286). The wide lock-site programme — 15 HITs across picking, BOL, parcel monitor and
+receiving (SBDEV-3286). **M7 — RESOLVED (Nam, 2026-09-10): the deviation is accepted as
+implemented.** R6's row above now records the change and names `verifyNoMoreInteractions` as the
+substitute instrument, with its `ignoreStubs` limit stated, so plan and diff no longer disagree.
+**S-1 — RESOLVED (Nam, 2026-09-10): folded into SBDEV-3286** rather than given its own ticket.
+`StockunitRepository.getStockUnitsByItemDataIdForUpdate` carries **no** `@RestResource` at all and
+takes an unbounded native multi-row `FOR UPDATE`; the existing
+`SdrLockingSearchNotExportedContextTest` documents native locks as its own blind spot, and
+`SdrFunctionRules` names no `Stockunit`, so nothing covers it today. One annotation fixes it.
