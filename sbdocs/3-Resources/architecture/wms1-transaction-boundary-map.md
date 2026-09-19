@@ -405,7 +405,7 @@ When a class-level bare `@Transactional` service (e.g., `CustomerorderBatchServi
 | Transaction managers | 1 (single DB) | 2 (`landlordTransactionManager` @Primary, `tenantTransactionManager`) |
 | OSIV | Enabled (default) | Disabled (`spring.jpa.open-in-view=false`) |
 | `@Version` base class | None — per-entity, inconsistent coverage (45 fields) | `AbstractBaseEntity.version` — all tenant entities inherit it |
-| Optimistic lock retry | Inline loop in `BasicService` (sequence only) | `OptimisticLockRetry` utility (3 attempts, exponential backoff) |
+| Optimistic lock retry | Inline loop in `BasicService` (sequence only) | **None.** v2 had an `OptimisticLockRetry` utility (3 attempts, exponential backoff) until SBDEV-3398 deleted it on 2026-09-17; v2 now uses pessimistic row locks on the write path it guarded |
 | Lock timeouts | None on any pessimistic lock | 5s hint on `CustomerorderBatch` and `Billoflading` |
 | `@Primary` landmine | None — single TM | Yes — bare `@Transactional` silently uses landlord, not tenant |
 | Post-commit pattern | `OmsNotificationHelper.deferToCommit()` + inline `registerSynchronization` | Same utility pattern; standardized more consistently |

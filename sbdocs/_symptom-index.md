@@ -67,7 +67,7 @@ This is the **authoritative** version. The per-doc "How to debug" sections are s
 | `closeBOL` performance regression | 📕 [bol-truck-loading-workflow §12](3-Resources/workflows/wms2-bol-truck-loading-workflow.md) — confirm bulk JPQL paths still active |
 | Replica A fires cron, replica B fires it too | 📕 [picking-workflow §11](3-Resources/workflows/wms2-picking-workflow.md) + 📘 [scheduled-jobs §2](3-Resources/architecture/wms2-scheduled-jobs-catalog.md) — advisory lock state |
 | Concurrent `closeBOL` produced partial state | 📕 [bol-truck-loading-workflow §12](3-Resources/workflows/wms2-bol-truck-loading-workflow.md) — dual-layer guard (in-memory set + DB pessimistic) |
-| Request-path TX hung / long optimistic-lock retry | 📘 [transaction §8.3](3-Resources/architecture/wms2-transaction-osiv-boundary-map.md) — `OptimisticLockRetry` utility, not `@Retryable` |
+| Request-path TX hung / long optimistic-lock retry | 📘 [transaction §8.3](3-Resources/architecture/wms2-transaction-osiv-boundary-map.md) — there is **no** retry utility any more (`OptimisticLockRetry` deleted by SBDEV-3398); a conflict surfaces at commit and the write path it guarded now takes a pessimistic row lock instead |
 
 ---
 

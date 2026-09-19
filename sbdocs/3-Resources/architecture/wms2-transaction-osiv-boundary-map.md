@@ -6,9 +6,9 @@ version: v2
 scope: transactions
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-08-14
-last_verified: 2026-06-01
-verified_by: code read of v2/wms2-api src/main at commit HEAD
+updated: 2026-09-17
+last_verified: 2026-09-17
+verified_by: "SBDEV-3398 — §8.3 and the §5 post-commit table re-derived from v2/wms2-api src/main at ee7bcfdf; only those two sections were re-verified, the rest carries its 2026-06-01 date"
 related:
   - ../workflows/wms2-replenish-workflow.md
   - ../../4-Archieves/wms2/plan/260313-WMS_V2_Horizontal_Scaling_Concurrency_Report.md
@@ -38,7 +38,7 @@ tags:
 
 ## 1. Overview
 
-`wms2-api` runs with OSIV **disabled** and uses **two JPA transaction managers** — one per logical datasource. The landlord manager is marked `@Primary`, which makes it the default for any bare `@Transactional` and creates the single biggest landmine in the codebase: a tenant-data operation without an explicit manager qualifier will silently route to the wrong DB. Retries on optimistic-lock collisions are handled by a hand-rolled utility (`OptimisticLockRetry`), not Spring's `@Retryable`. This doc is the authoritative map of those boundaries so every optimistic-lock / stuck-state / connection-pool debug can start from shared ground.
+`wms2-api` runs with OSIV **disabled** and uses **two JPA transaction managers** — one per logical datasource. The landlord manager is marked `@Primary`, which makes it the default for any bare `@Transactional` and creates the single biggest landmine in the codebase: a tenant-data operation without an explicit manager qualifier will silently route to the wrong DB. Optimistic-lock retry is **no longer a thing in this codebase**: the hand-rolled `OptimisticLockRetry` utility was deleted by SBDEV-3398 once its last consumer acquired a pessimistic lock instead (see §8.3). This doc is the authoritative map of those boundaries so every optimistic-lock / stuck-state / connection-pool debug can start from shared ground.
 
 ---
 
@@ -172,8 +172,16 @@ Spot-fix rule: when reviewing a PR, grep it for `@Transactional` with no argumen
 | `service/ReceivingService.java:532` | Post-commit audit of receiving advice |
 | `service/PickingorderBusinessService.java:256,505` | Pick event propagation |
 | `service/mobile/MobilePickingService.java:478,986` | Mobile pick post-commit actions |
-| `service/mobile/MobilePalletizingService.java:230,380` | Palletizing post-commit |
 | `service/mobile/MobileTruckLoadingService.java:308` | Truck loading post-commit |
+
+> **SBDEV-3398 (2026-09-17):** the `MobilePalletizingService` row is gone, not moved. That site had
+> already been de-nested by SBDEV-3267 (`sendAfterCommit` defers internally, so the outer
+> `registerSynchronization` made it a DOUBLE deferral and the inner one was discarded unseen), and
+> SBDEV-3398 removed the last reference — neither `MobilePalletizingService` nor the new
+> `MobilePalletizeWriteService` registers a synchronization. The notification now runs in a plainly
+> non-transactional caller *after* the transactional method returns, which is why that class must
+> stay un-annotated: annotating it flips `sendAfterCommit` to its callback branch with no test
+> failing.
 
 Neither `TransactionTemplate` nor direct `PlatformTransactionManager.getTransaction()` is used anywhere in application code.
 
@@ -274,24 +282,50 @@ No `PESSIMISTIC_READ` anywhere — all pessimistic sites take a write lock.
 > (`wms.tenant.lock-timeout-ms`, default 10 s) when a tenant transaction begins — so the bound applies to
 > **all 15** `@Lock(PESSIMISTIC_WRITE)` methods in this section, not the three that used to advertise one.
 
-### 8.3 Retry — `OptimisticLockRetry` utility
+### 8.3 Retry — `OptimisticLockRetry` utility (DELETED 2026-09-17, SBDEV-3398)
 
-- **File:** `net/aim_ai/wms/util/OptimisticLockRetry.java`
-- **Catches:** `ObjectOptimisticLockingFailureException | StaleObjectStateException` (line 83)
-- **Policy:** up to 3 retries, exponential backoff `100ms × attempt`
-- **Throws on give-up:** `OptimisticLockRetryException`
-- **Call shape:**
-  ```java
-  optimisticLockRetry.executeWithRetry(() -> {
-      Stockunit fresh = stockunitRepository.findById(id).orElseThrow();
-      fresh.setAmount(newAmount);
-      return stockunitRepository.save(fresh);
-  }, "updateStockunitAmount");
-  ```
-- **Re-read inside the lambda is mandatory** — that's what makes the retry actually resolve the stale-state error. `BasicService.java:117-127` has an older inline version of the same pattern.
-- **Consumers (as of 2026-06-10, plan 260610 Phase A):** exactly ONE — `MobilePalletizingService.scanPallet:217` (non-transactional/auto-commit, where the catch genuinely fires). The former call sites in `PickingorderBusinessService.confirmPick` and `UnitloadBusinessService.transferUnitLoadToLocation` were **removed as inert** (they ran inside an open `@Transactional`, where the optimistic-lock exception only surfaces at the outer commit — outside the retry loop); `MobileReplenishService`'s injection was dead and removed. The retry is only meaningful OUTSIDE an open transaction — do not wrap in-transaction mutations with it. Scope is pinned by `unit/service/OptimisticLockRetryScopeTest`.
+**This utility no longer exists.** `net/aim_ai/wms/util/OptimisticLockRetry.java` and both of its test
+classes were deleted; `git grep OptimisticLockRetry` over `src/` returns nothing. The section is kept
+rather than removed because the reasoning is the part worth carrying forward, and because two
+archived plans still cite it.
 
-Not used: `@Retryable` / `@Recover` from Spring Retry. Keep retries in the utility for uniform telemetry.
+**What it was:** catch `ObjectOptimisticLockingFailureException | StaleObjectStateException`, re-read
+inside the lambda, up to 3 retries with `100ms × attempt` backoff, `OptimisticLockRetryException` on
+give-up.
+
+**Why it went.** Its own javadoc named the precondition for its correctness: *"use this only where
+each invocation runs in a fresh transaction — as `MobilePalletizingService` does, having no
+`@Transactional` anywhere in the class."* SBDEV-3398 gave that class a transaction boundary and
+`PESSIMISTIC_WRITE` row locks, which falsifies the precondition and makes the retry both unnecessary
+and unsafe:
+
+- **Unnecessary** — the order row is now held under a lock from before its state is read until after
+  it is written, so no other session can interleave and there is nothing to retry.
+- **Unsafe** — inside an open transaction, Hibernate has already marked the session rollback-only by
+  the time it raises that exception, so a retry loop would spin on a transaction that can only ever
+  roll back. That is precisely why the earlier `PickingorderBusinessService.confirmPick` and
+  `UnitloadBusinessService.transferUnitLoadToLocation` call sites were removed as inert in 2026-06.
+
+The utility therefore reached **zero** consumers and was deleted rather than left as a trap for the
+next author to reach for.
+
+⚠ **Supersession, recorded because two archived decisions would otherwise sit in open conflict.**
+Archived plan `260610-wms2-multi-replica-hardening` Phase A explicitly REJECTED *"delete
+`OptimisticLockRetry` entirely"*, and its stated reason was that `scanPallet` is non-transactional.
+SBDEV-3398 removes that premise, so the reversal is valid — but do not read the archived plan as
+still-current guidance.
+
+**What replaced the protection, which is not the same as deleting it.** The retry's lambda contained a
+re-fetch *and a re-check* of the state guard against the fresh instance — the only lost-update
+protection on that path. Both survive, in stronger form:
+`MobilePalletizeWriteService.advanceOrderToPalletized` re-checks `state < PALLETIZED` on the
+pessimistically-locked instance before writing. Pinned by
+`unit/service/mobile/MobilePalletizeFirstTouchInvariantUnitTest` (AC-11).
+
+**Still true and still load-bearing:** a retry is only ever meaningful OUTSIDE an open transaction. If
+one is ever reintroduced, that constraint is the first thing to check.
+
+Not used: `@Retryable` / `@Recover` from Spring Retry.
 
 ### 8.4 Controller-layer handling
 
@@ -332,7 +366,7 @@ No business-logic scheduler runs in-process. Replenish / release / cron-autoflus
 None recorded yet. Candidates that should be written up:
 
 - **ADR — Why landlord is `@Primary` and the mitigation via `@TenantTransactional`** (the current convention is code-enforced only).
-- **ADR — No `@Retryable`; use `OptimisticLockRetry`** (why hand-rolled vs Spring Retry).
+- **ADR — Prefer a pessimistic row lock to optimistic retry on a write path** (SBDEV-3398 deleted `OptimisticLockRetry`; Spring Retry was never adopted either — see §8.3 for why retry is unsafe inside a transaction).
 - **ADR — Post-commit side-effects only via `TransactionSynchronizationManager`** (ban direct external calls inside `@Transactional`).
 
 ---

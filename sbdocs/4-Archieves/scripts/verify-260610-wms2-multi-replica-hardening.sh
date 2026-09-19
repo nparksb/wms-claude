@@ -1,4 +1,51 @@
 #!/usr/bin/env bash
+
+# =============================================================================
+# ⚠ RETIRED 2026-09-17 by SBDEV-3398 — DO NOT TREAT A RED RUN AS A REGRESSION.
+#
+# Phase A of plan 260610 asserted that the OptimisticLockRetry utility was KEPT
+# (it deliberately rejected "delete it entirely", on the grounds that
+# MobilePalletizingService.scanPallet is non-transactional and therefore the one
+# place the retry could genuinely fire).
+#
+# SBDEV-3398 gave scanPallet a transaction boundary and pessimistic row locks,
+# which falsifies that premise: a retry inside a transaction is not merely
+# useless but unsafe, because Hibernate has already marked the session
+# rollback-only by the time the exception is raised. The utility reached zero
+# consumers and was deleted, along with both of its test classes.
+#
+# Rows that now INVERT — they PASSED against correct code then, and FAIL against
+# correct code now:
+#   A-util   "OptimisticLockRetry utility + its test kept"
+#            -> asserts both files exist; both are deleted.
+#   A-pall   "working consumer kept in MobilePalletizingService"
+#            -> that consumer is exactly what SBDEV-3398 removed.
+# Exactly two, enumerated by reading every `run A-*` line in this file and then
+# MEASURED, not recalled:
+#
+#   PROJECT_ROOT=<the SBDEV-3398 worktree> bash <this script>
+#     -> Result: 18 pass, 2 fail, 3 skip   (A-pall and A-util the only reds)
+#   PROJECT_ROOT=<unset, i.e. v2/wms2-api on develop> bash <this script>
+#     -> Result: 20 pass, 0 fail, 3 skip
+#
+# ⚠ Note the second line, because it is the trap: run with no PROJECT_ROOT this
+# script grades the MAIN CHECKOUT, which sits on another branch, and reports a
+# clean 20/20 that says nothing about the work. This script wants the SUB-REPO
+# root (v2/wms2-api), not the monorepo root — passing the monorepo root fails
+# all 18 path assertions, including rows about files nobody touched.
+#
+# The other seven Phase A rows still pass either way: they assert REMOVALS, and
+# removing the utility cannot un-remove them.
+#
+# A permanently-red row is worse than no row, because it is indistinguishable
+# from unfinished work. This script is kept only as a record of the 260610
+# decision; it is not a live check of anything. If you need the current
+# invariant, it is pinned in JUnit instead:
+#   unit/service/mobile/MobilePalletizeFirstTouchInvariantUnitTest  (AC-4/6c/11)
+#   unit/service/mobile/MobilePalletizeLockContentionUnitTest       (AC-7)
+#   unit/repo/MobilePalletizeIdProjectionContractUnitTest           (§3.3 surface)
+# =============================================================================
+
 # verify-260610-wms2-multi-replica-hardening.sh — machine-checkable acceptance for
 # "WMS2 Multi-Replica Hardening — OptimisticLockRetry / JWT Decoder / HTTP-in-Tx Guard"
 #

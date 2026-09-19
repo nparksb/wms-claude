@@ -2,8 +2,8 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-08-31
-verified_by: "Claude (SBDEV-3135) — caching section only: expiry policy, cache-key prefix, SpEL example and all eviction method names re-derived from origin/develop. The stock-mutation-path call-site list was NOT re-verified."
+last_verified: 2026-09-17
+verified_by: "Claude (SBDEV-3382) — full-move stockrecord table re-derived from origin/develop + SBDEV-3382; line-number columns dropped (they had drifted). Earlier: Claude (SBDEV-3135) — caching section only: expiry policy, cache-key prefix, SpEL example and all eviction method names re-derived from origin/develop. The stock-mutation-path call-site list was NOT re-verified."
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
 
@@ -561,12 +561,29 @@ At pick confirmation (`confirmPickPosition`):
 `sourceStockunit.getAmount().compareTo(amount) > 0 || fixLocationAssignment != null`. So the
 full-move branch at `:345` fires **only when the entire stock unit moves**.
 
-| Path | Branch | Writer | `type` | `amount` | `amountstock` |
-|---|---|---|---|---|---|
-| **Full move** (whole SU / unit-load pick) | `:345` → `:360` | `recordTransferStockUnit` | `STOCK_TRANSFERRED` | **0** | picked qty |
-| Placeholder SU creation | `:336-342` → `createStockUnit` | *(inline, bypasses `StockrecordService`)* | `STOCK_CREATED` | **0** | 0 |
-| **Partial move / merge** | `:369` else → `:377` | `recordCreation` | `STOCK_CREATED` | picked qty | dest SU total |
-| Partial move, source side | `:376` | `recordRemoval` | `STOCK_REMOVED` | −qty | — |
+| Path | Writer | `type` | `amount` | `amountstock` |
+|---|---|---|---|---|
+| **Full move** (whole SU / unit-load pick) | `recordTransferStockUnit` | `STOCK_TRANSFERRED` | **0** | moved qty |
+| **Full move, `CODE_DAMAGED` only** *(SBDEV-3382)* | `recordCreation`, in addition to the row above | `STOCK_CREATED` | damaged qty | damaged qty |
+| Placeholder SU creation | `createStockUnit` *(inline, bypasses `StockrecordService`)* | `STOCK_CREATED` | **0** | 0 |
+| **Partial move / merge** | `recordCreation` | `STOCK_CREATED` | moved qty | dest SU total |
+| Partial move, source side | `recordRemoval` | `STOCK_REMOVED` | −qty | — |
+
+**SBDEV-3382 — the full-move branch writes a second row for damage, and only for damage.** Until
+that fix a whole-stock-unit damage produced *only* the `STOCK_TRANSFERRED` row above, whose `amount`
+is 0 — and both client-facing transaction reports bucket `damaged` on
+`(activitycode = 'DAMAGED' AND type = 'STOCK_CREATED')` summing `amount`, so a full damage showed as
+**zero** on the transaction axis while `stock_view.damaged` (keyed on `entity_lock = 103`) showed it
+correctly. Measured before the fix: 9 such rows on wsl-wineco UAT (10 units) and 1 on c1wh-shipitez
+UAT, 2020-12-11 → 2026-07-22. The extra `recordCreation` is gated on `CODE_DAMAGED`, so every other
+activity code still writes exactly the single `STOCK_TRANSFERRED` row. ⚠ Note the asymmetry with the
+partial path: a partial damage writes `STOCK_REMOVED` + `STOCK_CREATED`, a full damage writes
+`STOCK_TRANSFERRED` + `STOCK_CREATED`. No `STOCK_REMOVED` is written on the full path and none is
+needed — no report matches `(DAMAGED, STOCK_REMOVED)`.
+
+⚠ **A whole-unit damage out of a FIX-ASSIGNED location never reached the full-move branch** and was
+always correct: the `fixLocationAssignment != null` disjunct sends it down the partial/merge path.
+The defect was precisely *whole stock unit **and** no fix-location assignment on the source*.
 
 **Why this matters for reporting:** a full-move pick and a partial-move pick of the same
 quantity produce rows that differ in *both* type and which column holds the quantity. Report
@@ -691,7 +708,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 | **L2 / application cache** | None (no Caffeine) | Caffeine L1 on `sysprops`, `clients`, `locations`, `itemdata` (see §7) |
 | **Multi-tenant datasource** | **No in-app tenant routing at all** — one deployment per warehouse bound to a static `spring.datasource.url` (`application.properties:24`); no `TenantFilter`, no `AbstractRoutingDataSource` in `src/main` | HTTP header routing on **`X-Tenant-ID`** + `facility_code` (`landlord/config/TenantFilter.java:23-24`) → dynamic datasource. Note `tenant_name` does **not** route — it appears only on `TenantHealthController`. Explicit `value = "tenantTransactionManager"` required on all `@Transactional` (dual-TM architecture) |
 | **`@Transactional` default** | `@Primary` = landlord TM same risk as v2 | `@Primary` = landlord TM — omitting `value` silently breaks tenant writes |
-| **Optimistic lock retry** | None in stock path | None in stock path either (260610 Phase A removed the inert `transferUnitLoadToLocation` wrapper; sole remaining `OptimisticLockRetry` consumer is the non-transactional `MobilePalletizingService.scanPallet`) |
+| **Optimistic lock retry** | None in stock path | None anywhere. 260610 Phase A removed the inert `transferUnitLoadToLocation` wrapper; **SBDEV-3398 (2026-09-17) deleted the `OptimisticLockRetry` utility outright** once its last consumer, `MobilePalletizingService.scanPallet`, acquired a transaction boundary and pessimistic row locks — which falsified the utility's own stated precondition that each invocation run in a fresh transaction |
 | **`createStockUnit` overload** | Single signature | v2 adds pre-fetched-location overload to avoid repeated DB lookups in batch receives |
 | **`transferStockToUnitLoad` overload** | Single signature | v2 adds pre-fetched-`FixLocationAssignment` overload for club-line batch efficiency |
 | **`createUnitload` overload** | Single signature | v2 adds pre-fetched-`spawnLocation` overload |

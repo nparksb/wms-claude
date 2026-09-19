@@ -263,7 +263,7 @@ All cancel *service* methods are `@Transactional(value="tenantTransactionManager
 
 No `REQUIRES_NEW` is used in the cancel path (contrast with `OrderReleaseJob` / `ReplenishOrderJob` — see [wms2-scheduled-jobs-catalog.md](../architecture/wms2-scheduled-jobs-catalog.md) §4). An exception mid-cascade rolls back **that order's** cancel whole, so no single order is ever left half-cancelled. It does **not** roll back the batch: since SBDEV-3339 a `ToteTeardownException` is contained to its own order and the loop continues, so a partially-cancelled batch is an expected outcome rather than corruption — the uncancelled orders are simply still cancellable. See §5 and §10 item 4.
 
-Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; `OptimisticLockRetry` is *not* automatically applied inside cancel paths. If a concurrent pick update fires a `@Version` bump mid-cancel, the cancel transaction rolls back and the caller must retry.
+Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; there is **no** automatic retry inside cancel paths — and as of SBDEV-3398 (2026-09-17) there is no retry utility in the codebase at all, `OptimisticLockRetry` having been deleted. If a concurrent pick update fires a `@Version` bump mid-cancel, the cancel transaction rolls back and the caller must retry.
 
 ---
 
@@ -307,7 +307,7 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; `Opt
 | "Can't cancel — 'order in PACKED state'" | §4 guard + §9 forceCancelOrder path |
 | "Batch partially cancelled, some orders still active" | §5 + §10 item 4 — **expected since SBDEV-3339, not corruption.** The response's per-order `errors` map and the `cancelPositions: tote teardown failed for order=...` ERROR log name the orders that did not cancel; re-issue `cancelPositions` for those. §8 is the right section only if a *single order* is internally inconsistent. |
 | "forceCancel left Pickingorder=PICKED" | §10 item 7 (expected) |
-| "Optimistic lock during cancel" | §10 item 8 — conflict surfaces at commit → HTTP 409 (`RestExceptionHandler`); caller retries. (`OptimisticLockRetry` is NOT applicable inside cancel transactions — 260610 Phase A) |
+| "Optimistic lock during cancel" | §10 item 8 — conflict surfaces at commit → HTTP 409 (`RestExceptionHandler`); caller retries. (Retry is never applicable inside a transaction — the exception fires at the outer commit, outside any retry loop. The `OptimisticLockRetry` utility this row used to name was deleted by SBDEV-3398.) |
 
 ---
 
