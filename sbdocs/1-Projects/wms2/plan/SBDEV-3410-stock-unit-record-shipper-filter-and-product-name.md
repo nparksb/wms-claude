@@ -1771,11 +1771,18 @@ the join elimination that makes the default page free, taking the unfiltered cou
 Worktree `.claude/worktrees/wms2-api/SBDEV-3410`, branch `feature/SBDEV-3410-p1-stockrecord-view-migration`,
 off `origin/develop` @ `7ebb9c83`.
 
+**PR: https://github.com/SiteBossInc/wms2-api/pull/387** (open, not merged). ClickUp: `pr submitted`.
+
 | commit | what |
 |---|---|
 | `bfb5b860` | `V2.2.33` + `StockrecordViewSchemaIT`; fixed the guard that would have frozen every tenant |
 | `e8411c6f` | both review lanes' findings; guard moved from `pg_constraint` to `pg_index` |
-| (third) | AC-P1f guard pin; J-4/J-5/J-6 |
+| `966228c6` | AC-P1f guard pin; J-4/J-5/J-6 |
+| `913b770b` | adopt `V2.2.20`'s reviewed predicate; M-R1/M-R2/L-R1/L-R3/L-R4/L6 |
+
+**Three review lanes ran**, the third being a re-review of the fix commits — which the first two had
+never seen. It found the most serious defect of the four: the guard was a weakened copy of a predicate
+already in `db/migration`.
 
 **Tests:** 6/6 in `StockrecordViewSchemaIT`; unit suite 6,741 run / 0 failures (baseline 0); full
 `mvn clean verify` failsafe lane 470 run / 0 failures / 31 skipped.
