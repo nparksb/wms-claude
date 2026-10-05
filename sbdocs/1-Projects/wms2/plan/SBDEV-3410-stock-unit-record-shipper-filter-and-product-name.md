@@ -9,7 +9,7 @@ project: ["wms2"]
 version: "v2"
 requester: "Nam Park"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-22"
 db_verified: true
 base_commit: "29ce240d (wms2-api origin/develop, evidence base) · a27703eb (wms2-web-ui origin/develop) · 7ebb9c83 (wms2-api origin/develop, round-4 _embedded measurement)"
 related:
@@ -27,7 +27,7 @@ tags:
 
 **Ticket:** SBDEV-3410 (split from SBDEV-2976 Gap 1)
 **Project:** wms2 | **Version:** v2 | **Type:** feature
-**Status:** approved (round 4, 2026-09-18) — next step is `wms-tdd-gate`
+**Status:** **COMPLETE — all six phases merged and verified live on dev, 2026-09-23. ClickUp `on dev`.** P1 `679ac73d` · P2 [#391](https://github.com/SiteBossInc/wms2-api/pull/391) `5111e077` · P3 [#393](https://github.com/SiteBossInc/wms2-api/pull/393) `75ed4841` · P4 [#394](https://github.com/SiteBossInc/wms2-api/pull/394) `b87ec747` · P5 [#398](https://github.com/SiteBossInc/wms2-api/pull/398) `8a575946` · P6 [wms2-web-ui #136](https://github.com/SiteBossInc/wms2-web-ui/pull/136) `d71ac0fc` — see §9A–§9G. **Deploys verified, not assumed:** `/api/public/version` reports `develop-8a575946…`, and the UI bundle carries `findByKeywordAndClient` (0 occurrences before P6), positive-controlled. **All four ACs are satisfiable on dev.** ⚠ **Q5 remains OPEN and is now dangling** — see §9G.
 **Date:** 2026-09-18
 **Tier:** T3 — Flyway migration + a new SDR-exposed domain type + an authorization-gate widening. Any one of those three is a T3 trigger on its own.
 
@@ -504,6 +504,25 @@ accepted is a stall on the two unmeasured ShipItEZ prd databases, not on hydra.*
 (1.7 M and 28 k rows) are the closest available proxy and neither is near dev's scale. An operator with real
 prd credentials should size those two before P1 merges to a prd-bound ladder; this does not block dev or UAT.
 
+⚠⚠ **WITHDRAWN 2026-09-23 (Nam). THE PARAGRAPH ABOVE IS WRONG, AND IT IS THE ORIGIN OF A FALSE CLAIM THAT
+PROPAGATED INTO FIVE OTHER PLACES INCLUDING MERGED PRODUCTION CODE.**
+
+**ShipItEZ is not on WMS v2 production at all.** There are no "two ShipItEZ prd databases" to measure or to
+stall. Its only configured MCP handles are `c1wh-shipitez-uat` and `nywh-shipitez-uat` — **UAT**, as their
+names say. **Hydra is the only v2 PRD client.**
+
+The mistake was reading `landlord-prd`'s `tenant_db_configuration` rows as an inventory of live production
+tenants. All three rows carry `active = true`, but an `active` landlord row is **routing configuration** — it
+says a datasource is defined, not that the client runs on that stack. The observation immediately above, that
+all three prd MCP aliases resolve to `wh01_hydra_v2`, is not an instrument blind spot masking two other
+databases: it is the correct answer. There is one v2 prd database and all three aliases point at it.
+
+**Consequences, all in the reassuring direction:** `V2.2.33`'s index build has no unmeasured production
+exposure; §5.1 row 1's "both ShipItEZ prd databases are unmeasured" is void; §3.8/§9F's Q6 and P5's
+blast-radius measurement have **complete** prd coverage rather than partial; and the operator step this
+paragraph asked for is unnecessary. Propagated copies are corrected at §5.1 row 1, §9F and §9H —
+[[wineco-is-a-v2-client-prd-mcp-is-wms1-wineco]] carries the general rule.
+
 ### 3.3 `StockrecordView` — the entity
 
 ```java
@@ -738,14 +757,18 @@ the test's set stays 49, all 49 still pass, `StockrecordView`'s withdrawal is si
 javadoc's "IDENTICAL" becomes false silently. Nothing in the suite catches that, which is why it is an
 explicit P2 task (§0 row 6a) rather than something the suite is trusted to enforce.
 
+⚠ **SUPERSEDED 2026-09-21 — P2 DID add the rule. Do not restore this decision; see §9B.** The reasoning below rests on "SDR read enforcement is OFF everywhere measured", which is true and is not the load-bearing fact: `SdrGuardMode.deniesUnruled()` is `this == FAIL_CLOSED`, so an unruled type is allowed at `SHADOW` **and at `ENFORCE_RULED`** — every mode the rollout reaches. `ReportController:249` already gates the CSV of these same rows on `WEB_UI_VIEW_STOCK_UNIT_RECORD`. Nam approved adding the entry; blast radius measured at 0 users.
+
 **`SdrFunctionRules` — deliberately NOT edited, with the justification corrected.** It holds 7 rules (`User`,
 `UserFunction`, `UserGroup`, `UserGroupUser`, `UserRole`, `Sysprop`, `Message`), derived by reading the
 `rules.put(...)` calls in that file. Neither `Stockrecord` nor `StockView` has one, so both are "unruled" and
 allowed at `ENFORCE_RULED` — `/api/stockrecord/search/findByKeyword` is served to any authenticated user
 today, while `/v3/report/exportStockUnitRecord` requires `WEB_UI_VIEW_STOCK_UNIT_RECORD`.
-⚠ **"Preserves the asymmetry exactly" is true of the rule COUNT and false of the DATA.**
-7 rules before, 7 after — but the existing unruled route serves `stockrecord` columns only, and the new
-unruled route additionally serves `item_name`, `cl_nr` and `cl_name` to the same audience. Any authenticated
+⚠ **SUPERSEDED — the rule WAS added (see this section's header marker and §9B), so it is 7 rules before,
+8 after, and `StockrecordView` is not an unruled route at all.** The widening described below is real and
+is what justified adding the rule; it is kept because it is the evidence, not because the conclusion stands.
+The existing unruled route serves `stockrecord` columns only, and this ticket's new route additionally
+serves `item_name`, `cl_nr` and `cl_name` to the same audience. Any authenticated
 user gains an unruled, paged, keyword-searchable join of the product catalogue and the client directory onto
 the audit log. Small, but a widening, and it lands in the same ticket that widens `allClients` under a gate.
 The accurate claim, which is still a decision to defer rather than a reason to act: **it adds no new
@@ -908,7 +931,7 @@ instruments establish the `0`:
    **16 `stockrecord` rows**. Sweeping the reachable estate 2026-09-18, `client.id = 0` exists on **5 of 5**
    databases: `dev_wh01_om1`, `wh01_shipitez_v2` (UAT), `wh01_hydra_v2` (UAT), `wh02_shipitez_v2` (UAT) and
    `wh01_hydra_v2` (**PRD**), where it owns **53 unit loads** and 0 `stockrecord` rows. Blind spot: the two
-   ShipItEZ prd databases are unreachable from this MCP set (§3.2).
+   ShipItEZ prd databases are unreachable from this MCP set ⚠**[WITHDRAWN 2026-09-23 — ShipItEZ is NOT on WMS v2 production; Hydra is the only v2 prd client, so there is no such database to measure. See §3.2's withdrawal notice.]** (§3.2).
 2. **The repo, at `origin/develop`.** `components/handlingUnits/stockUnitsTable.vue` carries, at its dispatch
    site: *"`== null ? -1 :`, never `|| -1`. Client id 0 is a REAL shipper — 'System-Client', seeded by V2.2.00
    and present on Hydra PRD, where it owns 52 unit loads — and it is returned by the unfiltered allClients, so
@@ -1055,6 +1078,14 @@ screen that **already violates it, live on `develop` today**, shipped under the 
 
 **Derivation of the complete gap set** (so the next reader re-derives rather than trusts a list): map every
 `getClients` dispatcher from §0 row 45 to its `appMenuList.js` `fn`, and subtract `allClients`'s eleven.
+
+⚠ **Re-derived 2026-09-22 against `wms2-web-ui` @ `origin/develop` 9254bf5: 15 dispatcher FILES, 26
+dispatch sites, SEVEN reports** — `git grep -l "admin/client/getClients" origin/develop -- '*.vue' '*.js'`.
+Both in-code comments said **13** dispatchers and one said **six** reports; both were already wrong before
+P5 changed anything, and the two files the 13 omitted are exactly `handlingUnits/containerTable.vue` and
+`stockUnitsTable.vue` — the very pair whose functions are missing from the gate. **The stale count and the
+stale gate are one defect**, a hand-maintained list where a rule belonged, which is the real argument for
+edit 3 below.
 Cycle Count → `WEB_UI_VIEW_CYCLECOUNT` ✓ · Replenishment → `WEB_UI_VIEW_REPLENISHMENT_ORDER` ✓ · Inbound
 Notices (`createPurchaseOrder`) → `WEB_UI_VIEW_INBOUND_BOL` ✓ · the seven reports → `INVENTORY_RECORD`,
 `STOCK_UNIT_LOCK_OVERVIEW`, `RECEIVED_STOCK_OVERVIEW`, `LOCATION_OVERVIEW`, `FLOWBIN_MONITOR`,
@@ -1074,9 +1105,28 @@ instance.
 1. `ClientController.java` — add **`WEB_UI_VIEW_STOCK_UNIT_RECORD`, `WEB_UI_VIEW_STOCK_UNIT` and
    `WEB_UI_VIEW_CONTAINER`** to the `@RequiresFunction` list (eleven → **fourteen**).
 2. `Sbdev3017TrancheGateContextTest.java` — add the same three to the matching
-   `row("ClientController", "/v3/client/allClients", …)` varargs. **Changing only #1 turns that test red;
-   changing only #2 is a false green.** ⚠ A gate pin must carry the **full** varargs and at least one
-   **ungated** row, or a class-level annotation change can pass it.
+   `row("ClientController", "/v3/client/allClients", …)` varargs.
+
+   ⚠ **CORRECTED 2026-09-22, by measurement during P5.** This bullet used to read *"Changing only #1
+   turns that test red; changing only #2 is a false green."* The second clause is **false** — and it
+   mattered, because if it had been true the TDD gate could not have been driven from this test at all.
+   The pin is **bidirectional**: `row()` stores `String.join("+", new TreeSet<>(Set.of(functions)))` and
+   `resolve()` builds the actual side the identical way, then the drift test compares them with
+   `equals`. Exact set equality in both directions. Measured on the P5 branch with the annotation left
+   at eleven and the row at fourteen:
+
+   ```
+   SBDEV-3017 tranche 1 gate drift — 1 of 227 routes wrong.
+   ClientController /v3/client/allClients=expected [… WEB_UI_VIEW_CONTAINER … WEB_UI_VIEW_STOCK_UNIT
+     … WEB_UI_VIEW_STOCK_UNIT_RECORD] but was [… the eleven …]
+   ```
+
+   `Tests run: 5, Failures: 1` — and the `assertThat(EXPECTED).hasSize(227)` size pin stayed green,
+   because widening an existing row does not change the map's key count. Both edits still belong in one
+   commit, but the reason is atomicity, not a blind spot in the pin.
+
+   ⚠ A gate pin must carry the **full** varargs and at least one **ungated** row, or a class-level
+   annotation change can pass it.
 3. The prose in both files. `ClientController`'s comment enumerates ten screens and says *"every one of the
    13 … dispatchers"*; the test's repeats *"All 13 … dispatchers"* and *"six reports"*. All of those counts
    become wrong the moment this ticket lands. Restate them as the **rule**, with the count given as
@@ -1140,7 +1190,13 @@ shipper: {
 }
 ```
 
-It also gives the filter the same cross-navigation persistence the Inventory report has.
+⚠ **CORRECTED 2026-09-23 (P6 verifier lane).** This sentence used to end *"It also gives the filter
+the same cross-navigation persistence the Inventory report has."* **False in both halves, and the
+implementation correctly does the opposite.** All six sibling report pages commit `resetShipperFilter`
+on section exit (`pages/reports/*-report.vue:19`), so the Inventory report has no such persistence to
+copy; and `pages/reports/stock-unit-record.vue:17` commits `resetList`, which P6's own mutation clears
+`clientId` in. The filter resets on navigation, consistently with all six siblings. Use the computed
+for the `$data` reason alone.
 
 **The store.** Mirror `store/reports/inventory.js`'s `shippers` / `shipperFilter` state, `setShippers` /
 `setShipperFilter` / `resetShipperFilter` mutations — **but do not copy `searchReport` verbatim**:
@@ -1331,7 +1387,7 @@ is therefore the moment the ~6 s `SHARE` lock on `stockrecord` happens. Plan it,
 
 | # | Prerequisite | Required value / action | Owner | Notes |
 |---|---|---|---|---|
-| 1 | **Database state** | Every target tenant converged past the `V2.1.16` watermark and applying `db/migration` V2.2.x deltas; `V2.2.32` is the current max on `develop`/`main`/`release`. `stockrecord_view` must not pre-exist — **verified absent on the five databases this MCP set can reach** (`dev_wh01_om1`, `wh01_shipitez_v2` UAT, `wh01_hydra_v2` UAT, `wh02_shipitez_v2` UAT, `wh01_hydra_v2` PRD; control on each — `stock_view` returns 1 row from the same `information_schema.views` query, so the zero is a measurement). **That is not "every tenant": all three prd MCP aliases resolve to the same database, so both ShipItEZ prd databases are unmeasured** (§3.2). An operator must re-derive it there with real prd credentials before P1 reaches a prd-bound ladder | implementer | ⚠ **`V2.2.11` is NOT burned** — `src/main/resources/db/migration/V2.2.11__seed_adjustment_alert_poll_sysprop.sql` exists on `origin/develop`. `db/migration/README.md` still says it is *"deliberately skipped… Do not reuse"*, and that README is stale. Irrelevant to `V2.2.33` itself; correcting the README is proposed in §10.4 |
+| 1 | **Database state** | Every target tenant converged past the `V2.1.16` watermark and applying `db/migration` V2.2.x deltas; `V2.2.32` is the current max on `develop`/`main`/`release`. `stockrecord_view` must not pre-exist — **verified absent on the five databases this MCP set can reach** (`dev_wh01_om1`, `wh01_shipitez_v2` UAT, `wh01_hydra_v2` UAT, `wh02_shipitez_v2` UAT, `wh01_hydra_v2` PRD; control on each — `stock_view` returns 1 row from the same `information_schema.views` query, so the zero is a measurement). ⚠ **CORRECTED 2026-09-23: it IS every v2 prd tenant.** This cell used to read *"That is not 'every tenant': all three prd MCP aliases resolve to the same database, so both ShipItEZ prd databases are unmeasured"* and demanded an operator re-derivation. **ShipItEZ is not on WMS v2 production** — Hydra is the only v2 prd client, so the three aliases resolving to one database is the correct answer, not a blind spot (§3.2's withdrawal notice). No operator step is owed | implementer | ⚠ **`V2.2.11` is NOT burned** — `src/main/resources/db/migration/V2.2.11__seed_adjustment_alert_poll_sysprop.sql` exists on `origin/develop`. `db/migration/README.md` still says it is *"deliberately skipped… Do not reuse"*, and that README is stale. Irrelevant to `V2.2.33` itself; correcting the README is proposed in §10.4 |
 | 2 | **Feature flags / system properties** | **N/A** — the feature is unconditional; no `los_sysprop` row, no toggle. Rationale: a report column and a filter have no staged-rollout requirement and no kill switch was requested | — | |
 | 3 | **Config / env changes** | **N/A** — no new property. Rationale: no datasource, cache, pool or security property changes; also avoids the `.gitignore`-swallows-new-`*.properties` trap, which does not apply because no properties file is added | — | |
 | 4 | **Deploy-order dependencies** | **P1 → P2 → (P3, P4, P5 in any order) → P6.** ⚠ **P1 → P2 is a BUILD-order dependency, not only a deploy-order one:** the `postgres-integration` profile runs `spring.jpa.hibernate.ddl-auto=validate` (SBDEV-3285), so a P2 branched off a `develop` that does not yet carry `V2.2.33` fails **every** context load in that lane, not just the new IT — a whole-lane red with a schema-validation message, which is a confusing first failure. **Branch P2 only after P1 has merged.** P6 calls `/api/stockrecordView`, which P2 creates. Two orderings, not one: P6-before-**P3** degrades to "filter ignored on export", not an error (the controller ignores `filter` today, so P6 alone is inert there) — **but P6-before-P2 is a BLANK REPORT, 404 on every page load, which is not a degradation.** "Merged" is not "deployed": gate P6 on `/api/public/version` reporting a SHA that contains P2, because the `:develop` tag race can deploy an older image than the merge order implies | implementer | `oms-laravel-api` is not involved |
@@ -1348,7 +1404,64 @@ is therefore the moment the ~6 s `SHARE` lock on `stockrecord` happens. Plan it,
 - [ ] Re-run `bash src/main/resources/db/check-migration-version-collision.sh V2.2.33` from the repo root (the script `cd`s to `git rev-parse --show-toplevel` itself). **And run it again immediately before merge** — a sweep cannot see a branch pushed after it ran.
 - [ ] **Copy `SBDEV-3410-evidence/V2.2.33__stockrecord_view.sql` to `src/main/resources/db/migration/`** — it already holds the header and **all three** statements (the view, the index, the `UNIQUE (client_id, item_nr)` assertion). Do not retype it. **Proof-read the header's numbers before the first apply**: Flyway's CRC32 covers comments, so the text freezes on first application.
 - [ ] ⚠ **Proof-read the header's numbers before the first apply.** Flyway's CRC32 covers comments, so once this file has been applied on any tenant a wrong sentence in it cannot be corrected without a new migration. Specifically: **71 shared `item_nr` strings / 87 excess rows** (not "87 SKU strings").
-- [ ] **After the index exists on dev, re-measure BOTH shapes under `plan_cache_mode = force_generic_plan` with bind parameters**, and record the plans and times back into §3.2. **(a) The read path** — the filtered first page; acceptance is `Index Cond: (client_id = $1)` present. **(b) The export path** — `findByClientOffsetAndLimit`'s `ORDER BY created DESC OFFSET/LIMIT`; acceptance is **the `Sort` node is gone**, not merely that an `Index Cond` is present. Pre-index that plan carries `Sort (Sort Key: created DESC)` over a `Parallel Index Scan` on the narrow `index_stockrecord_client_id`, estimated at 559 rows against up to 873,021 actual (§3.2). If the planner keeps the narrow index plus the sort, the composite index is not earning its 276 MB on the export path and that is a finding for the ticket, not something to leave unrecorded. The 0.455 ms figure is custom-plan-and-literal; the generic-plan claim currently rests on the qual's shape, because `hypopg` is not installed on that server (`pg_available_extensions` → 0; control: 61 rows) and building a 276 MB index was outside the read-only review lanes.
+- [ ] **After the index exists on dev, re-measure BOTH shapes under `plan_cache_mode = force_generic_plan` with bind parameters**, and record the plans and times back into §3.2. **(a) The read path** — the filtered first page; acceptance is `Index Cond: (client_id = $1)` present. **(b) The export path** — `findByClientOffsetAndLimit`'s `ORDER BY created DESC OFFSET/LIMIT`. ⚠ **CORRECTED 2026-09-22. This criterion previously read "acceptance is the `Sort` node is gone, not merely that an `Index Cond` is present" — which is UNSATISFIABLE whenever a keyword is supplied, so gating P3 against it would write a test that can never go green.** Measured during P1 on a disposable 1.2 M-row container under `force_generic_plan`:
+
+| export query | plan | time |
+|---|---|---|
+| `client_id` + `ORDER BY created DESC LIMIT`, **no keyword** | `Index Scan using index_stockrecord_client_created`, **no `Sort`** | **0.5 ms** |
+| the same **with** the keyword `LIKE` (even with no `OR` arm) | `Sort` + bitmap on `index_stockrecord_client_id` | 760 ms |
+
+The cause is **not** the parameter-only `OR` disjunct (that was review finding A-1, and it is fixed). It is the **unindexable leading-wildcard `LIKE`**: the planner cannot know how far it must walk to find 1,000 matching rows, so it prefers bitmap + top-N sort. Not a regression — today's export has no shipper filter at all and scans everything.
+
+**⚠ CORRECTED A SECOND TIME, 2026-09-22, and this revision is the measured one. The criterion was
+re-measured against a REAL TENANT with `V2.2.33` APPLIED, which neither earlier revision had.**
+
+The two-arm restatement above was written on P1's evidence and is **over-conservative**: it said a
+`Sort` node is expected whenever a keyword is supplied. That is false once the index exists. Measured
+on `dev_wh01_om1` (9.7 M rows, `V2.2.33` applied), `plan_cache_mode = force_generic_plan`, real binds
+via `PREPARE`/`EXECUTE` — **not** literals, which would be a custom plan and would not answer the
+question §3.4 actually asks:
+
+```
+EXPLAIN EXECUTE p3exp('receiv', 60500, 0, 100)
+  Limit
+    ->  Index Scan using index_stockrecord_client_created on stockrecord p
+          Index Cond: (client_id = $2)
+          Filter: ((concat(lower(activitycode), ' ', …) ~~ lower(concat('%', $1, '%'))) OR ($1 = ''))
+```
+
+**No `Sort` node, with the keyword supplied, under a generic plan.** The keyword arm — including the
+`or :keyword = ''` escape — degrades to a post-index `Filter`, and the `ORDER BY created DESC` is
+satisfied by the index's own ordering. The empty-keyword arm is the same shape.
+
+**So the acceptance is single-armed after all, and it is the ORIGINAL wording:** `Index Cond` on
+`client_id` present, **`Sort` node ABSENT**, no `Seq Scan` — in BOTH the keyword and no-keyword cases.
+
+**Why the earlier measurement said otherwise, which is the part worth keeping.** P1 measured on a
+disposable 1.2 M-row container **where `index_stockrecord_client_created` did not exist** — it had not
+been created yet, that being the point of P1. Without it the planner has only the narrow
+`index_stockrecord_client_id` and cannot satisfy the ordering, so it falls to bitmap + top-N sort, and
+the 760 ms figure is real *for that index set*. The diagnosis "unsatisfiable whenever a keyword is
+supplied" generalised a pre-index measurement to a post-index world.
+
+⚠ **State the CONDITION, not the conclusion.** This criterion has now been wrong twice in opposite
+directions, both times because the index set was left implicit. The correct form is: **given
+`index_stockrecord_client_created` exists on the tenant, the filtered export plans as an ordered index
+walk with no `Sort` in either arm.** Re-derive on any tenant where `V2.2.33` has not been applied —
+there the answer is different and the 760 ms plan is what you will get.
+
+This also **discharges §9A's "Still owed"** for the export path: that item asked for exactly this
+`force_generic_plan` re-measurement against a real tenant.
+
+⚠ **This bullet used to close with a sentence that is now stale and INVERTS the item:** *"The 0.455 ms
+figure is custom-plan-and-literal; the generic-plan claim currently rests on the qual's shape, because
+`hypopg` is not installed on that server and building a 276 MB index was outside the read-only review
+lanes."* All three clauses were true when written and are obsolete now: the index EXISTS on
+`dev_wh01_om1` (P1 merged as `679ac73d`), so nothing needs hypothesising, and the generic-plan claim no
+longer rests on the qual's shape — it rests on the `EXPLAIN EXECUTE` under `force_generic_plan`
+recorded above. A reader who stopped at the end of this bullet would conclude the criterion is
+unmeasured, which is the opposite of the case. The 0.455 ms figure remains custom-plan-and-literal and
+should not be quoted as a generic-plan number.
 - [ ] Write `StockrecordViewSchemaIT` (§7.2) **first**, confirm it fails for the right reason (relation does not exist), then make it pass.
 - [ ] Mutation-check: flip `LEFT JOIN … ON i.client_id = sr.client_id AND i.item_nr = sr.itemdata` to `ON i.item_nr = sr.itemdata` and confirm the zero-multiplication assertion goes red **and names the multiplication**; flip `LEFT` → `INNER` and confirm the unresolved-SKU assertion goes red; **delete the `DO $$ … $$` assertion block and confirm `StockrecordViewSchemaIT`'s new `constraintIsAsserted` case goes red** — otherwise the third statement is prose that happens to be executable.
 - [ ] Ownership: this is a plain `CREATE` on a name that exists nowhere, so it needs only `CREATE` on schema `public`, not object ownership — materially safer than `V2.2.07`, which froze `wh01_hydra_v2` at `V2.2.06` on 2026-08-05 by trying to *replace* an object owned by someone else. The residual risk is schema-level; mitigate by verifying per tenant post-deploy (prereq 8).
@@ -1365,13 +1478,21 @@ has merged to `develop`**; see §5.1 row 4 (`ddl-auto=validate` makes this a bui
 - [ ] `SdrWriteWithdrawalContextTest`: add the 50th name, bump `hasSize(49)` → `50`, correct the "IDENTICAL — 49 names" javadoc. **Nothing else goes red if this is skipped** (§3.5).
 - [ ] `StockrecordViewRepositoryFilterIT`, `StockrecordViewHalContextTest` and `StockrecordViewRepositoryQueryShapeUnitTest` (§7.2, §7.3) written first and failing. ⚠ `StockrecordViewHalContextTest` runs in an **H2** lane and must seed and flush its own row (§7.3) — a red there against correct code is the fixture, not the code.
 - [ ] Mutation-checks, each with an **attributable** kill: remove `StockrecordView.class` from `exposeIdsFor` and confirm `StockrecordViewHalContextTest` goes red naming the missing `id`; add an `OR :clientId = -1` arm to `findByKeywordAndClient`'s `@Query` and confirm **`StockrecordViewRepositoryQueryShapeUnitTest.queryShapeForbidsADisjunction`** goes red naming the missing plain-equality conjunct. ⚠ **`filteredSearchKeepsAnIndexCondition` is NOT the killing test** — it holds its own EXPLAIN statement per the `OutboxClaimExplainIT` precedent, so the mutant's edit to the annotation never reaches what it reads (§7.2). ⚠ **Do not use "drop one `@Column(name = …)`"** — `EntityColumnNameResolutionArchTest` already reds on that, repo-wide and in **surefire**, before any IT runs, so the kill would be unattributable (§3.3 rule 3).
-- [ ] Do **not** add an `SdrFunctionRules` entry (§3.5). Note the resulting `wms2.authz.sdr.unruled` label on the ticket.
+- [x] ~~Do **not** add an `SdrFunctionRules` entry (§3.5). Note the resulting `wms2.authz.sdr.unruled` label on the ticket.~~ ⚠ **REVERSED 2026-09-21 (Nam):** the entry IS added — see §3.5's superseded marker and §9B. The metric note is therefore **inverted**: a ruled type does not increment `wms2.authz.sdr.unruled` at all.
 
 **Independently reviewable because:** it exposes a new read route the UI does not yet call. **Not independently
 deployable before P1** — that is the one phase boundary in this plan that is a hard pair.
 
 #### P3 — Export respects the shipper
 **Branch:** `feature/SBDEV-3410-p3-export-shipper-filter` (`v2/wms2-api`)
+
+⚠ **Read P1's item (b) above before gating this phase.** Its export-plan acceptance criterion was
+wrong twice and was **finally settled 2026-09-22 by measurement against a real tenant with `V2.2.33`
+applied**: given that index, the filtered export plans as an ordered index walk with **no `Sort` in
+either arm**, keyword or not, under a generic plan. The intermediate "two-arm" restatement was
+over-conservative and the original "the `Sort` node is gone" was right all along — it was only
+unsatisfiable on a tenant that did not yet have the index. Read item (b), not §9A's table, for the
+current criterion.
 
 - [ ] `ReportController.exportStockUnitRecord`: `Long clientId = toFilterId(String.valueOf(reqMap.get("filter")));` — **never** `(String) reqMap.get("filter")` (§3.6).
 - [ ] `ReportService.exportStockUnitRecord` gains `Long clientId` and **branches** on `clientId == null || clientId == -1L`; **no `@Transactional`** (§7.5 row 3).
@@ -1424,7 +1545,7 @@ deployable before P1** — that is the one phase boundary in this plan that is a
 | `GET /v3/stockrecord/stockRecordDetailsById/{id}` | 24 keys when the client resolves, 22 when it does not | adds `itemName` **when the SKU resolves** | **No** — additive; `fullDetails.vue` renders whatever keys arrive. ⚠ Do not turn this into a size assertion — the count is conditional |
 | `GET /v3/client/allClients` | ANY-of 11 functions | ANY-of **14** | **No** — strictly widening; no user loses access |
 | HAL payload of `stockrecordView` | — | carries `id` (`exposeIdsFor`), writes withdrawn (`SDR_WRITE_WITHDRAWN`) | **No** |
-| DB schema | `stockrecord` + 13 indexes | + `stockrecord_view`, + `index_stockrecord_client_created`, + a migration-time assertion on `itemdata`'s unique constraint | **No** for readers; a `SHARE` lock on `stockrecord` once, at the deploy boot that applies `V2.2.33` — **~6 s / 276 MB on dev; milliseconds and kilobytes on hydra prd; unmeasured on both ShipItEZ prd databases** (§3.2) |
+| DB schema | `stockrecord` + 13 indexes | + `stockrecord_view`, + `index_stockrecord_client_created`, + a migration-time assertion on `itemdata`'s unique constraint | **No** for readers; a `SHARE` lock on `stockrecord` once, at the deploy boot that applies `V2.2.33` — **~6 s / 276 MB on dev; milliseconds and kilobytes on hydra prd; unmeasured on both ShipItEZ prd databases ⚠**[WITHDRAWN 2026-09-23 — ShipItEZ is NOT on WMS v2 production; Hydra is the only v2 prd client, so there is no such database to measure. See §3.2's withdrawal notice.]**** (§3.2) |
 | Export spreadsheet | 15 columns | **15 columns** | **No** — Q2 fixes this |
 
 ### What Does NOT Change
@@ -1440,8 +1561,10 @@ deployable before P1** — that is the one phase boundary in this plan that is a
 - `stockrecord` write paths. The 7 `new Stockrecord()` sites in `StockrecordService`, the one in
   `StockunitBusinessService` and the `recordRelocation` call in `FixLocationAssignmentService` are untouched;
   the view is read-only.
-- `SdrFunctionRules` — 7 rules before, 7 after, and **no new enforcement gap** because SDR read enforcement is
-  OFF on every tenant measured. ⚠ It is **not** a no-op in payload terms: the new unruled route serves
+- `SdrFunctionRules` — ⚠ **SUPERSEDED 2026-09-21: 7 rules before, 8 after.** This row said "7 after, and no
+  new enforcement gap because SDR read enforcement is OFF on every tenant measured" — the premise is true and
+  is the wrong load-bearing fact, because an unruled type is allowed at `ENFORCE_RULED` too, so the gap would
+  never have closed (§9B). The rule was added. ⚠ It is **not** a no-op in payload terms: the new route serves
   `item_name`, `cl_nr` and `cl_name` alongside the `stockrecord` columns the existing unruled route already
   serves. §3.5 states the widening rather than smoothing it.
 - The `clients` Caffeine cache and its `@CacheEvict` sites.
@@ -1501,7 +1624,7 @@ with no qualifier is the **landlord** EntityManager.
 |---|---|---|
 | `ReportControllerUnitTest` → nested `ExportStockUnitRecord` *(extend; today it ends at `verify(reportService).exportStockUnitRecord(any(HttpServletResponse.class), eq(0), eq(100), eq("STOCK789"))`)* | `numericFilterIsForwarded` | A body with `"filter": 60500` (a JSON number) reaches the service as `60500L`. ⚠ **Assert the forwarded value, not "does not throw"** — the pre-fix cast throws *out of* the method (§3.6), so in the MockMvc lane `mockMvc.perform(...)` itself raises a nested `ServletException` and there is no status to assert on; a "does not throw" test would have to catch, which grades the wrong thing |
 | `ReportControllerUnitTest` → nested `ExportStockUnitRecord` | `filterValueMatrix` | **The AC-2 matrix, parameterised:** key absent · JSON `null` · `-1` · `""` · `"abc"` → `-1L`; `60500` → `60500L`; **`0` → `0L`, NOT `-1L`** |
-| `ReportServiceUnitTest` → nested `ExportStockUnitRecord` | `filterReachesRepository` | `clientId = 60500L` ⇒ `verify(stockrecordRepository).findByClientOffsetAndLimit(eq("k"), eq(60500L), anyInt(), anyInt())`; `clientId = 0L` ⇒ the same with `eq(0L)`; `-1L` and `null` ⇒ `verify(stockrecordRepository).findByOffsetAndLimit(...)` and `verify(stockrecordRepository, never()).findByClientOffsetAndLimit(any(), anyLong(), anyInt(), anyInt())` |
+| `ReportServiceUnitTest` → nested `ExportStockUnitRecord` | `filterReachesRepository` | `clientId = 60500L` ⇒ `verify(stockrecordRepository).findByClientOffsetAndLimit(eq("k"), eq(60500L), anyInt(), anyInt())`; `clientId = 0L` ⇒ the same with `eq(0L)`; `-1L` and `null` ⇒ `verify(stockrecordRepository).findByOffsetAndLimit(...)` and a `never()` on the filtered method. ⚠ **CORRECTED 2026-09-22 — the form originally prescribed here was UNSATISFIABLE.** It said `verify(stockrecordRepository, never()).findByClientOffsetAndLimit(any(), anyLong(), anyInt(), anyInt())`, but this same test method also exercises `60500L` and `0L`, and `anyLong()` **matches those two prior invocations** — so the `never()` fails against correct code. Narrow the sentinel positions instead: `never()).findByClientOffsetAndLimit(any(), eq(-1L), anyInt(), anyInt())` and a second with `isNull()`. ⚠ The `anyInt()`s are still required on positions 3 and 4 — they are declared **primitive `int`**, and `any()` there returns `null` and NPEs at unboxing. Found by the P3 conformance lane; do not "restore" the prescribed form. |
 | `StockrecordViewHalContextTest` *(new — `src/test/java/net/aim_ai/wms/security/`, `extends BaseControllerIntegrationTest` with `@AutoConfigureMockMvc`, the lane `SdrReadGateEnforcementContextTest` already uses)* | `idIsInTheHalBody` | `mockMvc.perform(get("/v3/stockrecordView/search/findByKeyword?keyword=&page=0&size=1"))` and `$._embedded.stockrecordView[0].id` exists. **Without this test §7.8's `exposeIdsFor` mutant has nothing to execute it**: `exposeIdsFor` affects HAL *rendering*, which neither the schema IT nor a repository IT can see, and §8 step 3 checks it by hand. ⚠ **This lane cannot supply the row on its own — seed one.** `BaseControllerIntegrationTest` → `BaseIntegrationTest` is `@ActiveProfiles("integration")` and `application-integration.properties` carries `jdbc:h2:mem:wms_integration`, `ddl-auto=create-drop`, `spring.flyway.enabled=false`, `app.flyway.migrate-on-startup=false` — so `stockrecord_view` there is an **empty Hibernate-created table**, not the migrated view, and the JSON path resolves against nothing. Insert one `StockrecordView`-shaped row through the tenant `EntityManager` (or `jdbcTemplate`) in `@BeforeEach` and **flush**, because `BaseIntegrationTest` is `@Transactional("tenantTransactionManager")` and the MockMvc request will not otherwise see it. Do **not** repair a red here by weakening the assertion to `status().isOk()` — the sibling `SdrOmittedPrimitiveParamSearchContextTest` records why that reads as a pass (*"200 with an empty `_embedded`, which is the answer that actually proves the route resolves"*) while un-killing this mutant |
 | `StockrecordViewRepositoryQueryShapeUnitTest` *(new, `src/test/java/net/aim_ai/wms/unit/repo/`)* | `queryShapeForbidsADisjunction` | **This is the test that kills the fold-it-back-into-one-method mutant**, which `filteredSearchKeepsAnIndexCondition` cannot (§7.2). It reflects on the annotation the mutant edits — the repo's own idiom, `StockrecordRepositoryAdjustmentAlertQueryTest` does exactly this (`StockrecordRepository.class.getMethod(…).getAnnotation(Query.class).value()`), in surefire, with no context. Three lines, executed against the correct text and five mutants before being written down: <br>`String jpql = raw.replaceAll("\\s+", " ");` <br>`assertThat(jpql).contains("AND p.clientId = :clientId");` <br>`assertThat(jpql.substring(jpql.indexOf("AND p.clientId")).toUpperCase(Locale.ROOT)).doesNotContain(" OR ");` <br>⚠ **Take the tail, do not scan the whole string.** The keyword arm legitimately carries `or :keyword = ''` (lower-case, inherited from the `StockView` precedent), so a whole-string `doesNotContain(" OR ")` either reds on correct code or passes vacuously depending on its casing. Slicing at the `clientId` conjunct and upper-casing the tail is what makes it both green on correct code and red on a lower-case `or` mutant |
 | `ReportServiceUnitTest` → nested `ExportStockUnitRecord` | `fifteenColumnsUnchanged` | The header names and their order are byte-identical to today's |
@@ -1552,7 +1675,7 @@ The three that need a verdict rather than a dismissal:
 | # | Concern | Verdict | Evidence |
 |---|---|---|---|
 | 2 | **Connection pool math** | **No** — but load-bearing | No new pool, no new tenant, no longer-held connection. The export deliberately runs **outside** a transaction and **must stay that way**: a 10,000-row export pinning a tenant connection for the whole HTTP response would be a pool-slot regression, and pool exhaustion counts slots, not milliseconds. The stance is documented in-source in `ReportService.java`'s `exporLockReport` javadoc, and P3 adds no `@Transactional` |
-| 8 | **Distributed lock correctness** | **No new lock — but a one-time DDL lock** | `CREATE INDEX` takes a `SHARE` lock on `stockrecord`, per tenant, at the deploy boot that applies `V2.2.33`, blocking stock movements for that window. **~6 s on dev (9.7 M rows, 276 MB, measured in a rolled-back transaction); milliseconds on hydra prd (3,373 rows / 728 kB); unmeasured on both ShipItEZ prd databases** — §3.2 carries the per-environment table and the MCP-alias blind spot. Accepted by Nam (Q3). `StartupFlywayMigrator` runs on every boot of every replica and concurrent replicas serialize on Flyway's per-DB lock, so the stall happens once, not once per replica |
+| 8 | **Distributed lock correctness** | **No new lock — but a one-time DDL lock** | `CREATE INDEX` takes a `SHARE` lock on `stockrecord`, per tenant, at the deploy boot that applies `V2.2.33`, blocking stock movements for that window. **~6 s on dev (9.7 M rows, 276 MB, measured in a rolled-back transaction); milliseconds on hydra prd (3,373 rows / 728 kB); unmeasured on both ShipItEZ prd databases ⚠**[WITHDRAWN 2026-09-23 — ShipItEZ is NOT on WMS v2 production; Hydra is the only v2 prd client, so there is no such database to measure. See §3.2's withdrawal notice.]**** — §3.2 carries the per-environment table and the MCP-alias blind spot. Accepted by Nam (Q3). `StartupFlywayMigrator` runs on every boot of every replica and concurrent replicas serialize on Flyway's per-DB lock, so the stall happens once, not once per replica |
 | 9 | **Cache invalidation** | **No** | Nothing writes to a cached entity. The `clients` Caffeine cache (`CacheConfig.buildCaffeineCache("clients", 100, Duration.ofMinutes(5))`, three `@CacheEvict` sites, unchanged) is JVM-local under `@Profile("!redis")`, so a `@CacheEvict` on one replica clears only that replica — a property the dropdown **already has** on the seven sibling reports and the two Handling Units grids, and which this ticket does not change |
 
 ### 7.7 Manual Test Plan
@@ -1570,7 +1693,7 @@ The three that need a verdict rather than a dismissal:
 | Zero-row page from the **filter alone**, on a tenant where one exists | **hydra PRD** | Select **System-Client** from the dropdown | Same expectation as the row above. This variant exists because a shipper that is *selectable and owns nothing* is a real end-user state, and `dev_wh01_om1` cannot produce it — System-Client owns **16** `stockrecord` rows there and **0** on hydra PRD (§3.6). Optional if the dev row passes; it adds the dropdown to the path, nothing more | |
 | SKU Name column | dev | Inspect a row whose SKU exists in `itemdata` | SKU Name populated; the column header shows **no sort arrow** | |
 | SKU Name for an unresolvable SKU | dev | Find a `stockrecord` row whose `itemdata` matches no `itemdata` row (construct one if none exists) | The row is **still listed**, SKU Name blank — not missing from the report | |
-| Details popup | dev | Click the eye icon on any row | Popup opens (proving `id` is in the HAL body), shows "SKU Name" alongside "Shipper Name"/"Shipper Code" | |
+| Details popup | dev | Click the eye icon on any row | Popup opens (proving `id` is in the HAL body) and carries a **product-name row**. ⚠ **Two corrections to this row's original wording, both from the P4 re-review.** (1) Do **not** grade ADJACENCY to "Shipper Name"/"Shipper Code": `getStockRecordDetails` returns a `HashMap` (`StockrecordService.java:587`), so popup row order is hash order — adjacency is not a property the code can provide, and asserting it would fail or pass for reasons unrelated to this ticket. (2) The label reads **`SKU Name` only once P6 has merged**; between P4 and P6 it reads **`ItemName`**, because `'itemName': 'SKU Name'` is §0 row 29 and `fullDetails.vue` title-cases an unmapped key. Grade the VALUE, and the label only after P6 | |
 | Export respects the filter | dev | Select ARW → Export → open the `.xlsx` | Only ARW rows; **15 columns, unchanged headers**; no error string in the file | |
 | Export with All Shippers | dev | Clear the widget → Export | Same output as before this ticket; the POST body carries `filter: "-1"` | |
 | Export returns a real workbook | dev | DevTools → confirm the response is a spreadsheet | Valid workbook opens in Excel/LibreOffice. ⚠ **This row is not the `ClassCastException` detector** — that cast throws above the `try`, so its symptom is a **500**, not a 200 with a bad body. §7.3's `numericFilterIsForwarded` is the detector; this row grades the response shape only | |
@@ -1603,7 +1726,7 @@ reading it.
 | Assertion | Mutant that must turn it red | Test that reds, and the attributable message | Fixture the mutant needs |
 |---|---|---|---|
 | zero-multiplication | `ON i.client_id = sr.client_id AND i.item_nr = sr.itemdata` → `ON i.item_nr = sr.itemdata` | `StockrecordViewSchemaIT.viewMultipliesZeroRows` — "view returned N rows, stockrecord has M" | **two clients sharing one `item_nr`** — without that row the mutant survives |
-| LEFT vs INNER | `LEFT JOIN` → `JOIN` | `StockrecordViewSchemaIT.unresolvedSkuRowSurvivesWithNullItemName` — names the vanished id | a row whose `itemdata` string resolves to nothing — on real data that set is empty (0 of 9,726,795 on `dev_wh01_om1`), so the fixture must construct it |
+| LEFT vs INNER | `LEFT JOIN` → `JOIN` | `StockrecordViewSchemaIT.unresolvedSkuRowSurvivesWithNullItemName` — names the vanished id | a row whose `itemdata` string resolves to nothing — on real data that set is empty (**0** on `dev_wh01_om1`; **0 of 3,533** on prd `wh01_hydra_v2`), so the fixture must construct it. ⚠ The dev DENOMINATOR is deliberately not quoted: this row once read 9,726,795 and P4's test javadoc recorded 9,726,805 for the same population — 10 apart on a live, growing table, neither re-derivable. The numerator was 0 both times, and the numerator is the claim |
 | the constraint assertion *(new)* | delete the `DO $$ … $$` block from `V2.2.33` | `StockrecordViewSchemaIT.constraintIsAsserted` — migrate succeeds where it must fail | a schema with the unique constraint dropped before the migrate |
 | the filter predicate stays indexable *(new)* | add `OR :clientId = -1` to `findByKeywordAndClient`'s `@Query` | ⚠ **`StockrecordViewRepositoryQueryShapeUnitTest.queryShapeForbidsADisjunction`** (§7.3) — **two messages are possible and both are correct kills**: assertion 1, *"expected the JPQL to contain `AND p.clientId = :clientId`"*, fires for the 3-arm `OR`, the `COALESCE` form, the deleted conjunct and the `AND (p.clientId = :clientId OR :clientId = -1)` form; assertion 2, *the sliced tail contained `" OR "`*, fires for the un-parenthesised tail and the lower-case `or` tail. Do not "fix" a correct red because the message did not match this row. Executed against this mutant and four others (3-arm `OR`, un-parenthesised `OR` tail, the `COALESCE` sibling form, the conjunct deleted, a lower-case `or` tail): green on the correct text, red on all five. **`filteredSearchKeepsAnIndexCondition` is NOT the killing test** — it holds its own EXPLAIN statement, per `OutboxClaimExplainIT`, so the mutant's edit to the annotation never reaches what it reads (§7.2) | none — reflection only, surefire, no context |
 | ~~column resolution~~ **DROPPED** | ~~drop one `@Column(name = "…")`~~ | **Dropped as unattributable.** That mutant reds `EntityColumnNameResolutionArchTest` (surefire, repo-wide, first), *every* `postgres-integration` context load, **and** the new schema IT. A mutant that reds a whole lane does not meet this table's own standard. The rail already covers it | — |
@@ -1676,7 +1799,7 @@ records as an ordinary FAIL. **Negative-test every row before trusting it.**
 | 2 | Merge **P1** to `develop` → dev deploy, Flyway applies `V2.2.33` on every dev tenant | Per-tenant `information_schema.views` + `pg_indexes` check (§7.7 last two rows). ⚠ This is when the ~6 s `SHARE` lock happens |
 | 3 | Merge **P2** | `/api/stockrecordView/search/findByKeyword` returns 200 with `id` in the HAL body; `/api/stockrecordView` (no search) returns 405/404, not 9.7 M rows |
 | 4 | Merge **P3**, **P4**, **P5** (any order) | Both `exportStockUnitRecord` gate rows green; `allClients` row green; export produces a real workbook |
-| 5 | Merge **P6** | ⚠ **First confirm `/api/public/version` on dev reports a SHA that CONTAINS P2** — "merged" is not "deployed", and the `:develop` tag race can deploy an older image than the merge order implies. P6 shipped ahead of a running P2 is not a degradation, it is a **blank report: 404 on every page load**, with no flag to fall back on (prereq 2 waived one). Then the full §7.7 manual plan on dev |
+| 5 | Merge **P6** | ⚠ **P6 is also what supplies the `itemName` label.** Any of P3/P4/P5 shipped ahead of it leaves the details popup rendering the product-name row as **`ItemName`** (§0 row 29 is P6's; `fullDetails.vue` title-cases an unmapped key). Cosmetic and dev-only — not a blocker for merging P3/P4/P5 — but **do not promote past dev with P6 outstanding.** ⚠ **First confirm `/api/public/version` on dev reports a SHA that CONTAINS P2** — "merged" is not "deployed", and the `:develop` tag race can deploy an older image than the merge order implies. P6 shipped ahead of a running P2 is not a degradation, it is a **blank report: 404 on every page load**, with no flag to fall back on (prereq 2 waived one). Then the full §7.7 manual plan on dev |
 | 6 | Re-run `check-migration-version-collision.sh V2.2.33` **immediately before** each merge that carries the migration (step 2), not once at planning time | Exit 0 |
 | 7 | Promote to UAT per the normal ladder | Repeat the per-tenant DDL check on every UAT tenant |
 | 8 | Record the post-merge unfiltered-count plan on dev once, against the §3.1 baseline | Still a bare `Parallel Seq Scan`; no `Hash Left Join` |
@@ -1763,15 +1886,30 @@ the join elimination that makes the default page free, taking the unfiltered cou
 
 ---
 
-## 9A. Implementation status — P1 ONLY (2026-09-18)
+## 9A. Implementation status — P1 MERGED AND LIVE (updated 2026-09-21)
 
-**P1 is implemented and committed locally. NOT pushed, no PR. P2–P6 are untouched** — each re-enters
-`wms-tdd-gate` at its own start.
+**P1 is merged to `develop` and deployed.** PR
+[#387](https://github.com/SiteBossInc/wms2-api/pull/387) merged as **`679ac73d`** (2026-09-19 11:22 -0400),
+branch `feature/SBDEV-3410-p1-stockrecord-view-migration`, off `origin/develop` @ `7ebb9c83`. The P1
+worktree has been removed. **P3–P6 are untouched** — each re-enters `wms-tdd-gate` at its own start;
+**P2 is the phase in progress.**
 
-Worktree `.claude/worktrees/wms2-api/SBDEV-3410`, branch `feature/SBDEV-3410-p1-stockrecord-view-migration`,
-off `origin/develop` @ `7ebb9c83`.
+**ClickUp stays at `in development`, deliberately** — P1 is infrastructure with no user-visible surface, so
+0 of 4 acceptance criteria are met. The ticket moves when P6 lands.
 
-**PR: https://github.com/SiteBossInc/wms2-api/pull/387** (open, not merged). ClickUp: `pr submitted`.
+⚠ **P1 has already reached prd, earlier than §5.1 row 1 anticipated.** `679ac73d` is contained in
+`origin/main` and `origin/release` (and the `owl-v2.0.144` promote branches), and `wh01_hydra_v2` **prd**
+carries `2.2.33` applied with **0 failed** history rows (verified 2026-09-21: view present, index present,
+control `stock_view` = 1 row). **Consequence: the "before deploy" pre-deploy check on `wh01_shipitez_v2`
+and `wh02_shipitez_v2` recorded in the migration header and in the PR comment was overtaken by the
+promotion and is now a POST-deploy verification.** Those two tenants remain unmeasured — all three prd MCP
+aliases resolve to `wh01_hydra_v2` — so if either lacks `itemdata`'s `UNIQUE (client_id, item_nr)` the view
+over-counts silently and nothing detects it (§5.1 row 8). An operator with real ShipItEZ prd credentials ⚠**[WITHDRAWN 2026-09-23 — ShipItEZ is NOT on WMS v2 production; Hydra is the only v2 prd client, so there is no such database to measure. See §3.2's withdrawal notice.]**
+must run the three header checks there.
+
+**Verified live after the deploy** (not inferred from a healthy app): `dev_wh01_om1` — `stockrecord_view`
+in `information_schema.views`, `index_stockrecord_client_created` in `pg_indexes`, Flyway `2.2.33`
+`success = true` @ 2026-09-19 15:38:47, max `2.2.x` = 33.
 
 | commit | what |
 |---|---|
@@ -1815,10 +1953,11 @@ already in `db/migration`.
    view absence, index-name freedom and the constraint — a pre-deploy check is recorded in the migration
    header.
 
-### 🔴 P3's acceptance criterion is unsatisfiable as written — fix before gating P3
+### ⚠ P3's acceptance criterion — this section's DIAGNOSIS WAS WRONG; see §5.2 P1 item (b)
 
-§5.2 P1 states the filtered export's acceptance as *"the `Sort` node is gone"*. Measured under
-`force_generic_plan` on a disposable 1.2 M-row container:
+**This entry is now HISTORY — the criterion was corrected in §5.2 P1 item (b) on 2026-09-22 and this
+section records why.** §5.2 P1 *used to state* the filtered export's acceptance as
+*"the `Sort` node is gone"*. Measured under `force_generic_plan` on a disposable 1.2 M-row container:
 
 | export query | plan | time |
 |---|---|---|
@@ -1828,20 +1967,784 @@ already in `db/migration`.
 The cause is **not** the parameter-only `OR` disjunct (that was A-1, and it is fixed). It is the
 unindexable leading-wildcard `LIKE`: the planner cannot know how far it must walk to find 1,000 matching
 rows, so it prefers bitmap + top-N sort. **Not a regression** — today's export has no shipper filter at
-all — but the criterion cannot pass whenever a keyword is supplied, and gating P3 against it would write
-a test that can never go green. Suggested restatement: *"the filtered export uses
-`index_stockrecord_client_id` or better and does not seq-scan; a `Sort` node is expected whenever a
-keyword is supplied."*
+all.
+
+⚠ **The conclusion drawn here — "the criterion cannot pass whenever a keyword is supplied" — is FALSE,
+and the measurement above is the reason it looked true.** Both rows were measured on a disposable
+1.2 M-row container **where `index_stockrecord_client_created` did not exist**, that index being the
+thing P1 was creating. Without it the planner cannot satisfy `ORDER BY created DESC` from an index and
+falls to bitmap + top-N sort — so the 760 ms plan is real *for that index set* and generalises to
+nothing. Re-measured 2026-09-22 on `dev_wh01_om1` (9.7 M rows, `V2.2.33` applied) under
+`force_generic_plan` with real binds: `Index Scan using index_stockrecord_client_created`,
+`Index Cond: (client_id = $2)`, the keyword as a post-index `Filter`, **no `Sort`** — with the keyword
+supplied. §5.2 P1 item (b) carries the corrected criterion and the plan output. The transferable
+lesson is the one item (b) now states: **an EXPLAIN claim is meaningless without naming the index set
+it was taken against.** ⚠ This section previously closed with a suggested restatement — *"the filtered
+export uses `index_stockrecord_client_id` or better and does not seq-scan; a `Sort` node is expected
+whenever a keyword is supplied"* — now **WITHDRAWN**: its second clause is the false generalisation
+above, and its first is weaker than what the index actually delivers.
 
 **Read path, by contrast, is CONFIRMED.** Under a generic plan:
 `Index Scan using index_stockrecord_client_created`, `Index Cond: (client_id = $2)`, **0.191 ms**.
 Control: dropping the index regresses it to `Parallel Index Scan Backward using index_stockrecord_created`
 at 5.694 ms. Q3's rationale holds, and the repository split restores the index's reachability.
 
-### Still owed
-`force_generic_plan` re-measurement against a real tenant is a **post-merge** action — the index does not
-exist on dev and Flyway there is at `2.2.32`. The container measurement above establishes plan *shape*;
-absolute milliseconds will differ.
+### ✅ Still owed — DISCHARGED 2026-09-22
+The `force_generic_plan` re-measurement against a real tenant was a **post-merge** action, blocked when
+P1 closed because `V2.2.33` had not reached dev. It has now been done, and it is what corrected §5.2 P1
+item (b) a second time. Measured on `dev_wh01_om1` (9.7 M rows, `V2.2.33` applied),
+`plan_cache_mode = force_generic_plan`, real binds through `PREPARE`/`EXECUTE`:
+
+| arm | plan |
+|---|---|
+| keyword `''` | `Limit` → `Index Scan using index_stockrecord_client_created`, `Index Cond: (client_id = $2)`, no `Sort` |
+| keyword `'receiv'` | the same, plus the keyword as a post-index `Filter` (`… ~~ lower(concat('%', $1, '%')) OR $1 = ''`), **still no `Sort`** |
+
+Both arms are ordered index walks. The read path was already confirmed at P1 (0.191 ms) and is
+unchanged. ⚠ Absolute milliseconds were not re-taken — this measured plan SHAPE, which is what the
+criterion grades.
+
+---
+
+## 9B. Implementation status — P2 (2026-09-21)
+
+**P2 is MERGED to `develop`** (2026-09-22, merge commit `5111e077`).
+**PR: https://github.com/SiteBossInc/wms2-api/pull/391** (merged; `test` check SUCCESS before merge) — `feature/SBDEV-3410-p2-stockrecord-view-entity-sdr` → `develop`, off `origin/develop` @ `f2ee75f1`, pushed 2026-09-21 with 6 inline review comments. Worktree kept at `.claude/worktrees/wms2-api/SBDEV-3410` for review feedback. **ClickUp stays at `in development`** — P2 has no user-visible surface, 0 of 4 ACs; it moves at P6. P3–P6 untouched; each re-enters `wms-tdd-gate` at its own start.
+
+| commit | what |
+|---|---|
+| `1ec4f271` | `StockrecordView` + `StockrecordViewRepository` + both `RestConfiguration` registrations, with the 6 test classes |
+| `37564268` | review-lane fixes: the `SdrFunctionRules` entry, the `EXEMPT_NON_TRANSACTIONAL` rail entry, two false claims |
+| `936a4cf4` | code-review fixes: 1 Medium + 9 Low, including three false claims of mine |
+| `32602ad9` | **fix-commit re-review** fixes: 2 Medium + 6 Low — including that the `936a4cf4` fix for M1 was wrong the same way as the original |
+
+**Four review lanes ran** (conformance `PASS` on all seven §5.2 P2 items · security *ship with one
+change* · code review 1 High / 2 Medium / 10 Low · **re-review of the fix commits** 2 Medium / 6 Low,
+no runtime defect). Reports on disk in `SBDEV-3410-evidence/`: `p2-verifier.md`,
+`p2-security-review.md`, `p2-code-review.md`, `p2-rereview-fixes.md`.
+
+⚠ **The fourth lane was not automatic, and P1's own note said it would be.** The first three reviewed
+only `1ec4f271`; Nam had to ask for the fix commits to be reviewed — the third ticket in a row
+(SBDEV-3398, SBDEV-3419, P1 here) where that lane found the worst defect. It found that
+`936a4cf4`'s fix for its own M1 was wrong **in the same way as the original** (raw-SQL `CONCAT()`
+ignores NULLs; JPQL `CONCAT` renders as `||`), and that the new behavioural `equals` test used ids
+inside `java.lang.Long`'s cache so a `==` mutant passed all six of its assertions. Neither surfaced
+as a red.
+
+### TWO APPROVED DEVIATIONS from this plan — both measured first, both Nam's call
+
+**1. `KEYWORD_CLAUSE` wraps all five operands in `COALESCE(…, '')`.** §3.4 specifies carrying the
+clause verbatim from the `StockView` precedent. Measured in a PG 14 container: Hibernate renders JPQL
+`CONCAT` as `||` (not the `concat()` function, which would ignore NULLs), so `NULL || x` is NULL and a
+row with a NULL in **any** searched column was **invisible to the keyword search** — while staying
+visible with no keyword, because the `or :keyword = ''` arm short-circuits the CONCAT. Visible when you
+browse, gone the moment you type. `fromunitload` and `itemdata` are both nullable
+(`V2.2.00` :2178–:2179). **Inherited, not introduced:** `StockrecordRepository.findByKeyword` carries
+the un-COALESCEd clause and serves this report **today**, so the defect stays live on the report until
+P6 retires that route. Fix scoped to the new clause. Form from `FlowbinMonitorViewRepository`.
+
+**2. `StockrecordView` DOES get an `SdrFunctionRules` entry** (`WEB_UI_VIEW_STOCK_UNIT_RECORD`), against
+§3.5's explicit "do NOT". §3.5's reason — *"SDR read enforcement is OFF everywhere measured"* — is true
+and is **the wrong load-bearing fact**: `SdrGuardMode.deniesUnruled()` is `this == FAIL_CLOSED`, so an
+unruled type is allowed at `SHADOW` **and at `ENFORCE_RULED`**, and `SdrFunctionGuard`'s own comment
+says slices 1–3 run at `ENFORCE_RULED`, *"where a tenant spends the entire rollout"*. The gap would
+never have closed. Decisive second fact: `ReportController` :249 already gates
+`POST /v3/report/exportStockUnitRecord` — the CSV of these exact rows, **without** `item_name`/`cl_name`
+— on that same function, so unruled P2 would ship a *richer* path ungated. Blast radius measured on prd
+counting **users, not roles**: 9 users, 7 hold it, the two that do not are `anonymous` and
+`oms_integration`. Both tenants at `OFF`, so nil live effect. §3.5 should be read as superseded.
+
+⚠ **§5.2 P2's last item is therefore INVERTED.** It says to note that
+`wms2.authz.sdr.unruled{domainType=StockrecordView}` gains a label value. With the rule in place it
+does **not** — the type is ruled, and the counter only counts unruled types.
+
+### Defects found during implementation that this plan did not predict
+
+1. **The `NOT_SUPPORTED` anti-drift rail.** `TestClassTransactionManagerArchTest` asserts **exact set
+   equality** over `EXEMPT_NON_TRANSACTIONAL` and requires a written justification in the same commit.
+   `StockrecordViewRepositoryFilterIT` was missing: surefire **6758 run / 1 failure**, and that failure
+   **aborted the build before failsafe ran at all**. Caught only by the full suite — 30 targeted
+   assertions were green. The High finding is really that the first commit was made without running the
+   lane.
+2. **`SdrWriteWithdrawalContextTest` needed a fourth edit** beyond §5.2 P2's three. Withdrawing all
+   three `findAll` overloads (required by critic M3) removes the **collection GET**, which that rail
+   requires of every withdrawn resource. Its one-off `StockView` exemption is now
+   `COLLECTION_GET_ABSENT_BY_REPOSITORY_SHAPE` with the rule stated. Graded a faithful generalisation,
+   not a weakening — the ITEM axis is still required of both members.
+3. **`Class.forName` was forced at the TDD gate.** The plan's named test classes cannot compile before
+   the types exist, and a test file that does not compile takes the whole module's lane with it. Two
+   surefire classes exist that appear nowhere in §7.2/§7.3 for that reason
+   (`StockrecordViewEntityContractUnitTest`, `StockrecordViewSdrRegistrationUnitTest`), and
+   `everyUiSortKeyResolves` was relocated out of the schema IT into the first — a faster lane, same
+   assertion.
+4. **Mockito varargs.** `ArgumentCaptor.forClass(Class.class)` + one `capture()` matches only an
+   arity-1 call, so verifying `exposeIdsFor(<57 types>)` reported *"Argument(s) are different!"* — which
+   reads as "the production code never called this" when it called it correctly. Use
+   `forClass(Class[].class)` + `getValue()`.
+5. **Three false claims of mine, each stated as fact and each caught by a lane:** that `COALESCE` on a
+   NOT NULL column is a planner no-op (it survives verbatim into the `Filter`, measured on PG 16.10);
+   that the IT's `JdbcTemplate` connection returns to a shared pool (it is a
+   `DriverManagerDataSource` — and I had already propagated that false mechanism into a second file);
+   and `hashCode`'s rationale, which is `AbstractBaseEntity`'s `null→Long` lifecycle argument and cannot
+   apply to an **assigned** `@Id`.
+6. **`/api/` vs `/v3/`.** This plan writes `/api/stockrecordView` throughout. The SDR base path is
+   `/v3`, and `"/api/**"` is `permitAll` in `SecurityConfiguration` — so quoting `/api` in a *security*
+   comment tells a reviewer the route is unauthenticated. Corrected in code; **this document is still
+   wrong on it.**
+
+### Tests
+
+30 assertions across 6 classes (3 new production-facing, 2 extended, 1 relocated method):
+
+| class | lane | n |
+|---|---|---|
+| `StockrecordViewEntityContractUnitTest` *(new)* | surefire | 6 |
+| `StockrecordViewRepositoryQueryShapeUnitTest` *(new)* | surefire | 5 |
+| `StockrecordViewSdrRegistrationUnitTest` *(new)* | surefire | 1 |
+| `StockrecordViewHalContextTest` *(new)* | surefire (`*ContextTest`) | 1 |
+| `StockrecordViewRepositoryFilterIT` *(new)* | failsafe | 7 |
+| `StockrecordViewSchemaIT` *(extended, P1's)* | failsafe | +1 |
+| `SdrWriteWithdrawalContextTest` · `SdrFunctionRulesUnitTest` · `TestClassTransactionManagerArchTest` *(extended)* | surefire | pins moved |
+
+**Nine mutants, every kill attributable to a named assertion.** The two that could not have been
+reasoned about: removing the `SDR_WRITE_WITHDRAWN` entry exposes **`DELETE /v3/stockrecordView/{id}`**
+(`item:DELETE`) — a delete routed at a VIEW, which §3.5 argued in prose and is now measured; and
+dropping one `COALESCE` is invisible to every text-comparison assertion, because the constant is
+**shared**, so the mutation changes both queries identically — only executing against a NULL row sees
+it.
+
+⚠ **Correction to `1ec4f271`'s own commit message:** "every kill attributable to exactly one assertion"
+is wrong for two of five rows — the clause-drop mutant dies to both assertions in one method, and the
+`exposeIdsFor` mutant to two test classes. Defence in depth is fine; the accounting sentence was not.
+
+### Baseline — and the baseline memory was stale
+
+⚠ **`origin/develop`'s failsafe lane is NOT green.** Measured on a detached worktree at `f2ee75f1`,
+failsafe only: **474 run / 0 failures / 2 errors / 31 skipped / BUILD FAILURE** —
+`MobilePickingServiceIntegrationTest.mobileRapidPickingService_Rapid_Test` (*"Itemunit not found with
+id: 0"*, reproduces on develop, **pre-existing**) and `ParcelMonitorViewServiceConcurrencyIT` (duplicate
+`index_customerorder_externalnumber`, almost certainly accumulated state in the **reused**
+`postgres:14-alpine` container — `docker rm -f` it before trusting a concurrency-IT red). This branch
+ran 482/1 against develop's 474/2: **+8 is exactly the new ITs, and the branch has FEWER errors.**
+Do not read a full-lane red on a branch as evidence the branch broke something — establish the baseline
+on a detached `origin/develop` worktree, which is what this ticket had to do.
+
+### Still owed at the close of P2
+
+- Push + PR, and the ClickUp comment — both gated on Nam.
+- **Two Lows deliberately not fixed, dispatched rather than dropped:** making
+  `COLLECTION_GET_ABSENT_BY_REPOSITORY_SHAPE`'s rule mechanical rather than prose-enforced (it would mean
+  resolving repositories off SDR metadata inside a shared authz rail); and converting the three
+  reflection tests to direct type references — premise disputed, since those helpers throw
+  `AssertionError` **naming** the missing type, so a rename fails loudly rather than silently.
+- **Security S2, inherited and not this phase's:** `keyword=` is an unrate-limited paged walk over
+  9.7 M rows, carried verbatim from the legacy route.
+- **§3.5 and §5.2 P2's metric note are now wrong in this document** (see the two deviations above), as
+  is every `/api/stockrecordView` occurrence.
+
+---
+
+## 9C. Implementation status — P3 (2026-09-22)
+
+**P3 is MERGED to `develop`** (2026-09-22, merge commit `75ed4841`).
+**PR: https://github.com/SiteBossInc/wms2-api/pull/393** (merged; `test` check SUCCESS before merge) —
+`feature/SBDEV-3410-p3-export-shipper-filter` → `develop`, rebased onto `origin/develop` @ `3214a9c3`,
+pushed 2026-09-22 with 6 inline review comments. Worktree kept at
+`.claude/worktrees/wms2-api/SBDEV-3410-p3` for review feedback. **ClickUp stays at `in development`** —
+P3 has no user-visible surface either; the ticket moves at P6. P4–P6 untouched.
+
+⚠ **Its own worktree, not P2's.** `.claude/worktrees/wms2-api/SBDEV-3410` holds P2's branch with open
+PR [#391](https://github.com/SiteBossInc/wms2-api/pull/391); this ticket ships six branches, so the
+per-ticket worktree convention needs the `-p3` suffix. P3 does **not** depend on P2 — different
+classes — so it is based on `develop`, not on P2's branch.
+
+| commit | what |
+|---|---|
+| `97ee9e3e` | the `NATIVE_KEYWORD_CLAUSE` lift + `findByClientOffsetAndLimit`, the service branch, the controller read, the 11 call sites, and the tests |
+| `1430296e` | review-lane fixes: 1 High (an untracked deliverable), 1 Medium (stale base), 4 Low |
+| `a4c2ac18` | **fix-commit re-review** fixes: 2 Medium, 2 Low — the new pin's non-vacuity story was wrong |
+
+**Four review lanes.** Reports in `SBDEV-3410-evidence/`: `p3-verifier.md` (conformance **PASS**, all
+six §5.2 P3 checkboxes), `p3-security-review.md` (**PASS**, 0 High / 0 Medium / 4 Low / 3 Info),
+`p3-code-review.md` (1 High / 1 Medium / 4 Low), `p3-rereview-fixes.md` (2 Medium / 2 Low).
+
+### The design, and why the existing route is not edited in place
+
+`findByOffsetAndLimit` is a **live exported SDR search**. §3.6's measurement: SDR binds a missing
+`Long` to `null`, and the obvious predicate has no `IS NULL` arm, so with a null bind both disjuncts
+are NULL, the conjunction is NULL and **no row qualifies** — 0 rows against 873,021 on
+`dev_wh01_om1`. Every existing caller would silently get `[]`. Adding the `IS NULL` arm instead
+re-creates §3.4's non-indexable three-arm disjunction on the path that pulls thousands of rows. So the
+method keeps its signature, exposure and **rendered predicate byte-for-byte**; only its inline keyword
+clause is lifted into a constant and concatenated back, which a compile-time constant expression makes
+textually identical.
+
+**That byte-identity is asserted, and the assertion was checked for circularity.** The code-review lane
+extracted the literals from `git show origin/develop:…` and from the working tree, decoded the escapes,
+substituted the constant and compared three strings — develop's `@Query`, the post-change rendered
+value, and the test's pinned literal. All three byte-identical, so the pin encodes the PRE-change text
+and it equals the post-change text.
+
+### Defects found during implementation that this plan did not predict
+
+1. **Two anti-drift rails fired in the full surefire lane, invisible to 101 targeted tests and a
+   passing IT.** `NeverMatcherNullBlindnessArchTest` keeps a per-class inventory of `never()` positions
+   using primitive-capable matchers and asserts **zero drift**; P3 moved `ReportServiceUnitTest` 4 → 8.
+   The rail forbids bumping the number without reading the declaration, so it was read:
+   `findByClientOffsetAndLimit(String, Long, int, int)` — positions 3 and 4 are **primitive `int`**, so
+   `anyInt()` is required (a bare `any()` returns null and NPEs at unboxing), and position 2 is a boxed
+   `Long` matched with `eq(-1L)`/`isNull()`, contributing nothing.
+   `TestIdentifierCountArchTest` rejected a `@DisplayName` reading "the 15 export headers" — a count in
+   a test identifier is verified by nothing and goes stale silently. Renamed to
+   `exportHeaderNamesAndOrderAreUnchanged`; the count lives in the `containsExactly` assertion.
+2. **A false-zero grep nearly produced a wrong fixture.** `grep "stockrecord" | grep "FOREIGN KEY"`
+   returned nothing, so `stockrecord.client_id` looked FK-free. A sibling IT's javadoc contradicted
+   that, and `pg_constraint` on a live container settled it: the FK exists
+   (`fk7si5rq7yt4ohwmaob5kmluhyc`) — `pg_dump` writes `ALTER TABLE ONLY public.stockrecord` and
+   `ADD CONSTRAINT … FOREIGN KEY …` on **two lines**, so a single-line two-token grep cannot see it
+   (`V2.2.00`:5025-5026). Only client id 0 is seeded, so the IT inserts its own second client.
+3. **A stale base colliding on the same file.** `origin/develop` had moved two commits, one of which
+   (`86180b4d`) edits the same `NeverMatcherNullBlindnessArchTest` inventory. Hunks disjoint, so a
+   merge resolves — but that rail asserts an **exact set**, so a merge dropping either entry reds with
+   a message reading like a code defect. Rebased onto `3214a9c3`; both entries verified present.
+4. **An untracked deliverable.** `StockrecordExportWithdrawalContextTest` — written to close the
+   security lane's L-3 — was never staged. A local `mvn verify` ran it while the PR would not have
+   carried it: works-locally/broken-on-the-branch, a green verdict for a tree the reviewer never sees.
+5. **That file's own non-vacuity story was then wrong, in two ways.** Its
+   `assertThat(searches).isNotNull()` was a **dead assertion** carrying the non-vacuity claim —
+   `RepositoryResourceMappings.getSearchResourceMappings` always constructs a non-null result
+   (spring-data-rest-core 4.5.7), so it could not fail. And `WITHDRAWN` was a bare literal bound to
+   nothing, so a rename or removal passed **vacuously**; what protected it was external and
+   undocumented, and fails for a coordinated edit that leaves the literal stale. Both closed by one
+   net-zero-line edit. ⚠ **The first mutant for it was itself bad** — renaming the repository method
+   breaks direct call sites and fails at COMPILE, a repo-wide break that attributes nothing. The
+   property is "a stale literal is caught", so the mutant is the literal.
+6. **Docker vanished mid-run** and the IT reported `IllegalState Could not find a valid Docker
+   environment`. A broken instrument, not a red test — it passed 4/4 once Docker returned. And a
+   `mvn -q` invocation swallowed the output a mutation check was being graded from; empty output is not
+   a pass.
+
+### Tests
+
+| class | lane | n |
+|---|---|---|
+| `unit/repo/StockrecordExportQueryContractUnitTest` *(new)* | surefire | 4 |
+| `security/StockrecordExportWithdrawalContextTest` *(new)* | surefire | 1 |
+| `integration/repository/StockrecordExportClientFilterIT` *(new)* | failsafe | 4 |
+| `ReportControllerUnitTest$ExportStockUnitRecord` *(extended)* | surefire | 15 — 4 existing + `numericFilterIsForwarded` + 10 `filterValueMatrix` cases |
+| `ReportServiceUnitTest$ExportStockUnitRecord` *(extended)* | surefire | 6 — 4 existing + `filterReachesRepository` + `exportHeaderNamesAndOrderAreUnchanged` |
+| `Sbdev3017TrancheGateContextTest` *(no edit)* | surefire | 5 — both `/v3/report/…` and the inherited `/v3/dashboard/…` rows stay green |
+
+**Two assertions pass by design and are regression pins, not gates:** the byte-identical `@Query`
+pin, and the 15 export headers with their order (Nam's Q2 — the spreadsheet contract does not change).
+
+**Seven mutants, every kill attributable.** The three that could not have been reasoned about:
+- **the unquoted `LOWER(p.operator)`** — `operator` is UNRESERVED on PostgreSQL, so both forms execute
+  and return identical rows. Only the byte-level pin sees it.
+- **the `(String)` cast** — reproduced the predicted shape exactly: `ServletException: Request
+  processing failed: ClassCastException: class java.lang.Integer cannot be cast to class
+  java.lang.String`, thrown OUT of the handler above the `try`, so there is no status to assert on.
+- **a stale `WITHDRAWN` literal** — green before the re-review's fix, red after.
+
+**Full surefire 6768 run / 0 failures / 0 errors, BUILD SUCCESS** on the rebased tree.
+`StockrecordExportClientFilterIT` 4/4 against real PostgreSQL. Baseline for comparison: `develop`'s
+surefire is green; its failsafe lane fails `MobilePickingServiceIntegrationTest` and
+`ParcelMonitorViewServiceConcurrencyIT` (the latter passes on a FRESH container) — neither touched by
+P3.
+
+### One correction to the premise P3 was given
+
+On `origin/develop` `exportStockUnitRecord` **never read `filter` at all**. So there was no pre-fix 500
+here: the `ClassCastException` is the failure mode of the implementation P3 **avoided**, not a bug P3
+fixed. The seven sibling `(String) reqMap.get(...)` reads in the same controller are safe **today**
+only because the UI sends strings; they become live 500s if any report page moves to
+`item-value="id"`.
+
+### Still owed at the close of P3
+
+- Push + PR, and the ClickUp comment — both gated on Nam.
+- **Dispatched, not dropped:** a JSON float `60500.0` degrades to "All Shippers" through
+  `toFilterId`'s `NumberFormatException` path (the plan's explicit choice — one helper, one meaning on
+  the wire); the **seven** sibling `(String)` reads as their own small ticket; `exportReport.vue:136`'s
+  truthiness fold, which is **P6's** and is exactly what §3.6's `String(...)` binding decision exists
+  for; and the inherited `e.getMessage()` echo into a 200 body, unbounded `offset`/`limit`
+  (`ReportController` never calls `checkPageBounds`), and `LOG.debug` of the whole request body — all
+  three predate P3 and belong to a sweep across all eleven `/report/export*` handlers.
+- **⚠ CORRECTED 2026-09-23 — this bullet conflated two different routes under one question, and
+  asserted a booking the plan does not contain.** It read: *"Q5 remains open and is P6's:
+  `GET /v3/stockrecord/search/findByOffsetAndLimit` … the plan books the withdrawal in P6's PR."*
+  Three errors:
+  1. **Q5 (§10.2) is about `findByKeyword`, not `findByOffsetAndLimit`.** Two different routes were
+     given one label, so a single yes/no from Nam would have been applied to the wrong one.
+  2. **The plan books no withdrawal for `findByOffsetAndLimit` anywhere.** §0 row 8 says **"YES — NO
+     EDIT … signature and predicate stay byte-identical"**, and §6's compatibility table says
+     **"byte-identical"**. §9C invented the booking.
+  3. **`findByOffsetAndLimit` is NOT callerless.** `ReportService.java:379` still calls it in-process
+     on the unfiltered export branch (verified on `origin/develop`). It has zero *HTTP* callers, which
+     is a different claim: withdrawing the route would leave the in-process call working, but it is
+     not dead code and must not be described as serving nobody.
+
+  **The accurate position, post-P6:**
+
+  | route | HTTP callers | in-process callers | status |
+  |---|---|---|---|
+  | `findByKeyword` | none (P6 moved the UI off it) | **none** | **this is Q5 — genuinely dangling** |
+  | `findByOffsetAndLimit` | none | **`ReportService:379`** | not Q5; NO EDIT per §0 row 8 |
+
+  So the only route Q5 actually concerns is `findByKeyword`, and after P6 it is an unruled SDR search
+  over 9.7 M rows with no caller of any kind. Still **Nam's decision** — it is an externally-visible
+  contract change, and a withdrawal (405 to everyone) is not the same control as a rule (403).
+
+---
+
+## 9D. Implementation status — P4 (2026-09-22)
+
+**P4 is MERGED to `develop`** (2026-09-22, merge commit `b87ec747`).
+**PR: https://github.com/SiteBossInc/wms2-api/pull/394** (merged; `test` check SUCCESS before merge) —
+`feature/SBDEV-3410-p4-stock-record-details-item-name` → `develop`, based on `origin/develop` @
+`3214a9c3` (still current at push time), pushed 2026-09-22. Worktree kept at
+`.claude/worktrees/wms2-api/SBDEV-3410-p4` for review feedback.
+**ClickUp stays at `in development`** — P4 has no user-visible surface of its own; the ticket moves at P6.
+
+⚠ **Its own worktree.** P4 depends on neither P2 nor P3 — `StockrecordService.getStockRecordDetails` is a
+different class from P2's entity/repository and P3's export path — so it branches off `develop`, not off
+either sibling. The `-p4` suffix is required: `SBDEV-3410` and `SBDEV-3410-p3` hold open PRs #391 and #393.
+
+| commit | what |
+|---|---|
+| `0391cfb2` | the `itemName` resolution per §3.7 + 4 tests |
+| `5ede17ab` | conformance-lane fixes: the `never()` guard kill; three false claims corrected |
+| `9033f28b` | code-review-lane fixes: 1 Medium actioned (the false 'SKU Name' label claim), L3/L4 |
+| `d011ccf8` | **fix-commit re-review** fixes: 3 Medium, 6 Low — a SECOND producer of the forbidden state |
+
+**Three review lanes.** Reports in `SBDEV-3410-evidence/`: `p4-verifier.md`, `p4-code-review.md`
+(3 Medium / 4 Low / 2 Info, no High), `p4-rereview-fixes.md` (3 Medium / 6 Low / 3 Info, no High).
+No security lane: P4 touches no authz, no SQL construction and no secret.
+
+### The design, and the defect the re-review found in it
+
+§3.7's rule is **the key is ABSENT, never null** — `fullDetails.vue` renders whatever keys the map carries,
+so an absent key omits the row while a null-valued key renders an empty one, and `get("itemName") == null`
+cannot tell those apart. `ifPresent` fences the unresolved-SKU route.
+
+It is not the only route. A **resolved** `Itemdata` whose `name` is null makes `ifPresent` put a null value —
+producing precisely the state the design forbids, with every test green. It is unreachable today only because
+`itemdata.name` is `NOT NULL` (`V2.2.00`:936; 0 of 2,813 on prd `wh01_hydra_v2`), and the entity declares a
+bare `String` with no `@Column(nullable = false)`, so Hibernate does not enforce it either — the DB is the
+sole guarantor of an invariant this phase exists to hold. Closed with `.filter(i -> i.getName() != null)`,
+which makes the invariant local, plus `detailsOmitItemNameWhenResolvedItemHasNullName`.
+
+### ⚠ Promotion gate — P4 merged without P6 labels the popup row `ItemName`
+
+`'itemName': 'SKU Name'` is **§0 row 29, owned by P6**. On `origin/develop`, `stockUnitRecord.vue`'s
+16-entry `:field-names` map has `clientName`/`clientNumber` and no `itemName`, and `fullDetails.vue` falls
+back to `name.charAt(0).toUpperCase() + name.slice(1)`. So from the moment P4 deploys until P6 does, the new
+popup row reads **`ItemName`**.
+
+Not fixable from `wms2-api` — different repo, and P6 is gated on P2 being **deployed**, not merely merged
+(§7 step 5 reads `/api/public/version`). Cosmetic and dev-only, and it is a property of shipping **any** of
+P3/P4/P5 ahead of P6, not a P4 blocker. **Recorded here rather than only in a service-method comment**, per
+the re-review's F8: promotion decisions are read from §7's step table, not from line 669 of a 680-line
+service.
+
+### Verification
+
+| | |
+|---|---|
+| Targeted | `StockrecordServiceUnitTest` **38/38** green |
+| Mutation | PIT scoped per §7.8, re-run from committed code: **5 mutations on P4's 4 code lines, 5 KILLED, 0 survived**, every killer attributable. The `.filter` added 2 of the 5 |
+| Hand mutant | `details.put("itemName", null)` — PIT emits **no** mutant anywhere in that lambda, so §5.2 P4's required check is still graded only by hand. PIT complements it, it does not replace it |
+| Full suite | `mvn clean verify` @ `d011ccf8` on a **fresh container**: surefire **6755 / 0 failures / 0 errors / 1 skipped**, failsafe **481 / 0 / 0 / 31 skipped**, **BUILD SUCCESS**. Run on a separate detached worktree (`…-p4-suite`) so it could not collide with the review lanes' maven |
+| ⚠ Baseline | The recorded develop baseline is "474 run / **2 errors**". Both errors are **container state**, not code: the first run of this same commit-range on a 3-hour-old REUSED container gave 481/1 (`ParcelMonitorViewServiceConcurrencyIT` — `Key (externalnumber)=(PARCELMON-ORD-1) already exists`, its own fixture row from an earlier build); `docker rm -f` and re-run gave 481/0. `MobilePickingServiceIntegrationTest`, which the baseline note calls pre-existing, passed on **both** runs. So a baseline taken on a dirty container and matched by a branch on the same dirty container is two runs sharing one cause, not evidence of no regression |
+
+⚠ **Two instrument traps hit while verifying P4, both of which produced a clean-looking result:**
+bare `pitest:mutationCoverage` **skips `test-compile`** and silently mutates stale test-classes (finishes in
+~22 s and reports exactly the verdict you were hoping for); and a PIT line-range filter derived by
+`grep -n <symbol>` matched the **comment** that now names the symbol rather than the call site, reporting
+`0 mutations on P4 lines`. Always re-derive the range from the code lines and sanity-check the count.
+
+
+## 9E. Deploy verification — P1–P4 are LIVE on dev (2026-09-22)
+
+`develop` @ `b87ec747` is deployed and serving. Verified, not inferred:
+
+```
+GET https://wms-api.dev.sbo.li/api/public/version
+{"environment":"DEV","self":{"repository":"wms2-api",
+ "version":"develop-b87ec74729f6b443684937107783abe27c88889d"},"drift":false}
+```
+
+**This closes P6's prerequisite in full.** §5.2 P6 gates on P2 being merged *and deployed*; both halves
+are now discharged, and the version endpoint above is the evidence for the second one.
+
+### The three merges raced, and only commit order saved them
+
+All three builds ran concurrently. `.github/workflows/docker-image-develop.yml` keys its concurrency
+group on `${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}` — **on a push
+that key is the SHA**, so three merges land in three distinct groups that neither cancel nor serialise.
+Each then pushes the same mutable `hub.impactathleticsny.com/wms2-api:develop` tag and fires the same two
+Portainer webhooks. Last writer wins, and nothing makes the last writer the newest commit.
+
+Measured finish order (run `updatedAt`, all three `success`):
+
+| finished | merge commit | phase |
+|---|---|---|
+| 13:13:48 | `5111e077` | P2 |
+| 13:14:24 | `75ed4841` | P3 |
+| 13:14:39 | `b87ec747` | P4 |
+
+Commit order and finish order coincided, so dev got the newest image. Had the P2 build finished last —
+36 seconds of runner variance — dev would be running P2-only code while `develop` HEAD read P4, with
+every CI run green and `drift: false` reported against a stale image. **For future back-to-back merges:
+merge, wait for the build, then merge the next; or check `/api/public/version` afterwards.** This is the
+API-side counterpart of the `:develop` tag race already recorded for `wms2-web-ui`.
+
+### The view itself, on dev tenant data
+
+The dev DB MCP was unavailable at merge time (two 30 s connection timeouts) and recovered afterwards:
+
+| check | result |
+|---|---|
+| `stockrecord_view` in `information_schema.views` | **1** — present |
+| `V2.2.33` in `flyway_schema_history`, `success` | **1** — applied; it is the tenant's highest version |
+| `stockrecord` rows | **9,726,814** |
+| `stockrecord_view` rows | **9,726,814** — **zero multiplication** |
+| view rows with `item_name IS NOT NULL` | 9,726,814 |
+| view rows with `client_id IS NULL` | 0 |
+
+The row-count identity is the ticket's own join-multiplication trap (§1, and the ClickUp triage note)
+discharged against 9.7M live rows rather than a fixture: `(client_id, item_nr)` multiplies nothing,
+so the pagination totals and Export counts P3 depends on are sound.
+
+⚠ Note the scope of this: it is **one tenant** (`wineco/wsl`, the only `active` tenant on dev). It says
+nothing about UAT or prd, where [[wms2-tenant-object-ownership-blocks-flyway]] has previously left
+tenants stuck several versions back. Re-check `V2.2.33` per tenant before this reaches either.
+
+---
+
+
+## 9F. Implementation status — P5 (2026-09-23)
+
+**P5 is SHIPPED TO PR.**
+**PR: https://github.com/SiteBossInc/wms2-api/pull/398** (open, not merged) —
+`feature/SBDEV-3410-p5-allclients-stock-unit-record-function`,
+one commit **`fa8ae56c`**, off `origin/develop` @ `b87ec747`. 3 files, +136/−12. Worktree
+`.claude/worktrees/wms2-api/SBDEV-3410-p5`. **ClickUp stays `in development`** — P5 has no
+user-visible surface either; the ticket moves at P6.
+
+### What shipped
+
+`ClientController.allClients`'s ANY-of goes 11 → 14 (`WEB_UI_VIEW_STOCK_UNIT_RECORD`,
+`WEB_UI_VIEW_STOCK_UNIT`, `WEB_UI_VIEW_CONTAINER`), the `Sbdev3017TrancheGateContextTest` pin row
+moves with it in the same commit, and the prose in both files — plus a third file the review found —
+is restated as a rule.
+
+### Verification
+
+| check | result |
+|---|---|
+| TDD gate — row at 14, annotation at 11 | **RED**, `1 of 227 routes wrong`, naming all three |
+| both sides changed | **GREEN**, `Tests run: 5, Failures: 0` |
+| mutation × 3 (drop each constant) | **3/3 killed**, each *exactly* 1 of 227 wrong, whole-token matched |
+| surefire | **6787 / 0 / 0**, 1 skipped |
+| failsafe | **492 / 0 / 0**, 31 skipped — **BUILD SUCCESS** |
+| post-suite edits | comment-only (verified by diff), so the suite result covers `fa8ae56c` |
+
+⚠ **Whole-token matching is load-bearing in the mutation check.** `WEB_UI_VIEW_STOCK_UNIT` is a
+prefix of `WEB_UI_VIEW_STOCK_UNIT_RECORD` *and* `WEB_UI_VIEW_STOCK_UNIT_LOCK_OVERVIEW`, so a substring
+grep finds the name it is looking for whichever of the three is actually missing — all three mutants
+would score "killed and attributable" even if the pin were blind.
+
+### The baseline was run, and it came out WORSE than the branch
+
+Untouched `origin/develop` @ `b87ec747`, own detached worktree, **zero diff**, fresh container, idle
+machine, run adjacent in time:
+
+| tree | surefire | failsafe | build |
+|---|---|---|---|
+| P5 `fa8ae56c` | 6787 / 0 / 0 | **492 / 0 / 0** | SUCCESS |
+| untouched develop `b87ec747` | 6787 / 0 / 0 | **492 / 0 / 1** | FAILURE |
+
+develop's single error is `ParcelMonitorViewServiceConcurrencyIT` — `duplicate key … Key
+(externalnumber)=(PARCELMON-ORD-1) already exists`. ⚠ **This disproves P4's diagnosis, recorded in
+§9D's neighbourhood and in memory, that the error is "accumulated container state".** A cleared
+container does not prevent it. The test is **flaky**: its fixture COMMITS a row with a hardcoded
+natural key, so the collision is produced *within* a run. P4's "cleared the container, re-ran, got
+green" was one sample of a nondeterministic test agreeing with the hypothesis already held — not a
+control. **Consequence for every later phase: run the baseline yourself, adjacent in time, in its own
+worktree. There is no remembered number to match.**
+
+Also seen once and NOT reproducible: the first P5 suite run, launched the same second another
+worktree's `clean verify` ended, gave 3 errors (`MoveCronConcurrencyIT`,
+`FixLocationAssignmentServiceIT`) all `FATAL: sorry, too many clients already`. Nothing sets
+`max_connections` (default 100), each context holds 4+5 pooled connections and Spring caches 32
+contexts, so ~12 live contexts exhaust it. `withReuse(true)` means concurrent failsafe runs in
+*different worktrees* share that one budget.
+
+### Review lanes — 12 findings, all fixed; 3 dispatched
+
+Conformance **PASS** · code review **no Critical/High** · security **safe to ship**. Every Medium was
+in prose, not code.
+
+- **F1 (M)** — the invariant was on the wrong axis. "Renders a shipper dropdown" has a verified
+  counterexample (`shipperBrandFiltering.vue`, Dashboard, `WEB_UI_VIEW_ORDER_MONITOR`) that never
+  calls the route; applying it literally would **over-widen an authz gate**. Restated on the route.
+- **F2 (M)** — "nobody gains data they could not already see" was unmeasured and structurally false:
+  `allClients` serialises the whole `Client` entity, no `@JsonIgnore`, for every client. Deleted.
+- **M1 (M)** — `ClientControllerLegacyIntegrationTest`'s header still described the gate as
+  `WEB_UI_VIEW_CLIENT`-only. It cannot detect the change either way (its fixture grant satisfies the
+  ANY-of), which is the hazard, now stated.
+- Lows F3/F5/F7/F8, S2, L1–L3 — derivation commands that do not produce their own numbers, the
+  mobile-ui zero, the create-form mis-description, the undated role claim, and ⚠ **S2: the sweep does
+  not yield `WEB_UI_VIEW_STOCK_UNIT_RECORD` until P6 ships** — so a reader "tidying away" the surplus
+  constant would silently re-break the dropdown.
+
+### Q6 — DISCHARGED (corrected 2026-09-23; this heading said "partially")
+
+Blast radius, user→group→role→function, two positive controls each (bogus allow-list must return the
+full holder count; bogus function must return 0):
+
+| database | holders (RECORD / STOCK_UNIT / CONTAINER) | newly admitted |
+|---|---|---|
+| `dev_wh01_om1` | 45 / 44 / 45 | **0** |
+| `wh01_hydra_v2` **PRD** | 7 / 7 / 7 | **0** |
+| hydra UAT + both shipitez UAT | — | **0** |
+
+A non-zero was reachable and did not occur: dev has 5 users outside the eleven.
+
+⚠ **CORRECTED 2026-09-23 (Nam) — Q6 IS FULLY DISCHARGED, and this paragraph previously said the
+opposite.** It read *"PRD coverage is PARTIAL … `shipitez/c1wh` and `shipitez/nywh` (not measured) …
+One review lane asserted hydra was the only v2 prd database; that is **wrong**."* **The lane was
+right. I was wrong, and I overrode a correct review finding with a bad inference from
+`landlord-prd`.** ShipItEZ is not on WMS v2 production; its two MCP handles are UAT. **Hydra is the
+only v2 PRD client**, it was measured, and the answer was **0 users newly admitted** — so prd coverage
+here is **complete**, not partial. Root cause and the general rule: §3.2's withdrawal notice.
+
+### Dispatched, NOT fixed in P5 (all pre-existing)
+
+1. **Ungated SDR sibling.** `ClientRepository` is SDR-exported: `GET /v3/client` and
+   `/v3/client/search/findAllByOrderByName` already return the same roster. `Client` is not in
+   `SdrFunctionRules`, and dev and prd both read `WMS2_SDR_READ_GUARD_MODE = OFF`, so any
+   authenticated `wms_user` has this data today — the gate is **partly decorative**. Not a P5
+   regression. Fix is a `Client.class` rule on P2's precedent; sizing that set is T3 design work.
+   **PROPOSED to Nam, not filed.**
+2. **The rule has no mechanical enforcement** in either repo. The pin compares the annotation to a
+   hand-copied literal, so both sides can be wrong together — exactly how the Handling Units gap
+   survived. A real check must read `appMenuList.js` from the other repo. **PROPOSED, not filed.**
+3. **`PageRequest.of(0, count.intValue())`** bypasses `api.paging.max-size` and throws on a
+   zero-client tenant. Sub-T3, in the method P5 edits, but changing response limits exceeds a gate
+   widening and what §6 promises. **Ticket note.**
+
+---
+
+
+## 9G. Implementation status — P6 (2026-09-23)
+
+**P6 is MERGED and LIVE ON DEV** (`d71ac0fc`, 2026-09-23). Verified by content, not timestamp: the served
+bundle `/_nuxt/7340781.js` carries `findByKeywordAndClient`, which had **0 occurrences** in the UI before
+this commit. ⚠ The first scan reported NOT FOUND 45 times — a **false negative from a broken instrument**
+(the loop's URL construction failed with `curl: Malformed input`, stderr suppressed, so grep read empty
+input each time). A positive control on `stockRecordDetailsById`, pre-existing in the same file, exposed
+it. A zero-scan with no positive control would have reported the deploy as failed.
+**PR: https://github.com/SiteBossInc/wms2-web-ui/pull/136** (merged) — `wms2-web-ui`, branch
+`feature/SBDEV-3410-p6-shipper-filter-and-sku-name`, one commit **`f5d7061`**, off `origin/develop`
+@ `9254bf5`. 4 files, +729/−13 (the spec is 498 of those lines). Worktree
+`.claude/worktrees/wms2-web-ui/SBDEV-3410-p6`.
+
+**This is the phase that satisfies the acceptance criteria.** AC-1, AC-2 and AC-3 are delivered here;
+AC-4 is the regression guard over them. **The ticket moves to `on dev` when this is merged and
+deployed** — not before.
+
+### Verification
+
+| check | result |
+|---|---|
+| spec `test/components/reports/stockUnitRecordShipperFilter.spec.js` | **29/29** |
+| full Jest suite | **99 suites / 1592 tests**, all green |
+| untouched `develop` @ `9254bf5` baseline, run adjacent | **98 / 1563**, all green |
+| delta | **+1 suite / +29 tests = exactly this spec.** Nothing regressed |
+| mutants | **6**, each killing exactly one test |
+
+### The six mutants, and why three of them matter
+
+| mutant | killed by | note |
+|---|---|---|
+| `shipper` moved into `data()` | the `$data` assertion | the other 21 tests stayed green — that assertion is the ONLY guard |
+| drop the `String(...)` on `:filter` | the end-to-end export case | ⚠ the three characterisation tests stayed GREEN; without the end-to-end case this survives |
+| delete the `clients` watcher | the cold-visit case | ⚠ was UNDETECTED until the verifier lane found it |
+| delete the `getClients` dispatch | the refresh case | ⚠ likewise undetected |
+| `item-value="id"` → `"clNr"` | the binding case | every other test bypassed `v-model` |
+| delete the page reset | the page-7 case | ⚠ vacuous before: the harness hard-coded page 1 |
+
+Four of six were undetected by the first draft of the spec. **The lesson is the one the plan already
+states and this phase re-proved: a green gate is evidence only about the mutants you tried.**
+
+### Review lanes — 18 findings, all fixed
+
+Conformance **INCOMPLETE → resolved** · code review **1 High, 3 Medium, 14 Low**. Every Medium and the
+High were defects in this phase's own diff, and most were in its **prose**, not its logic.
+
+- **H1 — my `.gitignore` fix pointed at the wrong directory.** A bare `reports/` matched
+  `test/components/reports/`, so this phase's spec was silently unaddable — P6 would have committed
+  the implementation with **no tests** and nothing would have said so. My first fix scoped it to
+  `cypress/reports/`, which **does not exist and nothing writes to**: `excelReporter.js:178` is
+  `path.join(process.cwd(), 'reports')`, and there is no `*.xlsx` rule, so that "fix" ignored nothing
+  while un-ignoring the real generated workbooks. Correct answer is root-anchoring: **`/reports/`**.
+- **M1 — a shipper change from any page ≠ 1 fired the whole fetch twice.** Assigning `options.page`
+  queues the `options` watcher, declared *above* the `shipper` watcher and so holding a lower watcher
+  id, which Vue 2 splices to run next in the same flush — where it calls `updateTable()` again.
+  Against §3.10's measured 1.8 s filtered / 7.8 s unfiltered query, clearing the filter from page ≠ 1
+  ran the 7.8 s query twice.
+- **M3 — a payload override the plan forbids, justified by a call that cannot happen.** The comment
+  claimed "payload-less refreshes"; there is exactly one dispatcher, it always passes a full payload,
+  and a payload-less call throws on `data.page` nine lines above the comment. Reduced to §3.9's form.
+- **F5/L2 — "cross-navigation persistence the other report filters have"** was false in both halves
+  and was inherited verbatim from §3.9 (corrected there too). All six sibling report pages commit
+  `resetShipperFilter` on exit, and `pages/reports/stock-unit-record.vue:17` commits `resetList`,
+  which this phase made clear `clientId`. The behaviour is right and consistent; the rationale was not.
+- Lows: `state=undefined` was being shipped to two brand-new routes; `options: {}` produced
+  `?page=NaN&size=undefined`; the rel-guard failure told the operator to "retry" a deploy fault; the
+  popup test matched a string instead of the key; `toMatchObject` left `sortDesc` ungraded; the
+  `?? -1` fallback was untested; `getClients` sat outside the watcher §3.9 specifies.
+
+### Deviations from the plan, recorded rather than silently taken
+
+1. **§7.4's two type-ahead cases were substituted.** It asks that typing a fragment of a shipper NAME
+   and of its CL_NR each narrow `shippers`. That narrowing is **Vuetify's own filter over
+   `item-text`**, so asserting it tests the framework. What this component controls is the label
+   shape, so the spec pins `Arrowood (ARW)` — and, after the review, `item-text="label"` and
+   `item-value="id"` as bindings. ⚠ This is a substitution against a written AC, not a coverage claim.
+2. **`shippers`/`shipperFilter` are not separate store state.** §3.9 opens by mirroring
+   `inventory.js` and then explicitly directs the implementer to `handlingUnits/stockUnits.js`'s
+   `list.clientId` shape instead; the latter was followed. Sanctioned by §3.9 itself.
+3. **`.gitignore` is touched by a UI feature phase.** Justified: it is the blocker for this phase's
+   own spec, so splitting it out means merging without the tests.
+
+### Still open, and NOT decided here
+
+- **Q5 — the route withdrawal.** ⚠ The plan books it **for P6's PR** in two places, **§10.2 and §9C**,
+  and those two name **DIFFERENT routes** (`findByKeyword` vs `findByOffsetAndLimit`). One yes/no
+  answer would be applied to the wrong one. It also needs a companion **`wms2-api`** PR, since P6's is
+  a web-UI PR. P6 is the last phase, so "later" has run out. **Nam decides.**
+- **Request sequencing (L12).** `updateTable` has no request id or cancellation, so two overlapping
+  fetches commit in completion order — against a 1.8–7.8 s query a fast double selection can leave the
+  user looking at the first shipper's rows. Pre-existing across all seven report screens; the new
+  control makes it reachable without touching the URL.
+- **L6 — pagination is committed before the request**, so a failed fetch leaves the toolbar ahead of
+  the rows. Pre-existing ordering; the new rel-guard throw gives it a second way to fire. Not changed
+  here because moving it alters pagination timing for every request on the screen.
+
+---
+
+
+## 9H. Promotion state — P1–P4 ARE ALREADY ON `main` (discovered 2026-09-23)
+
+⚠ **This corrects an assumption made throughout §9A–§9G, including the ClickUp comments: that this
+ticket was dev-only.** It is not. Measured on `origin/*` with a positive control (a file that must
+exist on all three branches):
+
+| branch | `V2.2.33__stockrecord_view.sql` | `StockrecordView.java` | last moved |
+|---|---|---|---|
+| `develop` | ✓ | ✓ | `8a575946` (P5) |
+| **`release`** | **✓** | **✓** | `f089b220` — PR #395 `owl-v2.0.145-promote` |
+| **`main`** | **✓** | **✓** | `80faf3f3` — PR #396 `owl-v2.0.145-prod-prom` |
+
+**P1, P2, P3 and P4 were promoted to `release` and `main` by someone else on 2026-09-22**, in the
+window between P4 merging (`b87ec747`, 12:58Z) and P5 merging (`8a575946`, ~18:00Z). Neither
+promotion was this ticket's doing and neither is recorded anywhere else in this plan.
+
+⚠ **The first instrument used to check this was broken** and reported `V2.2.33=no` for **develop**,
+which is provably false. `git cat-file -e <ref>:<path>` inside a `$( )` with `&&`/`||` returned the
+wrong branch of the conditional. `git ls-tree -r --name-only` with a positive control gave the
+correct answer. A branch-content check with no positive control is worthless.
+
+### It has already run on production
+
+`wms2-hydra` (PRD), queried 2026-09-23: **`stockrecord_view` exists, `V2.2.33` applied and
+successful, and it is the tenant's highest migration.** `stockrecord` there is **3,544 rows**, so the
+index build was trivial — consistent with §3.2's "milliseconds and kilobytes on hydra prd".
+
+### What is on prd, and why the current combination is safe
+
+| | on `main` | consequence |
+|---|---|---|
+| P1 the view + index | **yes** | applied on hydra prd, no incident |
+| P2 the SDR entity + routes | **yes** | `/api/stockrecordView/search/**` is LIVE on prd |
+| P3 the export filter | **yes** | honours `filter`; absent/null/-1 all mean "no filter", so old clients are unaffected |
+| P4 the popup `itemName` | **yes** | additive key; ⚠ renders as **`ItemName`** on prd, because P6 supplies the `'itemName': 'SKU Name'` label and P6 is NOT on main |
+| **P5 the gate widening** | **no** | not needed on prd yet — nothing there calls `allClients` for this screen |
+| **P6 the UI** | **no** | no prd user can reach the new routes |
+
+**The combination is safe**: the new read routes exist on prd but nothing calls them, and the gate
+P5 widens is only needed by P6's dropdown, which is not there. **The one visible artefact is the
+popup label** — a prd user opening Stock Unit Record Details on a row whose SKU resolves now sees a
+row labelled **`ItemName`** (title-cased by `fullDetails.vue`) until P6 is promoted. That is the
+promotion gate §7 step 5 records, and it is currently OPEN on production.
+
+### PRD coverage is COMPLETE — there is no unmeasured production risk
+
+⚠ **CORRECTED 2026-09-23 (Nam).** This section first claimed *"the one real risk left"* was the
+unmeasured index-build cost on `shipitez/c1wh` and `shipitez/nywh`. **Those are not v2 production
+databases.** ShipItEZ is not on WMS v2 prd; its two MCP handles are `c1wh-shipitez-uat` and
+`nywh-shipitez-uat` — UAT. **Hydra is the only v2 PRD client**, `V2.2.33` is confirmed applied there,
+and `stockrecord` is 3,544 rows, so the index build was trivial. **That is full production coverage.**
+
+The error came from reading `landlord-prd`'s three `active = true` rows as an inventory of live prd
+tenants; an `active` row is routing configuration, not deployment. §3.2 made the same inference first
+and this section inherited it — see its withdrawal notice for the general rule.
+
+### 🚨 PROMOTION GATE — Q5 IS MERGED TO `develop` AND ARMS A PRODUCTION OUTAGE
+
+**`wms2-api` `develop` @ `3857ad05` (PR #400, merged 2026-09-23) withdraws
+`GET /v3/stockrecord/search/findByKeyword`.** It returns **404** there now.
+
+⚠ **DO NOT PROMOTE `wms2-api` PAST `develop` UNTIL `wms2-web-ui` P6 IS ON THE SAME RUNG.**
+
+`origin/release` and `origin/main` of **`wms2-web-ui` still call that route** — `store/reports/stockUnit.js:51`,
+`$get('/stockrecord/search/findByKeyword')`. P6 (`d71ac0fc`), which moves the report onto
+`stockrecordView`, is on **`develop` only**. The two repos promote under **separate tags**, so
+`wms2-api` can reach UAT or prd first. If it does, the **Stock Unit Record report breaks completely
+and silently** on that environment — a 404 per search, no error surfaced to the operator beyond an
+empty grid and a toast.
+
+**Required order, both rungs:**
+1. `wms2-web-ui` P6 (`d71ac0fc`) → `release`, then → `main`.
+2. Only then `wms2-api` (`3857ad05` or later) → `release`, then → `main`.
+
+**✅ CLOSED on `develop` — the Cypress half.** `wms2-web-ui` PR #137 (`bd89002c`, merged 2026-09-23)
+retargets `findStockMovementRecords` onto `/v3/stockrecordView/search/findByKeyword`, updates the
+consumer's rel (`_embedded.stockrecordView`, not `_embedded.stockrecord` — the read has a `|| []`
+fallback, so the wrong rel degrades to ZERO ROWS and reads as missing inventory rather than a routing
+fault), and corrects the `recordApi()` path literal that records the route in the run's evidence file.
+`git grep` on `origin/develop` now finds no live reference to the withdrawn route.
+
+⚠ **Not verified by execution.** The Cypress smoke suite needs a live authenticated environment and
+was not run. Whoever next touches this should run `npm run smoke:s2step6` against a dev environment
+carrying `wms2-api ≥ 3857ad05`. Jest (99 suites / 1592) is green but covers none of `cypress/`.
+
+⚠ **STILL OPEN — the promotion half.** `release` and `main` of `wms2-web-ui` carry neither P6 nor
+#137, so both the report and the smoke suite there still call the withdrawn route. The ordering above
+stands unchanged.
+
+⚠ **Why this was merged anyway:** Nam instructed it after both blockers were raised, verified and
+stated twice. The decision is recorded, not second-guessed — but the gate above is a hard
+prerequisite, not advice.
+
+### Promoting P5 and P6 — NOT done here
+
+`release` and `main` are DevOps'; this plan only ever merges to `develop`. For whoever promotes:
+
+1. **Order matters, same as on dev.** P5 (`wms2-api`) before P6 (`wms2-web-ui`): P6's dropdown calls
+   `/v3/client/allClients`, which is the gate P5 widens. Measured blast radius is 0 users on every
+   database reachable, so this is correctness rather than an outage — but it is this ticket's own
+   failure mode (an empty dropdown, not an error).
+2. **Promoting P6 closes the `ItemName` label gate** described above.
+3. **Two repos, two ladders.** `wms2-api` P5 is `8a575946`; `wms2-web-ui` P6 is `d71ac0fc`. The UI
+   repo has **no CI test gate at all** (PR #136 ran zero checks), so its 1592 Jest tests were local
+   only and nothing re-runs them on promotion.
+4. **Verify by content, not timestamp.** The API has `/api/public/version`; the UI has nothing
+   equivalent — check for `findByKeywordAndClient` in the served `_nuxt` bundle, and use a positive
+   control (§9G records a false negative that a missing control nearly turned into a wrong verdict).
 
 ---
 
@@ -1929,7 +2832,7 @@ Stated so absence is not read as evidence.
    the indexes that exist today. The composite index could not be built (a mutation) and `hypopg` is not
    installed (control: 61 available extensions). P1 closes this (§5.2).
 8. **"Every tenant" was never measurable from this session.** All three prd MCP aliases
-   resolve to `wh01_hydra_v2`; both ShipItEZ prd databases are unreachable. Every claim in this plan of the
+   resolve to `wh01_hydra_v2`; both ShipItEZ prd databases are unreachable ⚠**[WITHDRAWN 2026-09-23 — ShipItEZ is NOT on WMS v2 production; Hydra is the only v2 prd client, so there is no such database to measure. See §3.2's withdrawal notice.]**. Every claim in this plan of the
    form "on every tenant" means "on the five databases this MCP set reaches", and the affected claims are
    prereq 1 (`stockrecord_view` absent), §3.2 (index cost), §3.6 (`client.id = 0` present) and Q6 (blast
    radius).

@@ -2,8 +2,8 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-09-06
-verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-09-01.) Prior: Claude (executor)"
+last_verified: 2026-10-02
+verified_by: "SBDEV-3636 doc pass 2026-10-02 — re-verified ONLY the SBDEV-3636 sentences of the 'Admin reserved cut' paragraph against branch bugfix/SBDEV-3636-replen-cooldown-after-manual-cut @ fd95b823 (PR #449). SBDEV-3638 doc pass 2026-10-02 — struck the removed handheld single-UL endpoints (checkSource/checkAmount/checkDestination, switchSourceToUnitLoad, public finishReplenishmentOrder, F8a/F8b, SBDEV-3621 single-UL finish rule) against branch bugfix/SBDEV-3638-remove-single-ul-replenish-endpoints (PR pending, not merged). Earlier: SBDEV-3608 doc pass 2026-10-02 — added the 'Who re-sources an order' table + 'The scan wins' and struck startOrder/resetOrder, verified against origin/develop 62c92dd5 (P5/P6/P11 marked as SBDEV-3608, on its branches pending merge). Earlier: SBDEV-3622 doc pass 2026-10-02 — added ONLY the 'Admin reserved cut — SBDEV-3622' paragraph, verified against branch bugfix/SBDEV-3622-adjust-reserved-attributes-cut (unmerged, stacked on SBDEV-3621 PR #444). Prior: SBDEV-3621 doc pass 2026-10-02 — added ONLY the 'Releases outside the cron' paragraph, verified against branch bugfix/SBDEV-3621-release-held-share. Prior: SBDEV-3607 doc pass 2026-10-01 — added ONLY the §2 `MobileReplenishService.update(id, dto)` row, verified against branch bugfix/SBDEV-3607-mobile-put-source-location. Prior: SBDEV-3624 doc pass 2026-10-01 — re-verified ONLY §'Affected item tracking' and job-phase row 10 against branch bugfix/SBDEV-3624-replenish-sweep-starvation @ b1612027 (ReplenishOrderJob.replenish / drainPageZero). Prior: SBDEV-3618 doc pass 2026-10-01 — re-verified ONLY the new §2 sizing/booking paragraph and the §9 move-path sub-bullet against branch bugfix/SBDEV-3618-recalc-held-share (ReplenishmentOrderMaintenanceService shareOf/bound/updateRequestedAmount/releaseHeld, reassignOrCancelForMovedStockUnit). Prior: SBDEV-3605 doc-drift pass 2026-09-30 (round 2) — re-verified ONLY §7 (Multi-Unitload Replenishment Path) against branch SBDEV-3605 @ d6fa6821 (commit 6a4a1bd3 reordered the steps: destination assignment now runs right after the empty-UL guard and BEFORE any SU resolve/lock, with a re-guard of the template afterward and R7's error order reverted to destination-first). Round 1 (same date) verified this section against the pre-reorder a1b8d5e1 and is superseded by this pass. NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. Prior: SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). (previous last_verified: 2026-09-01.) Prior: Claude (executor)"
 tags: [wms2, replenishment, fix-location, stock, inventory]
 ---
 
@@ -13,7 +13,7 @@ tags: [wms2, replenishment, fix-location, stock, inventory]
 - Core entities: `Replenishorder` (order + state) and `FixLocationAssignment` (FLA — SKU → fixed slot binding with `lowerbound`/`middlebound`/`upperbound` thresholds).
 - State machine: `PROCESSABLE(300)` → `STARTED(500)` → `FINISHED(700)` or `CANCELED(800)`; `PICKED(600)` is unused in this flow.
 - FLA `middlebound` is the refill trigger — a refill order is generated when on-hand drops below it; `upperbound` is the cancel-if-full threshold.
-- Critical constraint: `refillFixedLocations()` has no outer `@Transactional`, so partial completion is its normal outcome. ⚠ **Corrected 2026-09-10 (SBDEV-3244)** — this bullet used to end *"calling it inside `finishReplenishmentOrderInternal` means an unexpected refill failure can roll back the finish transaction"*, which is backwards: that method calls `scheduleRefillAfterCommit(replenishOrder.getNumber())`, so the refill runs **after** the finish transaction commits and cannot roll it back. This was the THIRD copy of the same inverted claim (§11.1 and §5.4 were corrected first); grep the claim, not the section.
+- Critical constraint: `refillFixedLocations()` has no outer `@Transactional`, so partial completion is its normal outcome. ⚠ **Corrected 2026-09-10 (SBDEV-3244)** — this bullet used to end *"calling it inside `finishReplenishmentOrderInternal` means an unexpected refill failure can roll back the finish transaction"*, which is backwards: that method calls `scheduleRefillAfterCommit(replenishOrder.getNumber())`, so the refill runs **after** the finish transaction commits and cannot roll it back. This was the THIRD copy of the same inverted claim (§11.1 and §5.4 were corrected first); grep the claim, not the section. *(Method removed by SBDEV-3638, merged 2026-10-02, `f839921e`: `finishReplenishmentOrderInternal`, `scheduleRefillAfterCommit` and `runRefillMaintenance` are gone. The only finish is now `finishReplenishmentOrderWithoutRefill`; `fulfillMultipleUnitLoads` runs its own best-effort `refillFixedLocations()` after the commit.)*
 - **SBDEV-2074 (2026-07-20):** moving a unit load with an active replen reservation onto a NON-replenishable location is now handled synchronously at move time — `ReplenishmentOrderSourceSyncService.syncForMovedStockUnit` delegates to the new `ReplenishmentOrderMaintenanceService.reassignOrCancelForMovedStockUnit`, which reassigns the same order to another eligible source or cancels it. This closes a gap neither cron path (`recalculateOrder`, gated on `state==300`; `cancelUnreachableReplenishment`, gated on `state<=300`) could reach for a `RESERVED(400)` order re-pointed onto a lane. See §9 and §11.
 - Read this doc for: replenishment stuck-state bugs, over-replenishment, FLA assignment failures, multi-unitload replenishment path (`MobileReplenishService`), the `ReplenishOrderJob` cron pipeline, or move-time reservation reassignment (`ReplenishmentOrderSourceSyncService`).
 
@@ -49,7 +49,7 @@ All files under `v2/wms2-api/src/main/java/net/aim_ai/wms/` unless noted.
 | `repo/projection/ReplenishMonitorSummaryView.java` | 31 | Projection: monitor summary columns | §10 |
 | `repo/projection/UnitloadReplenishView.java` | 9 | Projection: unit load replenish fields | §10 |
 | `repo/projection/StockunitReplenishInfoView.java` | 8 | Projection: stock unit info for replenishment | §10 |
-| `controller/ReplenishOrderController.java` | 298 | Desktop REST endpoints (HAL) | §2 |
+| `controller/ReplenishOrderController.java` | 353 (on branch SBDEV-3606, pending merge; 347 on develop) | Desktop REST endpoints (HAL) | §2 |
 | `controller/mobile/ReplenishController.java` | 248 | Mobile REST endpoints | §2 |
 | `json/mobile/ReplenishMobileOrderDto.java` | 325 | Mobile order DTO | §2 |
 | `json/mobile/MultiReplenishRequestDto.java` | 60 | Multi-unitload request DTO | §7 |
@@ -131,6 +131,45 @@ runFor(spec) / runForCurrentTenant()  →  replenish(tenantName)
 | `recalculateForItem(itemDataId)` | `(Long) → void` | Targeted recalc for a specific item; called by job after detecting affected items. `null` itemDataId falls back to full recalc. |
 | `recalculateOrder(orderId)` | package-private `(Long) → void` | Test entry point — wraps with an empty context. Takes a `Long` since SBDEV-3244. |
 | `recalculateOrder(orderId, ctx)` | **public** `@Transactional(tenantTransactionManager, REQUIRED)` `(Long, RecalcContext) → void` | Core logic: **its first statement that touches the row** loads the order with `findByIdForUpdate(@Lock PESSIMISTIC_WRITE)` (a `orderId == null` guard precedes it, touching nothing), then checks FLA, validates/redirects source, computes shortage, cancels or adjusts amount. Per-order short tx when called from sweep; annotation bypassed (this. call) when called from `recalculateForItem`. (260520 fix; **signature changed to a `Long` by SBDEV-3244** so the locking read is the FIRST touch of the row — passing the entity meant a caller had already loaded it at READ, making this a version-checked lock upgrade. Both the state and `manuallyoverridepriority` guards now sit under the lock.) |
+
+**Sizing and booking rule — SBDEV-3618 (2026-10-01).** The cron sizes each order against its **held share** of the locked source, never its requested amount. The share is computed once per source under the SU row lock, through the pure `ReservationShare` arithmetic shared with the multi-UL pick (§7):
+- `ownShare = max(0, min(res, res − Σreq(other open replen) − Σamount(open picks)))`
+- `held = min(requested⁺, ownShare)`, `free = max(0, amount − res)`, `capacity = min(held + free, amount)`.
+
+The rules that use it:
+- **Usable source:** `isSourceUsable` requires `capacity > 0`.
+- **Respect the cut (Nam, after SBDEV-2033).** An order holding **less** than it requests is shrunk to `held` (cancelled at 0) and is **never re-reserved**. Only a fully-held order grows from `free`.
+- **Booking:** the delta is booked against `held`. A booking or release that would leave `res > amount` is skipped with a WARN (`changeReservedAmount` throws on every delta past `amount`, releases included).
+- **Releases:** cancel and redirect release `held`, not `requested`.
+- **Same-row redirect:** a redirect whose chosen (first-ranked) candidate is the current SU re-points the location and writes no reservation. On the unit-load move path such a candidate counts as no candidate.
+- **The shrink cap:** a shrink is to `min(held, capacity)`, so an order is never sized above the stock the unit holds, even when `res > amount`.
+- **Another holder is short** (`res < others + picks`): every held share computes to 0 and the ledger cannot say whose reservation was cut. The order is therefore only capped at `capacity`, with nothing booked and a WARN; no order is arbitrarily cancelled. A zero-request order in that state is cancelled.
+- **A redirect still reserves `min(requested, available)`** at the new SU (D2‴). The cut belongs to the stock unit it was made on.
+- **Logging:**
+  - INFO when an order is shrunk below its shortage, or cancelled because its source leaves it nothing.
+  - ERROR `SBDEV-3618 STRANDED_RESERVATION` when a release is skipped because it would leave `res > amount`. The held quantity is then reserved with no holder until the admin path releases it.
+
+Before SBDEV-3618, `getAvailableIncludingReservation` (`amount − res + requested`, now deleted) re-granted reservation the SU no longer held. DEV had 53 of 565 open orders requesting more than their SU's physical amount.
+
+**Releases outside the cron — SBDEV-3621 (2026-10-02).** The four release sites outside `ReplenishmentOrderMaintenanceService` released the order's `requestedamount`, so when another open order or an open pick also held stock on the source, the excess came out of theirs (hidden by `zeroIfNegative`). Each now reads the source under its row lock as the row's first touch (SBDEV-3244) and releases:
+- **web cancel, web redirect** (old source) — `held`, via `HeldShareRelease.release`. Skipped with the same WARN/ERROR tokens as SBDEV-3618 when `held = 0` or when the release would leave `res > amount`. ~~The handheld single-UL switch (`switchSourceToUnitLoad`) locked the order then both SUs and re-checked reserved / item / unit load~~ — removed by SBDEV-3638 (merged 2026-10-02, `f839921e`), together with `findIdsByUnitloadId`.
+- ~~**handheld single-UL finish**~~ — removed by SBDEV-3638 (merged 2026-10-02, `f839921e`); the rule below no longer exists in code and the `REPLENISH_FINISH_BLOCKED_BY_RESERVATIONS` refusal went with it. Historical text: `min(requested⁺, max(held, amountPicked − (amount − res)))`, floored at 0 (Nam, 2026-10-02). The move term is deliberately unclamped: on a source reserved above its amount the move also needs `res − amount` back. Held alone under-releases where other orders' `requested` over-states what they hold (23 such open orders on PRD, 2026-10-02), failing a transfer the old code completed; adding what the move physically needs never releases more than before and never fails a finish that used to succeed. When even that leaves `free < amountPicked` (and `amountPicked ≤ amount`), the finish refuses with `REPLENISH_FINISH_BLOCKED_BY_RESERVATIONS` — a case the old code failed too, via the transfer's generic error. An order with no source holds nothing on the DTO's SU (`held = 0`).
+- **multi-UL finish** (`finishReplenishmentOrderWithoutRefill`, now the ONLY finish, private, reached only from `POST /v3/replenish/multi-unitloads`) — exactly `requested`: an undo of the reservation the same transaction just booked. Fails closed with `REPLENISH_MISSING_SOURCE` if the DTO's source stock unit is not the order's.
+- Residual, out of scope (Nam): web cancel locks the SU before the order row; the cron and the multi-UL finish (via `fulfillMultipleUnitLoads`, which locks the order first) lock the order first. Same-order races between them are bounded by deadlock detection / `lock_timeout`. (Before SBDEV-3638 the single-UL finish also locked the SU first; it is gone.)
+
+**Who re-sources an order — SBDEV-3608 (2026-10-02).** Besides creation (`ReplenishGeneratorService`: `replenishOrder.setStockunitId(sourceStock.getId())` and `createOrderFromTemplate`), exactly three methods write `Replenishorder.stockunitId` (four on origin/develop `62c92dd5`, before SBDEV-3638 removed writer 3; merged 2026-10-02, `f839921e`). Method: `git grep -n "setStockunitId(" -- src/main`, filtered to `Replenishorder` receivers. Blind spot: a native `UPDATE replenishorder` or a reflective setter would not show; `git grep -niE "update +replenishorder" -- src/main` finds only the two bulk `prio` updates in `ReplenishorderRepository` (positive control: `update +stockunit` → 3 hits).
+
+| # | Writer | Reached from | Locks |
+|---|---|---|---|
+| 1 | `ReplenishmentOrderMaintenanceService.redirectSource` (`order.setStockunitId(candidate.stockUnitId)`) | cron recalc, `recalculateForItem`, move-time `reassignOrCancelForMovedStockUnit` | order → current SU → target SU, **not** id-ordered — the one writer left that can ABBA with another order (bounded by 40P01 / `lock_timeout`; SBDEV-3608 P5 → **SBDEV-3637**, T3, not built) |
+| 2 | `ReplenishorderService.redirectSource(Long, Long)` | web `update`, `updateStockUnit`, `changeSourceStockUnit` | order → both SUs ascending; refuses `state > PROCESSABLE` |
+| ~~3~~ | ~~`MobileReplenishService.switchSourceToUnitLoad`~~ **removed by SBDEV-3638 (merged 2026-10-02, `f839921e`)** | handheld single-UL `GET /v3/replenish/checkSource/{id}/{input}` — **API-only**: no screen dispatches it (screens deleted in mobile-ui `5200dc4`; the dead store actions removed by SBDEV-3608 P11) | order → both SUs ascending (SBDEV-3621) |
+| 4 | `MobileReplenishService.applyExplicitSourceToOrder` | handheld `POST /v3/replenish/multi-unitloads` — **the live handheld flow** (§7) | order → {old SU} ∪ scanned SUs ascending |
+
+**The scan wins.** The handheld loads a `PROCESSABLE` order and keeps it there until submit (orders never enter `STARTED`: `startOrder` had no caller and was deleted by SBDEV-3608 P6; PRD WineCo and ShipItEZ held **0** rows in state 400–600 on 2026-10-02). Writer 2 accepts a web Change Source at any point before submit, and writer 4 then re-points the order to whatever unit load was scanned, without consulting the web choice. So a web source change made while a handheld is working the order is silently overridden at submit; the web dialog says so in a tooltip (SBDEV-3608 P3). Since the handheld picks what is physically in hand, this ordering is intended, not a race to fix.
+
+**Admin reserved cut — SBDEV-3622 (2026-10-02; merged to develop as PR #446, `7762aa64`).** `StockunitService.adjustReservedAmount` no longer cuts the SU's reservation blind to its holders. `ReservationCut.plan` attributes the cut: the holder-less surplus first, the pool allocated oldest-first, the cut walked newest-first. Orders at or below `PROCESSABLE` are shrunk, or cancelled at 0 through the shared `ReplenishmentOrderMaintenanceService.markCancelled` ("set CANCELED and save, releasing NOTHING" — the reservation was already cut, so a release would book it twice). A holder past `PROCESSABLE`, or a cut below the open picks, refuses (`RESERVATION_CUT_ORDER_IN_PROGRESS` / `RESERVATION_CUT_BELOW_PICKS`). A partial cut leaves `held == requested`, so the next recalc may regrow the order from free stock (D-H1, accepted; `bound` returns capacity). Once an item's last open order is cancelled the generator may re-source the freed SU (P-3; plan §1 measured 14 of 311 WineCo cuts within 24 h). **SBDEV-3636 (PR #449, merged to develop as `e3dfcc72`, on DEV 2026-10-02) closes P-3 for automatic sourcing:** `StockunitRepository.MANUAL_CUT_COOLDOWN_EXCLUSION` hides a stock unit with an operator cut row newer than `REPLENISH_MANUAL_CUT_COOLDOWN_MINUTES` (default 60) from the generator source query (`calculateAutomaticOrder`: both FLA refill crons, the no-FLA generation job and the post-finish refill), from FLA refill eligibility, and from `getAvailableReplenishmentSources`, which serves the recalc redirect and the re-point after an operator's unit-load move. There is no current-source exemption. On the move path an all-cooled candidate set **cancels** the order. Operator-initiated creates keep `calculateOrder` and may still pick the stock unit. Partial-cut regrowth on recalc (D-H1) is unchanged by decision. The no-FLA and FLA-with-orders eligibility reads are not cooled: they check no source availability at all. SBDEV-3622 design: [wms2-stockunit-design](./wms2-stockunit-design.md) ledger and method tables (the SBDEV-3636 cooldown is documented here and in the sysprop catalog, not there).
+
 | `reassignOrCancelForMovedStockUnit(movedStock, destination)` | **public** `@Transactional(tenantTransactionManager, REQUIRED)` `(Stockunit, Location) → void` throws `BusinessException` | **SBDEV-2074 (2026-07-20).** Move-time entry point called by `ReplenishmentOrderSourceSyncService.syncForMovedStockUnit` when `destination` is NON-replenishable. Re-checks `isReplenishableDestination` defensively (public method, standalone-callable), finds the active (`state < FINISHED`) order bound to `movedStock` via **`findIdByStateLessThanAndStockunitId`** (an id projection since SBDEV-3244 — reading it as an entity made the next line a version-checked lock upgrade), then loads it under `findByIdForUpdate` to serialize with the cron, blocks with `BusinessException` if `state >= STARTED (500)` (incl. `530`), then calls `redirectSource` — cancelling via `cancelOrder` only if `redirectSource` returns `false` (no candidate or reserve failure). Joins the caller's tenant tx (the move is already `@Transactional(tenantTransactionManager)`), so reassign/cancel commits atomically with the relocation. |
 
 ### `ReplenishmentOrderSourceSyncService`
@@ -145,15 +184,17 @@ runFor(spec) / runForCurrentTenant()  →  replenish(tenantName)
 
 All tenant-write methods use `@Transactional(value = "tenantTransactionManager", rollbackFor = {...})`.
 
+> **Web gate note (SBDEV-3606, on branch `feature/SBDEV-3606-replenishment-write-function`, pending merge).** Rule for the `ReplenishOrderController` rows below: **a write goes to `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER`, a read stays on `WEB_UI_VIEW_REPLENISHMENT_ORDER`.** Writes: `POST /update`, `/updateStockUnit`, `/updatePriority`, `/changeSourceStockUnit`, `/create`, and `GET /cancelReplenishOrder/{id}`. Reads (5): `/loadOrderByDestination/{locationName}`, `/getPickableLocations`, `/replenishorderDetailsById/{id}`, `/stockUnitInfoForReplenishment/{id}`, and `/detailView` (ANY-of with `MOBILE_UI_VIEW_REPLENISHMENT`). MANAGE does **not** govern the mobile `/v3/replenish` create/edit routes (`POST /requestAmount`, `PUT /order/{id}`). Plan: `4-Archieves/wms2/plan/SBDEV-3606-replenishment-write-endpoints-gated-by-view-function.md`.
+
 | Method | Signature | Tx boundary | Throws | HTTP (via controller) |
 |---|---|---|---|---|
 | `create(mOrder)` | `(ReplenishMobileOrderDto) → Replenishorder` | `tenantTransactionManager` | `FacadeException` | `POST /v3/replenish` |
-| `update(id, stockUnitId, priority)` | `(Long, Long, Integer) → Replenishorder` | `tenantTransactionManager` | `B, F` | `PUT /v3/replenish/{id}` |
-| `updateSourceStockUnit(id, stockUnitId)` | `(Long, Long) → Replenishorder` | `tenantTransactionManager` | `B, F` | `PUT /v3/replenish/{id}/sourceStockUnit` |
-| `updatePriority(id, priority)` | `(Long, Integer) → Replenishorder` | `tenantTransactionManager` | — | `PUT /v3/replenish/{id}/priority` |
+| `update(id, stockUnitId, priority)` | `(Long, Long, Integer) → Replenishorder` | `tenantTransactionManager` | `B, F` | `POST /v3/replenishOrder/update` (SBDEV-3561: a stock-unit change goes through the guarded `redirectSource(Long, Long)`, and the priority compare is `Objects.equals` with a null guard). **Gate (SBDEV-3606, pending merge): `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER`.** |
+| `updateSourceStockUnit(id, stockUnitId)` | `(Long, Long) → Replenishorder` | `tenantTransactionManager` | `B, F` | `POST /v3/replenishOrder/updateStockUnit`, the web **Change Source Stock Unit** dialog. This was dead until SBDEV-3561: the UI dispatched a nonexistent action. **Gate (SBDEV-3606, pending merge): `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER`.** |
+| `updatePriority(id, priority)` | `(Long, Integer) → Replenishorder` | `tenantTransactionManager` | — | `POST /v3/replenishOrder/updatePriority`. **Gate (SBDEV-3606, pending merge): `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER`.** |
 | `getActive(itemId, requestedLocationId)` | `(Long, Long) → List<Replenishorder>` | `readOnly` | — | `GET /v3/replenish/active` |
 | `cancelReplenishmentOrder(replenishOrder)` | `(Replenishorder) → void` | `tenantTransactionManager` | `FacadeException` | `DELETE /v3/replenish/{id}` |
-| `redirectSource(replenishOrder, stockUnit)` | `(Replenishorder, Stockunit) → Replenishorder` | `tenantTransactionManager` | `B, F` | Called internally by `update` |
+| `redirectSource(orderId, newStockUnitId)` | `(Long, Long) → Replenishorder` (SBDEV-3561; the entity overload was deleted) | `tenantTransactionManager` | `B, F` | Called by `update`, by `updateSourceStockUnit`, and by `POST /v3/replenishOrder/changeSourceStockUnit` (no UI caller; kept, but routed here). It locks the order first with `findByIdForUpdate`, then refuses `state > PROCESSABLE (300)` and names the state. It then locks both SUs in ascending id order. The target must have `reservedamount == 0`, the same item, not be the current source, and be a member of `getStockUnitInfoForReplenishment(itemdataId)`, the dialog's own list. It reserves the new SU, then releases the old one. A missing old source is tolerated. Refusals return a **422** `{errors:[{message}]}` from all three endpoints. Via `changeSourceStockUnit` the gate is `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER` (SBDEV-3606, pending merge); `cancelReplenishOrder/{id}` and `create` on the same controller are also MANAGE. The mobile `POST /v3/replenish` row above is **not** governed by MANAGE. |
 | `updateReplenishmentOrderPriority(List, int)` | bulk variant | `tenantTransactionManager` | — | Called by picking job |
 | `updateReplenishmentOrderPriority(List, int, int)` | bulk variant (old→new) | `tenantTransactionManager` | — | Called by picking job |
 | `recalculateReplenishmentOrderWithoutFixedLocationAssignment()` | `() → void` | `tenantTransactionManager` | — | Called by job |
@@ -185,13 +226,13 @@ All write methods: `@Transactional(value = "tenantTransactionManager", rollbackF
 |---|---|
 | `loadOrderByDestination(locationName)` | Loads order for a fixed-location scan. Throws if location not found or not a FLA. |
 | `loadOrderById(id)` | Simple order load; no transaction. |
-| `startOrder(mOrder)` | `PROCESSABLE → STARTED`. Records `operatorId`. Handles optimistic lock with re-fetch. |
-| `resetOrder(mOrder)` | `STARTED → PROCESSABLE`. Clears `operatorId`. |
-| `checkSource(mOrder, code)` | Validates or switches source unit load. Transfers reservation to new unit load if switched. |
-| `checkDestination(mOrder, code)` | Validates destination. Creates FLA on-the-fly for new flowbin destinations. |
-| `finishReplenishmentOrder(mOrder)` | `STARTED → FINISHED`. Transfers stock, creates FLA if absent, triggers refill. |
-| `checkAmountPicked(mOrder, amount)` | Validation only — no persistence. |
+| ~~`startOrder(mOrder)` / `resetOrder(mOrder)`~~ | **Deleted by SBDEV-3608 P6** (zero callers in any repo). They moved `PROCESSABLE ↔ STARTED`; with them gone nothing in the live flow produces `STARTED (500)`. |
+| ~~`checkSource(mOrder, code)`~~ | **Removed by SBDEV-3638 (merged 2026-10-02, `f839921e`).** Validated or switches source unit load via `switchSourceToUnitLoad` (re-source writer 3, §2 table above). **API-only**: no UI dispatches `/checkSource`, `/checkAmount` or `/checkDestination` since SBDEV-3608 P11. |
+| ~~`checkDestination(mOrder, code)`~~ | **Removed by SBDEV-3638 (merged 2026-10-02, `f839921e`).** Validated destination; created FLA on-the-fly. Replaced by the private `assignDestinationForMultiUnitLoads`. |
+| ~~`finishReplenishmentOrder(mOrder)`~~ | **Removed by SBDEV-3638 (merged 2026-10-02, `f839921e`)** (public finish + its post-commit refill). Replaced by the private `finishReplenishmentOrderWithoutRefill`, reached only from `fulfillMultipleUnitLoads`, which runs its own best-effort `refillFixedLocations()` after the commit. |
+| ~~`checkAmountPicked(mOrder, amount)`~~ | **Removed by SBDEV-3638 (merged 2026-10-02, `f839921e`).** Was validation only. |
 | `fulfillMultipleUnitLoads(request)` | Multi-unitload path. See §7. |
+| `update(id, dto)` | `PUT /v3/replenish/order/{id}`, the handheld's source-location scan (`selectSource.vue`). **Writes nothing (SBDEV-3607, pending merge on `bugfix/SBDEV-3607-mobile-put-source-location`).** Reads the order with `findByIdForUpdate`, refuses a null state or state > `PROCESSABLE(300)` (same guard as `ReplenishorderService.redirectSource`), validates the scanned location and echoes its id + canonical name in the response, because the handheld stages unit loads with `locationId: order.requestedLocationId`. `fulfillMultipleUnitLoads` is the only writer of the source (stock unit, location, name together). Before the fix it set `requestedlocationId`/`sourcelocationname` unlocked and left `stockunitId` alone, so a recalc tick before submit failed `isSourceUsable` and re-sourced or cancelled the order (`MobileReplenishSourceScanIT`). |
 | `getCalculatedOrders(code, clientId)` | Returns `PROCESSABLE` orders as select-item list for mobile picker. |
 | `getReservedOrder()` | Returns `STARTED` order reserved by current operator. |
 
@@ -323,15 +364,15 @@ The `Replenishorder.state` field uses `WmsConstants.State` integer constants.
 | From | Event | To | Guard | Code path |
 |---|---|---|---|---|
 | — | `calculateOrder` creates order | `PROCESSABLE (300)` | `amount > 0`, source stock available, no duplicate pending order | `ReplenishGeneratorService.calculateOrder:187` |
-| `PROCESSABLE` | Operator calls `startOrder` | `STARTED (500)` | Order not already finished; no other operator claimed it | `MobileReplenishService.startOrder:233` |
+| `PROCESSABLE` | Operator calls `startOrder` ⚠ **no caller in src/main or in wms2-mobile-ui (SBDEV-3561 triage, 2026-09-29): this transition never fires in production, and PRD shows no state-500 rows** | `STARTED (500)` | Order not already finished; no other operator claimed it | `MobileReplenishService.startOrder:233` |
 | `STARTED` | Operator calls `resetOrder` | `PROCESSABLE (300)` | State must be ≥ `PROCESSABLE` and < `FINISHED` | `MobileReplenishService.resetOrder:263` |
-| `PROCESSABLE` or `STARTED` | `finishReplenishmentOrder` completes | `FINISHED (700)` | Source stock present, destination present, state < `FINISHED` | `MobileReplenishService.finishReplenishmentOrderInternal:498` |
+| `PROCESSABLE` or `STARTED` | `finishReplenishmentOrderWithoutRefill` completes (reached ONLY via `POST /v3/replenish/multi-unitloads`) | `FINISHED (700)` | Source stock present, destination present, state < `FINISHED`. ~~SBDEV-3561 F8a/F8b refusals~~ (removed by SBDEV-3638, merged 2026-10-02, `f839921e`, with the single-UL finish) are replaced by the `REPLENISH_MISSING_SOURCE` guard: the finish fails closed if the DTO's source stock unit is not the order's | `MobileReplenishService.finishReplenishmentOrderWithoutRefill` |
 | `PROCESSABLE` | Maintenance detects source gone / destination full | `CANCELED (800)` | Shortage ≤ cancel threshold, or no usable source found | `ReplenishmentOrderMaintenanceService.cancelOrder:375` |
 | `PROCESSABLE` or `STARTED` | `cancelReplenishmentOrder` | `CANCELED (800)` | State < `FINISHED (700)` | `ReplenishorderService.cancelReplenishmentOrder:219` |
 
 Note: `PICKED (600)` exists in `WmsConstants.State` but is not used by the replenishment state machine. The state skips from `STARTED (500)` directly to `FINISHED (700)`.
 
-**SBDEV-1714 finish-time audit snapshot (2026-07-20):** at `FINISHED`, `finishReplenishmentOrderInternal` now freezes what was moved onto the order — `moved_amount` (= `amountPicked`), `moved_source_unitload_label`, `moved_destination_unitload_label`, `moved_destination_location_name` (§4.1). The source-UL label is captured **before** `transferStockToUnitLoad` because that call re-homes the source stock unit's `unitloadId` in place (full move → destination UL `StockunitBusinessService:346`; partial-to-zero → `Nirwana` `:380/:422`) — reading it afterward would record the wrong label. The closed-record detail (`ReplenishorderService.getReplenishorderDetails`) and the desktop closed/detail list views (`getDetailViewByKeyword`, `getClosedViewByKeyword`) now read these frozen values via `COALESCE(frozen, live)`; `getOpenViewByKeyword` still reads the live join. Forward-only: pre-`V2.2.03` FINISHED rows keep NULL snapshots and degrade to the live join.
+**SBDEV-1714 finish-time audit snapshot (2026-07-20):** at `FINISHED`, `finishReplenishmentOrderInternal` (now `finishReplenishmentOrderWithoutRefill`, SBDEV-3638) now freezes what was moved onto the order — `moved_amount` (= `amountPicked`), `moved_source_unitload_label`, `moved_destination_unitload_label`, `moved_destination_location_name` (§4.1). The source-UL label is captured **before** `transferStockToUnitLoad` because that call re-homes the source stock unit's `unitloadId` in place (full move → destination UL `StockunitBusinessService:346`; partial-to-zero → `Nirwana` `:380/:422`) — reading it afterward would record the wrong label. The closed-record detail (`ReplenishorderService.getReplenishorderDetails`) and the desktop closed/detail list views (`getDetailViewByKeyword`, `getClosedViewByKeyword`) now read these frozen values via `COALESCE(frozen, live)`; `getOpenViewByKeyword` still reads the live join. Forward-only: pre-`V2.2.03` FINISHED rows keep NULL snapshots and degrade to the live join.
 
 ### Priority values (`WmsConstants.Priority`)
 
@@ -361,7 +402,7 @@ A `FixLocationAssignment` (FLA) represents a permanent SKU-to-location binding: 
 
 4. **Cancellation trigger** — `getIdsToCancelReplenishOrders` query cancels orders where `stockUnit.amount >= fla.upperbound` (flowbin full) — `ReplenishOrderJob:269`.
 
-5. **FLA creation at finish** — `MobileReplenishService.finishReplenishmentOrderInternal` creates a FLA on-the-fly if none exists for the destination location, calling `FixLocationAssignmentService.createFixedLocationAssignment(destinationLocation, itemData)`. This means destinations scan-confirmed by the operator implicitly become permanent fixed locations.
+5. **FLA creation at finish** — `MobileReplenishService.finishReplenishmentOrderWithoutRefill` (formerly `finishReplenishmentOrderInternal`; SBDEV-3638) creates a FLA on-the-fly if none exists for the destination location, calling `FixLocationAssignmentService.createFixedLocationAssignment(destinationLocation, itemData)`. This means destinations scan-confirmed by the operator implicitly become permanent fixed locations.
 
 6. **FLA deletion** — `ReplenishOrderJobService.deleteEmptyFixAssignmentWithoutStockToReplenish` removes FLAs where the assigned unit load has zero stock AND there is no replenishable source stock AND no open advice positions AND no open replenish orders. Controlled by sysprop `FIX_LOCATION_ASSIGNMENT_DELETE_WHEN_EMTPY` (default `false`).
 
@@ -377,7 +418,7 @@ A `FixLocationAssignment` (FLA) represents a permanent SKU-to-location binding: 
                   │  active = true/false                            │
                   └─────────────────────────────────────────────────┘
                                │
-       Job reads middlebound    │   finishReplenishmentOrder
+       Job reads middlebound    │   finishReplenishmentOrderWithoutRefill
        amountOnLocation <       │   transfers stock to
        middlebound → generate   │   assignedunitload
                                ▼
@@ -398,44 +439,88 @@ Response: `[{ id, number, qty, unitLoadId, status, destinationLocationId }]` —
 
 ### Transaction boundary
 
-The entire method runs in a single `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})`. All-or-nothing: any failure rolls back all stock transfers and order state changes.
+⚠ **Corrected — SBDEV-3605 (2026-09-30).** This section used to say the entire method runs in a single `@Transactional`. It does not: the public entry point, `fulfillMultipleUnitLoads`, is deliberately **NOT** `@Transactional` (its own javadoc says so). It calls `self.fulfillMultipleUnitLoadsTx(request)` through the Spring proxy — that method carries `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})` and is the actual atomic core: all-or-nothing for every stock transfer, reservation release, and order state change inside it. Only *after* that transaction has committed and released every pessimistic lock does `fulfillMultipleUnitLoads` best-effort run `replenishGeneratorService.refillFixedLocations()` and `replenishmentOrderMaintenanceService.recalculateOpenOrders(true)` — with no ambient transaction, and any exception from either just logged (`LOG.warn`), never rolling back the fulfillment. This split exists so the refill/recalc's own `REQUIRES_NEW` sub-transactions never open while the multi-UL locks are still held (§11 item 4).
 
 ### Flow
 
+⚠ **Step order corrected — SBDEV-3605, Nam approved 2026-09-30, commit `6a4a1bd3` (branch HEAD `d6fa6821`).** An earlier revision of this section locked the template, then resolved/locked SUs, then assigned the destination last. Destination assignment now runs BEFORE any SU work — see the flow below and the landmine in the transaction/OSIV boundary map §8.5.
+
 ```
-fulfillMultipleUnitLoads(request)
+fulfillMultipleUnitLoads(request)                         ← NOT @Transactional
   │
-  ├─ 1. Load template order (orderId)
-  ├─ 2. assignDestinationForMultiUnitLoads()
-  │      validates destination is flowbin, creates FLA if absent,
-  │      persists destination on template order
-  │
-  ├─ 3. For each unitLoad entry:
-  │      validateUnitLoadEntry()
-  │        ├─ load Unitload (by id or labelId)
-  │        ├─ verify unitload.storagelocationId == dto.locationId
-  │        └─ find Stockunit with matching itemdataId; check qty
-  │
-  ├─ 4. First instruction (index 0) — reuses template order:
-  │      applyExplicitSourceToOrder()
-  │        ├─ release any existing reservation on old stockunit
-  │        ├─ set order.stockunitId, requestedlocationId, requestedamount, destinationId
-  │        └─ reserveExplicitStockForOrder()
-  │      finishReplenishmentOrderWithoutRefill(buildMobileDto())
-  │        └─ transfers stock, sets order FINISHED (no refill triggered)
-  │
-  ├─ 5. Remaining instructions (index 1..N) — new orders per unit load:
-  │      ReplenishGeneratorService.createOrderFromTemplate()
-  │        ├─ number = template.number + "-" + (i+1)
-  │        ├─ copies client, itemdata, prio, manuallyoverridepriority
-  │        └─ reserves stock on explicit Stockunit
-  │      (no refresh — REQUIRES_NEW and the refresh were both removed; see §7)
-  │      finishReplenishmentOrderWithoutRefill(buildMobileDto())
-  │
-  └─ 6. Post-batch:
-         replenishGeneratorService.refillFixedLocations()   ← single refill pass
-         replenishmentOrderMaintenanceService.recalculateOpenOrders(true)
+  └─ self.fulfillMultipleUnitLoadsTx(request)              ← @Transactional(tenantTransactionManager)
+       │
+       ├─ 1. Lock the template order FIRST — `replenishorderRepository.findByIdForUpdate(orderId)`
+       │      (the transaction's first touch of any row; serialises this path with `redirectSource`,
+       │      which also locks the order first). Refuse a null or ≥ FINISHED state before any further
+       │      read, with `REPLENISH_ALREADY_FINISHED`.
+       │
+       ├─ 2. Empty-UL guard: `request.getUnitLoads()` null or empty → `BusinessException`.
+       │
+       ├─ 3. assignDestinationForMultiUnitLoads() — holding ONLY the order lock. Validates destination
+       │      is flowbin (or FLA-free per SBDEV-2854); if the FLA is absent, `createFixedLocationAssignment`
+       │      can SYNCHRONOUSLY run `triggerReplenishmentMaintenance` → `recalculateForItem` in the SAME
+       │      transaction — which may top up, cancel or re-source THIS template (see the landmine in
+       │      §8.5 of the transaction/OSIV boundary map).
+       │
+       ├─ 4. RE-GUARD the template: re-reads its (possibly maintenance-mutated) state and refuses
+       │      `REPLENISH_ALREADY_FINISHED` again if maintenance finished or cancelled it — the step-1
+       │      guard alone is stale once step 3 can mutate the same managed entity.
+       │
+       ├─ 5. resolveUnitLoadEntry() per DTO — ids only, no entity lock yet:
+       │      `stockunitRepository.findIdsByUnitloadIdAndItemdataIdOrderById(unitloadId, itemdataId)`.
+       │      The own-SU preference reads the template's CURRENT `stockunitId` — i.e. as maintenance in
+       │      step 3 may have left it, not necessarily the id the request started with. When the scanned
+       │      UL holds two SUs of the template's item, that current own SU is chosen if it is one of
+       │      them; otherwise the lowest id (R6, amended 2026-09-30 — the earlier lowest-id-only rule
+       │      lost the self-credit).
+       │
+       ├─ 6. Lock {current old SU} ∪ scanned SU ids in ONE ascending pass — `TreeSet<Long>` →
+       │      `stockunitRepository.findByIdForUpdate` per id — so each lock is that row's first touch,
+       │      UNLESS step 3's maintenance already read (not locked) the same row: that lock is then an
+       │      UPGRADE, version-checked by Hibernate, so a row maintenance changed underneath this read
+       │      fails closed as a stale-object 409 rather than silently proceeding. A row that no longer
+       │      exists takes no lock and is absent from the `locked` map.
+       │
+       ├─ 7. `ownShareOfReservation(oldSu, templateId)` — computed ONCE, under the old SU's lock and
+       │      AFTER step 3's maintenance, so it sees any top-up maintenance already booked: the part of
+       │      `reservedamount` no other open replenish order or open pick position explains (the
+       │      holder invariant — see the stockunit design doc §6).
+       │
+       ├─ 8. validateUnitLoadEntry() per entry, re-checking the LOCKED row (not the id-resolve read):
+       │      ├─ refuses `MsgSourceStockNotFound` if the locked SU vanished, moved off this UL, or no
+       │      │    longer carries the template's item (post-lock re-check, added in review 2026-09-30)
+       │      ├─ gates on availability (amount − reservedamount), not gross amount
+       │      └─ self-source credit: when this entry's SU IS the old SU, adds back `ownShare` IN FULL
+       │           — the credit equals the total that step 9 will release (Fix C)
+       │
+       ├─ 9. First instruction reuses the template order:
+       │      applyExplicitSourceToOrder() books the release as TWO rows against the old SU, both
+       │        under the order's own number: FINISHED `−min(req⁺, ownShare)`, then
+       │        MANUAL_ADJUSTMENT `−remainder` (comment: "SBDEV-3605 unexplained reservation
+       │        released") — `req⁺ = max(0, requestedamount)`, so attributed + remainder == ownShare
+       │        always; then sets destination/source/`requestedamount`.
+       │      finishReplenishmentOrderWithoutRefill(buildMobileDto()) transfers stock, sets order
+       │        FINISHED (no refill triggered).
+       │      `replenishorderRepository.flush()` — the template's state=700 transition is flushed
+       │        before any child INSERT, so the child never sees it still occupying the partial
+       │        unique index on (state<700).
+       │
+       ├─ 10. Remaining instructions (index 1..N) — new orders per unit load:
+       │      ReplenishGeneratorService.createOrderFromTemplate() (REQUIRED — joins this transaction)
+       │        ├─ number = template.number + "-" + (i+1)
+       │        ├─ copies client, itemdata, prio, manuallyoverridepriority
+       │        └─ reserves stock on the explicit Stockunit
+       │      finishReplenishmentOrderWithoutRefill(buildMobileDto()); flush() before the next child.
+       │
+       └─ 11. Returns to `fulfillMultipleUnitLoads`, which (after commit, no ambient transaction) runs:
+              replenishGeneratorService.refillFixedLocations()   ← single refill pass
+              replenishmentOrderMaintenanceService.recalculateOpenOrders(true)
 ```
+
+**Error order (R7, reverted 2026-09-30).** A destination rejection (step 3) now surfaces before any unit-load/stock error (steps 5, 8) — as on `develop` before this fix, not the "UL/stock errors first" order an earlier revision of this plan introduced.
+
+**Batch cap (SBDEV-3605, security review Low).** `MultiReplenishRequestDto.unitLoads` carries `@Size(max = MultiReplenishRequestDto.MAX_UNIT_LOADS)` (`MAX_UNIT_LOADS = 50`), bounding the up-front lock set at step 6. A violation is a bean-validation failure, surfaced as **422** `parameterErrors` via `RestExceptionHandler` — not the 400s used elsewhere on this endpoint. The DEV maximum observed is 3 unit loads per batch; PRD is unmeasured.
 
 ### Key subtlety: `entityManager.refresh` after `createOrderFromTemplate`
 
@@ -496,11 +581,15 @@ Both `NEW_CRON_JOB_ACTIVATED` and `REPLENISHMENT_TIMER_ACTIVATED` must be `true`
 | 7 | `triggerRegularReplenishment()` | Periodic refill of FLAs below their **lower** bound (the `getRefillFixedLocations` query). The lower bound is the trigger; the upper bound is the fill target used to size the order. |
 | 8 | `updateReplenishmentOrderPriority()` | Syncs replenish order priority with customer order priority. Two passes: (a) reset to `PRIORITY_VERY_LOW` orders with no matching customer orders; (b) elevate to match `max(customerOrder.prio)` for orders that have active customer demand. |
 | 9 | `recalculateReplenishmentOrderWithoutFixedLocationAssignment()` | Back-fills `destinationId` on orders that gained a FLA since creation. |
-| 10 | `recalculateForItem` / `recalculateOpenOrders` | Calls `ReplenishmentOrderMaintenanceService` — targeted for affected items, or cadence-gated full recalc if nothing changed. |
+| 10 | `recalculateForItem` / `recalculateOpenOrders` | Calls `ReplenishmentOrderMaintenanceService` — `recalculateForItem` per affected item, **then always** the cadence-gated full recalc (SBDEV-3624; it used to run only when nothing was affected). |
 
 ### Affected item tracking
 
-Phases 3–7 return lists of affected IDs. The job unions these into `Set<Long> affectedItemIds` and calls `replenishmentOrderMaintenanceService.recalculateForItem(itemId)` per item. If `affectedItemIds` is empty (quiet cycle), it falls back to `recalculateOpenOrders(false)` which respects the cadence sysprop.
+Phases 3–7 return lists of affected IDs. The job unions these into `Set<Long> affectedItemIds` and calls `replenishmentOrderMaintenanceService.recalculateForItem(itemId)` per item, and **then always** calls `recalculateOpenOrders(false)`, which respects the cadence sysprop (`REPLENISHMENT_RECALCULATION_CADENCE_SECONDS`, default `0` = every cycle).
+
+⚠ **Corrected — SBDEV-3624 (2026-10-01).** This used to read *"If `affectedItemIds` is empty (quiet cycle), it falls back to `recalculateOpenOrders(false)`"* — and that either/or was the defect. The ids are the ids each phase **attempted**, not the ids it changed, so a candidate the cron can never replenish (an FLA with demand above its flowbin and no source stock) keeps the set non-empty on every cycle and the full sweep never ran. On DEV wineco three such FLAs starved it for months (the latest cron-attributable replenish write was 2026-08-28; the only sweeps were manual forced ones from `fulfillMultipleUnitLoads`). The per-item loop is kept: when a cadence > 0 skips the sweep it is the only path keeping the touched items current.
+
+**Drain loops (SBDEV-3624).** The five page-0 drain loops (phases 3–6 plus `deleteEmptyFixAssignmentWithoutStockToReplenish`) and both priority passes of phase 8 go through `ReplenishOrderJob.drainPageZero`: each id is attempted **at most once per run** (also when it repeats within one page — the fixed-assignment query groups by stock-unit columns), and a page that brings no new id ends the loop with a `"<sub-op> stalled …"` WARN instead of the old misleading `"hit page-limit cap … consider raising REPLENISHMENT_PAGE_LIMIT"`. Before, a stuck row was re-processed on every one of the `REPLENISHMENT_PAGE_LIMIT` (default 100) pages. Known limit, deliberately not fixed: if stuck rows fill an entire page (`REPLENISHMENT_PAGE_SIZE`, default 1000), rows behind them are not reached that run — the stall WARN says so (`"page 0 is full"`); reaching them needs keyset paging (`id > :afterId`). PRD had 0 stuck fixed-assignment candidates on all 4 tenants on 2026-10-01.
 
 ---
 
@@ -519,7 +608,7 @@ Phases 3–7 return lists of affected IDs. The job unions these into `Set<Long> 
 | `CODE_REPLENISHMENT_SWITCHED` | `"REPLENISHMENT_SWITCHED"` | Reservation transferred when source unit load is switched |
 | `CODE_REDIRECT_REPLENISHMENT_SOURCE` | `"REDIRECT_REPLENISHMENT_SOURCE"` | Reservation transferred during manual source redirect |
 
-`transferStockToUnitLoad(sourceStock, assignedUnitLoad, amountPicked, ...)` is called at `finishReplenishmentOrderInternal` to physically move stock to the FLA's assigned unit load.
+`transferStockToUnitLoad(sourceStock, assignedUnitLoad, amountPicked, ...)` is called at `finishReplenishmentOrderWithoutRefill` (formerly `finishReplenishmentOrderInternal`) to physically move stock to the FLA's assigned unit load.
 
 ### With Picking
 
@@ -528,8 +617,9 @@ The replenish job's phase 8 reads `customerorder.prio` to derive replenishment p
 ### With `FixLocationAssignmentService`
 
 `createFixedLocationAssignment(location, itemdata)` is called in two scenarios:
-- `MobileReplenishService.checkDestination` — when an operator scans a new flowbin with no existing FLA.
-- `MobileReplenishService.finishReplenishmentOrderInternal` — when no FLA exists at the destination at finish time.
+- ~~`MobileReplenishService.checkDestination`~~ — removed by SBDEV-3638 (merged 2026-10-02, `f839921e`).
+- `MobileReplenishService.assignDestinationForMultiUnitLoads` — when the resolved destination has no existing FLA (multi-UL path).
+- `MobileReplenishService.finishReplenishmentOrderWithoutRefill` — when no FLA exists at the destination at finish time.
 
 This means replenishment execution can create FLAs as a side effect.
 
@@ -539,6 +629,7 @@ When a unit load carrying stock bound to an active replen (`state < FINISHED`) i
 
 - **Replenishable destination** — original **SBDEV-2492** behavior, unchanged: re-point `requestedlocationId` / `requestedrackId` / `sourcelocationname` on the bound order onto the new location. `stockunitId` and the reservation amounts are never touched (same stock unit, only its location changed).
 - **NON-replenishable destination** — **SBDEV-2074 (2026-07-20)**: delegates to `ReplenishmentOrderMaintenanceService.reassignOrCancelForMovedStockUnit`, which releases the reservation from the moved stock unit and reassigns the *same* `Replenishorder` to another eligible source via `redirectSource`, or cancels it via `cancelOrder` if no candidate exists.
+  - **SBDEV-3618:** it now locks the moved stock unit (`findByIdForUpdate`) before reading the order's held share. The lock order is order → current → target, the same as recalc. A candidate that *is* the moved SU counts as no candidate (AC5-guard).
 
 Both branches block with `BusinessException` (rejecting the move, HTTP 422) if the bound order is already `state >= STARTED (500)`, including `530` — an in-progress replenishment must be completed or cancelled first, not silently re-pointed or reassigned underneath the operator picking it.
 
@@ -589,7 +680,7 @@ Both branches block with `BusinessException` (rejecting the move, HTTP 422) if t
 
 ### 1. `refillFixedLocations()` has no transaction boundary — landmine
 
-`ReplenishGeneratorService.refillFixedLocations()` is `public void` with no `@Transactional`. Each item in its loop calls `refillSingleFixedLocation(ass.getId())` which runs in `REQUIRES_NEW`. A failure in one item is swallowed and logged, but the loop itself has no outer transaction — meaning partial completion is the intended behavior here, but it is also reached from `MobileReplenishService.finishReplenishmentOrderInternal` when `triggerRefill = true` — via `scheduleRefillAfterCommit(replenishOrder.getNumber())`, not by a direct call. ⚠ **Mechanism corrected 2026-09-10 (SBDEV-3244).** It read *"That call runs inside the finish transaction; if refill throws unexpectedly, the finish transaction rolls back."* It does not: `finishReplenishmentOrderInternal` calls **`scheduleRefillAfterCommit(...)`**, whose javadoc opens *"Defers … until AFTER the surrounding transaction commits."* The paragraph's **conclusion still stands** — the deferral exists precisely because a `REQUIRES_NEW` refill inside a lock-holding transaction hangs — but the stated cause was the opposite of the code. Callers should still audit this path.
+`ReplenishGeneratorService.refillFixedLocations()` is `public void` with no `@Transactional`. Each item in its loop calls `refillSingleFixedLocation(ass.getId())` which runs in `REQUIRES_NEW`. A failure in one item is swallowed and logged, but the loop itself has no outer transaction — meaning partial completion is the intended behavior here, but it was also reached from `MobileReplenishService.finishReplenishmentOrderInternal` when `triggerRefill = true` — via `scheduleRefillAfterCommit(replenishOrder.getNumber())`, not by a direct call. ⚠ **Mechanism corrected 2026-09-10 (SBDEV-3244).** It read *"That call runs inside the finish transaction; if refill throws unexpectedly, the finish transaction rolls back."* It does not: `finishReplenishmentOrderInternal` calls **`scheduleRefillAfterCommit(...)`**, whose javadoc opens *"Defers … until AFTER the surrounding transaction commits."* The paragraph's **conclusion still stands** — the deferral exists precisely because a `REQUIRES_NEW` refill inside a lock-holding transaction hangs — but the stated cause was the opposite of the code. Callers should still audit this path. *(Method removed by SBDEV-3638, merged 2026-10-02, `f839921e`: `finishReplenishmentOrderInternal`, `scheduleRefillAfterCommit` and `runRefillMaintenance` are gone. The only finish is now `finishReplenishmentOrderWithoutRefill`; `fulfillMultipleUnitLoads` runs its own best-effort `refillFixedLocations()` after the commit.)*
 
 **Downstream plan needed:** Add a verify script to confirm `refillFixedLocations` is always invoked from within a safe context. See `wms-bugfix-plan` convention.
 
@@ -597,9 +688,9 @@ Both branches block with `BusinessException` (rejecting the move, HTTP 422) if t
 
 When a `PROCESSABLE` order already exists for the same item + destination, `calculateOrder` returns `null` (not an exception). Several callers silently discard this: `ReplenishorderService.create` returns `null` to the controller which returns HTTP 200 with empty body. Callers should be aware that `null` means "order already exists, nothing to do" — not an error.
 
-### 3. FLA auto-creation at `checkDestination` and `finishReplenishmentOrder` — surprise side effect
+### 3. FLA auto-creation at `assignDestinationForMultiUnitLoads` and `finishReplenishmentOrderWithoutRefill` — surprise side effect
 
-Both `checkDestination` and `finishReplenishmentOrderInternal` can create `FixLocationAssignment` records as a side effect of an operator's scan. This is by design for the flowbin assignment flow, but can create unexpected FLAs if an operator scans the wrong destination. There is no undo mechanism — FLA deletion requires the job's cleanup phase (which is off by default) or manual DB intervention.
+(Retitled by SBDEV-3638, merged 2026-10-02, `f839921e`: the former creators `checkDestination` and `finishReplenishmentOrder` are removed.) Both remaining creators can create `FixLocationAssignment` records as a side effect of an operator's scan. This is by design for the flowbin assignment flow, but can create unexpected FLAs if an operator scans the wrong destination. There is no undo mechanism — FLA deletion requires the job's cleanup phase (which is off by default) or manual DB intervention.
 
 ### 4. Transaction boundaries on the recalculate methods
 
@@ -677,6 +768,8 @@ Each job iteration calls `TenantContext.setCurrentTenant(profile)` before any qu
 | 2026-05-08 | Claude (executor) | SBDEV-1699 (commit `c4fcfc1`) verified live: `ViewDtoService.getStockPerLocation` (line 672 onwards) uses batched `fixLocationAssignmentRepository.findByItemdataIdIn(itemdataIds)` (line 684); `ReplenishmentMonitorViewRepository` SQL exposes `f.upperbound AS fix_assignment_upperbound` (line 64) with re-projected aggregate column at line 31; `ReplenishMonitorSummaryView.getFix_assignment_upperbound()` getter present (line 32); `ViewDtoService.getReplenishMonitorViewSummary` (line 1194) emits DTO `locationStock` (line 1232 — `dto.put("locationStock", fixUpperBound.subtract(qtyOnLoc).longValue())`); `ViewDtoService.getReplenishMonitorViewSummary` and the detail-view method at line 601 both annotated `@Transactional(value = "tenantTransactionManager", readOnly = true)`. No drift to module body required. |
 | 2026-05-19 | Claude (executor) | SBDEV-2234 (merged 2026-05-18): `recalculateForItem(Long)` now `@Transactional(tenantTransactionManager)` — §4 limitation #4 updated to reflect this; `recalculateOpenOrders(boolean)` intentionally remains non-transactional (260331 decision, confirmed in tx-osiv-boundary-map 2026-05-15 entry). `ReplenishorderRepository.findByIdForUpdate` now actively called by `recalculateOrder` (already documented in §key files table). `SyspropService.setSysvalue` added (documented in wms2-sysprop-catalog 2026-05-15). `REPLENISHMENT_RECALCULATION_LAST_RUN_EPOCH_MS` sysprop replaces JVM-local `lastRun` field. |
 | 2026-05-20 | Claude (executor) | 260520 fix: `recalculateOrder(Replenishorder, RecalcContext)` now `public @Transactional(tenantTransactionManager, REQUIRED)` (Fix A — plan `260520-replenishment-open-orders-missing-tx`). `@Lazy @Autowired self` field added to service; `recalculateOpenOrders(boolean)` sweep loop changed to call `self.recalculateOrder(order, ctx)` (per-order short REQUIRED tx). §4 method table updated (visibility + annotation), §4 limitation #4 rewritten to reflect new 3-method tx boundary table. §5.4 WARNING documented. |
-| 2026-07-20 | Claude (executor) | **SBDEV-1714** (V2), implemented 2026-07-20: finished replenishments lost audit data (closed record showed source UL `Nirwana` / stock-unit amount 0 because it held only a live FK to the drained source stock unit — 164/168 on wms2-wineco-dev). Added 4 nullable finish-time snapshot columns to `replenishorder` (Flyway `V2.2.03`); `finishReplenishmentOrderInternal` captures the source-UL label + amount **before** `transferStockToUnitLoad` mutates the source, and freezes them on the order before `setState(FINISHED)`. `findDetailMapById`/`getReplenishorderDetails` surface the frozen values (additive, NULL-safe); `getDetailViewByKeyword` + `getClosedViewByKeyword` `COALESCE(moved_source_unitload_label, u.labelid)` for both display and keyword search; `getOpenViewByKeyword` unchanged. Forward-only. §4.1 table + §5 note updated. Plan: `sbdocs/4-Archieves/wms2/plan/SBDEV-1714-replenishment-finish-audit-snapshot.md`. |
+| 2026-07-20 | Claude (executor) | **SBDEV-1714** (V2), implemented 2026-07-20: finished replenishments lost audit data (closed record showed source UL `Nirwana` / stock-unit amount 0 because it held only a live FK to the drained source stock unit — 164/168 on wms2-wineco-dev). Added 4 nullable finish-time snapshot columns to `replenishorder` (Flyway `V2.2.03`); `finishReplenishmentOrderInternal` (now `finishReplenishmentOrderWithoutRefill`) captures the source-UL label + amount **before** `transferStockToUnitLoad` mutates the source, and freezes them on the order before `setState(FINISHED)`. `findDetailMapById`/`getReplenishorderDetails` surface the frozen values (additive, NULL-safe); `getDetailViewByKeyword` + `getClosedViewByKeyword` `COALESCE(moved_source_unitload_label, u.labelid)` for both display and keyword search; `getOpenViewByKeyword` unchanged. Forward-only. §4.1 table + §5 note updated. Plan: `sbdocs/4-Archieves/wms2/plan/SBDEV-1714-replenishment-finish-audit-snapshot.md`. |
 | 2026-07-20 | Claude (writer) | SBDEV-2074 (V2), implemented 2026-07-20: verified against `ReplenishmentOrderMaintenanceService.java` (575→688 lines, new public `reassignOrCancelForMovedStockUnit`), `ReplenishmentOrderSourceSyncService.java` (`syncForMovedStockUnit` now branches on destination replenishability), and new `util/LocationReplenishabilityUtil.java` (M1 shared `isReplenishableArea` helper). §0 module inventory updated (new files + line counts); §2 gained `reassignOrCancelForMovedStockUnit` row and a new `ReplenishmentOrderSourceSyncService` subsection; §3 dependency tree gained the move-choke-point → `ReplenishmentOrderSourceSyncService` → (`@Lazy`) `ReplenishmentOrderMaintenanceService` edge; §9 gained a new "With stock movement" subsection describing the branch and the cron-gap it closes (`recalculateOrder` needs `state==300`; `cancelUnreachableReplenishment` needs `state<=300`; neither reaches a `RESERVED(400)` order re-pointed onto a non-replenishable lane at move time); §11 gained limitation #10 documenting the `redirectSource` reserve-before-release reorder (M4) that fixes a double-release/negative-`reservedamount` bug, plus the M5 accepted rollback contract (reserve is intentionally not `REQUIRES_NEW`); §12 cross-referenced the SBDEV-2074 plan and the archived SBDEV-2492 plan. No unrelated sections touched. |
 | 2026-09-17 | Claude (executor) | **SBDEV-2976 Gap 3** (V2), committed `372a6906` on `bugfix/SBDEV-2976-replenish-location-search`: the Open/Closed Replenishment lists could not be searched by location — WineCo reproduced this 2026-09-02 looking for `SH-B03`. Measured on wms2-wineco-dev, keyword `SH-B03`: **0 rows before → 4,623 after** (4,622 destination, 1 source). `r.sourcelocationname` and `l.name` were already SELECTed (as `source`/`destination`) and rendered as the "Source / UL" and "Destination / Qty" columns, but were absent from the `CONCAT(...) LIKE` predicate, so the search failed silently. Fixed as the broader invariant — *every column the Replenishment list renders must be reachable from its keyword box* — which caught two more: `r.number` ("Replenishment #", a clickable drill-down link) and `c.name` ("Shipper / Brand", where only `cl_nr` was searchable). Applied to **all three** predicates: `getOpenViewByKeyword`, `getClosedViewByKeyword` and `getDetailViewByKeyword` (the ticket named only the first two; the third is HAL-reachable via `@RepositoryRestResource` and carried the identical defect). No new joins. **SBDEV-1714's `COALESCE(moved_source_unitload_label, u.labelid)` is untouched** — the §5 note above (frozen values on the closed/detail views, live join on the open view) still holds exactly as written, and is now pinned by a test. New `ReplenishorderLocationKeywordSearchIT` on the PostgreSQL Testcontainers lane, 14 assertions, all mutation-checked across 8 mutants. ⚠ The `CONCAT`-vs-`||` choice is load-bearing and now pinned: `||` propagates NULL and would drop the 7,471 no-destination rows (1.9%) from the Closed list silently. Measured cost: Open list 16.2→22.4 ms (the `location` join goes from `never executed` to a hash build); Closed count 2,332→2,703 ms (+16%). Not this doc's other sections — nothing else was re-derived on this pass. |
+| 2026-09-30 | Claude (executor) | **SBDEV-3561** (V2), branch `bugfix/SBDEV-3561-change-source-stock-unit-guard`. Re-verified ONLY the §service-table rows `update`, `updateSourceStockUnit`, `updatePriority` and `redirectSource`, and the §state-table rows `startOrder` and `finishReplenishmentOrder`, against the SBDEV-3561 worktree. The routes were stale from before this ticket (`PUT /v3/replenish/...`); they are really `POST /v3/replenishOrder/*` (`ReplenishOrderController` `@RequestMapping("/v3/replenishOrder")`). `redirectSource` is now `(Long, Long)`, locked and guarded. The finish stale-source refusal was added. `startOrder` has zero callers. Nothing else in this doc was re-derived, and `last_verified` is left unchanged for that reason. |
+| 2026-10-02 | Claude (writer) | **SBDEV-3638** (V2), branch `bugfix/SBDEV-3638-remove-single-ul-replenish-endpoints`, PR pending, NOT merged. Doc pass only: struck the removed handheld single-UL endpoints `GET /v3/replenish/checkSource\|checkAmount\|checkDestination` and what only they reached (`switchSourceToUnitLoad` = re-source writer 3, so the writer count is now three; `finishReplenishmentOrder` + refill; F8a/F8b; the SBDEV-3621 single-UL finish rule and `REPLENISH_FINISH_BLOCKED_BY_RESERVATIONS`; `findIdsByUnitloadId`). The only finish is the private `finishReplenishmentOrderWithoutRefill` via `POST /v3/replenish/multi-unitloads`, guarded by `REPLENISH_MISSING_SOURCE`. Verified against the worktree `.claude/worktrees/wms2-api/SBDEV-3638`. `last_verified` unchanged; nothing else re-derived. |

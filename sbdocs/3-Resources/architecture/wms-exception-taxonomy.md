@@ -2,8 +2,8 @@
 type: architecture
 status: active
 system: wms1+wms2
-last_verified: 2026-08-29
-verified_by: SBDEV-2994 implementation — code read of v2 StockunitService, StockUnitController, DestinationEligibilityService, RestExceptionHandler + both message bundles
+last_verified: 2026-09-30
+verified_by: SBDEV-3562 (batch-id carve-out, §3 SBDEV-2994 table) + SBDEV-2994 implementation — code read of v2 StockunitService, StockUnitController, DestinationEligibilityService, RestExceptionHandler + both message bundles
 ---
 
 # WMS Exception Taxonomy
@@ -159,6 +159,30 @@ supplied** is a `BusinessException`; a failed lookup on a value the **system alr
 | Destination location name (`locationName`) | client request / a replayed audit value | `BusinessException` | client-supplied on every caller |
 | `UnitloadType` by name, `Location` by id, `Client` by id, `FixLocationAssignment` … | resolved internally from reference data or an FK | `EntityNotFoundException` | referential-integrity fault; the operator can do nothing |
 | Surrogate primary key (`stockUnit.id` from the request) | client, but not operator-visible | `EntityNotFoundException` | a bad surrogate key is a client-programming error, and stays a 404 |
+
+> [!note] Exception — the ids of a **batch** request (SBDEV-3562, 2026-09-30)
+> The last row holds for a **single-entity** endpoint only. In a loop that runs one service
+> transaction per id, a 404 for id *k* arrives **after ids 1…k-1 have committed**, so the whole
+> request reads as a failure while rows really changed — and the likeliest cause is not a
+> programming error but a race (the row was deleted in another tab). So a batch loop reports a
+> missing or unparseable id as **one per-id entry in `200 {errors:[…]}`** and continues:
+> `AdminController.parseBatchId` / `findBatchEntity` (`"Entity Not Found"`, `"Invalid ID Format"`).
+> The message names only the **requested** id, and `findBatchEntity` unwraps the `Optional`
+> rather than catching `EntityNotFoundException` — so a not-found raised *inside* the service still
+> takes the path this section describes, and its internal message stays off the operator's screen.
+> Applied to 7 loops (`goodsReceiptPosition/adjust`+`/delete`, `cycleCount/cancel`,
+> `advice/closeInboundBol`, `stockUnit/bulkTransferStock`+`/bulkAdjustAmount`+`/bulkAdjustReservedAmount`);
+> `bulkSetLockOnHold`/`bulkTransferToDamaged`/`bulkRemoveLock` already reported per id (SBDEV-3086).
+> A failure raised *inside* the service must not abandon the later ids either. The three
+> `stockUnit/bulk*` loops had their `try` around the **whole** loop, and in all seven loops the per-id
+> catches took only `BusinessException`/`FacadeException`, so an unchecked failure escaped them. Each
+> loop now ends its per-id catches with `catch (RuntimeException e)` → `AdminController.addBatchServiceFailure`:
+> a not-found gets a fixed support reference (logged at ERROR); anything else — `DataAccessException`,
+> `CannotCreateTransactionException` on tenant pool exhaustion — gets *"This row could not be completed.
+> Retry id <n>."* (logged at WARN). The parse and the `findById` sit inside the same per-id `try`,
+> because the lookup can throw too. The exception's own text is never put in the response.
+> Not applied where a missing id aborts **before anything commits** — `UnitLoadController.bulkDeleteContainer`
+> validates every id in a pass before its first delete, and a 404 there is still honest.
 
 **Why the distinction is load-bearing and not stylistic.** `StockUnitController.transferStock` wrapped
 its service call in a `catch` for `BusinessException`/`FacadeException` only, so an

@@ -1,12 +1,16 @@
 ---
 name: hydra-prd-has-never-had-a-replenishorder-row
-description: "Hydra prd (the only v2 prd client) has zero replenishorder rows ever, so every replenishment-recalc defect has zero live prd exposure — but the cron fires every minute and UAT has 104 orders"
+description: "SUPERSEDED 2026-09-29: Hydra prd now HAS replenishorders (2, both PROCESSABLE), and v2 prd also runs WineCo + ShipItEZ with thousands; re-query before claiming zero prd exposure"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 9d52a4a0-a665-4761-910e-aecb134394a3
   modified: 2026-09-09T18:20:46.621Z
 ---
+
+⚠ **UPDATE 2026-09-29 (SBDEV-3561), which overrides the zero below:** `nywh-hydra-prd` now has `300=2`. v2 PRD is also
+**not** Hydra-only: `wsl-wineco-prd` 300=563/700=864/800=60916, `c1wh-shipitez-prd` 300=103/700=4263/800=1125,
+`nywh-shipitez-prd` 800=34. So replenishment defects **do** have live v2 prd exposure. The rest of this file is history.
 
 Measured 2026-09-09 on `wms2-hydra` (prd): `replenishorder` has **never held a row** —
 `count(*) = 0` and `max(version) = -1`. So `findByStateAndItemdataId` / `findByState` return empty,

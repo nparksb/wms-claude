@@ -17,7 +17,7 @@ Inverted too: the four `*-dev` servers showed **✘ Failed to connect / timed ou
 that same health check, yet `mcp__wms2-wineco-dev__execute_sql` worked fine all session. So
 `claude mcp list` is not evidence either way — it is a fresh probe, not the session's state.
 
-**The fallback:** `psql` is on PATH (16.14) and every connection URI is in `~/.claude.json`
+**The fallback:** ✅ **2026-10-05: psql exists at `/usr/local/opt/libpq/bin/psql` (Homebrew libpq, not on PATH)**. Use it by absolute path first; the URI can be taken with `claude mcp list | grep '^<server>:' | grep -oE 'postgresql://[^ ]+'`, but that command PRINTS every credential, so pipe it, never echo it. A session started while the tunnel was down keeps the UAT MCP tools as failed even after `claude mcp list` turns Connected; `/mcp` reconnect or a new session is needed. Older note: `psql` was on PATH (16.14), then ⚠ **gone from PATH as of 2026-09-29** (no psql anywhere, no psycopg). Working substitute: `npm i pg@8` in the scratchpad and a 10-line node script reading the URI from `~/.claude.json` (it sits in `args` as the `postgresql://` element, after the literal `postgres-mcp` — match `postgresql:`, not `postgres`). Also check the tunnel first: `nc -z -G 3 127.0.0.1 25060` — on 2026-09-29 it answered once and then refused, which no driver can fix and every connection URI is in `~/.claude.json`
 (`grep -o '"[a-z0-9-]*uat[a-z0-9-]*"'` to find server names, or just read `claude mcp list` output,
 which prints the full URI including credentials). Port convention on the local tunnels:
 **25060 = dev, 25062 = UAT, 25061 = PRD**. Percent-encoded passwords work as-is in the URI.

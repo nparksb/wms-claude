@@ -265,7 +265,15 @@ Run them in parallel; both get: `git -C "$WT" diff origin/develop...HEAD`, the w
 | Low / nit | **Fix. Also non-negotiable — Nam 2026-08-26: "let's also address low ones too".** A Low that is genuinely out of scope (it needs its own ticket, or it disputes something the owner decided) gets *dispatched*, not merely recorded: say where it went. A Low whose remedy is a **ticket note rather than code** — a deliberate behaviour no AC states, a stale citation — still counts as unaddressed until the note is posted. Do not hand a Low back to the user as an "open item"; that is the failure this row exists to stop. |
 | Finding that disputes the plan's **design** | Do NOT redesign silently. Stop, present the finding and the plan's rationale, and let the user decide. |
 
-After fixes: re-run Phase 2 in full, then a **second review pass scoped to the fixes only**. Loop until a pass yields no new High/Medium. (Lows are fixed too, but a fresh Low does not by itself force another loop — fix it and move on.) If the same finding survives two fix attempts, stop and escalate — repeated failure means the plan or the finding is wrong, not the code.
+After fixes: re-run Phase 2 in full, then a **second review pass scoped to the fixes only**. Loop until a pass yields no new High/Medium.
+
+⚠ **Read the loop-ending rule precisely — it has been misread at least four times** (SBDEV-3418, 3458,
+3473, 3486). "A fresh Low does not force another pass" applies only to the fixes that follow a pass
+that found **no** High/Medium. If a pass found a High or Medium, the commit that fixes it has had
+**no** review, and it is the least-reviewed, most reactive code on the branch. It needs its own scoped
+pass before the Phase 6 block. A lane whose report was written against the pre-fix SHA did not
+review the fix, however recent its notification. Record the SHA each lane read (its report's
+`head:`) and carry it into the `Reviewed SHA:` line of the Phase 6 block. (Lows are fixed too. A fresh Low does not force another *full* loop, but **the commit that fixes it still gets one scoped review lane before push** — cheap, and the `Reviewed SHA` line must end at the tip. SBDEV-3362, 2026-09-26: a Low-fix commit was pushed citing the old wording "does not force another loop", and Nam had to ask whether all fixes were reviewed. See memory `review-rounds-leave-their-own-fix-commits-unreviewed`.) If the same finding survives two fix attempts, stop and escalate — repeated failure means the plan or the finding is wrong, not the code.
 
 **Re-run 3a as well** when a review fix changed behavior covered by a §8 criterion — scoped to the affected criteria, not the whole plan. A fix that satisfies the reviewer while breaking conformance is the one thing this two-lane structure exists to catch, and only the verifier lane will see it.
 
@@ -314,6 +322,11 @@ Tests:         <N> targeted pass | full suite <N> pass, <M> fail (baseline <M>)
 Verify script: Result: N pass, 0 fail
 Conformance:   verifier PASS — <N>/<N> §8 criteria VERIFIED, <N>/<N> §0 rows covered
 Code review:   <H> high / <M> medium fixed, <L> low deferred
+Reviewed SHA:  <sha the LAST review lane actually read>  vs tip <HEAD sha>
+               `git log --oneline <reviewed-sha>..HEAD` → must be EMPTY, or list each commit
+               here as UNREVIEWED with its content type (test-only / comments-only / PRODUCTION).
+               A non-empty list containing production logic, or the fix for a High/Medium, is a
+               BLOCKER: run the scoped lane before this block, do not push past it.
 Docs:          <updated | none needed | N flagged>
 PR title:      <title>
 Inline notes:  <N> review comments to post on the PR (Phase 6a) — dispatched Lows, non-obvious

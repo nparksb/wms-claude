@@ -33,3 +33,25 @@ The single unverified premise ("its only guard did not ship") was the one that d
 Same family as [[a-zero-scan-needs-a-positive-control]]: an enumeration offered as closed needs a control
 and must state what it matched. Codified in `.claude/skills/wms-triage/SKILL.md` under Claim discipline, and
 in `sbdocs/9-System/orphaned-tests/README.md` as an intake rule.
+
+## Third instance — 2026-09-21, SBDEV-3340 shadow-gate retirement
+
+A review lane reported "only one of the two gated mint sites is test-pinned — **no test references the
+`"pallet-carrier"` route literal**, so that call survives deletion." True about the literal. False about
+the guarantee: `StockunitServiceToteContainerRelocationUnitTest.palletCarrierMintSiteIsAlsoGated` pins the
+site by **behaviour** (drives the `isTransferToExistingContainer` arm, asserts
+`verify(locationConstraintService).isUnitloadTypePermitted(...)`), so it never spells the label.
+
+Cost before it was caught: a false "precondition before enabling" stated to Nam, written into the evidence
+doc, put on the ticket, and a ClickUp ticket filed for the non-existent gap (SBDEV-3448, since deleted).
+It surfaced only because
+implementing the fix began by opening the file the gap was supposed to be in.
+
+**The generalisation that is actually new here:** *a review finding is a hypothesis until an instrument
+agrees with it.* Three of that review's four findings were verified against source or DB before being
+accepted; this one was taken on trust because it was specific, quantified, and pointed at the author's own
+work — the three properties that make a claim *feel* already checked. Adversarial lanes earn trust on
+their hits, and that trust is what carries their misses through.
+
+Settling it cost one mutation run: baseline 8/0, gate call deleted → 8 tests / 1 failure, that test only,
+`Wanted but not invoked:` naming `isUnitloadTypePermitted`. See [[mutation-harness-traps]].

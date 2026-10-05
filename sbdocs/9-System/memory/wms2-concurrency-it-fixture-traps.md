@@ -49,3 +49,18 @@ wrong reason. `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event_ty
 datname = current_database())` works; its blind spot is that it cannot attribute the wait to a
 specific session. Related: [[findbyidforupdate-throws-at-the-lock-read-not-at-flush]],
 [[wms2-repository-tests-commit-they-do-not-roll-back]], [[concurrent-maven-one-worktree-false-reds]].
+
+**2026-09-25: a long-lived reused container fails OrderReleaseSectionQueryIT by itself.** After ~6 full
+`mvn clean verify` runs on one reused `postgres:14-alpine` (16h up), `seqentities` reached 9587 and the IT's
+guard fired ("climbed into the reserved fixed-id band (9001-9983)"): 4 failures unrelated to the diff. Fix
+is the one the message names: confirm no Maven is running (`pgrep -fl "surefire|failsafe|maven"`), check the
+container is Testcontainers' (`docker inspect … org.testcontainers=true`), `docker rm -f` it, rerun.
+
+**3. Which `JdbcTemplate` you get decides whether a fixture INSERT commits at all** (SBDEV-3626 gate, 2026-10-02).
+The autowired context `JdbcTemplate` in the mobile-replenish ITs sits on the landlord Hikari pool, which runs
+`auto-commit=false`; outside a transaction its inserts are never committed and the IT's tenant-side reads see
+nothing — first run was 19/19 FK violations, which reads as a fixture-ordering bug. Trap 2's template is a
+*different* bean (a standalone autocommit `DriverManagerDataSource`). **How to apply:** before trusting a
+fixture write, check which DataSource the template wraps; write fixtures through an explicit autocommit
+connection to the container (as `ReplenishClaimIT` does) and use `ON CONFLICT (id)` only, so any other
+conflict fails loudly instead of silently skipping the row.

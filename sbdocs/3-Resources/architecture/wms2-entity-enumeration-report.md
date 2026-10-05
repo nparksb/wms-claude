@@ -24,6 +24,16 @@ Generated: 2026-02-06
 | WITHOUT custom equals() & hashCode() | 60 |
 | Missing Implementation Rate | 96.8% |
 
+> ⚠️ **The totals below are stale, and NOT only by this ticket (measured 2026-09-21, SBDEV-3410 P2).**
+> `grep -rl '^@Entity' src/main/java/net/aim_ai/wms/model/` returns **67 on `origin/develop`** against the
+> **62** this document states — so it had already drifted by five entities before SBDEV-3410 touched it.
+> P2 adds `StockrecordView` (the `stockrecord_view` projection behind the Stock Unit Record report),
+> making the derived figure **68**. Its row is added to the list below; **the stated totals and the
+> per-category breakdowns are deliberately left alone**, because reconciling them needs an audit of which
+> five entities are missing and which category each belongs to — which is not this ticket's scope, and a
+> number corrected without that audit would be just as wrong while looking authoritative.
+> **Re-derive with the grep above; do not quote 62, 67 or 68 from this page.**
+
 > ⚠️ **Stale classification (pre-existing, flagged 2026-07-15 during SBDEV-2474):** the custom-`equals()`/`hashCode()` breakdown above and the "WITH (1) / WITHOUT (60)" split below predate the `LockOverviewDtoView`, `LockOverviewAllDtoView`, `OutboxMessage`, and `RestIdempotency` entities — the two `LockOverview*DtoView` entities do define id-based equals/hashCode, so "only Location has custom equals" is no longer accurate. SBDEV-2474 updated the entity list + totals (now 62) but a full re-audit of the equals/hashCode split is out of scope here and tracked separately.
 
 ---
@@ -120,6 +130,7 @@ public int hashCode() {
 | Shippingmethod | `src/main/java/net/aim_ai/wms/model/Shippingmethod.java` |
 | ShippingmethodShipperid | `src/main/java/net/aim_ai/wms/model/ShippingmethodShipperid.java` |
 | Stockrecord | `src/main/java/net/aim_ai/wms/model/Stockrecord.java` |
+| StockrecordView | `src/main/java/net/aim_ai/wms/model/StockrecordView.java` |
 | Stockunit | `src/main/java/net/aim_ai/wms/model/Stockunit.java` |
 | StockView | `src/main/java/net/aim_ai/wms/model/StockView.java` |
 | Sysprop | `src/main/java/net/aim_ai/wms/model/Sysprop.java` |

@@ -1,6 +1,6 @@
 ---
 name: v1-is-reference-only-v2-is-the-only-target
-description: As of 2026-08-20 no more v1 fixes — v1/* is read-only reference; all fix and feature work targets v2 only
+description: NO client is on WMS v1 any more (WineCo migrated, Nam 2026-10-02) — all fixes are v2 only; v1/* is read-only reference
 metadata: 
   node_type: memory
   type: project
@@ -8,7 +8,9 @@ metadata:
   modified: 2026-08-20T12:57:17.825Z
 ---
 
-As of **2026-08-20**, Nam Park's direction: **v2 is the default and only target for volunteered work**
+**Update 2026-10-02 (Nam): WineCo has migrated to WMS v2 and NO client is on WMS v1 any more. All fixes from now on are WMS v2 only.** A v1 ticket (e.g. SBDEV-2623, the v1 half of SBDEV-2024) is parked/obsolete — redirect to its v2 sibling. wms1-wineco DB shows last traffic 2026-09-24.
+
+Original (2026-08-20) direction: **v2 is the default and only target for volunteered work**
 (`v2/wms2-api`, `v2/wms2-web-ui`, `v2/wms2-mobile-ui`, `v2/oms-laravel-api`, `v2/omsv2-UI`).
 **v1 work happens ONLY when Nam explicitly asks for it** — it is not forbidden, it is
 never *self-initiated*. Absent an explicit request, `v1/wms-api`, `v1/wms-web-ui`, `v1/wms-mobile-ui`

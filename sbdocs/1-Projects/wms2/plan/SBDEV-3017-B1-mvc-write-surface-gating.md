@@ -2950,6 +2950,9 @@ from a deletion list to a gating list, so each of the six needs a function chose
 
 ### 9.16 DECISION 2026-08-27 (Nam) — Option **B**: the six putaway sites gate on their SCREEN's existing VIEW function. **Zero new constants.** F4 superseded
 
+> **Exception (SBDEV-3606, Nam 2026-09-30; on branch, pending merge).** `ReplenishOrderController`'s 6 writes are re-gated onto a new action function, `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER`, derived-granted from `WEB_UI_VIEW_REPLENISHMENT_ORDER` (migration `V2.2.35`). This is the **only** exception to Option B; the rule stands everywhere else. Do not generalise from it. Plan: `SBDEV-3606-replenishment-write-endpoints-gated-by-view-function.md`.
+
+
 **Decision:** each of the six putaway sites takes the function that already gates the screen it is reached
 from. No `WEB_UI_ACTION_SET_PUTAWAY_DESTINATION*` constant is created.
 

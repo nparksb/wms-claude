@@ -1,9 +1,11 @@
 ---
 name: wms2-access-chain-hops-1-2-writable-over-sdr
-description: SBDEV-3013 closed only hop 3 of the access-decision chain; group membership (mywms_group_mywms_user) and group→role are still POST/PUT/PATCH/DELETE-exposed over SDR on develop — measured, so every function gate may be a label
+description: "STALE/CORRECTED 2026-10-01: hops 1, 2, 4 are now write-disabled via RestConfiguration.configureAccessChainMembershipWriteExposure; the 2026-08-24 SDR write exposure below is history"
 metadata:
   type: project
 ---
+> **STALE / CORRECTED 2026-10-01.** The title claim ("hops 1-2 writable over SDR") is no longer true on `origin/develop`. `RestConfiguration.configureAccessChainMembershipWriteExposure` (`RestConfiguration.java:200`, called from `:102`) now disables `WRITE_VERBS` on collection and item exposure for hop 1 (`UserGroupUser`), hop 2 (`UserGroupUserRole`) and hop 4 (`UserFunction`): e.g. `.forDomainType(UserGroupUser.class).withCollectionExposure((metadata, httpMethods) -> httpMethods.disable(WRITE_VERBS))`. Hop 2 is additionally un-exported entirely by SBDEV-3183 Slice 2 (its block is now a no-op "belt-and-braces"). The javadoc reads "closing every SDR route to hops 1 and 2, plus the item-PATCH route to hop 3" (SBDEV-3545 also withdrew `UserRole` item verbs). The table and "How to apply" below are the 2026-08-24 measurement, kept as history; do not cite them as current. Verified by `git grep` on `origin/develop` 2026-10-01.
+
 
 `AccessService` derives every authorization decision from `UserRepository.getAllRoles`
 (`UserRepository.java:29-37`), a four-hop join:

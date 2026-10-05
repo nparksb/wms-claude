@@ -2,8 +2,8 @@
 type: design
 status: active
 system: wms2
-last_verified: 2026-09-17
-verified_by: "Claude (SBDEV-3382) — full-move stockrecord table re-derived from origin/develop + SBDEV-3382; line-number columns dropped (they had drifted). Earlier: Claude (SBDEV-3135) — caching section only: expiry policy, cache-key prefix, SpEL example and all eviction method names re-derived from origin/develop. The stock-mutation-path call-site list was NOT re-verified."
+last_verified: 2026-09-30
+verified_by: "SBDEV-3622 doc pass 2026-10-02 — re-verified ONLY the adjustReservedAmount rows/notes (method table, transaction note, ledger row, the two recalculation notes, new preview GET + UI dialog pointer) against branch bugfix/SBDEV-3622-adjust-reserved-attributes-cut (unmerged, stacked on SBDEV-3621 PR #444). Prior: SBDEV-3618 doc pass 2026-10-01 — re-verified ONLY the new §6 shared-arithmetic paragraph (ReservationShare, ownShareOfReservation delegation) against branch bugfix/SBDEV-3618-recalc-held-share. Prior: SBDEV-3605 doc-drift pass 2026-09-30 — re-verified ONLY the new §6 holder-invariant subsection against branch SBDEV-3605 @ a1b8d5e1 (MobileReplenishService.ownShareOfReservation, applyExplicitSourceToOrder's two-row release) and the plan's own DEV-wineco measurement (430 exact / 1,753 leak, 1,658 stranded / 55 under). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. Prior: Claude (SBDEV-3382) — full-move stockrecord table re-derived from origin/develop + SBDEV-3382; line-number columns dropped (they had drifted). Earlier: Claude (SBDEV-3135) — caching section only: expiry policy, cache-key prefix, SpEL example and all eviction method names re-derived from origin/develop. The stock-mutation-path call-site list was NOT re-verified."
 tags: [wms2, stock, inventory, unitload, reservation, caffeine, multi-tenant]
 ---
 
@@ -59,7 +59,7 @@ The stock unit / unit load subsystem is the **source of truth for physical inven
 ### What it deliberately does NOT do
 
 - No cross-client stock merging — each `Stockunit` belongs to exactly one client.
-- No soft-delete — zero-amount stock units are sent to the "Nirwana" unit load and marked `GOING_TO_DELETE (2)`; actual DB deletion is handled by a separate cleanup job.
+- No soft-delete — zero-amount stock units are sent to the "Nirwana" unit load and marked `GOING_TO_DELETE (2)`; **no cleanup job deletes them.** A `git grep` of both repos' `src/main` (2026-09-24, SBDEV-3500) found no `stockunit`/`unitload` repository `delete*`/`remove` call and no `DELETE FROM stockunit|unitload` in `db/migration`; the UI's "delete container" (`UnitloadService.deleteUnitLoad`) is itself a send-to-Nirwana. Blind spots: both repositories extend `CrudRepository`, so a Spring Data REST `DELETE` route was not ruled out, and DB-side functions/triggers were not swept. PRD agrees — c1wh holds 11,600 lock-2 stock units (oldest 2022) and 16,240 lock-2 unit loads. They are hidden from the Handling Units grids by lock instead.
 - No multi-SKU merging — `transferStockToUnitLoad` rejects mixed-SKU transfers when `UnitloadType.differentStockAllowed = false`.
 - No cross-replica cache coordination — Caffeine caches are JVM-local (see §7 for implications).
 
@@ -78,7 +78,7 @@ All methods throw `BusinessException` (user-facing) or `FacadeException` (system
 | `setLockOnHold` | `(stockUnit, comment, principal) → Stockunit` | Yes — `tenantTransactionManager` | B, F | Sets `entityLock = ON_HOLD (104)`. Guards: stock must be `NOT_LOCKED (0)`, unit load unlocked, location unlocked, location not a flowbin, single SU on unit load, unit load not on a carrier, amount > 0, no reserved amount. **Triggers `recalculateForItem` (SBDEV-2033 follow-up / `d3f5ce18`)** as the last statement before return; safe because the now-relocated, ON_HOLD UL is excluded by `isSourceUsable`. |
 | `setLockDamaged` | `(stockUnit, amount, comment, printLabel, principal) → Stockunit` | No | B, F | Transfers `amount` to a new Box-type unit load at location "Damaged", sets `entityLock = QUALITY_FAULT (103)`. Only allowed when source is `NOT_LOCKED`. Clamps to `stockUnit.amount` if given amount exceeds it. Requires `availableamount >= amount`. **Since SBDEV-3086** the container-create + transfer + `QUALITY_FAULT` write happen inside `UnitloadService.moveStockToNewDamagedContainer`, which IS `@Transactional` — this method itself stays unannotated on purpose. **Triggers `recalculateForItem`** (excluded source = the new QUALITY_FAULT UL at the Damaged location). |
 | `adjustAmount` | `(stockUnit, amount, comment) → Stockunit` | No | F, B | Sets absolute quantity. Blocked on `SHIPPED` or `GOING_TO_DELETE`. Delegates to `changeAmount`. Sends OMS stock-change notification via `messageService`. **Triggers replenishment recalculation** — kept ON in v2 (deliberate divergence from v1, which deferred it: an amount edit changes availability and is not a re-reservation path). |
-| `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit` | Yes — `tenantTransactionManager` | F, B | Sets absolute reserved amount. Blocked if any linked picking position has `state >= STARTED`. Deliberately does NOT trigger replenishment recalculation (SBDEV-2033 re-reservation boundary). |
+| `adjustReservedAmount` | `(stockUnit, reservedAmount, comment) → Stockunit`; 4-arg overload `(stockUnit, reservedAmount, comment, expectedOrderIds)` | Yes — `tenantTransactionManager` | F, B | Sets absolute reserved amount. Blocked if any linked picking position has `state >= STARTED`. **SBDEV-3622 (branch `bugfix/SBDEV-3622-adjust-reserved-attributes-cut`, unmerged, stacked on SBDEV-3621 PR #444):** a *cut* is attributed in the same tx to the open `Replenishorder`s holding the SU (`ReservationCut.plan`, one `MANUAL_ADJUSTMENT` row per affected order) and refuses with `RESERVATION_CUT_ORDER_IN_PROGRESS` (a holder > `PROCESSABLE`), `RESERVATION_CUT_BELOW_PICKS` (target below open picks) or `RESERVATION_CUT_CHANGED` (holder set moved / differs from `expectedOrderIds`). Locks picking orders → orders ≤ `PROCESSABLE` ascending → SU (`findByIdForUpdate`, first touch) → re-probe. Increases unchanged. Read-only twin: `previewReservationCut(id, target)`. Still does NOT call `triggerReplenishmentMaintenance` (SBDEV-2033 re-reservation boundary) — see the note at the end of §7. |
 | `removeLock` | `(stockUnitId, comment, principal) → Stockunit` | No | B | Clears `entityLock` back to `NOT_LOCKED`. Only works for `QUALITY_FAULT` and `ON_HOLD`. Blocked on flowbin locations. `SHIPPED` and `GOING_TO_DELETE` throw. **Triggers `recalculateForItem` (SBDEV-2033 follow-up / `d3f5ce18`)** in its own tenant tx (method is non-`@Transactional`); re-enabling the freed stock as a replenishment source is the intended outcome. |
 | `getStockunitDetails` | `(id) → Map<String, Object>` | No | — | Read-only detail map for UI. |
 | `createCaseLabel` | `(unitLoad, stockUnit, warehouseName) → byte[]` | No | — | Generates ZPL case label bytes (single-SKU). |
@@ -139,7 +139,7 @@ UnitloadBusinessService   (unit-load placement primitives)
 
 **Transaction boundary note (v2)** — *rewritten 2026-08-26 for post-SBDEV-3086 `develop` (`dae5e79a`).*
 
-`StockunitService` has no class-level `@Transactional`. Three of its methods carry one — `transferStock` (`:157`), `setLockOnHold` (`:348`) and `adjustReservedAmount` (`:534`) — each as `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})`. The primitives `changeAmount` and `changeReservedAmount` in `StockunitBusinessService` are individually transactional.
+`StockunitService` has no class-level `@Transactional`. Three of its methods carry one — `transferStock` (`:157`), `setLockOnHold` (`:348`) and `adjustReservedAmount` (`:534`) — each as `@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class, FacadeException.class})`. The primitives `changeAmount` and `changeReservedAmount` in `StockunitBusinessService` are individually transactional. **SBDEV-3622 (branch `bugfix/SBDEV-3622-adjust-reserved-attributes-cut`, unmerged):** `adjustReservedAmount(…, expectedOrderIds)` now takes the SU lock itself — `stockunitRepository.findByIdForUpdate(stockUnitId)` — after locking the owning picking orders and the shrinkable holder orders, and reads R from that locked row (the controller's detached entity supplies the id only); `previewReservationCut` is `@TenantTransactionalReadOnly` and takes no `FOR UPDATE`.
 
 The other three comment-bearing entry points — `setLockDamaged` (`:413`), `adjustAmount` (`:485`) and `removeLock` (`:565`) — **remain unannotated, deliberately**, and no caller supplies a boundary (`StockUnitController` and its base `AdminController` both declare zero `@Transactional`). SBDEV-3086 did **not** wrap them. What it changed is *what happens inside* them, so a late failure no longer leaves a half-applied write:
 
@@ -388,6 +388,24 @@ Any report or query reading a `Stockrecord` quantity must know **which column th
 
 `Stockunit.reservedamount` is the exclusive field governing what is committed. Available = `amount − reservedamount` (transient `getAvailableamount()`).
 
+### Holder invariant (SBDEV-3605)
+
+`reservedamount` has no single owning column of its own — it is a sum that several holders contribute to, and nothing enforces that the sum stays explained. The invariant, as `MobileReplenishService.ownShareOfReservation` reads it under a row lock:
+
+```
+reservedamount == Σ requestedamount of open replenish orders on this SU (state < FINISHED, i.e. < 700)
+                 + Σ amount of open pick positions pick-from-ing this SU (state < PICKED, i.e. < 600)
+                 + holder-less (manual) reservation
+```
+
+**Measured on DEV wineco, 2026-09-30:** 430 SUs hold the invariant exactly. 1,753 leak — `reservedamount` sits above what the two sums explain — of which 1,658 are fully stranded (no holder at all) and 55 are *under*-reserved (the sums exceed `reservedamount`, a distinct, smaller class the multi-UL fix does not touch). The multi-UL replenish path is one way the leaked class gets created (Bug 1, plan `SBDEV-3605-multi-ul-pick-releases-other-orders-reservation.md` §2) and, as of this fix, the first path that releases its own leak in the same transaction rather than waiting for a reconcile job.
+
+**How the multi-UL release books it.** `MobileReplenishService.applyExplicitSourceToOrder` writes the recovered `ownShare` as **two** `changeReservedAmount` rows against the old SU, both under the releasing order's number: a `CODE_REPLENISHMENT_FINISHED` row for `−min(req⁺, ownShare)` (the part the order's own `requestedamount` explains), then a `CODE_MANUAL_ADJUSTMENT` row for the remainder, carrying the comment `"SBDEV-3605 unexplained reservation released"` — the same precedent as SBDEV-2610's reconcile row. `req⁺ = max(0, requestedamount)`, so the two rows always sum to exactly `ownShare`.
+
+**Reads AC-5 differently than before.** Plan revision 260709/AC-5 credited only `min(requestedamount, reserved)` and never released more — SBDEV-3605 (D2) reverses that: the credit now equals the full release, so a stranded reservation this order didn't cause is visibly released, not left leaked. See the multi-unitload workflow doc's changelog for the reversal.
+
+**Shared arithmetic, and the recalc rule (SBDEV-3618, 2026-10-01).** The invariant's arithmetic now lives in `service/ReservationShare` (pure static functions; `null` reads as 0). `MobileReplenishService.ownShareOfReservation` keeps its two queries and calls it. `ReplenishmentOrderMaintenanceService` uses the same functions to size and book open orders: an order **holds** `min(requested⁺, ownShare)`, so it never claims holder-less surplus. On DEV, 93 SUs carried reservation no open order explains, and recalc leaves it alone. An order holding less than it requests (an admin cut) is shrunk, never re-reserved. See `wms2-replenishment-design.md` §2.
+
 **Reserve (increase):**
 ```
 changeReservedAmount(su, +qty, zeroIfNegative=false, activityCode, orderNumber, null)
@@ -410,7 +428,7 @@ entityManager.refresh(stockUnit);   // evict stale L1 entry
 
 **Race site:** If two threads call `changeReservedAmount` on the same SU concurrently, one will block on the DB row lock. This is by design.
 
-**`adjustReservedAmount` intentionally skips replenishment recalculation** (comment at `StockunitService:541-542`): Triggering recalculation would immediately re-reserve the stock the user just released. The scheduled `ReplenishOrderJob` re-evaluates on its next cycle.
+**`adjustReservedAmount` intentionally skips replenishment recalculation** (comment at `StockunitService:541-542`): Triggering recalculation would immediately re-reserve the stock the user just released. The scheduled `ReplenishOrderJob` re-evaluates on its next cycle. **SBDEV-3622 (branch `bugfix/SBDEV-3622-adjust-reserved-attributes-cut`, unmerged):** still true that it does not trigger recalculation, but a cut now cancels or shrinks the holding orders itself in the same tx (`ReplenishmentOrderMaintenanceService.markCancelled` at 0; `order.setRequestedamount(cut.newRequested())` otherwise — code comment: "a PARTIAL cut leaves the order holding all it requests, so the next recalc may regrow it from free stock (accepted, D-H1)"). Preview: `GET /v3/stockUnit/reservationHolders/{id}?target=T` (`StockUnitController.reservationHolders`, same `WEB_UI_ACTION_ADJUST_RESERVED_AMOUNT` gate), consumed by the Adjust Reserved Amount dialog (wms2-web-ui `components/handlingUnits/popups/adjustAmount.vue`, `data-test="reservation-holders-preview"`, store action `fetchReservationHolders`; branch `bugfix/SBDEV-3622-adjust-reserved-attributes-cut`, unmerged).
 
 ### Reservation lifecycle by subsystem
 
@@ -422,7 +440,7 @@ entityManager.refresh(stockUnit);   // evict stale L1 entry
 | Replenishment cancelled | `ReplenishorderService` | negative | true | `REPLENISHMENT_CANCELLED` |
 | Replenishment maintenance recalc | `ReplenishmentOrderMaintenanceService` | delta | true | `REPLENISHMENT` / `REPLENISHMENT_SWITCHED` / `REPLENISHMENT_CANCELLED` |
 | Pick position confirmed | `PickingorderBusinessService.confirmPickPosition` | negative | true | `PICKING` |
-| Manual reserved amount edit | `StockunitService.adjustReservedAmount` | delta | true | `MANUAL_ADJUSTMENT` |
+| Manual reserved amount edit | `StockunitService.adjustReservedAmount` (increase) · `StockunitBusinessService.applyReservedCut` (cut, SBDEV-3622, branch `bugfix/SBDEV-3622-adjust-reserved-attributes-cut`, unmerged) | delta (increase) · one row per affected order, negative `cut` (cut) | true | `MANUAL_ADJUSTMENT` — a cut books one row under each affected order's number plus the operator comment (code: `recordChangeReservedAmount(lockedSu, row.cut().negate(), activityCode, row.orderNumber(), comment)`); a null-order row only for the holder-less surplus; every order the cut **cancels** gets a row, with amount 0 when nothing was allocated to it (Nam, 2026-10-02 — so each cancel is attributed in the ledger). The amount is parsed exactly and bounded to `numeric(17,4)` by `ReservationCut.parseAmount` (both POSTs and the preview) |
 
 **Key invariant:** `transferStockToUnitLoad` checks `amount − reservedamount >= amountToTransfer` before any mutation and throws `BusinessException` if violated.
 
@@ -668,7 +686,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 | `getAvailableReplenishmentSources` | native | `(id, amount, reservedamount, unitload_id, locationId, locationName, areaId)` — amount > reservedamount |
 | `getStockUnitAvailable` | native | Total and reserved for an itemdata in pick areas |
 | `getStockUnitsBySkuSetAndAreaSetAndStates` | native | Cycle count scope query — lock NOT IN (`SHIPPED`, `GOING_TO_DELETE`) |
-| `getDetailViewByKeyword` | native | Paginated search UI — lock != 405 |
+| `getDetailViewByKeyword` | native | Paginated search UI — Shipped (405) always hidden; To-Delete (2) hidden unless `includeToDelete` (the "Show To Delete" switch, default off; SBDEV-3500) |
 | `getByUnitLoadLabelId` | native | Single SU by unit load label |
 | `getStockUnitItemIdAndNotLocked` | native | Unlocked SUs for transfer areas (`usefortransfer = true`) |
 | `getListByLocationIdWithClient` | native | SUs at a location filtered by client |
@@ -687,14 +705,14 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 | `findByLabelidIgnoreCase` | native | Case-insensitive barcode lookup (LIMIT 1) |
 | `findEmptyByStoragelocationId` | native | ULs with no SUs and no child ULs |
 | `findDetailsByCarrierunitloadId` | native | `(labelid, type.name, entity_lock)` for pallet children |
-| `findStockUnitDetailByUnitLoadId` | native | `(id, name, itemNr, amount, reservedAmount)` — children detail view |
+| `findStockUnitDetailByUnitLoadId` | native | `(id, name, itemNr, amount, reservedAmount)` — children detail view; skips `entity_lock IN (405, 2)` stock units (SBDEV-3500) |
 | `findByTypeNameAndLocatioNamesIn` | native | ULs of a given type at specific locations |
 | `findByLabelidIn` | JPQL | Batch fetch by set of labelids |
 | `findCountByCarrierunitloadId` | native | Count ULs without carrier (or with specific carrier) |
 | `getBatchLocationsByItemIdAndLaneName` | native | ULs with a given SKU at a staging lane |
 | `getBatchLocationsByItemIdAndTransferableAreas` | native | ULs with SKU sourceable by transfer picking / club runs: any staging lane, the Clearing location, any area flagged `location_area.usefortransfer`, or the `users` area. **Renamed from `getBatchLocationsByItemIdAndNamedLocations` and its 3rd `locationNameList` param dropped by SBDEV-2952**, which replaced a hardcoded six-area-name whitelist with the `usefortransfer` flag (behaviour-identical on all six tenant DBs at the time). The old HAL search endpoint was removed, not deprecated. |
 | `findUnitloadsByItemDataIdForReplenish` | native | Distinct ULs with available stock in replenish areas |
-| `getDetailViewByKeyword` | native | Paginated search UI — lock != 405 |
+| `getDetailViewByKeyword` | native | Paginated search UI — Shipped (405) always hidden; To-Delete (2) hidden unless `includeToDelete` (the "Show To Delete" switch, default off; SBDEV-3500) |
 
 ---
 
@@ -725,7 +743,7 @@ At BOL shipment: entity lock advanced to `SHIPPED (405)`.
 
 1. **No outer transaction on `setLockDamaged`:** The method creates a new unit load then calls `transferStockToUnitLoad`, but has no outer `@Transactional`. A failure between unit-load creation and SU lock assignment leaves an orphaned unit load at the Damaged location. The TODO comments in the code acknowledge the missing lock checks on the unit load and location.
 
-2. **`adjustReservedAmount` deliberately skips replenishment recalculation** (comment at `StockunitService:541-542`): This is by design — triggering recalculation would immediately re-reserve stock the user just released. However, replenishment orders sit over-reserved until the next scheduled recalculation cycle.
+2. **`adjustReservedAmount` deliberately skips replenishment recalculation** (comment at `StockunitService:541-542`): This is by design — triggering recalculation would immediately re-reserve stock the user just released. However, replenishment orders sit over-reserved until the next scheduled recalculation cycle. **SBDEV-3622 (branch `bugfix/SBDEV-3622-adjust-reserved-attributes-cut`, unmerged):** the over-reservation window is closed for a cut — the holding orders are cancelled (cut to 0) or shrunk in the same tx; a partially reduced order holds all it requests afterwards and may regrow from free stock on the next recalc (D-H1, accepted).
 
 3. **Caffeine L1 caches are JVM-local:** In a multi-replica deployment, `itemdata`, `locations`, `sysprops`, and `clients` can be stale for up to 5 minutes per replica after a write. A SKU update evicts the `itemdata` cache on the replica that handled the write — other replicas continue serving stale data until their TTL expires. The CacheConfig comment explicitly notes a plan for Redis migration.
 

@@ -43,9 +43,16 @@ All inbound REST endpoints extend `AbstractRestController`, which validates `fac
 
 | Method | HTTP | Path | Request body | Success code | Validation failure | Purpose |
 |--------|------|------|-------------|-------------|-------------------|---------|
-| `create` | PUT | `/rest/sku/create` | `List<SkuDto>` | 204 | **422** (SBDEV-2235) | Create new SKU/item-data records |
-| `update` | POST | `/rest/sku/update` | `List<SkuDto>` | 204 | **422** (SBDEV-2235) | Update existing SKU records |
-| `delete` | DELETE | `/rest/sku/delete` | `List<SkuDto>` | 204 | 400 | Delete SKU records |
+| `create` | PUT | `/rest/sku/create` | `List<SkuDto>` | **200** + `item_ids` (SBDEV-2624; was 204) | **422** (SBDEV-2235) | Create new SKU/item-data records |
+| `update` | POST | `/rest/sku/update` | `List<SkuDto>` | **200** + `item_ids` (SBDEV-2624; was 204) | **422**, incl. 108 rename precondition / 109 concurrent modification | Update SKU records; renames a SKU in place when `previous_sku` / `facility_item_id` identify the row |
+| `delete` | DELETE | `/rest/sku/delete` | `List<SkuDto>` | 204 | 400 (incl. 108 `… (delete)` when the row found by `facility_item_id` holds another code) | Delete SKU records |
+
+> **SBDEV-2624 contract (2026-10):**
+> - New optional `SkuDto` fields `facility_item_id` (per-facility `itemdata.id`, client-scoped) and `previous_sku`.
+> - Create and update return `200 {"status","item_ids":{sku:id}}`, which the OMS records in `product_wms_item.wms_item_id` per facility.
+> - On a 422 whose description starts with a 108/109 marker, the OMS resends once (guarded). The prefixes are pinned cross-repo by `verify-SBDEV-2624-sku-rename-in-place-oms-wms-sync.sh`.
+> - The global `product.wms_item_id` / inbound `item_id` is no longer read or written by the OMS.
+> - **Deploy wms2 first.** Full rules: `design/wms2-rest-api-reference.md` §4.2 and the plan `sbdocs/1-Projects/wms2/plan/SBDEV-2624-sku-rename-in-place-oms-wms-sync.md`.
 
 > **SBDEV-2235 OMS contract change:** `/rest/sku/create` and `/rest/sku/update` now return `422 UNPROCESSABLE_ENTITY` on validation failure (previously 400). `/delete` remains 400. OMS-side parser must be updated to accept 422 before this ships. Coordinate with David Oppenheim.
 
@@ -110,7 +117,8 @@ Failed calls log the message record with status=FAILED and HTTP code 503, but **
 
 | Sysprop key | Default OMS path | Triggered by | Java method | Condition |
 |------------|-----------------|-------------|-------------|-----------|
-| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | Individual order cancelled from within WMS | `CustomerorderService.cancelOrder()` | Only when `cancellationFromWithinWMS=true`; uses `WEBSERVICE_STOCK_COUNT_URL` key — see note |
+| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | Individual order cancelled (WMS- or OMS-initiated) | `CustomerorderService.cancelOrder()` direct branch → `enqueueCancellationSignal` | Unconditional once the order is CANCELED; reads `WEBSERVICE_ORDER_BATCH_CANCELLED_URL_KEY` — see note *(Condition cell corrected 2026-09-26, SBDEV-3362; it said "only when `cancellationFromWithinWMS=true`" and "uses `WEBSERVICE_STOCK_COUNT_URL`", both refuted by the note below)* |
+| `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | PACKED/PALLETIZED order force-cancelled (WMS-initiated, or OMS-initiated pre-QA CLUB) | `CustomerorderService.forceCancelOrder()` → `enqueueCancellationSignal` | Since SBDEV-3362 (2026-09-26); gated on the order reaching CANCELED. Before it, force-cancel sent **nothing** |
 | `WEBSERVICE_ORDER_BATCH_CANCELLED` | `/services/call/cancelPosition` | Deferred cancel of an already-picked order | `PickingorderBusinessService` | `aggregate_type='CUSTOMER_ORDER'`, same process type |
 | `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` | _(flag, not URL)_ | Global toggle for cancel callbacks | — | Default `false`. In v1 the key is consulted as a gate; v2 sends unconditionally. |
 
@@ -122,9 +130,9 @@ had no route and no caller and has been deleted.** A batch cancel arrives at
 `CustomerorderService.cancelOrder` — so it produces **N per-order enqueues, never one batch-scoped
 message**.
 
-⚠ **`process_type` alone does not identify the producer.** Both producer rows above (the flag row is
-not a producer) write `ORDER_BATCH_CANCELLED_FROM_WMS`; the discriminator is `aggregate_type`, and both
-surviving producers write `CUSTOMER_ORDER`. The `CUSTOMER_ORDER_BATCH` variant died with `cancelBatch`. *Deriving method:*
+⚠ **`process_type` alone does not identify the producer.** Every producer row above (the flag row is
+not a producer) writes `ORDER_BATCH_CANCELLED_FROM_WMS`, and every surviving producer writes
+`aggregate_type = 'CUSTOMER_ORDER'` — so neither column tells the direct, force and deferred paths apart. The `CUSTOMER_ORDER_BATCH` variant died with `cancelBatch`. *Deriving method:*
 `git grep -n "ORDER_BATCH_CANCELLED_FROM_WMS" origin/develop -- 'src/main/**'` (2026-09-14). Runtime
 corroboration: Hydra PRD `outbox_message` holds **0** rows of the `CUSTOMER_ORDER_BATCH` pair against a
 positive control of 3 rows of the same process type under `CUSTOMER_ORDER`; *blind spot:* that table
@@ -141,14 +149,15 @@ only reaches back to 2026-07-13.
 > path (`StockSummaryExportJob`, `MessageDummyController`, plus a commented-out seed line in
 > `UtilRestController`).
 
-> **SBDEV-3332 (2026-09-15) — the two cancel emitters are now deduplicated against each other.** Both
-> `CustomerorderService.cancelOrder` and `PickingorderBusinessService.cleanUpCancelledOrder` set
+> **SBDEV-3332 (2026-09-15) — the cancel emitters are deduplicated against each other.** Both
+> `CustomerorderService.enqueueCancellationSignal` (for `cancelOrder` and, since SBDEV-3362,
+> `forceCancelOrder`) and `PickingorderBusinessService.cleanUpCancelledOrder` set
 > `idempotencyKey = WmsConstants.CANCELLED_IDEMPOTENCY_KEY_PREFIX + customerOrder.getId()`
 > (`"CO-CANCELLED-<id>"`). Because `outbox_message.idempotency_key` carries
 > `uk_outbox_message_idempotency_key UNIQUE`, a second `ORDER_BATCH_CANCELLED_FROM_WMS` for one
 > customer order is now a constraint violation rather than a second message to OMS. The key is
-> deliberately **shared** between the two sites: the invariant is one cancellation signal per customer
-> order, and the two sites are two emitters of one business event. ⚠ The protection is bounded by
+> deliberately **shared** by every cancel path: the invariant is one cancellation signal per customer
+> order, and each path is an emitter of that one business event, not of its own. ⚠ The protection is bounded by
 > outbox retention — `OutboxDispatchService` deletes SENT rows older than the retention window
 > (`repo.deleteSentOlderThan`), after which the key is free again. Same bound applies to the sibling
 > `CO-PICKED-` / `CO-PICKING-STARTED-` / `CO-PICKING-RELEASED-` keys.
@@ -346,7 +355,7 @@ This sysprop is defined in `WmsConstants` and its commented-out provisioning cod
 | `Message` record shows status=FAILED, code=503 | Network/timeout or OMS returned error | `message` table — `status`, `statuscodeanswer`, `answer` columns; `destination` column shows the URL attempted |
 | Auth error from OMS (401/403) | `OMS_API_USER` sysprop missing or wrong format (must be `user/password`) | `sysprop` table, key `OMS_API_USER`; also check `OMS_TENANT_ID` |
 | `x-tenant` missing | `OMS_TENANT_ID` sysprop not set | `sysprop` table, key `OMS_TENANT_ID` |
-| WMS-initiated cancel not reaching OMS | `WEBSERVICE_ORDER_BATCH_CANCELLED` URL not set | Check sysprop; also note `CustomerorderService.cancelOrder()` uses `WEBSERVICE_STOCK_COUNT_URL_KEY` for its cancellation notification — this is a known inconsistency |
+| WMS-initiated cancel not reaching OMS | `WEBSERVICE_ORDER_BATCH_CANCELLED` URL not set; or (before SBDEV-3362) the order was force-cancelled, which sent nothing | Check sysprop `WEBSERVICE_ORDER_BATCH_CANCELLED_URL_KEY` — the one `enqueueCancellationSignal` reads *(corrected 2026-09-26: this cell said cancelOrder used `WEBSERVICE_STOCK_COUNT_URL_KEY`, refuted in §2.3)* |
 | `PALLETIZED` / `LOADED_TO_TRUCK` callbacks not firing | These are v2-only — OMS must handle them; if OMS is v1 these endpoints may not exist | Verify OMS version; these callbacks did not exist in v1/wms-api |
 | Callback fires but OMS rejects payload | Payload schema mismatch | Compare `BillOfLadingWebServiceDto` / `OrderBatchDto` with OMS expected contract; v2 `SHIPPED` payload has additional fields vs v1 |
 | Parcel regresses Ready-to-QA → Picking; FINISHED arrives before STARTED | Outbox dispatched events out of aggregate order | Fixed by SBDEV-2381 (§2.1 note): dispatcher claims with the cross-tick `NOT EXISTS` gate + `ORDER BY next_attempt_at, id`, sorts the batch in-Java, and posts sequentially; each POST body carries `event_version = outbox id` so OMS can reject stale events. Inspect `outbox_message` `id` vs `aggregate_id` ordering for the affected parcel |

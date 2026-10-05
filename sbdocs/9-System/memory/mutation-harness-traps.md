@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: 6cb9776e-0d51-4b37-8a7e-cab8197878f9
-  modified: 2026-09-09T21:20:26.000Z
+  modified: 2026-09-27T02:46:50.269Z
 ---
 
 Supersedes and merges four earlier memories — old slugs kept here so stale links stay traceable:
@@ -100,6 +100,10 @@ that one oddity exposed the whole run. Had every attribution looked plausible I 
 fabricated 17/17.
 *Mitigations:* `os.utime(f, None)` on every source file **after applying the patch AND after restoring
 it**; `mvn clean` once before the run.
+*It also poisons the NEXT full-suite verdict, not just later mutants* (SBDEV-3545, 2026-09-27): a lane
+hand-mutated in place with `cp -p`-style restores, `git status` was clean, and my following `mvn -o test`
+reported **7 failures that were exactly its mutants** (405→200, rail filter, log line). `mvn -o clean test`
+on the identical tree: 7310/0/0. **After any lane that mutated a worktree, the verdict run is `clean test`.**
 
 **2. The patch silently did not apply.** SBDEV-2967-C, 2026-08-22: my script printed "5 guards now key
 on the header" and had changed **nothing** — it printed `s.count(OLD)` computed BEFORE `replace`.
@@ -260,6 +264,11 @@ after it ran against the broken tree. **All four reported KILLED; only the first
 
 Two mechanical rules:
 
+⚠ **Recurred 2026-09-26 (SBDEV-3524), with this section already on file.** Committed once, then kept
+editing, and the next mutant run's `git checkout` reverted four product files to the *earlier* commit.
+Knowing the rule did not help; a **mechanical guard** did — first line of every harness:
+`git diff --quiet HEAD -- app config tests || { echo ABORT: uncommitted; exit 1; }`.
+
 1. **Commit before mutating.** Then `git checkout <sha> -- <file>` restores the *work*. Assert the
    restore is clean (`git diff --name-only -- <file>` is empty) after every mutant, and assert the
    final tree is identical to the baseline sha.
@@ -357,3 +366,80 @@ assert s.count(old) == 1, "anchor count=%d -- mutation NOT applied" % s.count(ol
 Both belong to the same family as everything above: **the mutation step needs its own positive
 control** ([[a-zero-scan-needs-a-positive-control]]). Print "mutant APPLIED" only after proving the
 file actually changed, and never infer it from the tool's exit code.
+
+## Twelfth mechanism: "N of N killed" over a denominator PIT never populated
+
+Measured 2026-09-22 (SBDEV-3410 P4). The change was four lines:
+
+```java
+if (s.getClientId() != null && s.getItemdata() != null) {
+    itemdataService.findByClientIdAndItemNr(s.getClientId(), s.getItemdata())
+        .ifPresent(i -> details.put("itemName", i.getName()));
+}
+```
+
+PIT reported **3 mutations on those lines, 3 KILLED, 0 survived** — every killer attributable. It reads
+as total coverage. It is not: **PIT emits ZERO mutants inside the `ifPresent` lambda body.** Neither
+the `"itemName"` key literal nor the `i.getName()` value source is touched by any default mutator, so
+the one transformation the whole phase existed to forbid — `details.put("itemName", null)` — is outside
+PIT's vocabulary entirely. The clean sweep was over the guard and the call, not over the behaviour.
+
+Two consequences worth carrying:
+
+- **A hand-written mutant can be irreplaceable even when PIT is available.** The `wms-triage` floor's
+  "mutation-check every new assertion" is not discharged by a green PIT run if PIT generates nothing
+  for the line that matters. Check the mutant LIST, not just the score.
+- **Adding a real predicate can close the blind spot for free.** Replacing the bare lambda with
+  `.filter(i -> i.getName() != null).ifPresent(...)` took the same block from 3 mutations to **5** —
+  the filter predicate is mutable (`NegateConditionals`, `BooleanTrueReturnVals`) where the lambda body
+  was not. Both new mutants died on the new test. So a guard that makes an invariant *local* also makes
+  it *gradeable*.
+
+**How to apply:** after a scoped PIT run, print the mutation list for the changed lines and ask "is the
+edit I am most afraid of in this list?" If the answer is no, the score is not evidence about that edit.
+Same shape as the ordering blind spot above — the score describes PIT's operators, not your invariants.
+
+## Thirteenth: a PIT line-range filter anchored with `grep -n <symbol>` can match the COMMENT
+
+Same session, immediately after. To pull the P4 verdicts out of `mutations.xml` I derived the line range
+with `grep -n findByClientIdAndItemNr <file> | cut -d: -f1`. It reported **`0 mutations on P4 lines`**.
+
+The code had not changed. The *comment above it* had — a rewrite in the same commit now named
+`findByClientIdAndItemNr` in prose, so `grep -n` returned the comment's line number ~14 lines above the
+call site, and the derived window covered only comment lines. A window over comments contains no
+mutations, so the filter returned a confident, well-formatted zero.
+
+**It is a false zero of the most dangerous kind: it agrees with nothing, so it looks like a tooling
+hiccup rather than a wrong answer — and had the window been off by only a line or two it would have
+returned a plausible SUBSET instead, which nothing would have flagged.**
+
+**How to apply:** derive a line window from the **code** (`if (...)` / the statement itself), never from
+a symbol that prose may also contain, and always print the window's line numbers *and* the resulting
+count together so an implausible count is visible next to its cause. `0 mutations` for a block you just
+mutated is a broken instrument until proven otherwise — [[a-zero-scan-needs-a-positive-control]],
+[[a-control-on-a-literal-cannot-detect-a-narrowed-pattern]].
+
+## Fourteenth: PIT under a JDK-25 runtime reports 0% coverage and BUILD SUCCESS (measured 2026-09-26, SBDEV-3362)
+
+SDKMAN's `current` on this Mac is `25-open`, and the brew `mvn` picks up JDK 25 whenever `JAVA_HOME` is
+unset. PIT's minion then fails `Unsupported class file major version 69` — logged at **INFO**, not as an
+error — and the summary reads `Line Coverage 0/497 (0%)`, `Killed 0`, `BUILD SUCCESS`. A trailing `*` on
+`-DtargetTests` produced the same 0% with "41 tests examined", which made it look like a selector problem.
+
+**How to apply:** export `JAVA_HOME=$(/usr/libexec/java_home -v 21)` before PIT and check `mvn -v` says 21.
+Treat 0% line coverage on a class you know is tested as a broken instrument. Fixed in
+`wms-triage/SKILL.md` and `sbdocs/9-System/mutation-testing-recipe.md`.
+
+## Fifteenth: restoring a mutated `static final String` constant leaves the mutant INLINED in callers
+
+javac inlines compile-time constants into every class that reads them. Mutating
+`WmsConstants.CANCELLED_IDEMPOTENCY_KEY_PREFIX`, running the tests, then `cp`-restoring the source makes
+Maven's incremental compile rebuild **only `WmsConstants`**. `CustomerorderService.class` keeps the mutant
+value, so the next run shows the mutant's reds against restored source — five false failures on SBDEV-3362
+(and, in the other direction, a mutant of a caller-inlined constant can look KILLED/SURVIVED for the wrong
+build).
+
+**How to apply:** after any mutant of a `static final` primitive/String constant, `mvn clean` before
+trusting the next run. [[mvn-without-clean-runs-deleted-tests]] is the same class of stale-`target/` lie.
+
+**Surefire XML is multi-line (SBDEV-3563, 2026-09-28):** a line-oriented `grep 'testcase name=.*<error'` over `target/surefire-reports/*.xml` matches NOTHING — `<error>` sits on the line after `<testcase …>`. A 12-mutant loop reported 12/12 SURVIVED; a hand run of one mutant showed it killed. Parse the XML (`xml.etree`), and always run an unmutated control through the same parser plus one mutant you know is killed.

@@ -31,12 +31,12 @@
 - [`:key` remount ≠ child state reset](vue-key-remount-does-not-reset-state-read-from-stale-parent-data.md) — clear the parent's arrays too
 - [Hydra UAT outbound pallet label patterns](wms2-uat-outbound-pallet-label-patterns.md) — "String is not valid" = label matched neither sysprop regex
 - [wms2 AdminController: base class of 43](wms2-admincontroller-is-a-base-class-for-43-controllers.md) — every mapping-grep endpoint inventory is low
-- [wms2 gates are self-grantable](wms2-function-gates-are-self-grantable-via-ungated-usercontroller.md) — any wms_user can self-grant super-admin
+- [STALE: wms2 gates self-grantable](wms2-function-gates-are-self-grantable-via-ungated-usercontroller.md) — CORRECTED 2026-10-01: User/UserRoleController now class-gated VIEW_USER_MANAGEMENT + GUARDED
 - [SBDEV-3005 role↔function key reversed (v2)](sbdev-3005-role-function-composite-key-swap.md) — merged to develop, NOT to main → still broken on PRD
 - [Delete-all-then-reinsert isn't atomic](hibernate-delete-then-reinsert-same-key-needs-set-difference.md) — Hibernate emits inserts BEFORE deletes
 - [wms2 UtilRestController is @Service](wms2-utilrestcontroller-is-service-not-restcontroller.md) — its 9 @RequestMapping methods DON'T route
 - [Tx tests blind to propagation/readOnly](transactional-tests-blind-to-propagation-and-readonly.md) — a NOT_SUPPORTED mutant was 100% green
-- [v1 is reference-only; v2 is the only target](v1-is-reference-only-v2-is-the-only-target.md) — never self-initiate v1 work; sync sweep still runs
+- [v1 is reference-only; v2 is the only target](v1-is-reference-only-v2-is-the-only-target.md) — NO client on v1 since WineCo migrated (2026-10-02); all fixes v2 only; sync sweep still runs
 - [wms2 join-table uniqueness is out-of-band](wms2-join-table-uniqueness-is-out-of-band.md) — migrations declare ZERO unique indexes; prd has none
 - [Green tests that prove nothing](green-tests-that-prove-nothing.md) — STRICT_STUBS is already default; a swallowed
 - [Cross-field setter silently un-pins fixtures](cross-field-setter-silently-unpins-fixtures.md) — no diff to the test; PIT scoped to the changed class can't see it
@@ -46,10 +46,11 @@
 - [v1 OSIV: off on UAT+prod, DEV may not be](wms1-osiv-not-pinned-dev-prod-divergence.md) — pinned nowhere in-repo, so a DEV repro may not match prod
 - [Run plan-state.sh, not a plan's status: field](plan-state-probe-beats-reading-plan-status.md) — "not started" while 46 dirty paths held the work
 - [Subagents must write their deliverable to a FILE](subagents-must-write-deliverable-to-a-file.md) — an idle lane is not a pass; demand a file
-- [Mutation harness traps — use PIT, not a script](mutation-harness-traps.md) — hand-rolled harnesses lied 9x
+- [Mutation harness traps — use PIT, not a script](mutation-harness-traps.md) — hand-rolled harnesses lied 9x; PIT needs JDK 21 (25 → silent 0%); `mvn clean` after a constant mutant
 - [Advertised capability ≠ exploitable](advertised-capability-is-not-exploitable-capability.md) — test the write; OPTIONS Allow proves nothing
 - [Merging to wms2 develop = a dev deploy + a Flyway run](wms2-merge-to-develop-is-a-dev-deploy-and-runs-flyway.md) — branch-push-driven; no CI on PRs
 - [OutboxConcurrentEnqueueIT is timing-flaky](outbox-concurrent-enqueue-it-is-timing-flaky.md) — SBDEV-3280; a red develop SILENTLY stops deploying
+- [ReplenishDupConcurrencySliceIT is timing-flaky](replenish-dup-concurrency-slice-it-is-timing-flaky.md) — loser throws "No replenish stock available" not the index; rerun first
 - [wms2 gate anti-drift covers only GUARDED](wms2-function-gate-anti-drift-only-covers-guarded-classes.md) — `setupMockMvc` installs no interceptor →
 - [Spawn agents without asking](spawn-agents-without-asking.md) — REAFFIRMED 2026-08-28; the blocking system-prompt
 - [Retitling a section leaves the rule asserted below it](retitling-a-section-leaves-the-rule-asserted-below-it.md) — grep the RULE, never the section
@@ -58,7 +59,7 @@
 - [detectMappedInterceptors finds an already-created singleton](spring-detectmappedinterceptors-matches-already-created-singleton.md) — widening the declared type makes gating ORDER-dependent
 - [CORRECTED: wms2-api *IT DOES run](wms2-api-29-it-classes-run-in-neither-test-lane.md) — since SBDEV-3239; real gap is ITs that hand-COPY native SQL
 - [wms2-web-ui .gitignore `reports/` hides 34 files from grep](wms2-web-ui-gitignore-reports-hides-34-files-from-grep.md) — use `git grep`, not
-- [Access-chain hops 1-2 writable over SDR](wms2-access-chain-hops-1-2-writable-over-sdr.md) — 3013 closed only hop 3; `/v3/userGroupUser` keeps
+- [STALE: access-chain hops writable over SDR](wms2-access-chain-hops-1-2-writable-over-sdr.md) — CORRECTED 2026-10-01: hops 1, 2, 4 write-disabled in RestConfiguration
 - [v1 vs v2 dev API hostnames](wms-v1-vs-v2-dev-api-hostnames.md) — the tenant-subdomain host
 - [Direct user→role assignment is unused in v2](wms2-direct-user-role-assignment-is-unused.md) — only user→group→role→function confers anything
 - [Plaintext Keycloak passwords logged at DEBUG](wms2-plaintext-keycloak-passwords-logged-at-debug.md) — UserController:242/:301 log the raw body
@@ -74,25 +75,25 @@
 - [Keycloak group `/sb_admin` IS the WMS `sb_admin` role](wms2-keycloak-groups-claim-emits-full-paths.md) — read `resource_access`, NOT `groups`; bare
 - [Headless-browser recipe for wms2-web-ui dev](wms2-web-ui-headless-browser-recipe.md) — puppeteer-core outside the repo; the only route to a visual
 - [Only ever merge to develop](deploy-only-to-develop-release-and-main-are-devops.md) — Nam 2026-08-26: release+main
-- [WineCo env map — Hydra is the ONLY v2 PRD client](wineco-is-a-v2-client-prd-mcp-is-wms1-wineco.md) — `wms1-wineco` is v1; check schema, not the
+- [WineCo env map — v2 PRD = Hydra + ShipItEZ + WineCo](wineco-is-a-v2-client-prd-mcp-is-wms1-wineco.md) — WineCo live on v2 PRD 2026-09-26 via `wsl-wineco-prd`; `wms1-wineco` is v1
 - [v1 ITs leak a postgres container per run](v1-testcontainers-withreuse-leaks-a-container-per-run.md) — `withReuse(true)` w/o reuse enabled; 43
 - [ArchUnit call-site rules have 5 blind spots](archunit-call-site-rules-have-five-blind-spots.md) — ctors, static init, `x::ref`, subtypes, field
 - [/rest/** is internal-only WMS↔OMS; JWT deferred](wms2-rest-surface-internal-only-jwt-deferred.md) — Nam 2026-08-27: NOT a live exposure; do not
-- [wms2 UI :develop tag race deploys OLDER code](wms2-ui-develop-tag-race-deploys-older-code.md) — 2 merges in one build window; newer image
+- [:develop tag race — BOTH v2 repos](wms2-ui-develop-tag-race-deploys-older-code.md) — back-to-back merges race; wms2-api HAS concurrency: and it does NOT help (SHA-keyed)
 - [Mockito never(): don't widen primitives to any()](mockito-never-any-primitive-unboxing-trap.md) — any() returns null → NPE at unboxing; a primitive
-- [Review lanes must not share a worktree](review-lanes-must-not-share-a-worktree.md) — a sibling's `git stash`
+- [Review lanes (or sessions) must not share a worktree](review-lanes-must-not-share-a-worktree.md) — sibling `git stash` graded baseline; 2026-09-30 a peer SESSION's checkout wiped uncommitted work
 - [AC-2′: count USERS, not roles](ac2-role-count-is-not-the-unit-user-population-is.md) — 1-role constant = 38 users; 2 of 3 role-name verdicts wrong,
 - [A guard fences the mechanism you aimed at](a-guard-fences-the-mechanism-you-aimed-at.md) — enumerate every producer of the outcome; 3 mechanisms,
-- [Derive cross-repo claims from origin/develop](derive-cross-repo-claims-from-origin-develop.md) — checkouts lag by unmeasured amounts
+- [Derive cross-repo claims from origin/develop](derive-cross-repo-claims-from-origin-develop.md) — checkouts lag unmeasured (mobile-ui now 77); a `find` miss is a FALSE ABSENCE that licenses deleting a correct claim
 - [Mount-with-value-present is not a reactivity test](vue-mount-with-value-present-does-not-test-reactivity.md) — a data() snapshot passed 8/8 while
 - [never-audit CHECK A doesn't find vacuity](never-audit-check-a-does-not-find-vacuity.md) — 0 noise in 104 [A] sites; the vacuous ones sit in the
 - [A failed regex must not become a verdict](failed-regex-resolution-must-not-become-a-verdict.md) — None short-circuited into the DELETE bucket,
 - [never-audit can't see proxy-mediated calls](never-audit-cannot-see-proxy-mediated-calls.md) — "CUT doesn't reference it" ≠ vacuous; 3 landlord-TM
 - [`mvn test` runs DELETED test classes](mvn-without-clean-runs-deleted-tests.md) — stale target/test-classes
 - [SBDEV-3175 landlord DB password committed LIVE](wms2-landlord-db-password-committed-live.md) — cleartext in git since 2025-12-28, never rotated;
-- [Concurrent Maven in one worktree = false reds](concurrent-maven-one-worktree-false-reds.md) — 238 errors racing, 0 alone; one worktree per build
+- [Concurrent Maven = false reds; a SEPARATE worktree is not safe either](concurrent-maven-one-worktree-false-reds.md) — ITs share one reusable postgres; peers force-remove it globally; pgrep before debugging
 - [Mutation fixtures need a row in the DOMINANT band](mutation-fixture-needs-a-row-in-the-dominant-value-band.md) — `<`→`<>` survived boundary
-- [Gate a route on its SCREEN's existing function](wms2-gate-a-route-on-its-screens-existing-function.md) — SBDEV-3017 §9.16 Option B; `WEB_UI_VIEW_*`
+- [Gate a route on its SCREEN's existing function](wms2-gate-a-route-on-its-screens-existing-function.md) — Option B; ONE exception: SBDEV-3606 ReplenishOrderController writes use ACTION_MANAGE; don't revert
 - [A new FunctionEnum constant needs THREE things](wms2-adding-a-function-constant-needs-three-things.md) — omit the `initDB` grant line and every
 - [Flyway migration headers contain 3 FALSE claims](wms2-flyway-migration-facts-corrected.md) — 8 ITs DO run db/migration; PRD DOES have the PK; a
 - [Gate tests need UNGATED rows + full varargs](gate-tests-need-ungated-rows-and-full-varargs.md) — a gated-rows-only pin can't see a class-level
@@ -117,7 +118,7 @@
 - [v2 UI Dockerfiles never read the lockfile](wms2-ui-dockerfile-never-reads-the-lockfile.md) — `COPY package*.json` skips yarn.lock; web-ui has none at all (gitignored)
 - [SBDEV-3205 pick-timeout query unsatisfiable](sbdev-3205-pick-timeout-query-unsatisfiable.md) — CLOSED, both fixes on develop; squash-merge reads as unmerged
 - [SBDEV-3198 pool-cap risk accepted](sbdev3198-landlord-pool-cap-risk-accepted.md) — Nam 2026-09-03: not a blocker for step 5 parts 2-4, don't re-raise
-- [wms2 suite baseline + H2 verdict](wms2-test-suite-baseline-and-h2-verdict.md) — verify GREEN both lanes; counts rot, derive fresh; CI runs a different cmd so its failsafe is 1 lower
+- [wms2 suite baseline + H2 verdict](wms2-test-suite-baseline-and-h2-verdict.md) — no single correct number; ParcelMonitor IT is FLAKY not container-state; run the baseline yourself, adjacent in time
 - [Un-suppressing a test can create a false green](un-suppressing-a-test-can-create-a-false-green.md) — a negative assertion on a fixture nobody wrote passes forever
 - [wms2 repo tests COMMIT, never roll back](wms2-repository-tests-commit-they-do-not-roll-back.md) — wrong tx manager; assert by id, never isEmpty/hasSize; bare @PersistenceContext = landlord EM
 - [Annotation census by grep is wrong by default](annotation-census-by-grep-is-wrong-by-default.md) — use javap/ArchUnit, match FQN, reconcile with a 2nd instrument
@@ -139,7 +140,7 @@
 - [v1 IT lane works; @Disabled reasons are stale](v1-it-lane-works-disabled-reasons-are-stale.md) — not ro_id; RepositoryH2TestConfiguration bean collision; 1-property fix
 - [findByIdForUpdate throws at the lock read, not at flush](findbyidforupdate-throws-at-the-lock-read-not-at-flush.md) — refresh-after-lock is unreachable; all 10 wms2 sites are backwards
 - [FOR UPDATE on a missing row takes NO lock](for-update-on-a-missing-row-takes-no-lock.md) — find-or-create after the miss returns another session's row unlocked; no uncontended test sees it
-- [Hydra prd has never had a replenishorder row](hydra-prd-has-never-had-a-replenishorder-row.md) — zero live prd exposure for recalc defects; cron still fires every minute; use UAT for population
+- [Hydra prd replenishorder zero is SUPERSEDED](hydra-prd-has-never-had-a-replenishorder-row.md) — 2026-09-29: v2 prd has thousands (WineCo/ShipItEZ); re-query, never assume zero exposure
 - [-Dit.test='!Class' discards the pom includes](maven-it-test-exclusion-discards-includes.md) — failsafe then runs the WHOLE tree; slower AND greener, so nobody looks; use -Dfailsafe.excludes
 - [SDR withdrawal = 405 to everyone; a rule = 403](sdr-withdrawal-405-vs-rule-403.md) — withdrawal works at OFF, a rule needs ENFORCE_RULED; an AC written for one cannot grade the other
 - [Running ONE wms2 integration test locally](wms2-running-one-integration-test-locally.md) — *IntegrationTest isn't in surefire; -Dsurefire.failIfNoSpecifiedTests=false
@@ -150,7 +151,7 @@
 - [Tote reuse breaks every Optional<> finder](tote-reuse-nonunique-optional-finders.md) — SBDEV-3287; only a PK on the table; v2 unpatched at 3 sites
 - [Never build a libpq URL by concatenating a credential](never-build-a-libpq-url-by-concatenating-a-credential.md) — libpq splits userinfo at the FIRST `@`; all 4 UAT passwords contain one
 - [Flyway errors quote the script FILENAME](flyway-error-message-contains-the-script-filename.md) — hasMessageContaining(<column>) passes for ANY failure; assert SQLSTATE
-- [wms2 concurrency-IT fixture traps](wms2-concurrency-it-fixture-traps.md) — client_id does NOT isolate a committed fixture from an id-watermark sweep; a jdbcTemplate version bump self-deadlocks
+- [wms2 concurrency-IT fixture traps](wms2-concurrency-it-fixture-traps.md) — client_id does NOT isolate a fixture; jdbcTemplate version bump self-deadlocks; context JdbcTemplate (landlord pool, autocommit off) never commits
 - [v2 transfer completion round trip never fired](wms2-transfer-completion-roundtrip-never-fired.md) — 0 rows prd+UAT ever; the signal fires at the DESTINATION; rides a REGULAR BOL
 - [Hydra PRD notifies the UAT OMS](wms2-hydra-prd-notifies-uat-oms.md) — 3 sysprops pointed at api-oms-uat; FIXED 2026-09-11; never read SENT as delivery
 - [Transfer orders get no intermediate OMS status](wms-transfer-orders-get-no-intermediate-oms-status.md) — IMPORT then SHIPPED only; 588 prd batches; diff any under-notified flow against CLUB
@@ -167,7 +168,7 @@
 - [Geometry branches inherit their arm's lock policy](geometry-branch-inherits-its-arms-lock-policy.md) — same action honours or ignores a lock by data shape; 2 sites in wms2
 - [Orphan scans miss ctor-injected fields](orphan-scan-misses-constructor-injected-fields.md) — dead Spring dep sits at 3 occurrences, not 1
 - [A sibling merge silently disarms your tests](sibling-merge-silently-disarms-your-tests.md) — green PR check grades a stale base; a new conjunct on a @Mock answers false
-- [Running oms-laravel-api tests](oms-laravel-api-has-no-runnable-test-env.md) — container recipe; baseline 4123/499E/48F; schema is IN the repo
+- [Running oms-laravel-api tests](oms-laravel-api-has-no-runnable-test-env.md) — container recipe; schema IN repo; fast no-DB lane 4567/1977E/44F @14526ab9
 - [PROPOSED T3: oms-laravel-api committed env secrets](oms-laravel-api-committed-env-secrets.md) — 3 tracked .env files; one DB password covers dev+uat
 - [A test can pass for the wrong reason](a-test-can-pass-for-the-wrong-reason-vary-the-fixture.md) — 2 routes to the same outcome; shrink the fixture so the guard is the only one
 - [PIT KILLED ≠ your assertion killed it](pit-killed-does-not-mean-the-assertion-killed-it.md) — an unstubbed mock throwing kills the mutant; hand-apply and read the message
@@ -195,4 +196,24 @@
 - [SDR param-conversion 500 is a commons exception](wms2-sdr-param-conversion-500-is-a-commons-exception.md) — QueryMethodParameterConversionException; matched via cause; missing primitive still 500s
 - [ProblemDetail properties nest on every channel](wms2-problemdetail-properties-nest-on-every-channel.md) — $.properties.*, not root; standaloneSetup flattens so the unit lane tests a fake shape
 - [Derive the bound constant from the call site](derive-the-bound-constant-from-the-call-site.md) — a ticket's literal matched 0 rows; the filter was inert and the clean number agreed with me
-- [Review rounds leave their own fix commits unreviewed](review-rounds-leave-their-own-fix-commits-unreviewed.md) — Nam caught this on 3398 AND 3419; re-review the fix commits, unasked
+- [Review rounds leave their own fix commits unreviewed](review-rounds-leave-their-own-fix-commits-unreviewed.md) — fix commits AND the PR body/commit msg/ticket text ship unreviewed; gate the push on a pass over both
+- [DB MCP for data validation](db-mcp-for-data-validation.md) — use `wms2-wineco-dev` (not wms1) for live v2 data checks
+- [Mockito varargs captor needs the ARRAY class](mockito-varargs-captor-needs-array-class.md) — one forClass(X.class) matches arity-1 only; reads as "never called"
+- [wms2-mobile-ui apiError.js DOES render ProblemDetail detail](wms2-mobile-ui-apierror-renders-problemdetail.md) — 3 wms2-api javadocs say it does not exist; they are wrong (stale checkout)
+- [Reused container accumulates SEQUENCES, not just rows](reused-container-accumulates-sequences-not-just-rows.md) — row cleanup cannot reclaim them; a heavy session reds OrderReleaseSectionQueryIT for everyone
+- [Exposure counts must filter to the path's precondition](population-query-must-filter-to-the-paths-precondition.md) — SBDEV-3470 "~142 locks" was inbound pallets scanGate rejects; real max 28
+- [v2 never short-picks](wms2-no-short-picks-confirmpick-callers-pass-ordered-amount.md) — both confirmPick callers pass getAmount(); a guard that permits ≠ a path that produces
+- [ClickUp comment API drops markdown tables](clickup-comment-api-drops-markdown-tables.md) — reads back as "undefined"; use lists, read back
+- [SBDEV-3353 parcel source guard](wms2-parcel-source-guard-sbdev-3353.md) — PR #416 on dev (27280283); 6 sites; callee sweep missed transferToDamaged
+- [Mobile $kc.logout() never ends the SSO session](wms2-mobile-kc-facade-logout-never-ends-sso.md) — façade nulls the instance first → always a reload; check-sso re-signs; Logout button too (SBDEV-3518)
+- [unitload_record CREATED ≠ mint census](unitload-record-created-is-not-a-mint-census.md) — closeBOL batch writes CREATED on shipping; system locs typed overstock pallet
+- [id watermark = false zero on a live wms2 DB](wms2-id-watermark-false-zero-on-live-db.md) — new rows get ids far below max(id); filter by natural key + created timestamp
+- [XML test tally must subtract <skipped>](surefire-xml-tally-must-subtract-skipped.md) — a class-level @Disabled IT read as 11 passing; confirm from source it runs
+- [Replen Monitor "0/Unassigned" = misreading](replen-monitor-empty-cells-are-not-data-defects.md) — ⓘ=no RO, Unassigned=no FLA, Qty Req=demand; filed 3x; PR web-ui #151
+- [Check ListAgents before resuming a ticket worktree](check-peer-sessions-before-resuming-a-ticket.md) — a peer session may own it; never restore a file without reading its diff
+- [OutboxLaneClaimIT reds only in a full run](outbox-lane-claim-it-order-flaky.md) — passes 6/6 alone; also 2 ITs red on develop daf64d41
+- [stockrecord ids aren't monotonic on live wms2](wms2-stockrecord-id-not-monotonic-use-created.md) — an id watermark gave a false 0; watermark by `created`
+- [Held-share model overstates other holders on PRD](held-share-model-overstates-other-holders-on-prd.md) — 23 PRD orders hold < requested; a release followed by a move needs held + what the move needs
+- [Sweep in-flight branches before filing a ticket](sweep-in-flight-branches-before-filing-a-ticket.md) — SBDEV-3632 duplicated pr-submitted 3621; review lanes read develop and cannot see in-flight fixes
+- [Adjust Reserved Amount = release-replen-hold button](adjust-reserved-amount-is-the-release-replen-hold-button.md) — PRD: 330/330 cuts to 0, 96% on an SU with a live replen order; attribute, don't refuse
+- [git add -A in a worktree sweeps .omc/state](git-add-all-in-worktree-sweeps-omc-state.md) — leaked session files into an OMS commit; stage explicit paths, exclude .omc/

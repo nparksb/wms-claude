@@ -1,0 +1,8 @@
+M1 exit=1
+M2 exit=1
+M3 exit=1
+M4 exit=1
+77bbd7baf519d744d2e6a65a66345fe8adbf3250  src/main/java/net/aim_ai/wms/service/mobile/MobileMoveUnitloadService.java
+5f1bf66d2b7462e6ada520162400b5795a652779  src/main/java/net/aim_ai/wms/service/mobile/MobileTruckLoadingService.java
+e7dc36af9b32930b1a571bacc18380528f6e3a6e  src/main/java/net/aim_ai/wms/repo/jpa/BillofladingPositionRepository.java
+DONE

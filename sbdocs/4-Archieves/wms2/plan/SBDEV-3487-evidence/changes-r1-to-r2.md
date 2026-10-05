@@ -1,0 +1,22 @@
+## Changes from r1
+
+| Finding | Resolution |
+|---|---|
+| Critic #1 (High) / Architect F2 | §2 "Races" is rewritten from the code. C2 flushes the versioned pallet UPDATE twice before the backstop reads: once through the JPQL `findByCarrierunitloadId` in `processTransfer`, and again through the native backstop query under JPA bootstrap. With `@Version` and closeBOL's version bump, a concurrent close ends in a full rollback. §8 R2 is now "unreachable". Fix D is re-justified in §5.5: it protects future callers, and it covers the case where R5/R6's `clearAutomatically` would throw away an unflushed pallet UPDATE, and the `@Version` check with it. The C2 clause is gone from §3.3 and from the ADR. |
+| Architect F2 (positive control) / Critic #1 (NOWAIT) | New AC-10 in AC-6's class. (a) A TRUCK_LOADING pallet moved by `scanDestination` really changes `storagelocation_id`. (b) After `transferUnitLoadToLocation`, a second connection's `FOR UPDATE NOWAIT` gets `55P03`. Both run in Step 2, and a red on either is a STOP. |
+| Architect F1 | `finishTransfer` added to §2. It writes CLOSED before it takes the unitload lock, so the backstop can be overtaken. The result is a `40P01` deadlock, neither side deletes CLOSED, and on scanGate the facade maps it to the lock-contention response. The §5.3 comment is reworded. |
+| Critic #10 / Architect F6 | The §5.3 comment keeps "per ClosebolLockOrderProbeIT". Where the position flush happens is marked as code-read, not measured. The §8 R1 claim now cites the grep of bulk position-state writers. "The only construct" is removed. |
+| Critic #2 / Architect F5 | Both D0 variants gain `throws BusinessException` (§5.3, §5.4). `MobileTruckLoadingWriteServiceUnitTest.assertNothingWasWritten` (`:124`) is listed in §5.7 and Step 2. Wrapping the exception in a RuntimeException or using `@SneakyThrows` is forbidden. |
+| Critic #3 | AC-6 order is now `catchThrowable`, then the data assertions, then the key. The STOP rule fires if the pre-fix red is anything other than "positions deleted". |
+| Critic #5 / Architect F7 | AC-2 moves to `MobileTruckLoadingServiceTest`, which already has `@Mock MobileTruckLoadingWriteService`. It uses `@Mock BillofladingPositionService`, a real label guard over the stubbed `syspropService` (the literal patterns are given), and verifies calls on the service mock. AC-8 covers the finder. |
+| Critic #4 / Architect T1, F8 | Decided: R3 and R5 return `int`. On 0 rows with a non-null R1, the variant **re-runs** `assertPalletNotShipped`: it throws on CLOSED, otherwise it WARNs and continues. This is the Architect's synthesis, chosen over a plain throw (reason in §5.5). The re-check is AC-11. |
+| Critic #6 | AC-9 uses one fixture per query, with childless CLOSED rows for R3/R5, asserts R3/R5's return value, and adds a positive control for the null-state arm. |
+| Architect F4 | §5.5 states the mixed-tree outcome: `23503`, a 500, full rollback, and that this is intended. |
+| Critic #8 | `assertPalletNotShipped(label, ShippedGuardSite)` puts a site tag on every WARN. The ITs read it with a logback `ListAppender`, which also lets each IT name the layer that fired. |
+| Critic #7 | Pre-mortem #1 is replaced: SBDEV-3490 intercepts AC-6. #2 is replaced: the backstop gets deleted as "dead code". #3 is kept. |
+| Critic #9 / new fact | §3.3 now points to **SBDEV-3490**, with the coupling recorded. Added AC-6b (pallet NOT on Shipped), which only Fix C protects. The Hydra PRD figures are included. |
+| Critic #11 | The manual-test regex is anchored `^(…)$`. AC-6 destination: a new fixture location `PREFIX+"DEST-"+runKey` built with `PgLaneFixtures.location`. It is type 1 `NoRestriction` (V2.2.00 seeds no `location_constraint` for type 1), `entity_lock` 0, not flowbin (type 2), and not EmptyPallets. |
+| Architect F3 / Critic #12 | Added a RALPLAN-DR section (§2.5). Alternatives now appear only there; they are removed from the ADR and §5.2. |
+| Architect F9 | §3.3 records that SBDEV-3490 makes Fix C a pure backstop for Shipped-source moves. It no longer claims to close a C2 race, because that race does not exist. |
+| Length (both) | §7 is one line. §9.1, §9.2 and §10 are deleted (decisions are one line each in the ADR). §5.1 is one line. The §4 key-file table is dropped (§5.7 covers it). §6.5 is folded into §8. The excluded §0 rows are condensed. The §1 DB table is replaced by a 3-line summary. The §5.6 doc table is kept. |
+

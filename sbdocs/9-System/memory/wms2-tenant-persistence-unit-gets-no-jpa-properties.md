@@ -29,5 +29,26 @@ Only the H2 lane's `ddl-auto=create-drop` hid it: it *creates whatever the entit
 entity and schema agree by construction. Production is `ddl-auto=none`, so no boot-time check either.
 The first `validate` ever run against a real migrated schema found drift immediately.
 
+## Third consequence: DML ordering (added 2026-09-23, SBDEV-3458 review)
+
+`spring.jpa.properties.hibernate.order_inserts` / `order_updates` are set
+(`src/main/resources/application.properties:93-94`) and are **inert for tenant entities** for the
+same reason. `src/test/resources/application.properties` shadows the main file and carries neither,
+so no lane sees them either — see [[wms2-test-resources-shadows-main-application-properties]].
+
+**Why it matters beyond one more inert property:** it is load-bearing for reasoning about write
+order. Caught in review when I justified splitting two deletes into separate transactions with
+*"Hibernate orders DML by entity type rather than by call order."* Wrong three ways, any one
+sufficient: (1) there is **no delete reordering at all** — `ActionQueue` runs action types in a fixed
+sequence (orphan-removal → insert → update → collection → delete) and sorts only *within* the insert
+and update buckets; there is no `hibernate.order_deletes` setting in Hibernate; (2) the two sort
+settings that do exist never reach these entities, per above; (3) the familiar
+[[hibernate-delete-then-reinsert-same-key-needs-set-difference]] hazard is **inserts-before-deletes**,
+a *cross-type* property — it says nothing about two operations of the same type.
+
+**So: scheduled deletes execute in call order, and two deletes in one transaction respect a FK if you
+call the child first.** Do not split a transaction to "guarantee" ordering Hibernate already gives
+you — the split buys nothing and costs atomicity.
+
 Related: [[wms2-repository-tests-commit-they-do-not-roll-back]] — same family, a JPA wiring detail
 silently defeating a guarantee the tests assumed.

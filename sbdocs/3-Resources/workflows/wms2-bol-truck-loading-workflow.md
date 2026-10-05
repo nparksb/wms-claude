@@ -6,9 +6,9 @@ version: v2
 scope: bol-truck-loading
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-07-10
-last_verified: 2026-08-03
-verified_by: SBDEV-2797 API half (bulk BOL export; §"REST endpoints" export row rewritten — endpoint moved 265→276 and its request/response contract changed; empty-export behaviour re-confirmed as deliberate per a8af84f)
+updated: 2026-09-24
+last_verified: 2026-09-24
+verified_by: SBDEV-3547 §6.4 pending-reversal paragraph only (2026-09-28, code read in the SBDEV-3547-a worktree); earlier: SBDEV-3487 D0-row only (2026-09-24, code read in the SBDEV-3487 worktree — scoped check, rest of doc NOT re-verified); earlier: SBDEV-2797 API half (bulk BOL export; §"REST endpoints" export row rewritten — endpoint moved 265→276 and its request/response contract changed; empty-export behaviour re-confirmed as deliberate per a8af84f)
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -149,15 +149,72 @@ Plan: `1-Projects/wms2/plan/SBDEV-2507-web-palletize-already-truckloaded-guard.m
 
 ## 5. Truck Loading — Mobile Path
 
-`MobileTruckLoadingService.scanGate` at line 178-325 is the mobile operator's primary action. Flow:
+> **Updated by SBDEV-3418 (2026-09-22).** Before that ticket this method had **zero**
+> `@Transactional` and **zero** row locks: it wrote a BOL header, relocated a pallet and inserted a
+> three-level position tree with every write committing independently, so any mid-flight failure
+> left a partial BOL behind. It is now split in two, following the `MobilePalletizingService` /
+> `MobilePalletizeWriteService` precedent from SBDEV-3398.
 
-1. Lookup pallet + BOL + gate location.
-2. BOL state guard — only `CREATED`, `OPEN`, or `TRUCK_LOADING` allowed. Waterfall from CREATED/OPEN to TRUCK_LOADING. Reject TRANSFER / CLOSED / CANCELLED with `BusinessException`.
-3. Transfer the pallet to the gate location via `unitloadBusinessService.transferUnitLoadToLocation(pallet, gate, false, CODE_TRUCK_LOADING, bolNumber, null)`.
-4. Offload via `mobileTransferService.handleTruckOffLoading(palletName)`.
-5. Build BOL position tree: create `BillofladingPosition` for the pallet, then for each parcel on the pallet, then for each stock unit under each parcel. All positions are created with `state = TRUCK_LOADING`.
-6. For each customer order in the pallet's parcels: if `state < LOADED_TO_TRUCK`, set `state = LOADED_TO_TRUCK`.
-7. Post-commit: `ManageOrderService.customerOrderLoadedToTruck(...)` → fires `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK`.
+`MobileTruckLoadingService.scanGate` is the mobile operator's primary action. It is **not**
+transactional itself — it delegates to `MobileTruckLoadingWriteService.scanGate`, which carries
+`@Transactional(value = "tenantTransactionManager", rollbackFor = {BusinessException.class,
+FacadeException.class})` and owns every lock. The outer method keeps exactly three jobs: translating
+`PessimisticLockingFailureException` into an operator-legible retry, mapping the DTO, and notifying
+OMS *after* the boundary has returned.
+
+The write service runs in five named phases, and the order is load-bearing:
+
+| Phase | What it may do |
+|---|---|
+| **A** — resolve | Scalar id/existence probes only. Never materialises a row it will later lock (SBDEV-3244 first-touch rule). |
+| **B** — lock | `findByIdForUpdate` in the canonical TABLE order SBDEV-3419 measured off `pg_locks`: `Billoflading → Unitload` (pallet, then parcels ascending by id) `→ Stockunit → Customerorder` ascending `→ CustomerorderPosition`. `Stockunit` and `CustomerorderPosition` are read here UNLOCKED, at the right position. |
+
+**SBDEV-3465 measured this path's OWN acquisition order** (2026-09-23,
+`MobileTruckLoadingLockOrderProbeIT`, PostgreSQL 14, relation-level locks off `pg_locks`) — until
+then the order above was inherited from SBDEV-3419's measurement of `closeBOL` and verified here only
+by review:
+
+| blocked at | already holds |
+|---|---|
+| B1 `billoflading` | `billoflading` — **nothing precedes it** |
+| B2 `unitload` | `billoflading`, `unitload` |
+| B5 `customerorder` | `billoflading`, `customerorder`, `unitload` |
+| PHASE D `location` | `billoflading`, `customerorder`, `location`, `unitload` |
+
+It matches. Three things the table above does not say, all measured: only **three** of those five
+tables take a lock at all (`Stockunit` and `CustomerorderPosition` are unlocked reads); **`Location`
+is a fourth locked table**, absent from the canonical sentence and sitting **last**, after every
+PHASE B acquisition; and the locks render as `FOR NO KEY UPDATE`, which is what Hibernate's
+`PESSIMISTIC_WRITE` emits on PostgreSQL. `billoflading_position` and `unitload_record` are also
+locked, by DML rather than by a finder, and are unranked.
+
+⚠ This measures **one path's internal order**. It is not a proof that no deadlock cycle exists with
+any other path — that needs every path locking two of these tables enumerated, and the probe's own
+javadoc records the blind spot.
+| **C** — guard | **Predicates only. No mutation.** BOL state waterfall (`CREATED`/`OPEN → TRUCK_LOADING`; `TRANSFER`/`CLOSED`/`CANCELLED` rejected), gate-mismatch, duplicate-order and orphan-parcel. The last two used to fire *mid-write-loop*, after positions had already committed. |
+| **D0** — purge | `handleTruckOffLoadingNoClear(palletName)` — ahead of every pending write. A no-clear sibling is used because `@Modifying(clearAutomatically = true)` would detach the entire persistence context inside the boundary. **SBDEV-3487:** throws `billOfLadingPositionUnxepectedStateFound` (naming the BOL) when the pallet has a **CLOSED** position — the backstop; the facade `MobileTruckLoadingService.scanGate` rejects the same case before B1, but that pre-lock read races `closeBOL`, so this post-B2 check is the real guarantee. The purge statements also carry `bp.state IS NULL OR bp.state <> 'CLOSED'`, with a re-check when the pallet-row delete hits 0 rows. `TRANSFER` positions are still purged. |
+| **D** — write | Apply the pending gate/state and save the header; relocate the pallet via `transferUnitLoadToLocation(pallet, gate, false, CODE_TRUCK_LOADING, bolNumber, null)`; build the pallet → parcels → stock-units position tree at `state = TRUCK_LOADING`; set each customer order to `LOADED_TO_TRUCK` where `state <` it. |
+
+`ManageOrderService.customerOrderLoadedToTruck(...)` → `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK`
+fires from the **outer** method once the boundary has committed. It is a direct call, not a
+`registerSynchronization`: `sendAfterCommit` already defers internally, so an outer registration
+would be a double deferral whose inner half is discarded unseen (SBDEV-3267). A notification failure
+is logged, not propagated — the stock has already moved.
+
+⚠ This does not close every deadlock cycle. `billoflading_position` is unrankable from source, the
+`unitload`-vs-`unitload` cycle against `closeBOL` is untouched, and `Location` is unranked; all
+abort as `40P01` → a retry prompt. See `MobileTruckLoadingWriteService`'s class javadoc, which
+carries the full residual list including the unlocked-read isolation gap and the measured fan-out (max 28 B3+B5 acquisitions on Hydra prd today, SBDEV-3470. That is a
+property of the data, not a bound: B3 locks every child before PHASE C rejects an order-less pallet.
+An earlier "~142" figure counted inbound pallets and was wrong).
+
+**Pallet-label check (SBDEV-3474).** `scanGate` now rejects a pallet label that matches neither
+outbound pattern (`STRING_PATTERN_OUTBOUND_PALLET`, `PRINTING_PATTERN_OUTBOUND_PALLET_LABEL`) with
+`noValidString`, before any transaction or row lock. The check is `OutboundPalletLabelGuard`, shared
+with `scanPallet`'s `checkPallet`. Before it, only `scanPallet` checked, so a direct `scanGate` call
+on an inbound pallet row-locked the BOL, the pallet and every child before rejecting it (336 rows
+measured on dev). With neither pattern configured the check rejects (fails closed). It does not
+bound the fan-out for an outbound-labelled pallet whose children carry no orders.
 
 Related mobile endpoints:
 
@@ -234,6 +291,12 @@ Entity lock value:
 - `BusinessObjectLockState.TRANSFER` for TRANSFER path
 
 Stock under shipped unit loads is locked from further edits until the receiving end (other warehouse) acknowledges.
+
+**Pending-reversal visibility (SBDEV-3547 PR-A).** The Stockunit bulk UPDATE overwrites whatever lock the pallets' children held, including `PICKED_FOR_GOODSOUT` on stock still owed to a cancellation reversal. It enters neither move chokepoint, and that is deliberate: refusing a close would strand a loaded truck. So in both `closeBOL` and `finishTransfer`, `reportPendingReversalsOnShippedPallets` runs **immediately before** that UPDATE.
+- It calls `CustomerorderCancellationLogRepository.findPendingReversalsOnPallets(palletIds)`. The query matches children of the pallets one level down, which mirrors the UPDATE's WHERE clause. Stock sitting directly on a pallet is matched by neither.
+- On a hit it writes a WARN inline ("closing BOL X will ship …"), then registers an **after-commit** Service Log row: sender/receiver `WMS`/`OPS` (the same queue as `PendingReversalReconciliationJob`) and process `PENDING_REVERSAL_SHIPPED`.
+- It never refuses. If the Service Log write fails after commit, the failure is logged and swallowed.
+- Pinned by `BillofladingServiceUnitTest$Sbdev3547_ShippedPalletPendingReversal` and `PendingReversalsOnPalletsIntegrationTest` (H2).
 
 ### 6.5 Post-commit OMS callback
 

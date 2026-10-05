@@ -1,6 +1,6 @@
 ---
 name: review-lanes-must-not-share-a-worktree
-description: Two review subagents on one worktree — a stash/pop in one silently made the other grade the baseline
+description: Two lanes (or two SESSIONS) on one worktree — stash/pop graded the baseline; a peer session's git checkout destroyed uncommitted work and overwrote a review file
 metadata:
   type: feedback
 ---
@@ -75,3 +75,37 @@ debugging the change — which is exactly the wasted motion this note exists to 
 no `BUILD` line, or errors numbering in the hundreds across unrelated classes, is a collision until proven
 otherwise. **Re-run alone before reporting any suite result.**
 
+
+## The AUTHOR is the third writer, and that is the easy one to forget (2026-09-23, SBDEV-3465)
+
+Both rules above are about lanes racing each other. This one is about racing them myself. While a
+`code-reviewer` lane was reading the branch I added a whole new test to one of the files under
+review, then committed it. The lane finished and reported findings phrased against a tree that no
+longer existed — *"all three probe points"* when there were by then four — and it said so itself:
+*"the probe IT went dirty under me mid-review."*
+
+**Nothing was lost here**, because the new test went into the fix commit and a scoped re-review read
+that commit. But the failure mode is obvious once stated: a finding written against a file you have
+since changed can be closed as "already fixed" when it was never read, or re-raised as new when it
+was already known, and you cannot tell which from the report alone.
+
+**How to apply.** Once a lane is spawned against a branch, the tree is **read-only to me** until it
+reports. Queue the edits instead — I had no reason to add that test immediately, and waiting cost
+nothing. If an edit genuinely cannot wait, commit it and tell the lane the new SHA rather than
+letting it discover a moving tree. And when a lane's finding cites a line, a count, or a structure
+that does not match what is on disk, **check the timestamps before assuming the lane was wrong**.
+
+## It also happens ACROSS SESSIONS — 2026-09-30 (SBDEV-3561)
+A second Claude session (`owl-a7`) picked up the same ticket and worked in the **same**
+`.claude/worktrees/<repo>/SBDEV-3561` trees while this session's lanes were mid-round:
+- its `git checkout` discarded an uncommitted `.vue` fix (the R6-L2 guard);
+- it ran Maven PIT/IT in the api worktree, concurrent with this session's lane (shared `target/`
+  and Testcontainers postgres → results in that window void);
+- its review lane wrote to the **same** `.omc/research/SBDEV-3561-review-web-r6.md` path and
+  overwrote this session's report. Recoverable only as the lane's final-message summary.
+Nothing in the worktree layout stops this: the path is keyed by ticket, not by session.
+
+**How to apply:** before a lane writes into a ticket worktree, check for another live session on the
+ticket (`ListAgents`; `pgrep -fl 'maven|jest'` whose cwd is that worktree). Name research files with
+a session tag when two sessions might share a ticket. And commit each green step promptly: uncommitted
+work is what a peer's `git checkout` destroys.

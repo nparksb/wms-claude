@@ -1,0 +1,6 @@
+2026-09-24 13:12:46.544 [main] WARN  n.a.w.s.PickLineActivityCodeClassifier - [][] Unknown move activityCode 'TRANSFER_BUILD_TRUCK' for stockUnitId=10 — defaulting PASS_THROUGH (fail-open)
+2026-09-24 13:12:46.544 [main] WARN  n.a.w.s.PickLineActivityCodeClassifier - [][] Unknown move activityCode 'TRANSFER_BUILD_TRUCK' for stockUnitId=10 — defaulting PASS_THROUGH (fail-open)
+2026-09-24 13:12:46.547 [main] WARN  n.a.w.s.PickLineActivityCodeClassifier - [][] Unknown move activityCode 'TRANSFER_BUILD_TRUCK' for stockUnitId=10 — defaulting PASS_THROUGH (fail-open)
+[WARNING] Tests run: 7028, Failures: 0, Errors: 0, Skipped: 1
+[WARNING] Tests run: 514, Failures: 0, Errors: 0, Skipped: 31
+[INFO] BUILD SUCCESS

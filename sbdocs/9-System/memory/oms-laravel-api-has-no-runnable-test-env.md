@@ -59,3 +59,20 @@ rebuilds every table on the `testing` connection. `config/database.php` hardcode
 name to `om1_owltest`, but **`LANDLORD_DATABASE` and `REPORTING_DATABASE` are NOT hardcoded** — and
 the committed `.env.testing` points them at `om1_landlord_owltest`/`dev_om1_wineco_reporting`. A real
 MySQL URL plus those defaults rebuilds real databases. See [[oms-laravel-api-committed-env-secrets]].
+
+## Fast no-DB lane (2026-09-26, SBDEV-3524)
+
+For **pure** classes (e.g. everything under `app/Services/Cubing` except the resolver), the full recipe
+above is overkill. `composer:2` for `composer install --no-scripts --ignore-platform-reqs`, then a
+`php:8.4-cli` image **plus `pdo_mysql`** (without it, 178 cubing tests die in config on
+`PDO::MYSQL_ATTR_SSL_CA` before running), and run phpunit with no DB. Baseline on develop `14526ab9`:
+`tests/Unit` = **4567 tests, 1977 errors, 44 failures, 18 skipped**, almost all errors = DB connection
+refused. Compare **per-test outcomes via `--log-junit`**, never totals. Cubing dir alone: 71 DB errors
+(resolver/assignment classes). The config/cubing.php `env()` helper works in a plain PHPUnit TestCase;
+`config()` does NOT unless you set `Container::setInstance()` with a `config` Repository.
+
+⚠ **Trap: rewriting `.env` is not enough for phpunit.** phpunit.xml sets `APP_ENV=testing`, so Laravel
+loads **`.env.testing`** (host 127.0.0.1) and ignores your `.env`; artisan (migrations) reads `.env` and
+works, so setup looks fine and the suite quietly becomes a no-DB lane (measured 2026-09-26: 1971 errors
+= "Connection refused" instead of ~197). Point `.env.testing` (or `-e` env vars) at the DB, and run one
+DB-bound test first as a positive control. Saved recipe: `sbdocs/1-Projects/wms2/plan/SBDEV-3524-evidence/reset_and_run.sh`.

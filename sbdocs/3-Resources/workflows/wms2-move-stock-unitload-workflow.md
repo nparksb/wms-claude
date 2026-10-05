@@ -6,9 +6,9 @@ version: v2
 scope: move-stock-unitload
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-09-14
-last_verified: 2026-09-14
-verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired); source-lock row re-verified 2026-09-14 against origin/develop d80b5083 for SBDEV-3341 (it was wrong)
+updated: 2026-09-24
+last_verified: 2026-09-24
+verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired); source-lock row re-verified 2026-09-14 against origin/develop d80b5083 for SBDEV-3341 (it was wrong); handleTruckOffLoading source-label + CLOSED-position rows re-verified 2026-09-24 for SBDEV-3487; scanDestination source-guard rows for SBDEV-3490 (merged 5fa9bef0)
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -39,7 +39,7 @@ Two mobile pages, one concept with an important split:
 Two things to hold:
 
 1. **Both flows write audit trails** (`stockrecord`, `unitload_record`) and **fire `WEBSERVICE_STOCK_UPDATE`** via `MessageService.sendStockChangeMessage` when inventory changes.
-2. **Move Unitload on an outbound pallet** cleans up orphaned `BillofladingPosition` rows via `handleTruckOffLoading()` when the destination label matches the outbound-pallet regex. Without that cleanup, a BOL would reference a unit load that's no longer on its gate location.
+2. **Move Unitload of an outbound pallet to a location** cleans up orphaned `BillofladingPosition` rows via `handleTruckOffLoading()` when the **source** unit-load label (the pallet being moved, `dto.getUnitLoadLabel()`) matches the outbound-pallet regex. The destination label is never tested. Without that cleanup, a BOL would reference a unit load that's no longer on its gate location. ⚠ Since SBDEV-3487, a pallet that already has a **CLOSED** (shipped) BOL position is **rejected** here with `billOfLadingPositionUnxepectedStateFound` rather than purged — see §10 item 4.
 
 ---
 
@@ -76,17 +76,26 @@ Operator scans destination (location OR pallet label)
   ▼
 MobileMoveUnitloadService.scanDestination()        [line 205]  @Transactional(tenantTransactionManager)
   │
+  ├── Resolve the source with findByLabelidForUpdate (SBDEV-3442): the transaction's first row lock,
+  │   taken before any guard, so every guard below judges committed state. Rejections now also wait
+  │   for this lock. Lock-order residuals N1–N3 are recorded at the call site
+  │
+  ├── SOURCE guards, ahead of every branch (SBDEV-3490 — repeated from scanUnitLoad because this
+  │   endpoint can be called without selectSource): not the Nirvana sentinel / not on the Nirwana
+  │   location / not on Shipped / not ON_HOLD / no fixed-location assignment / reserved-stock rules
+  │
   ├── Destination = location?
-  │     Guards: not locked / not Nirvana / not Shipped / stock compatibility / flowbin rules
+  │     Guards (DESTINATION): not locked / not Nirvana / not Shipped / stock compatibility / flowbin rules
   │     → unitloadBusinessService.transferUnitLoadToLocation(source, dest, false, CODE_TRANSFER, ...)
+  │     → handleTruckOffLoading(dto.unitLoadLabel)      ← tests the SOURCE label, not the destination
+  │         · source label matches outbound-pallet regex?
+  │             · CLOSED BOL position for it? → throw billOfLadingPositionUnxepectedStateFound (SBDEV-3487)
+  │             · else delete its non-CLOSED BOL positions (pallet row + carrierId chain)
   │
   ├── Destination = unitload label (pallet)?
   │     Guards: not circular / not same UL
   │     → unitloadBusinessService.transferUnitLoadToCarrier(source, parentPallet, CODE_TRANSFER, ...)
-  │
-  ├── Destination matches outbound-pallet regex?
-  │     → handleTruckOffLoading(source.label)
-  │         · delete BOL positions pointing at this UL (carrierId chain)
+  │     (no BOL cleanup on this branch)
   │
   └── Commit — UL row updated, unitload_record appended, stock_record for child stockunits
 ```
@@ -270,10 +279,10 @@ Never invent a new code at a call site — add a constant to `WmsConstants` firs
 | Guard | Exception | Line |
 |---|---|---|
 | UL is Nirvana UL | `"Can not move"` | 132 |
-| UL on NIRVANA location | `"Can not move from nirvana"` | 139 |
-| UL on SHIPPED location | `"Can not move from shipped"` | 144 |
+| UL on NIRVANA location | `"Can not move from nirvana"` | 139 — also repeated at the top of `scanDestination` ([SBDEV-3490](https://app.clickup.com/t/868m8t1ag)) |
+| UL on SHIPPED location | `"Can not move from shipped"` | 144 — also repeated at the top of `scanDestination`, ahead of every branch ([SBDEV-3490](https://app.clickup.com/t/868m8t1ag)); before it, a direct `selectDestination` could move a shipped UL out of Shipped |
 | UL / stockunit ON_HOLD lock | `"Unit load/Stock unit is locked on hold!"` | 148–155 |
-| UL has fixed assignment | `"Cannot move fixed assigned"` | 161 |
+| UL has fixed assignment | `"Cannot move fixed assigned"` | 161 — also repeated in `scanDestination` (SBDEV-3490) |
 | Reserved stock held by an in-progress pick (state<600) | `"Stock is reserved by in-progress pick <PICK#>; complete or cancel it before moving..."` | 230 |
 | Reserved stock, no active replen, no active pick (stranded) | **allowed** — warn + proceed (SBDEV-2610 B1; the old `"Reserved stock! can not move"` dead-end throw was removed) | 233 |
 | Destination = Nirvana | `"Can not move to nirvana"` | 246 |
@@ -298,6 +307,19 @@ lives on `StockunitService.transferStock`; both halves are listed below.
 | Source UL is the Nirvana UL | `"Can not move stock from <label>"` | `MobileMoveStockService:111` |
 | Source UL on NIRVANA location | `"Can not move unit load from Nirwana"` | `MobileMoveStockService:118` |
 | `transfer > available` | `"Entered amount more than available"` | `MoveStockController:80` |
+
+**Source container — `SourceContainerGuard` (SBDEV-3353, 2026-09-24, branch not yet merged).** There are three entry points, and each call site uses exactly one:
+- `assertUnitloadNotParcel(Long unitloadId, …)`: `StockunitService.transferStock`. It is handed the unit load **id** read as a scalar, so nothing gets managed before `transferStockToUnitLoad`'s `findByIdForUpdate`.
+- `assertStockNotInParcel(Stockunit, …)`: `setLockDamaged`, RTS `completeReversal`, mobile `transferStock`.
+- `assertNotParcel(Unitload, …)`: mobile Move Unit Load and putaway, which already hold the unit load.
+
+All three read the unit load's label and type id as scalars (`UnitloadRepository.findParcelGuardViewById`) or from the caller's entity. None loads a `Unitload` entity itself.
+
+| Guard | Exception | Called from |
+|---|---|---|
+| Source stock unit's container is a `Package` (parcel), keyed on type name only, every amount, every arm | keyed `BusinessException(transferStockSourceIsParcel)`, `%1$s` = parcel label (id if blank) | top of `StockunitService.transferStock` (covers both web endpoints and RTS) · `StockunitService.setLockDamaged` (`/transferToDamaged`, `/bulkTransferToDamaged`) · `MobileTransferOrderService.transferStock` · `MobileMoveUnitloadService` stock-move arm · `MobilePutAwayService.storeBoxOnLocation` flow-bin arm · `CancellationReversalService.completeReversal` pre-validate loop (before the lock-100 clear) |
+
+**Fail-open on unknown**, deliberately: an unresolvable unit load or type row means the source is **not** treated as a parcel, so the move **proceeds** and a WARN is logged. No row reaches this today: the columns are NOT NULL and there are 0 orphans on all 6 tenants (2026-09-24). **Deliberately not guarded:** a **whole**-parcel relocation, which moves the container without emptying it (ticket 868m9914u), `handleTruckOffLoading` (Nam's decision), and `adjustAmount`, which is a count correction, not a move. `Package` also left `UnitloadService.TYPES_THAT_REST_IN_A_STORAGE_LOCATION` in the same change.
 
 **Destination — `StockunitService.transferStock` (the path both UIs use):**
 
@@ -390,11 +412,11 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 
 1. **Two distinct flows, same backend audit.** Move Unitload writes both `unitload_record` and (via children) `stockrecord`. Move Stock writes only `stockrecord` for the split. If a user report says "audit row is missing for a UL move," check the unit_load_record side first.
 2. **Pessimistic lock in split path.** High-contention flowbins under concurrent split attempts will serialize and may time out. No timeout hint set on `StockunitRepository.findByIdForUpdate` — it waits on the session default. Document this before scaling up replicas.
-3. **BOL cleanup only fires when destination matches outbound-pallet pattern.** A UL that was erroneously placed on a BOL gate without matching the regex will orphan its `BillofladingPosition` when moved. Symptom: BOL close fails with "unit load not at gate."
-4. **`handleTruckOffLoading` is destructive** (deletes `BillofladingPosition` rows). Recoverable only by replaying the truck-loading flow. Don't run this on production during a tenant migration without pausing truck-loading.
+3. **BOL cleanup only fires when the SOURCE label matches the outbound-pallet pattern**, and only on the move-to-location branch. A UL that was erroneously placed on a BOL gate without its own label matching the regex will orphan its `BillofladingPosition` when moved. Symptom: BOL close fails with "unit load not at gate."
+4. **`handleTruckOffLoading` is destructive** (deletes `BillofladingPosition` rows). Recoverable only by replaying the truck-loading flow. Don't run this on production during a tenant migration without pausing truck-loading. **SBDEV-3487:** it now throws `billOfLadingPositionUnxepectedStateFound` (naming the BOL) when the label has a **CLOSED** position, and the four purge statements R3–R6 carry `bp.state IS NULL OR bp.state <> 'CLOSED'`, so a shipped BOL's positions are never deleted. `TRANSFER` positions are still purged (same as `checkPallet`). The scanGate twin `handleTruckOffLoadingNoClear` has the same backstop.
 5. **Move Unitload guards do not check stock-unit reservations of children.** If a child stock unit has been reserved by an open pick order, the move succeeds but the pick order now points at the wrong location. The fixed-location / reserved-stock guards only check the unit load itself, not its children. Bug waiting to happen.
 6. **Move Stock to a flowbin without an assignment** creates an implicit fixed-assignment on first scan (line 290 check). This is intentional — it's how flowbins get populated the first time. But an operator who scans the wrong flowbin locks that SKU into that location until an admin removes the assignment.
-7. **`removeUnitLoadIfEmpty=true` default** sends source UL to Nirvana when `amount` hits zero. Desirable for manual splits; unexpected if a caller is iterating splits and expects to reuse the source UL. Audit `transferStockToUnitLoad` call sites before changing this flag.
+7. **`removeUnitLoadIfEmpty=true` default** sends source UL to Nirvana when `amount` hits zero. Desirable for manual splits; unexpected if a caller is iterating splits and expects to reuse the source UL. Audit `transferStockToUnitLoad` call sites before changing this flag. ⚠ For a **`Package`** source this is permanent damage: `relocateEmptiedContainer`'s `default:` retires the parcel (label rewritten to `<label>-X-<id>`, carrier link nulled) while `customerorder.parcel_id` and open BOL positions still reference it, and there is no recovery path. SBDEV-3353 refuses operator moves out of a parcel for exactly this reason. Do not add a new caller that drains a Package without a disposition that is not Nirvana.
 8. **No OMS callback for `CODE_TRANSFER` when stock amount doesn't change.** Pure unit-load relocation (moving a pallet to a different location) is invisible to OMS. If OMS needs location visibility, it has to poll or subscribe to the monitor-view endpoints.
 9. **Damaged-stock permission gate** (`FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`) is checked in both flows — `MobileMoveUnitloadService:303, 308` for Move Unitload, and `StockunitService:265` for Move Stock. ⚠️ Re-measured 2026-08-28: the old "stock lines 240–247" pin referred to `MobileMoveStockService.selectDestination`, retired by SBDEV-2996; the gate on the stock flow is now solely the `StockunitService` one. A Keycloak realm that doesn't grant this role blocks all moves involving damaged stock. Check the role matrix before provisioning a new operator composite role.
 10. **`CODE_MANUAL_SPLIT` reused for full-move scenarios** in `transferStockToUnitLoad` when the transfer amount equals the source amount. Reports that count "splits" by this code over-count by the number of full moves. Downstream analytics need to check source vs destination unit load IDs to distinguish.
@@ -405,7 +427,8 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 
 | Symptom | Start here |
 |---|---|
-| "Moved a pallet but its BOL position still exists" | §3 + §10 item 3 — destination label didn't match outbound regex |
+| "Moved a pallet but its BOL position still exists" | §3 + §10 item 3 — the **source** label didn't match the outbound regex, or the move went onto a carrier pallet (no cleanup on that branch), or the position is CLOSED (deliberately kept, SBDEV-3487) |
+| "Move rejected: billOfLadingPositionUnxepectedStateFound" | §10 item 4 — the pallet is already on a CLOSED (shipped) BOL; SBDEV-3487 refuses to purge it |
 | "Cannot move pallet — fixed assignment error" | §6 Move Unitload guard + remove the FLA via admin UI first |
 | "Stock split silently consumed entire source" | §4 — if `amount == source.amount`, the split becomes a full move |
 | "OMS never saw a UL relocation" | §10 item 8 — pure location moves don't fire |
@@ -420,6 +443,9 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-08-29 | **New §4.2 — scanned-identifier case resolution** (SBDEV-3134; wms2-api PR #234 + mobile-ui PR #50, both merged 2026-08-29). Documents the exact-first / case-insensitive-fallback / refuse-ambiguity rule, all 7 call sites, the TOTAL probe variant, the mobile `v-autocomplete` half, and the merge-order constraint between the two PRs. | All 7 call sites confirmed line-exact on `origin/develop` at `e5daa8ca`. `findByLabelidIgnoreCase`'s `limit 1` confirmed at `UnitloadRepository:80`; the two new `List`-returning methods at `UnitloadRepository:118` and `LocationRepository:60`. **UNIQUE-but-case-sensitive confirmed by live query on BOTH UAT and PRD hydra** — `uk_sahixf1v7f7xns19cbg12d946` on `location(name)` and `uk_s2ujivixnde5dqb2stih8m2vh` on `unitload(labelid)`, both plain `btree`, not `lower(...)`. `/storageLocationsForStockMovement` confirmed at `StockUnitController:749`. **Scoped check — the rest of the doc was NOT re-verified.** | Code read on `origin/develop` + `pg_index` on `wms2-hydra` (PRD) and `nywh-hydra-uat` |
+| 2026-09-24 | **SBDEV-3442** — §3 flow box: `scanDestination` now locks its source (`findByLabelidForUpdate`) before any guard; `ScannedCodeResolver`'s exact-hit probes are scalar (`existsByLabelid`) so the lock is the row's first touch. | Code read of branch `bugfix/SBDEV-3442-scandestination-row-lock` @ 2f0ceb04, merged to develop as 45433631 (PR #414); pinned by `MoveUnitloadLockOrderProbeIT` | Claude (SBDEV-3442) |
+| 2026-09-24 | **SBDEV-3490** — §3 flow box and §6 nirvana / shipped / fixed-assignment rows: `scanDestination` now repeats `scanUnitLoad`'s three source guards ahead of every branch. | Code read of branch `bugfix/SBDEV-3490-shipped-source-guard` (06503426); merged to develop as `5fa9bef0` (PR #413, 2026-09-24); line numbers in §6 are `scanUnitLoad`'s and were not re-derived. Scoped check only. | Code read |
+| 2026-09-24 | **SBDEV-3487** — §1 item 2, §3 flow box, §6 `from shipped` row, §10 items 3–4, §11: corrected the false "**destination** label matches the outbound regex" claim (the code tests the **source** label, `handleTruckOffLoading(dto.getUnitLoadLabel())`, on the move-to-location branch only), flagged the Shipped-source check as `scanUnitLoad`-only (SBDEV-3490), recorded the CLOSED-position rejection + R3–R6 predicate. | Code read in the SBDEV-3487 worktree. **Scoped check — the rest of the doc was NOT re-verified.** | Code read |
 | 2026-04-19 | `MobileMoveUnitloadService` (scanUnitLoad, scanDestination, handleTruckOffLoading), `MobileMoveStockService` (selectSource, selectStockUnit, selectDestination), `UnitloadBusinessService.transferUnitLoadToLocation / transferUnitLoadToCarrier`, `StockunitBusinessService.transferStockToUnitLoad`, REST endpoints, activity code constants, pessimistic lock site | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 
 **Re-verify every 90 days.** Next due: **2026-11-27**.

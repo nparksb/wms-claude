@@ -1,0 +1,28 @@
+SBDEV-2624 P0 wms2-api surefire baseline — mvn -o clean test, JDK 21.0.8, worktree .claude/worktrees/wms2-api/SBDEV-2624 (base 7762aa64 + P0 skeleton + gate tests), 2026-10-02 16:04
+Concurrency check: no other surefire/failsafe/plexus-classworlds process before the run.
+
+[ERROR] Tests run: 7811, Failures: 19, Errors: 0, Skipped: 1
+
+Failing tests (all 19 are the new SBDEV-2624 RF unit cases; 0 pre-existing failures):
+SkuRestControllerUnitTest$DeleteByFacilityItemId.delete_byFacilityItemId_casOnSku_matchDeletesX:785 AC-14: delete must resolve facility_item_id via findByIdAndClientId and delete X
+SkuRestControllerUnitTest$DeleteByFacilityItemId.delete_byFacilityItemId_casOnSku_mismatchRejects:814 mutant 'drop the CAS': an id hit whose item_nr != sku must delete nothing — not X, and not the (c,B) row found by code
+SkuRestControllerUnitTest$ItemIdsContract.create_returns200WithItemIdsBySku:740 [expected 200 was 204 — mutant 'return 204': the OMS reads item_ids only from a 200 body] 
+SkuRestControllerUnitTest$ItemIdsContract.update_returns200WithItemIdsBySku:757 [expected 200 was 204 — mutant 'return 204': the OMS reads item_ids only from a 200 body] 
+ItemdataRepositorySdrExportUnitTest.findByIdAndClientId_isNotExported:32 [mutant 'remove the annotation': findByIdAndClientId has no @RestResource, so SDR publishes it as /v3/itemdata/search/findByIdAndClientId] 
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_createBranch_rechecksRepositoryBeforeInsert:371 [mutant 'drop the re-check': the create branch inserted a new row (id null) although (c,B)=Y is in the DB — another replica's cache held the miss] 
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_failIfExists_recheckHit_throws:204 [expected WebserviceBusinessExceptionClientSide(101) but nothing was thrown — mutant 'ignore failIfExists': a create must never silently take over an existing item] 
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [dataIntegrityViolation injected at the Rename saveAndFlush must surface as WebserviceBusinessExceptionClientSide(105) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no e
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [dataIntegrityViolation injected at the Create saveAndFlush must surface as WebserviceBusinessExceptionClientSide(105) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no e
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [dataIntegrityViolation injected at the PlainUpdate saveAndFlush must surface as WebserviceBusinessExceptionClientSide(105) (a 422) — mutants 'remove a catch' / 'plain save in step 5' ->
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [lockTimeout injected at the Rename saveAndFlush must surface as WebserviceBusinessExceptionClientSide(109) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no exception at
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [lockTimeout injected at the Create saveAndFlush must surface as WebserviceBusinessExceptionClientSide(109) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no exception at
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [lockTimeout injected at the PlainUpdate saveAndFlush must surface as WebserviceBusinessExceptionClientSide(109) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no excepti
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [optimisticLock injected at the Rename saveAndFlush must surface as WebserviceBusinessExceptionClientSide(109) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no exception
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [optimisticLock injected at the Create saveAndFlush must surface as WebserviceBusinessExceptionClientSide(109) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no exception
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_flushFailure_translated:342 [optimisticLock injected at the PlainUpdate saveAndFlush must surface as WebserviceBusinessExceptionClientSide(109) (a 422) — mutants 'remove a catch' / 'plain save in step 5' -> no exce
+SkuBatchCreateUpdateServiceUnitTest.upsertAll_rename_rewritesStockrecordBeforeMutatingAndFlushingItemdata:251->inOrderStep:272 AC-11 step 4a: the direct collision lookup for (c,B) must run first
+WmsConstantsSkuRenameUnitTest.codes108and109_haveTextAndNameArms:43 [mutant 'drop the text arm': code 108 renders the generic text] 
+WmsConstantsSkuRenameUnitTest.codes108and109_haveTextAndNameArms:43 [mutant 'drop the text arm': code 109 renders the generic text] 
+
+Note: a first run (same day) also showed NeverMatcherNullBlindnessArchTest and TestClassTransactionManagerArchTest red, caused by the gate's own test code; both inventories were updated (SkuRestControllerUnitTest:4 anyBoolean sites; SkuRenameInPlaceIT in EXEMPT_NON_TRANSACTIONAL) and this rerun is the authoritative baseline.
+Failsafe lane (SkuRenameInPlaceIT) is not part of 'mvn test'; its gate result: 13 run, 11 failures (RF), 2 passing (RG AC-3, AC-5).

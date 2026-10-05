@@ -1,10 +1,12 @@
 ---
 name: wms2-gate-a-route-on-its-screens-existing-function
-description: "SBDEV-3017 §9.16 Option B (Nam): a route gates on the function that already gates the screen it is dispatched from — ZERO new constants, no migration, T3 drops to T2. WEB_UI_VIEW_* names a SCREEN, not read-only-ness"
+description: "EXCEPTION (SBDEV-3606): ReplenishOrderController writes use WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER - do not revert to VIEW. Otherwise SBDEV-3017 §9.16 Option B: gate on the SCREEN's existing function"
 metadata:
   node_type: memory
   type: feedback
 ---
+> **EXCEPTION 2026-10-01 (SBDEV-3606, Nam-decided 2026-09-30; on branch `feature/SBDEV-3606-replenishment-write-function`, pending merge).** `ReplenishOrderController`'s 6 writes (`POST /update`, `/updateStockUnit`, `/updatePriority`, `/changeSourceStockUnit`, `/create`; `GET /cancelReplenishOrder/{id}`) intentionally gate on the NEW `WEB_UI_ACTION_MANAGE_REPLENISHMENT_ORDER`, derived-granted by `V2.2.35` to every role holding `WEB_UI_VIEW_REPLENISHMENT_ORDER`. **Do not "correct" them back to VIEW, and do not generalise from this exception**: it is the only one, the rule below stands everywhere else, and it is the exception to the "do not correct to an ACTION_ constant" advice below. MANAGE does not cover the mobile `/v3/replenish` routes, so revoking it does not make a role read-only. Plan: `sbdocs/4-Archieves/wms2/plan/SBDEV-3606-replenishment-write-endpoints-gated-by-view-function.md`.
+
 
 **The standing rule for gating an MVC route** (SBDEV-3017 **§9.16**, Nam 2026-08-27, reaffirmed on
 SBDEV-3154 2026-09-01): *"each site takes the function that already gates the screen it is reached

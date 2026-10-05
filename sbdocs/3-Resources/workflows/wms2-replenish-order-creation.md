@@ -5,7 +5,7 @@ project: wms2
 status: stable
 created: 2026-04-19
 last_verified: 2026-09-06
-verified_by: "SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-09-01.)"
+verified_by: "SBDEV-3638 doc pass 2026-10-02 — annotated ONLY the removed single-UL endpoint references (merged 2026-10-02, `f839921e`). Prior: SBDEV-3198 doc-drift pass 2026-09-06 — re-verified ONLY the scheduled-job entry-point claims in this doc against origin/develop d4a6ab8a (doCalculation deleted from all of src/main; runFor(TriggerSpec) / runForCurrentTenant() / deriveSpecForCurrentTenant() are the replacements; the advisory lock moved inside the per-tenant loop and takes tenant_db_configuration.id as a second key). NOTHING ELSE in this doc was re-derived on this pass — treat every other claim as carrying its previous verification date. (previous last_verified: 2026-09-01.)"
 tags: [wms2, workflow, replenish]
 ---
 
@@ -21,7 +21,7 @@ This document traces every code path that results in the creation of a `Replenis
 
 - **Service-level creation** – `ReplenishorderService.create` is used by administrative flows. It mirrors the mobile path: resolve client/item/destination from `ReplenishMobileOrderDto`, then call `calculateOrder` while also passing the DTO’s priority (`src/main/java/net/aim_ai/wms/service/ReplenishorderService.java:59-73`).
 
-- **Auto-refill after finishing** – `/v3/replenish/checkDestination` invokes `MobileReplenishService.finishReplenishmentOrder`, which finalizes the current order and then immediately calls `replenishGeneratorService.refillFixedLocations()` (`src/main/java/net/aim_ai/wms/controller/mobile/ReplenishController.java:155-199`, `src/main/java/net/aim_ai/wms/service/mobile/MobileReplenishService.java:359-425`). That refill run can create new `Replenishorder` entities as soon as an operator puts stock away.
+- **Auto-refill after finishing** – ~~`/v3/replenish/checkDestination` invokes `MobileReplenishService.finishReplenishmentOrder`~~ (endpoint and method removed by SBDEV-3638, merged 2026-10-02, `f839921e`). Now `POST /v3/replenish/multi-unitloads` (`fulfillMultipleUnitLoads`) finishes each order via the private `finishReplenishmentOrderWithoutRefill` (no refill) and then runs one best-effort `replenishGeneratorService.refillFixedLocations()` after the commit. Historical text: it finalizes the current order and then immediately calls `replenishGeneratorService.refillFixedLocations()` (`src/main/java/net/aim_ai/wms/controller/mobile/ReplenishController.java:155-199`, `src/main/java/net/aim_ai/wms/service/mobile/MobileReplenishService.java:359-425`). That refill run can create new `Replenishorder` entities as soon as an operator puts stock away.
 
 In every case above, the actual order calculation work happens inside `ReplenishGeneratorService`.
 

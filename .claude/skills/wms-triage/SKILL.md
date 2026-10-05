@@ -133,7 +133,11 @@ These are the five cheapest things in the whole process and they are where the d
    **Use PIT, not a hand-rolled harness** (`wms2-api` only; landed on develop 2026-08-25):
 
    ```bash
-   export SDKMAN_DIR="$HOME/.sdkman"; source "$SDKMAN_DIR/bin/sdkman-init.sh"
+   # PIT needs a JDK-21 RUNTIME. Under JDK 25 (SDKMAN's `current` on some machines) the minion throws
+   # "Unsupported class file major version 69" at INFO level and PIT reports 0% line coverage,
+   # 0 killed, BUILD SUCCESS — a false zero. Pick a 21 explicitly and check `mvn -v` says 21:
+   export JAVA_HOME=$(/usr/libexec/java_home -v 21 2>/dev/null || ls -d ~/.sdkman/candidates/java/21* | head -1)
+   export PATH="$JAVA_HOME/bin:$HOME/.sdkman/candidates/maven/current/bin:$PATH"
    cd <worktree> && mvn -o test-compile -q
    mvn -o org.pitest:pitest-maven:mutationCoverage \
      -DtargetClasses=net.aim_ai.wms.service.YourService \

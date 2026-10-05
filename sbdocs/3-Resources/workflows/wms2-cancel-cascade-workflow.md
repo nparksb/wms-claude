@@ -224,11 +224,11 @@ already `CANCELED` and marks the batch `CANCELED` as a consequence. It is NOT a 
 
 ## 6. Post-Commit OMS Callbacks
 
-Cancellations fire at most one outbound callback per atomic cancel operation — **and `forceCancelOrder` fires none at all** (§9 item 7, §10 landmine 7b). Since SBDEV-3332 the two real emitters share the idempotency key `CO-CANCELLED-<customerorderId>`, so they cannot both land for one order:
+Cancellations fire exactly one outbound callback per atomic cancel operation — **`forceCancelOrder` included since SBDEV-3362** (2026-09-26; before it, force-cancel fired none — §9 item 7). Since SBDEV-3332 the two real emitters share the idempotency key `CO-CANCELLED-<customerorderId>`, so they cannot both land for one order:
 
 | Cancel type | Callback | Sysprop URL key | Message type |
 |---|---|---|---|
-| Single order (via `cancelOrder`) | per-order enqueue, `aggregate_type='CUSTOMER_ORDER'` | `WEBSERVICE_ORDER_BATCH_CANCELLED_URL_KEY` (⚠ no activation gate in v2 — see §10 item 6) | `ORDER_BATCH_CANCELLED_FROM_WMS` |
+| Single order (via `cancelOrder`, direct branch **and** `forceCancelOrder` — both through `CustomerorderService.enqueueCancellationSignal`) | per-order enqueue, `aggregate_type='CUSTOMER_ORDER'` | `WEBSERVICE_ORDER_BATCH_CANCELLED_URL_KEY` (⚠ no activation gate in v2 — see §10 item 6) | `ORDER_BATCH_CANCELLED_FROM_WMS` |
 | Batch (via `cancelPositions`) | **N per-order enqueues — there is no batch-level POST.** The batch-scoped variant (`aggregate_type='CUSTOMER_ORDER_BATCH'`) died with `cancelBatch`, SBDEV-3354 | same URL key | same |
 | Deferred cancel (via `PickingorderBusinessService`) | per-order enqueue, `aggregate_type='CUSTOMER_ORDER'` | same URL key | same |
 
@@ -277,7 +277,7 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 4. Does **not** unwind the `PickingorderUnitload` cascade the way `cancelOrder` does — the force path trusts the caller has reviewed child state.
 5. **Releases the transfer lane** (fix `260629`, 2026-06-29): a guarded `setTransferlaneId(null)` before the final save, so a force-cancelled transfer order frees its lane. Direct clear only — never `unlinkTransferLaneFromTransferOrder` (which would reset state to `505`).
 6. **Clears `markedforcancellation`** (SBDEV-3332, 2026-09-15): `customerOrder.setMarkedforcancellation(false)` beside each `setState(CANCELED)`. Before this, `forceCancelOrder` was a live producer of orders that are cancelled *and* still flagged — residue that reads as "a cancel is pending" forever. Both branches carry the line, the dead `< PACKED` one included, so the invariant holds by construction rather than by which arm runs.
-7. ⚠ **It notifies OMS of NOTHING.** `git grep -n "ORDER_BATCH_CANCELLED_FROM_WMS" -- src/main` (2026-09-15) returns exactly two enqueue sites — `CustomerorderService.cancelOrder` and `PickingorderBusinessService.cleanUpCancelledOrder` — and `forceCancelOrder` is neither: it sets `CANCELED`, saves, and never touches the outbox. So for a **force-cancelled order the cancellation signal count is zero**, not one. This is pre-existing and long-standing, and it is the single largest hole in the cancellation-signal story: an OMS reconciliation will show these orders open on the OMS side indefinitely. Proposed as its own ticket under SBDEV-3332; not fixed there.
+7. **Notifies OMS — since SBDEV-3362 (2026-09-26).** After the save and `finalizeBatchIfComplete`, and only if the order is now `CANCELED`, `forceCancelOrder` calls `enqueueCancellationSignal` — the helper extracted from `cancelOrder`'s direct branch, so both write the same payload, `ORDER_BATCH_CANCELLED_FROM_WMS` and key `CO-CANCELLED-<id>`. *History:* before that it notified OMS of nothing (pre-existing since v1's initial check-in), so a force-cancelled order's signal count was zero and OMS kept its allocation (`LegacyPositionCancelService.cancelOrderItemParcel` is what releases it). *Accepted trade (Nam, 2026-09-26):* two concurrent cancels of one PACKED CLUB order now make the second roll back on `uk_outbox_message_idempotency_key` (500) instead of silently succeeding — the same trade `WmsConstants.CANCELLED_IDEMPOTENCY_KEY_PREFIX` records for the other emitters.
 
 ⚠ The `CustomerorderService:323 / 351 / 356` citations above have **drifted** — the method now declares at `:408` and the two writes sit in the two `else if` arms. Grep the method name, not the line.
 
@@ -292,7 +292,7 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 5. **`finalizeBatchIfComplete` is a *consequence*, not a trigger.** Don't call it directly as if it were a cancel entry point.
 6. **~~OMS callback activation is OFF by default~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` has exactly two references in `src/main` — its own declaration in `WmsConstants` and a **commented-out** seed line in `UtilRestController` — so no code reads it. v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (v1 does read it; do not carry the v1 behaviour across.)
 7. **`forceCancelOrder` sets `Pickingorder=PICKED`, not `CANCELED`** (§9 item 3). Queries that filter `Pickingorder.state=CANCELED` will miss force-cancelled orders.
-8. **`forceCancelOrder` sends OMS no cancellation at all** (§9 item 7). A reconciliation counting `ORDER_BATCH_CANCELLED_FROM_WMS` against cancelled orders will find force-cancelled ones missing, and the cause is not a lost message — none was ever produced.
+8. ~~**`forceCancelOrder` sends OMS no cancellation at all**~~ — **fixed by SBDEV-3362** (§9 item 7). ⚠ Orders force-cancelled *before* that deploy still have no signal and will not get one retroactively; a reconciliation will find them missing, and the cause is not a lost message — none was produced. Signature: `state = 800 AND parcel_id IS NOT NULL` (inferential; 0 on Hydra PRD, 4 on wsl-wineco UAT as of 2026-09-15).
 9. **`ORDER_BATCH_CANCELLED_FROM_WMS` is deduplicated per order, for 7 days — but only for SENT rows** (SBDEV-3332). Both real emitters key it `CO-CANCELLED-<customerorderId>` and `outbox_message.idempotency_key` is UNIQUE, so a second row is refused — but the purge is `WHERE status = 'SENT'`, so the key is freed after 7 days only for a cancel that SUCCEEDED — a row left `FAILED_TERMINAL` (never auto-deleted) or stalled in `PENDING`/`FAILED_RETRY` holds the key until an operator clears it, and every later cancel of that order then rolls back on the constraint. Do not read the key as a permanent ledger of "was this order's cancel ever sent".
 10. **Optimistic-lock retry is NOT automatic.** Cancel transactions that race with concurrent picks simply fail and bubble up — the caller is responsible for retry. See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.3.
 
@@ -307,7 +307,48 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 | "Can't cancel — 'order in PACKED state'" | §4 guard + §9 forceCancelOrder path |
 | "Batch partially cancelled, some orders still active" | §5 + §10 item 4 — **expected since SBDEV-3339, not corruption.** The response's per-order `errors` map and the `cancelPositions: tote teardown failed for order=...` ERROR log name the orders that did not cancel; re-issue `cancelPositions` for those. §8 is the right section only if a *single order* is internally inconsistent. |
 | "forceCancel left Pickingorder=PICKED" | §10 item 7 (expected) |
+| "Reversal pending forever — Complete refuses 'manual intervention required'" | §11a — a manager **waives** it; check `toteState` in the refusal message |
 | "Optimistic lock during cancel" | §10 item 8 — conflict surfaces at commit → HTTP 409 (`RestExceptionHandler`); caller retries. (Retry is never applicable inside a transaction — the exception fires at the outer commit, outside any retry loop. The `OptimisticLockRetry` utility this row used to name was deleted by SBDEV-3398.) |
+
+---
+
+## 11a. Cancellation reversal: complete and waive (SBDEV-3381)
+
+> **Scope:** this section covers only what SBDEV-3381 changed in `CancellationReversalService`. It is not a full description of the Return to Stock (RTS) flow, which this doc still does not cover. Plan: `sbdocs/1-Projects/wms2/plan/SBDEV-3381-cancellation-reversal-waive.md`.
+
+A cancel of picked stock writes `customerorder_cancellation_log` rows with `reversal_required = true`. **"Pending" means `reversal_completed_at IS NULL`, everywhere:**
+- the three repository finders;
+- `scanTote`;
+- the partial index `idx_cancel_log_reversal_pending`;
+- the mobile store's `stillPending`;
+- the nightly `PendingReversalReconciliationJob`.
+
+There are two ways to close a row.
+
+| | `POST /v3/cancellation/{coId}/complete` | `POST /v3/cancellation/{coId}/waive` |
+|---|---|---|
+| Gate | class `MOBILE_UI_VIEW_CANCELLATION` | method-level `MOBILE_UI_ACTION_WAIVE_CANCELLATION_REVERSAL`. It **replaces** the class gate, and is granted to outbound-manager and super-admin only (V2.2.34 + initDB) |
+| Stock | moves each SU back to `pickfromlocationname` | **never moves stock** |
+| Lock | clears `PICKED_FOR_GOODSOUT` (100), moves, restores 100 on any residue | may release 100 → 0 only when the tote state is ON, the SU was not recovered in this call, and the waived rows own all of its stock |
+| Stamps | `reversal_completed_at/by` | the same, plus `reversal_waived = true`, `reversal_waive_reason` (≤ 500 characters), `reversal_waive_stock_returned` |
+| Refuses | any SU lock outside {0, 100}, a missing SU, a null source bin, stock in a parcel | `stockReturned = true` when stock may still be in flight: SHIPPED, or amount > 0 while the tote state is ON, PARCEL or UNKNOWN, or the lock is 100 |
+
+**Tote state** (`toteState`, four states, fails closed). It is read from the SU's unit load as scalars:
+- **ON**: type `Tote` **and** label = the log's `tote_label_id`;
+- **PARCEL**: type `Package`;
+- **OFF**: any other known type (e.g. `Default` / Nirwana);
+- **UNKNOWN**: anything else.
+
+`tote_label_id` is not reliable on its own. CLUB orders get a UUID written into `historytote` at FINISHED, and multi-tote orders keep only the last tote. A Tote with a different label therefore reads UNKNOWN, never OFF.
+
+**OMS notice** (`ORDER_BATCH_REVERSAL_COMPLETED`, via the outbox). Both paths use one method, `enqueueReversalCompletedIfClosed`.
+- `complete` is **level-triggered**: a retry on an already-closed order re-sends the notice. That retry is the manual re-send path (settled decision).
+- A waive only reaches the enqueue when it closed at least one row.
+- ⚠ **One `stockReturned = false` waive on any row permanently suppresses the notice for the whole order.** That includes later completes and complete's re-send path (settled decision).
+
+**Residue restore after a waive.** `completeReversal` computes each SU's waived share **once, before its movement loop**. It no longer re-locks residue that is only a waived row's share; otherwise that stock would be stranded at 100 with no operator path out. An unknown (null) share restores the lock, which is the conservative choice.
+
+**Accepted gap.** A row whose SU id had to be recovered in the waiving call is closed with its lock kept, and nothing ever retries the release. Measured exposure: 0 live rows across the 3 PRD tenants on 2026-09-26.
 
 ---
 
@@ -315,6 +356,8 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 
 | Date | By | Scope | Result |
 |---|---|---|---|
+| 2026-09-27 | SBDEV-3381 | New §11a (waive endpoint, four-state tote check, shared OMS enqueue with whole-order suppression, waive-aware residue restore) and a §11 debug row. **Scope: §11a only.** No other section was re-audited, so `last_verified` stays unchanged. | Code read of `feature/SBDEV-3381-waive` @ 723e1ba0; conformance verifier PASS; targeted unit 197/0 and IT 26/0; full suite at 373a31c0 unit 7228/0 and IT 539/0 | SBDEV-3381 implementation |
+| 2026-09-26 | SBDEV-3362 | `forceCancelOrder` OMS signal | §6 intro + table row, §9 item 7, §10 item 8 rewritten: force-cancel now enqueues through the shared `enqueueCancellationSignal`. **Scope: those claims only**; line-number drift still unaudited, `last_verified` unchanged. | Unit tests `cancelOrder_forceCancel_*` (CustomerorderServiceUnitTest) + code read on the branch | SBDEV-3362 implementation |
 | 2026-09-15 | SBDEV-3332 | `cancelOrder` / `forceCancelOrder` / `cleanUpCancelledOrder` flag lifecycle + the OMS cancel emitters | §9 gained items 6–7; §10 items 6, 8, 9 added or withdrawn. Corrected: the activation sysprop is inert in v2 (2 refs, one commented out); `forceCancelOrder` emits no OMS cancellation; the two real emitters now share `CO-CANCELLED-<id>`. ⚠ §9's `CustomerorderService:323/351/356` citations are drifted — grep the method name. |
 
 | Date | What was checked | Result | Checked by |

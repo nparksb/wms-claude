@@ -108,3 +108,10 @@ Java, left in both docs.
 - **When a proof keeps failing review, delete the proof.** Three successive versions of one
   lock-ordering argument were each wrong. What shipped states VERIFIED vs NOT ESTABLISHED and names
   the accepted bounded outcome. That ended the cycle; a fourth attempt at the argument would not have.
+
+**2026-09-25 (SBDEV-3500), a variant: a rationale I INVENTED, not one I copied.** I wrote "re-deleting a
+To-Delete container re-runs sendToNirvana and mangles its label twice" after reading the call, not the
+callee. `sendToNirvana` returns early for a container already on Nirwana (before the mangle), so for 16,240
+of 16,242 rows it was a silent no-op reported as DELETED. The claim then spread into 4 comments, 2 commit
+messages and the reviewer brief, and a review lane repeated it back as confirmed. **Before writing "X would
+happen", read the callee to the line that does X and check every early return above it.**

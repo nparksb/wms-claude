@@ -49,3 +49,7 @@ Rewind now REAL: `EXTERNAL_BACKUP_DUMP` → `shipitez_c1wh_pre_completion_202609
 **NY (Track A) Phases A–F COMPLETE 2026-06-28 (UAT)** — clean, no stock_history2 (only 3 std fns). +5h EST math verified, row-counts==baseline, API_TIMESTAMP_FORMAT=LEGACY. Ran with **isolated WORK_DIR `shipitez-nywh-utc-migration`** + fresh stamp `20260628_1917` (rewind `./00-restore.sh 20260628_1917`, 39MB dump) so shared CLIENT_NAME=shipitez state/dumps didn't clobber LA's `1900` dump. **Gotcha for same-client multi-warehouse: isolate WORK_DIR + use distinct backup stamp per track** (CLIENT_NAME is shared, so WORK_DIR/BACKUP_DIR collide). Both tracks now at human Phases G–K.
 
 Runbook: `sbdocs/1-Projects/wms2/plan/260628-shipitez-v1-to-v2-migration-runbook.md`. Procedure SOP: `sbdocs/2-Areas/wms-utc-timezone-migration/README.md`. Mirrors [[wineco-wsl-v1-v2-migration-status]] (LA) and the Hydra NY runbook.
+
+**2026-09-24 — ShipItEZ is LIVE on WMS v2 PRD** (Nam). PRD MCPs `c1wh-shipitez-prd` / `nywh-shipitez-prd` (tunnel localhost:25061)
+were MIS-POINTED at DB `wh01_hydra_v2` (roles see 0 tables there → every query returns `[]`/"relation does not exist").
+Correct DBs: c1wh → `wh01_shipitez_v2`, nywh → `wh02_shipitez_v2`. c1wh is the busy one; nywh's last stock activity 2026-02-11.

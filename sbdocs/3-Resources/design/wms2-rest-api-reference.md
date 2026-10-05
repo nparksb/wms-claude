@@ -630,22 +630,30 @@ List<SkuDto>
 | `varietal` | String | — | Grape varietal |
 | `wine_type` | String | — | Wine classification |
 | `image_filename` | String | — | Product image file reference |
+| `facility_item_id` | Long | — | **SBDEV-2624.** This facility's `itemdata.id`, as the OMS recorded it from an earlier `item_ids` response. Only update and delete read it, and only client-scoped (`findByIdAndClientId`); an id of another client is a miss |
+| `previous_sku` | String | — | **SBDEV-2624.** The code the OMS expects the row to hold now: the old SKU on a rename, the current SKU on a plain edit sent with `facility_item_id`. Blank → null. Rejected (103) if it contains control characters |
+
+`request_nonce` (sent by the OMS) is not a DTO field; it only makes otherwise-identical bodies hash differently for `IdempotencyFilter`.
 
 #### Business Rules
 
-- SKU must not already exist for the given client → `422` if it does.
+- SKU must not already exist for the given client → `422` if it does. Since SBDEV-2624 this is also re-checked against the DB, uncached, just before the insert, so a stale cached miss cannot slip past it.
+- A duplicate (client, sku) inside one request → `422/105` before any write (SBDEV-2624 E-1).
+- Control characters in `sku` (checked before trimming) or in `sku_name` (TAB allowed) → `422/103`.
 - `client_id` must exist.
 - `box_id` must exist in `boxtype` if provided.
 - `unit_identifier_id` must exist in `itemunit` if provided.
 - New SKU is assigned to the default put-away lane location.
-- Cache `itemdata` is fully evicted after the write (`@CacheEvict(allEntries=true)`).
+- Cache `itemdata` is fully evicted after the write, programmatically from a `finally` block (SBDEV-3135; no annotation).
 
 #### Success Response
 
 ```
-HTTP 204 No Content
-{ "status": "success" }
+HTTP 200 OK
+{ "status": "success", "item_ids": { "<sku>": <itemdata.id>, ... } }
 ```
+
+`item_ids` is the 200 body since SBDEV-2624; it was 204 with no body before. The OMS records these ids per facility in `product_wms_item.wms_item_id`.
 
 #### Failure Responses
 
@@ -664,7 +672,7 @@ HTTP 204 No Content
 
 ### 4.2 `POST /rest/sku/update`
 
-**Purpose:** Update existing SKU records. Creates the SKU if it does not yet exist (upsert behaviour via `SkuBatchCreateUpdateService.upsertAll()`).
+**Purpose:** Update existing SKU records, including **renaming a SKU in place** (SBDEV-2624). Creates the SKU only if no lookup finds it (via `SkuBatchCreateUpdateService.upsertAll()`).
 
 #### Request
 
@@ -679,20 +687,34 @@ Same `SkuDto` structure as `/create`. Required fields: `sku`, `sku_name`, `clien
 
 #### Business Rules
 
-- If the SKU exists for the client, fields are updated.
-- If the SKU does not exist, it is created (upsert).
-- Cache `itemdata` fully evicted after write.
+**Lookup order (SBDEV-2624; plan `sbdocs/1-Projects/wms2/plan/SBDEV-2624-sku-rename-in-place-oms-wms-sync.md` §3.2, §10 D-M2/D-M3/E-1).** Each step is client-scoped:
+1. `facility_item_id` — `findByIdAndClientId`, uncached.
+2. `previous_sku` — uncached (E-1 #5).
+3. `sku` — cached. A hit whose reloaded `item_nr ≠ sku` is a stale lookup: it is discarded and re-checked uncached (`SKU_RENAME_STALE_LOOKUP`).
+4. Nothing found → create.
+
+**Rename rules** (`upsertAll`, one tenant transaction):
+- **No rename without `previous_sku`.** A row found by id whose code differs from `sku`, with no `previous_sku`, gets 108.
+- **Compare-and-set:** the row's current code must be `previous_sku` or `sku`, else **108** `sku rename precondition failed: item_id=X is D, expected P` (the OMS resends once, guarded).
+- **Collision:** if another row of the client already holds `sku` → **105** naming both item ids. Rows are not merged.
+- On rename, `stockrecord.itemdata` rows for (client, old code) are rewritten **in the same transaction, before** the itemdata UPDATE. Order: collision check → native rewrite → setters → `saveAndFlush`, so the FOR UPDATE row lock is held only briefly.
+- Lock or optimistic conflicts → **109** `sku concurrent modification: …`.
+- At most **one rename per request** → otherwise `422/103`. Duplicate (client, sku) in one request → `422/105`.
+- **Only a real unique violation (23505) maps to 105.** Other integrity errors stay a 500.
+- Cache `itemdata` is fully evicted in `finally`.
+
+The 108/109 description prefixes are a **cross-repo contract**: the OMS `WMS_RESYNC_MARKERS` constant matches them by prefix. `sbdocs/9-System/scripts/verify-SBDEV-2624-sku-rename-in-place-oms-wms-sync.sh` checks it. Do not reword or localize them.
 
 #### Success Response
 
 ```
-HTTP 204 No Content
-{ "status": "success" }
+HTTP 200 OK
+{ "status": "success", "item_ids": { "<sku>": <itemdata.id>, ... } }
 ```
 
 #### Failure Responses
 
-Same structure as `/create` — `HTTP 422 Unprocessable Entity`.
+Same structure as `/create` — `HTTP 422 Unprocessable Entity`, plus 108 (rename precondition) and 109 (concurrent modification).
 
 ---
 
@@ -715,6 +737,10 @@ Required fields per `SkuDto`: `facility_code`, `sku`, `client_id`.
 
 - Client must exist.
 - SKU must exist for the client.
+- **SBDEV-2624:**
+  - If `facility_item_id` is sent, the row is found by id, client-scoped. If its code differs from `sku`, the result is **400/108 `… (delete)`** and nothing is deleted (`SKU_DELETE_PRECONDITION`).
+  - Otherwise the row is looked up by code, uncached.
+  - Control characters in `sku` → 400/103.
 - ⚠️ **Stock check is not yet implemented** (TODO in code). Deleting a SKU with live inventory may cause data integrity issues.
 
 #### Success Response

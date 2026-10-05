@@ -38,3 +38,10 @@ test stubs `v-autocomplete`, `v-card-title` etc. and cannot answer "does it rend
   (it holds `WEB_UI_VIEW_ITEM_DATA`) but **cannot open the putaway edit dialog**. Verifying that
   dialog's markup needs an `sb_admin` token. See
   [[wms2-keycloak-groups-claim-emits-full-paths]] and [[wms2-putaway-config-is-sb-admin-only]].
+
+**2026-09-25 (macOS, SBDEV-3500):** Chrome is at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
+Fastest exact verification: log in through the UI, capture the `authorization` / `x-tenant-id` / `facility_code`
+headers from the page's first `https://wms-api.dev.sbo.li/v3` request (`page.on('request')`), then call the
+endpoints with node `fetch` and compare `totalElements` against a DB count using the query's own predicate.
+Credentials go in via env vars, never in the script. The UI sends `facility_code: WSL` (uppercase).
+Script kept at scratchpad `pup/sbdev3500.js` for that session only.

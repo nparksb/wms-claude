@@ -120,7 +120,10 @@ So: one class, one test class, ~12s (after a ~35s cold `test-compile`). 83 of 86
 `*Service` classes have a matching `*Test` class, so this reaches nearly everything.
 
 ```bash
-export JAVA_HOME=~/.sdkman/candidates/java/21.0.11-ms
+# JDK 21 RUNTIME required — under JDK 25 the minion fails "Unsupported class file major version 69"
+# (logged at INFO) and PIT prints 0% coverage / 0 killed / BUILD SUCCESS. Measured 2026-09-26, SBDEV-3362.
+# The path below is machine-specific; resolve a 21 instead of hardcoding one.
+export JAVA_HOME=$(/usr/libexec/java_home -v 21 2>/dev/null || ls -d ~/.sdkman/candidates/java/21* | head -1)
 export PATH="$HOME/.sdkman/candidates/maven/current/bin:$JAVA_HOME/bin:$PATH"
 
 mvn -o test-compile -q

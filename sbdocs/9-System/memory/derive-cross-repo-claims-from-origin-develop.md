@@ -48,5 +48,33 @@ finding with a five-row evidence table. **Every row was true of the working chec
 4. `wms-triage`'s probe question 1 already says *"do not trust a local checkout"*. I applied it to two
    repos and not to the third in the same session, which is how it slipped.
 
+## 2026-09-23, SBDEV-3418: the same rule broken a different way — a false ABSENCE
+
+Every example above is *stale content read as current*: a wrong line, a wrong verb. Today's was
+worse in kind. I ran a filesystem **`find`** over `v2/wms2-mobile-ui` for `apiError.js`, got nothing,
+and concluded the file **"does not exist anywhere in that repo."** It exists on `origin/develop`,
+`origin/main` and `origin/release` — added 2026-08-28, seven weeks before I looked. The checkout was
+**77 commits behind** (it was 26 when this memory was written; staleness grows while you are not
+watching).
+
+**Why a false absence is the dangerous case.** A stale line number produces a wrong citation. A false
+absence produces *licence to delete someone else's correct statement*. Two `src/main` javadocs already
+carried the true claim; on the strength of that `find` I overwrote both with the falsehood — and
+labelled it **"Measured, not assumed"**, because running a command feels like measuring. Three files
+ended up asserting the opposite of the truth, and it took an independent lane to catch it.
+
+Two compounding factors worth naming:
+
+- **`find` and `ls` have no ref.** `git grep`/`git show` at least *can* take one; a filesystem walk
+  cannot, so there is no version of it that is safe for a cross-repo claim. Reach for
+  `git show origin/develop:<path>` even when you are only asking "does this file exist?".
+- **The zero agreed with me.** I was checking whether my own claim held, and absence confirmed it —
+  which is exactly when [[a-zero-scan-needs-a-positive-control]] applies and exactly when it is least
+  likely to be applied. The positive control here was one command:
+  `git -C <repo> rev-list --count HEAD..origin/develop`.
+
+**So, sharpened:** *before asserting a file, symbol or behaviour is ABSENT from another repo, print the
+lag first.* If the count is non-zero, a filesystem-derived absence is not evidence of anything.
+
 Related: [[plan-state-probe-beats-reading-plan-status]] (same family: derive state, do not read it),
 [[wms2-web-ui-gitignore-reports-hides-34-files-from-grep]], [[lane-a-git-cherry-false-positives]].

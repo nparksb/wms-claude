@@ -10,8 +10,29 @@ metadata:
 
 ## ⚠ CURRENT READING FIRST
 
-**`mvn -B -ntp clean verify` goes BUILD SUCCESS on `develop`, both lanes green, ~8-9 min.** That is the
-durable fact. **The COUNTS are not** — they move with every merge (6629+409 on 2026-09-15 at
+**⚠ CORRECTED 2026-09-21 (SBDEV-3410 P2): "both lanes green on develop" is NO LONGER TRUE, and acting
+on it cost a wrong attribution.** Measured on a detached worktree at `origin/develop` `f2ee75f1`,
+failsafe lane only: **474 run, 0 failures, 2 errors, 31 skipped, BUILD FAILURE.**
+
+```
+MobilePickingServiceIntegrationTest.mobileRapidPickingService_Rapid_Test:776
+    » EntityNotFound Itemunit not found with id: 0          <- reproduces on develop
+ParcelMonitorViewServiceConcurrencyIT.concurrentFindByIdForUpdate_...:74
+    » DataIntegrityViolation duplicate key "index_customerorder_externalnumber"
+```
+
+The first reproduces on untouched develop and is **pre-existing**. The second is very likely
+**accumulated state in the REUSED `postgres:14-alpine` container** (`withReuse(true)` + the machine
+opt-in keeps it alive between builds, so rows from an earlier — or killed — run survive);
+`docker rm -f` the running container before trusting a concurrency-IT red.
+
+**Why this matters more than the counts.** A full-lane red on your branch is NOT evidence you broke
+something. Establish the baseline by running the same lane on a **detached `origin/develop`
+worktree** — not from this file, not from memory. On SBDEV-3410 P2 the branch showed 482/1 against
+develop's 474/2: the branch had FEWER errors, and the +8 is exactly the new ITs.
+
+**The rest of this file stands:** `clean verify` does reach the IT lane (the "red, aborts before the
+IT lane" era is over), and the COUNTS are not **The COUNTS are not** — they move with every merge (6629+409 on 2026-09-15 at
 `9e294d4b`; 6644+418 on 2026-09-16 at `e113467b`, two tickets later). Never quote a number from this
 file as "the baseline". Derive it fresh, and compare **failures, not totals**.
 
@@ -172,3 +193,115 @@ both return values — so it would NOT catch a revert to the unlocked finder. It
 flipping the propagation leaves every test green). Ask what the mutant SET was before quoting a
 percentage. Related: [[transactional-tests-blind-to-propagation-and-readonly]].
 
+
+## ADDENDUM 2026-09-22 (SBDEV-3410 P4): a FRESH container made the failsafe lane fully green — BOTH errors, not just one
+
+Measured on `feature/SBDEV-3410-p4-...` @ `d011ccf8`, whose only production delta versus
+`origin/develop` is **five lines** in `StockrecordService.getStockRecordDetails` — a method that
+touches neither `customerorder` nor `itemunit`. Same worktree, same command (`mvn clean verify`), twice:
+
+| run | container | surefire | failsafe |
+|---|---|---|---|
+| `9033f28b` | REUSED (3 h old, carried P2/P3 runs) | 6754 / 0 / 0 | 481 / 0 / **1 err** |
+| `d011ccf8` | FRESH (`docker rm -f` first) | 6755 / 0 / 0 | **481 / 0 / 0, BUILD SUCCESS** |
+
+The single error on the reused container was `ParcelMonitorViewServiceConcurrencyIT` —
+`duplicate key ... Detail: Key (externalnumber)=(PARCELMON-ORD-1) already exists`, i.e. its own
+fixture row surviving from an earlier build. Exactly what this file already predicted. Fine.
+
+**What is NEW, and corrects the paragraph above:** `MobilePickingServiceIntegrationTest` is described
+there as *"reproduces on untouched develop and is pre-existing"* — and it **passed on BOTH of these
+runs** (3/3, 0.444 s). So the "2 pre-existing errors" baseline is not two different things, one real
+and one flaky; **both are container-state-dependent**, and the `Itemunit not found with id: 0`
+signature is as state-shaped as the duplicate-key one.
+
+⚠ **Stated as the limit of the measurement:** I did not re-run `origin/develop` itself on a fresh
+container, so "develop's failsafe is green on a fresh container" is an **inference** from a 5-line
+unrelated delta, not a measurement. Do not quote it as one. What IS measured: a branch off develop,
+with a fresh container, reaches **0 failures / 0 errors in both lanes**.
+
+**How to apply — this changes what a red baseline means.** The standing advice ("establish the
+baseline on a detached `origin/develop` worktree") is necessary but **not sufficient**: if that
+baseline run reuses the same dirty container, it reproduces the same two errors and you conclude
+develop is red when it is not. `docker rm -f` the reused container **before the baseline run as well
+as before the branch run**, or the comparison is between two equally-contaminated numbers. A baseline
+of "2 errors" that you then match is not evidence of no regression — it is two runs sharing one cause.
+
+Related: [[outbox-concurrent-enqueue-it-is-timing-flaky]], [[wms2-concurrency-it-fixture-traps]],
+[[concurrent-maven-one-worktree-false-reds]].
+
+---
+
+## ⚠ CORRECTION 2026-09-23 — the 2026-09-22 addendum above is WRONG, and I measured it wrong twice
+
+The addendum says both develop failsafe errors are **container-state-dependent**, that a fresh
+container reaches **0 failures / 0 errors in both lanes**, and that "develop's failsafe is green on a
+fresh container" is only an inference. The first two claims are now **disproved by direct
+measurement**; the third was right to hedge and the hedge is what saved it.
+
+**Measured 2026-09-23, SBDEV-3410 P5.** Untouched `origin/develop` @ `b87ec747`, its own detached
+worktree, **zero diff**, on a container cleared with `docker rm -f` immediately before, idle machine:
+
+| tree | surefire | failsafe | build |
+|---|---|---|---|
+| P5 branch `fa8ae56c` (develop + 3 files) | 6787 / 0 / 0 | **492 / 0 / 0** | SUCCESS |
+| **untouched develop `b87ec747`** | 6787 / 0 / 0 | **492 / 0 / 1** | **FAILURE** |
+
+The one error is `ParcelMonitorViewServiceConcurrencyIT`
+`.concurrentFindByIdForUpdate_secondThreadSeesCommittedState_noRedundantWrite`, and it is the SAME
+message the reused-container run produced:
+
+```
+duplicate key value violates unique constraint "index_customerorder_externalnumber"
+Detail: Key (externalnumber)=(PARCELMON-ORD-1) already exists.
+```
+
+**A FRESH container is not sufficient to make it pass.** On P4 I cleared the container, re-ran, got
+0 errors, and recorded that as *proof* the cause was accumulated state. It was not proof — it was one
+sample of a nondeterministic test, and the sample agreed with the hypothesis I already held. Two runs
+of the same nondeterministic test are not a control; the second run must be of the OTHER condition.
+
+**So the real classification is: `ParcelMonitorViewServiceConcurrencyIT` is FLAKY, not
+state-dependent.** Consistent with the fixture mechanism already recorded in
+[[wms2-repository-tests-commit-they-do-not-roll-back]] — these tests COMMIT rather than roll back, so
+a fixture row with a hardcoded natural key (`PARCELMON-ORD-1`) survives its own test and collides
+with any re-execution or racing sibling inside the same JVM run. Nothing about a clean container
+prevents that; the collision is produced *within* a run. Compare
+[[outbox-concurrent-enqueue-it-is-timing-flaky]] — same class of defect, different test.
+
+### What this means for using a baseline at all
+
+**wms2's failsafe lane has no single correct number.** Two runs of the *same* tree can be 492/0/0 and
+492/0/1. Therefore:
+
+- **Never conclude "my branch is clean" from matching a remembered baseline.** Run the baseline
+  yourself, in its own worktree, adjacent in time to the branch run. It is ~20 min and it is the only
+  thing that distinguishes a regression from this test.
+- **A branch run that is GREENER than the baseline is the normal case, not a triumph.** P5 came out
+  green while untouched develop came out red. Reading that as "P5 fixed something" would be wrong;
+  reading it as "P5 regressed nothing" is all it supports.
+- Failsafe totals moved 481 → **492** between 2026-09-21 and 2026-09-22 (SBDEV-3410 P2 and P3 merged
+  their ITs). Totals move constantly — compare failures, never totals.
+
+### A separate, genuinely transient failure seen once (do not confuse the two)
+
+The FIRST P5 suite run, started the same second a `clean verify` in another worktree finished, gave
+**3 errors in 2 classes** (`MoveCronConcurrencyIT`, `FixLocationAssignmentServiceIT`), all
+`FATAL: sorry, too many clients already` (SQLSTATE 53300) at context startup. It did **not** reproduce
+on a re-run. Standing arithmetic worth knowing, though it was not the proximate cause: nothing sets
+`max_connections` (so it is postgres:14-alpine's default **100**), each Spring context holds a
+landlord pool of 4 plus a tenant pool of 5, and Spring's TestContext cache holds **32** contexts, so
+~12 simultaneous contexts exhaust the server. One line would buy headroom:
+`.withCommand("postgres","-c","max_connections=200")` on `AppPostgresDBContainer`.
+
+⚠ **And this corrects [[concurrent-maven-one-worktree-false-reds]]**, which says separate worktrees
+are safe for concurrent maven. That holds for surefire. It does **not** hold for the integration
+lane: `AppPostgresDBContainer` sets `withReuse(true)`, so with reuse enabled every worktree's failsafe
+run shares ONE postgres and its single 100-connection budget. Run integration lanes one at a time.
+
+
+**2026-10-02 develop `09f861da` full `clean verify` (SBDEV-3633 baseline):** units 7688 / 0 fail; ITs 588 with 5 F + 2 E in
+`CancellationReversalParcelSourceIntegrationTest` (H2 "los_sequencenumber not found (this database is empty)" inside a PG IT —
+context contamination), `SequenceTransactionServiceConcurrencyIT` (CannotCreateTransactionException — pool exhaustion) and
+`OrderReleaseSectionQueryIT` $DashboardBucket/$ReleaseQuery. All pass ALONE. So a red in exactly these in a full run is the
+known full-run-only set, not your change — but rerun them alone to prove it, as here.

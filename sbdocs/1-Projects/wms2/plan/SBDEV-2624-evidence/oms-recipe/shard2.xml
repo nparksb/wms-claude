@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd" bootstrap="vendor/autoload.php" colors="false">
+    <testsuites>
+        <testsuite name="FeatureShard2">
+            <file>tests/Feature/Api/Admin/AdminUserControllerTest.php</file>
+            <file>tests/Feature/Api/BatchControllerTest.php</file>
+            <file>tests/Feature/Api/BatchListFacetsTest.php</file>
+            <file>tests/Feature/Api/ClientControllerTest.php</file>
+            <file>tests/Feature/Api/ClientEmailTemplateControllerTest.php</file>
+            <file>tests/Feature/Api/ClientLicenseControllerTest.php</file>
+            <file>tests/Feature/Api/ClientPlatformIntegrationControllerTest.php</file>
+            <file>tests/Feature/Api/ClientShipNotificationControllerTest.php</file>
+            <file>tests/Feature/Api/ClientShippingAccountsTest.php</file>
+            <file>tests/Feature/Api/External/ExternalApiKeyLookupHashTest.php</file>
+            <file>tests/Feature/Api/External/MonitoringControllerTest.php</file>
+            <file>tests/Feature/Api/Legacy/LegacyV2ParcelControllerTest.php</file>
+            <file>tests/Feature/Api/ManualOrderAltAddressPersistenceTest.php</file>
+            <file>tests/Feature/Api/ManualOrderClientScopingTest.php</file>
+            <file>tests/Feature/Api/ManualOrderExactPayloadTest.php</file>
+            <file>tests/Feature/Api/ManualOrderFacilityLocationPersistenceTest.php</file>
+            <file>tests/Feature/Api/NotificationLogControllerTest.php</file>
+            <file>tests/Feature/Api/OrderControllerTest.php</file>
+            <file>tests/Feature/Api/OrderCreateAddressExceptionTest.php</file>
+            <file>tests/Feature/Api/OrderPackagingApiTest.php</file>
+            <file>tests/Feature/Api/OrderRecipientTest.php</file>
+            <file>tests/Feature/Api/OrderStatusHistoryShapeTest.php</file>
+            <file>tests/Feature/Api/OrderStatusHistoryWmsActorTest.php</file>
+            <file>tests/Feature/Api/ParcelStatusTabFilterTest.php</file>
+            <file>tests/Feature/Api/PasswordResetControllerTest.php</file>
+            <file>tests/Feature/Api/ProductImageControllerTest.php</file>
+            <file>tests/Feature/Api/RepActiveEndpointTest.php</file>
+            <file>tests/Feature/Api/TenantControllerTest.php</file>
+            <file>tests/Feature/Api/TestEmailEndpointTest.php</file>
+            <file>tests/Feature/Api/UnresolvableTenantModelBindingTest.php</file>
+            <file>tests/Feature/Api/WeightCheckControllerTest.php</file>
+            <file>tests/Feature/Api/WidgetControllerTest.php</file>
+            <file>tests/Feature/Api/WineVarietalLutControllerTest.php</file>
+            <file>tests/Feature/Api/WmsUrlLutControllerTest.php</file>
+            <file>tests/Feature/Console/BackfillStrandedParcelStatusTest.php</file>
+            <file>tests/Feature/Console/RevalidateOrdersCommandTest.php</file>
+            <file>tests/Feature/ContactUserUpdateTest.php</file>
+            <file>tests/Feature/Controllers/LegacyAuthControllerTest.php</file>
+            <file>tests/Feature/Controllers/LegacyOmsLabelGenerationControllerTest.php</file>
+            <file>tests/Feature/Database/ExceptionHandlingMigrationsTest.php</file>
+            <file>tests/Feature/Jobs/SyncClientToWmsJobTest.php</file>
+            <file>tests/Feature/Legacy/LegacyWmsCancelPositionTest.php</file>
+            <file>tests/Feature/Legacy/LegacyWmsCloseTransferTest.php</file>
+            <file>tests/Feature/Legacy/LegacyWmsFinishedShippingLabelGuardTest.php</file>
+            <file>tests/Feature/OrderFileUploadImplementationTest.php</file>
+            <file>tests/Feature/Reporting/OrderReportScopingTest.php</file>
+            <file>tests/Feature/Reporting/ReportFileGenerationTest.php</file>
+            <file>tests/Feature/Reporting/StateReportStorageFailureTest.php</file>
+            <file>tests/Feature/Reporting/TransactionReportArchivedSkuParameterTest.php</file>
+            <file>tests/Feature/Resources/OrderItemSimpleResourceTest.php</file>
+            <file>tests/Feature/Services/BatchProcessingServiceMemoryTest.php</file>
+            <file>tests/Feature/Services/BatchProcessingServiceVirtualKitTest.php</file>
+            <file>tests/Feature/Services/BoxCheckBulkServiceTest.php</file>
+            <file>tests/Feature/Services/ClientProductServiceTest.php</file>
+            <file>tests/Feature/Services/DefaultRateScheduleServiceTest.php</file>
+            <file>tests/Feature/Services/Label/LabelLifecycleServiceTest.php</file>
+            <file>tests/Feature/Services/Label/ThirdPartyInsuranceServiceTest.php</file>
+            <file>tests/Feature/Services/Legacy/LegacyOrdersAllocateFromInventoryExceptionOrdersServiceTest.php</file>
+            <file>tests/Feature/Services/Legacy/ZoneLookupServiceTest.php</file>
+            <file>tests/Feature/Services/MaineStateComplianceReportTest.php</file>
+            <file>tests/Feature/Services/ManualOrderServiceTest.php</file>
+            <file>tests/Feature/Services/OrderDeliveryRollupConcurrencyTest.php</file>
+            <file>tests/Feature/Services/OrderImportCreationExceptionsTest.php</file>
+            <file>tests/Feature/Services/OrderReprocessingServiceTest.php</file>
+            <file>tests/Feature/Services/OrderStatusReportServiceTest.php</file>
+            <file>tests/Feature/Services/OrderUpdateExceptionRevalidationTest.php</file>
+            <file>tests/Feature/Services/ReportStatusBroadcastTest.php</file>
+            <file>tests/Feature/Services/ShippingRateOverrideServiceTest.php</file>
+            <file>tests/Feature/Services/TrackingHistoryAndNotificationTest.php</file>
+            <file>tests/Feature/Services/UnknownSkuResolutionOutcomesTest.php</file>
+            <file>tests/Feature/Services/UpdateSingleShipperCountsServiceTest.php</file>
+        </testsuite>
+    </testsuites>
+    <groups><exclude><group>cups</group></exclude></groups>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_CONNECTION" value="testing"/>
+        <env name="DB_DATABASE" value="om1_owltest"/>
+        <env name="LANDLORD_DATABASE" value="om1_landlord_owltest"/>
+        <env name="REPORTING_CONNECTION" value="testing_reporting"/>
+        <env name="REPORTING_DATABASE" value="om1_owltest_reporting"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="SKIP_MIGRATIONS" value="true"/>
+        <!-- CUPS printing configuration for integration tests -->
+        <env name="QA_CUPS_ENABLED" value="true"/>
+        <env name="QA_CUPS_SERVER" value="localhost"/>
+        <env name="QA_CUPS_PORT" value="631"/>
+        <env name="QA_RAW_SOCKET_ENABLED" value="true"/>
+        <env name="QA_RAW_SOCKET_PORT" value="9100"/>
+        <!-- Picksheet storage uses local disk for testing -->
+        <env name="PICKSHEET_STORAGE_DISK" value="local"/>
+        <!-- Disable MongoDB writes/reads during tests by default to avoid external dependency timeouts -->
+        <env name="DISABLE_MONGO_IN_TESTS" value="false"/>
+        <!-- Explicitly require opt-in for MongoDB feature tests -->
+        <env name="ENABLE_MONGO_TESTS" value="true"/>
+        <ini name="memory_limit" value="2G"/>
+        <!-- Allow long-running full suite; individual tests still have their own timeouts where applicable -->
+        <ini name="max_execution_time" value="0"/>
+    </php>
+</phpunit>
