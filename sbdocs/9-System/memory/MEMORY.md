@@ -217,3 +217,5 @@
 - [Sweep in-flight branches before filing a ticket](sweep-in-flight-branches-before-filing-a-ticket.md) — SBDEV-3632 duplicated pr-submitted 3621; review lanes read develop and cannot see in-flight fixes
 - [Adjust Reserved Amount = release-replen-hold button](adjust-reserved-amount-is-the-release-replen-hold-button.md) — PRD: 330/330 cuts to 0, 96% on an SU with a live replen order; attribute, don't refuse
 - [git add -A in a worktree sweeps .omc/state](git-add-all-in-worktree-sweeps-omc-state.md) — leaked session files into an OMS commit; stage explicit paths, exclude .omc/
+- [Editing an unmerged migration breaks the reusable IT container](editing-unmerged-migration-breaks-reusable-test-container.md) — 51 ITs FlywayValidate checksum mismatch; delete the history row, not the container
+- [wms2 ProblemDetail props: flat OR nested by path](wms2-problemdetail-custom-properties-are-nested.md) — controller-returned = flat (live), exception-handler = properties.X (IT); read both
