@@ -828,12 +828,23 @@ exposure. It is still the one handler on an operator console that any warehouse 
 
 ⚠️ **This means SBDEV-3198 AC13(a) — "the two ungated endpoints carry an authorization annotation" —
 is met for one of two, not both.** PR #278 gated `triggerReleaseExpiredPickingOrdersFromUser`;
-`triggerUpdateStock` was never annotated. Nothing in the code records a decision to leave it open —
-there is no explanatory comment above `:122`, unlike every other deliberate carve-out on this class.
-The fix is one annotation line, on the same function every sibling already uses, so it needs **no**
-new `FunctionEnum` constant, `mywms_function` row, grant line or migration.
+`triggerUpdateStock` was never annotated.
 
-**Tracked as SBDEV-3243** (filed 2026-09-06, High, T1) — https://app.clickup.com/t/868m2402d
+> **CORRECTED 2026-10-10 — the open is deliberate, and SBDEV-3243 is CLOSED (won't fix, superseded by
+> SBDEV-3124).** The earlier claim on this line ("nothing in the code records a decision to leave it
+> open") was false. The decision is recorded in `Sbdev3017TrancheGateContextTest.java:375-383`
+> (`origin/develop` @ `12005d72`) rather than above the handler, and Nam reaffirmed it on 2026-09-02.
+> The reasoning: `StockCountRestController:103` exposes `GET /rest/stockcount/triggerStockCount` onto
+> the **same** `stockSummaryExportJob`, and `/rest/**` is `permitAll()` (`SecurityConfiguration:151`).
+> Gating only the `/v3` copy would therefore be cosmetic while the twin stays reachable
+> **unauthenticated**. That ungated row is also the only thing that detects a class-level
+> `@RequiresFunction` on this class, which would silently downgrade the 9 inherited
+> `@PreAuthorize(IS_SB_ADMIN)` handlers. A 2026-09-08 attempt to gate it went red on exactly that row.
+> **When SBDEV-3124 unblocks:** first add a direct "no class-level `@RequiresFunction`" assertion so
+> the row is freed, then gate both routes in one change and rewrite the tranche-map row.
+> The rest of this subsection is kept as the historical record.
+
+SBDEV-3243 (https://app.clickup.com/t/868m2402d), filed 2026-09-06 and closed 2026-10-10.
 
 ⚠️ **The endpoint is NOT an orphan — it is UI-called, and that cuts both ways.** Chain on
 `origin/develop`: `wms2-web-ui` `components/admin/systemManagement/actions.vue` **"Manual Full Stock
@@ -851,7 +862,7 @@ Update"** button → `updateStock()` → `actionConfirmation.vue:68`
   `finishStuckPickingOrder` case where no screen existed to take a function from.
 
 **The instance fix is not the invariant fix.** The annotation closes this handler; it does not stop
-the *next* unannotated handler on this class from being open. SBDEV-3243 AC5 carries that question —
+the *next* unannotated handler on this class from being open. SBDEV-3243 AC5 carried that question (unanswered; ticket closed, see the correction above) —
 whether `AdminActionController` should join `FunctionGuardInterceptor.GUARDED` so an unannotated
 handler fails **closed**. That changes the default for all its handlers, the nine inherited from
 `AdminController` included, so it is a materially bigger decision than the one line.

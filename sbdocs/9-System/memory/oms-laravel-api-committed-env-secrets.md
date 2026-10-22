@@ -39,3 +39,6 @@ and history-scrubbing is not a substitute. Repos are private, which limits but d
 credible length (43-char Keycloak secret, 50-char `base64:` APP_KEY, 10-char DB passwords). The only
 genuinely empty ones are `MONGODB_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `KEYCLOAK_REALM`.
+
+**2026-10-15:** this proposal is now row **P7** in `sbdocs/2-Areas/proposals-register.md`, which Nam reviews weekly. Its decision is
+recorded there, not here.

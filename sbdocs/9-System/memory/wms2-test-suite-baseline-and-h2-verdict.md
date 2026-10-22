@@ -1,6 +1,6 @@
 ---
 name: wms2-test-suite-baseline-and-h2-verdict
-description: "mvn verify goes GREEN end to end; the 'red, aborts before the IT lane' half is history. Derive counts fresh — and CI runs a DIFFERENT command than you do, so its failsafe total is 1 lower. Docker ~9%, H2 migration stays rejected"
+description: "mvn verify goes GREEN end to end. Derive counts fresh from the CI run at your base commit, and copy CI's mvn command from that run's log (it changed: -Pci now, no failsafe exclude). Docker ~9%, H2 migration stays rejected"
 metadata: 
   node_type: memory
   type: project
@@ -36,18 +36,21 @@ IT lane" era is over), and the COUNTS are not **The COUNTS are not** — they mo
 `9e294d4b`; 6644+418 on 2026-09-16 at `e113467b`, two tickets later). Never quote a number from this
 file as "the baseline". Derive it fresh, and compare **failures, not totals**.
 
-### ⚠ CI does NOT run `mvn clean verify` — its failsafe total is 1 LOWER than yours
+### ⚠ Copy CI's command from the RUN LOG, never from this file — it changed
 
-`.github/workflows/docker-image-develop.yml` runs:
+**Re-measured 2026-10-15 (SBDEV-3767, run 38667148714 at `371d8a09`).** CI now runs:
 
 ```
-mvn -B -ntp clean verify -Dmaven.javadoc.skip=true -Dspringdoc.skip=true \
-    -Dfailsafe.excludes='**/SequenceTransactionServiceConcurrencyIT.java'
+mvn -B -ntp clean verify -Pci -Dmaven.javadoc.skip=true -Dspringdoc.skip=true
 ```
 
-So a local `clean verify` runs **strictly more** than CI does, and a local failsafe total is **exactly
-+1** against the same commit's CI total. Measured both directions on SBDEV-3363 (2026-09-16): CI
-develop baseline 416 → local-equivalent 417; after +2 new ITs, local 419 and CI 418.
+The `-Dfailsafe.excludes='**/SequenceTransactionServiceConcurrencyIT.java'` this section used to quote
+is GONE, and the `ci` profile (excludes `@Tag("timing-sensitive")`) was added. Running the old command
+locally gave failsafe **840 vs CI's 842**: the -2 was exactly that class, by per-class diff. So the old
+"local is +1" rule now inverts if you copy the stale command. Get the command with
+`gh run view <id> --log | grep -oE "mvn -B[^\"]*" | head -1` and run that.
+
+(History: on SBDEV-3363, 2026-09-16, CI excluded that class and local `clean verify` ran exactly +1.)
 
 **Take the baseline from the develop push run at your branch's BASE COMMIT, not from a local re-run of
 develop** — `gh run list --branch develop --workflow docker-image-develop.yml --json headSha,...` then
@@ -305,3 +308,10 @@ run shares ONE postgres and its single 100-connection budget. Run integration la
 context contamination), `SequenceTransactionServiceConcurrencyIT` (CannotCreateTransactionException — pool exhaustion) and
 `OrderReleaseSectionQueryIT` $DashboardBucket/$ReleaseQuery. All pass ALONE. So a red in exactly these in a full run is the
 known full-run-only set, not your change — but rerun them alone to prove it, as here.
+
+**2026-10-19 CI recurrence (SBDEV-3102 #536):** the develop PUSH run failed twice with 4 E in
+`CancelPreservesGoodsOutFenceIntegrationTest` + `CancellationReversalParcelSourceIntegrationTest` (same
+"los_sequencenumber not found (this database is empty)"), while the PR run on a BYTE-IDENTICAL tree (`6203131d`,
+same `mvn ... verify -Pci` command) was green, and a third full rerun was green. So on CI it is order-nondeterministic,
+not deterministic as the 2026-10-07 note says. **Before blaming the last-merged PR, compare `git rev-parse <pr-head>^{tree}`
+with `<merge>^{tree}`: identical trees + green PR run = environment, so `gh run rerun <id>` (full, not only `--failed`).**

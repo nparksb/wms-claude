@@ -195,9 +195,9 @@ For the v2 split see [wms2-landlord-vs-tenant-entity-map.md](../data-dictionary/
 
 v1 fires: `WEBSERVICE_CLOSE_ADVICE`, `WEBSERVICE_ACCEPT_TRANSFER`, `WEBSERVICE_ACCEPT_HUB_AND_SPOKE`, `WEBSERVICE_STOCK_COUNT`, `WEBSERVICE_STOCK_UPDATE`, `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING`, `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED`, `WEBSERVICE_ORDER_BATCH_PICKING`, `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK`.
 
-v2 fires: all of the above **plus** `FINISHED_PICKING`, `HELD`, `SHIPPED`, `PALLETIZED`, `CANCELLED`, `TEST_CRM_CONNECTIVITY`, `FACILITY_LIST_LOOKUP`, `BEHAVIOUR`.
+v2 fires: all of the above **plus** `FINISHED_PICKING`, `HELD`, `SHIPPED`, `PALLETIZED`, `CANCELLED`, `TEST_CRM_CONNECTIVITY`, `FACILITY_LIST_LOOKUP`. (`WEBSERVICE_BEHAVIOUR` used to be listed here; it is a sysprop, not a callback.)
 
-**Porting impact:** v2 sends more notifications than v1. If you port a v1 fix that *adds* a callback, the v2 equivalent may already exist — grep v2 first. The `WEBSERVICE_BEHAVIOUR` sysprop (`send | discard | keep`, default `keep`) is the v2-only emergency switch for all callbacks.
+**Porting impact:** v2 sends more notifications than v1. If you port a v1 fix that *adds* a callback, the v2 equivalent may already exist — grep v2 first. ⚠ Corrected 2026-10-06 (SBDEV-3373): the `WEBSERVICE_BEHAVIOUR` sysprop (`send | discard | keep`) is **not** an emergency switch. Nothing in v2 reads it, and it is deleted by SBDEV-3373 `V2.2.37` (PR #466, merged to develop `a0b2c07f`; applied on dev 2026-10-07, not yet on UAT/PRD).
 
 **v1 silent gap (discovered 2026-04-27):** `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK` is defined as a sysprop key in `WmsConstants.java` but is **never fired** by v1's `closeBOL` flow. v1 `closeBOL` transitions orders `PALLETIZED → FINISHED` directly with no loaded-to-truck callback. OMS will never receive this notification from v1 regardless of whether the sysprop URL is configured.
 
@@ -284,7 +284,7 @@ The canonical porting tool is the `wms-v2-migrate` skill, which runs this checkl
 3. **Missing `LOADED_TO_TRUCK` in v1.** A v1 fix that observes "order goes from `PALLETIZED` to `FINISHED`" is correct in v1 but misses a step in v2. Don't copy the state-machine guard verbatim.
 4. **Cron concurrency.** A v1 fix that assumes "job only runs on one instance" is factually true in v1 but dangerously false in v2 without an advisory lock. Every ported cron fix must add `AdvisoryLockService.tryLock(JobLockId.X)`.
 5. **Admin-role rename.** `aim_admin` in v1 becomes `sb_admin` in v2 at both the constant level and the Keycloak realm level. Porting an `@PreAuthorize` expression without renaming produces an always-deny.
-6. **`WEBSERVICE_BEHAVIOUR` sysprop is v2-only.** A v2 tenant with `WEBSERVICE_BEHAVIOUR=discard` will silently drop all OMS callbacks — the sysprop doesn't exist in v1, so v1 can't "match this behavior" out of the box.
+6. **~~`WEBSERVICE_BEHAVIOUR` sysprop is v2-only~~ — WITHDRAWN 2026-10-06 (SBDEV-3373).** This item claimed `WEBSERVICE_BEHAVIOUR=discard` silently drops all v2 OMS callbacks. It drops nothing: no v2 code reads the key, and it is deleted by SBDEV-3373 `V2.2.37` (PR #466, merged to develop `a0b2c07f`; applied on dev 2026-10-07, not yet on UAT/PRD).
 7. **`mockStatic` is v2-only.** A v2 test with `Mockito.mockStatic(...)` cannot be ported to v1 without restructuring.
 8. **`/api/public/` path has no v1 analog.** v1 doesn't need it (no tenant context to skip). If a v1 fix lands a new endpoint, the v2 port must decide whether it's `/v3/...` (tenant-scoped) or `/api/public/...` (tenant-free).
 9. **String literal `"TRANSFER_INTRACOMPANY"` at `BillofladingService.java:315`.** v1 uses a hardcoded string; v2 uses a constant reference. If the constant value ever changes, v1 silently stops routing transfer BOLs to the intracompany close path.

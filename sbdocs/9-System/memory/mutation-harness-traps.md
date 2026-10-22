@@ -28,6 +28,14 @@ produced confident, well-formatted, entirely wrong tables.
 Same lesson as [[negative-test-verify-scripts-before-trusting-them]] and
 [[verify-template-helpers-were-broken-and-inherited-by-51-scripts]], now on the mutation lane.
 
+## Restore-by-git reverts UNCOMMITTED work (measured, SBDEV-3741 Phase 2, 2026-10-12)
+
+A Jest hand harness (PIT cannot reach Jest) restored each mutated file with `git checkout -- <file>`.
+The review fixes in that file were **not yet committed**, so the first restore silently reverted them to
+the last commit — the next mutants then reported ANCHOR-FAIL, which was the only tell. **Rule: commit
+(or WIP-commit) before ANY run that restores from git**, exactly as the executor skill already demands
+before review lanes. A restore that reads from HEAD is only safe when HEAD is the code you meant.
+
 ## PIT's own trap: it does not compile
 
 **PIT never compiles. It grades whatever bytecode sits in `target/test-classes`.** Mutating bytecode
@@ -337,6 +345,12 @@ and the defence is a cheap machine-checked invariant around it, not a remembered
 
 ## Tenth mechanism: `git checkout --` as the "restore" step deletes your whole change
 
+**Recurred 2026-10-09 (SBDEV-3720), despite this entry:** round 1 was committed before mutating, so the
+harness was safe — then review fixes landed uncommitted and the SAME script was re-run. `git checkout --`
+silently reverted three files' review fixes; the only tell was `git status` afterwards. Knowing the rule
+did not prevent it; a guard did: the harness now exits if `git status --porcelain --untracked-files=no`
+is non-empty. **Put that guard in every hand-rolled harness, first line.**
+
 Measured 2026-09-09 on SBDEV-3287, in v1/wms-api where PIT is not wired up so the mutation had to be
 hand-rolled. The loop was `sed` in the mutant → run → `git checkout -- $FILE` to restore. That
 restores the file to **HEAD**, not to its pre-mutant working state, so it silently discarded every
@@ -443,3 +457,11 @@ build).
 trusting the next run. [[mvn-without-clean-runs-deleted-tests]] is the same class of stale-`target/` lie.
 
 **Surefire XML is multi-line (SBDEV-3563, 2026-09-28):** a line-oriented `grep 'testcase name=.*<error'` over `target/surefire-reports/*.xml` matches NOTHING — `<error>` sits on the line after `<testcase …>`. A 12-mutant loop reported 12/12 SURVIVED; a hand run of one mutant showed it killed. Parse the XML (`xml.etree`), and always run an unmutated control through the same parser plus one mutant you know is killed.
+
+## Sixteenth: `-Dmaven.test.failure.ignore=true` hides a RED BASELINE (SBDEV-3286 Phase 2, 2026-10-09)
+
+A hand-run mutant loop passed `failure.ignore` so the IT lane would still run after a red unit lane. Its
+baseline then printed BUILD SUCCESS with **1 failure** (a new lock-order unit test that was itself wrong),
+and every unit-lane mutant verdict was graded against that red baseline; a reviewer caught it from the log.
+**How to apply:** parse the baseline's `Tests run:` totals and abort the loop unless every lane says
+`Failures: 0, Errors: 0`; never read BUILD SUCCESS as green under `failure.ignore`.

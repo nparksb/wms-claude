@@ -1,0 +1,476 @@
+diff --git a/src/main/java/net/aim_ai/wms/schedulejob/OutboxDispatcherJob.java b/src/main/java/net/aim_ai/wms/schedulejob/OutboxDispatcherJob.java
+index 8208bbc5..8f04db31 100644
+--- a/src/main/java/net/aim_ai/wms/schedulejob/OutboxDispatcherJob.java
++++ b/src/main/java/net/aim_ai/wms/schedulejob/OutboxDispatcherJob.java
+@@ -114,7 +114,7 @@ public class OutboxDispatcherJob {
+             return;
+         }
+         // NOTE: The advisory lock pins a raw landlord JDBC connection for the full tick.
+-        // With N tenants × 15s OMS read-timeout, worst-case pin = N × 15s.
++        // Worst-case pin = N tenants × batch-size × (connect 5s + app.outbox.dispatcher.read-timeout-ms).
+         // Monitor wms2.outbox.tick_duration{lane=...} to detect landlord-pool saturation.
+         Timer.Sample tickSample = Timer.start(meters);
+         try {
+diff --git a/src/main/java/net/aim_ai/wms/schedulejob/SchedulingConfiguration.java b/src/main/java/net/aim_ai/wms/schedulejob/SchedulingConfiguration.java
+index 162d2d24..3bbb7d86 100644
+--- a/src/main/java/net/aim_ai/wms/schedulejob/SchedulingConfiguration.java
++++ b/src/main/java/net/aim_ai/wms/schedulejob/SchedulingConfiguration.java
+@@ -238,7 +238,8 @@ public class SchedulingConfiguration {
+      *
+      * <p>⚠ Was a hard-coded {@code private final int POOL_SIZE = 10} field, and the club lane makes
+      * that the next head-of-line problem. A task occupies its thread for the whole tick, and an outbox
+-     * tick is bounded by (tenants × batch-size × the 15 s OMS read timeout) — minutes, not seconds.
++     * tick is bounded by (tenants × batch-size × the outbox OMS read timeout,
++     * {@code app.outbox.dispatcher.read-timeout-ms}) — minutes, not seconds.
+      * There are now two such lanes, plus eight business crons (four firing together at second 0),
+      * {@code TenantConfigLoader.scheduledRefresh}, {@code TenantPoolEvictor} and
+      * {@code PendingReversalReconciliationJob} (SBDEV-3321, nightly at 02:30): thirteen standing
+diff --git a/src/main/java/net/aim_ai/wms/service/CustomerorderBatchService.java b/src/main/java/net/aim_ai/wms/service/CustomerorderBatchService.java
+index 5d160194..6b8884a4 100644
+--- a/src/main/java/net/aim_ai/wms/service/CustomerorderBatchService.java
++++ b/src/main/java/net/aim_ai/wms/service/CustomerorderBatchService.java
+@@ -122,7 +122,8 @@ public class CustomerorderBatchService {
+ 
+     /**
+      * Upper clamp on {@code WMS_CLUBLINE_OMS_CHUNK_SIZE}. Every chunk is ONE synchronous OMS call that
+-     * must return inside {@code HttpRestService}'s 15 s read timeout. Measured 2026-09-11 on the local
++     * must return inside the outbox read timeout ({@code app.outbox.dispatcher.read-timeout-ms}; 15 s
++     * when this was measured, 30 s since SBDEV-3672). Measured 2026-09-11 on the local
+      * rig with dev data: OMS {@code finishedPicking} is linear at ~20 ms/position with a same-host DB
+      * (100 → 2.0 s, 300 → 6.1 s, 600 → 11.8 s) and gains roughly one DB round trip per statement
+      * (~9–11 per position) on dev, so 300 is the last size with real margin and 600 would cross the
+@@ -973,7 +974,7 @@ public class CustomerorderBatchService {
+      * heap holds the whole run's serialised notification set twice. The persistence context already
+      * holds one copy of every payload for the same transaction, so this is a constant factor rather
+      * than a new order of growth — but it is the reason to prefer the recommended 100 over the
+-     * {@link #CLUBLINE_OMS_CHUNK_SIZE_CEILING} typo guard, which was chosen against the 15 s read
++     * {@link #CLUBLINE_OMS_CHUNK_SIZE_CEILING} typo guard, which was chosen against the then-15 s read
+      * timeout alone.
+      */
+     private void enqueueClubNotificationsChunked(Long orderBatchId, List<Customerorder> freshOrders, int chunkSize)
+diff --git a/src/main/java/net/aim_ai/wms/service/HttpRestService.java b/src/main/java/net/aim_ai/wms/service/HttpRestService.java
+index d4c8e4eb..1718b6a2 100644
+--- a/src/main/java/net/aim_ai/wms/service/HttpRestService.java
++++ b/src/main/java/net/aim_ai/wms/service/HttpRestService.java
+@@ -2,6 +2,7 @@ package net.aim_ai.wms.service;
+ 
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.http.HttpHeaders;
+ import org.springframework.http.client.SimpleClientHttpRequestFactory;
+ import org.springframework.stereotype.Service;
+@@ -38,17 +39,47 @@ public class HttpRestService {
+      */
+     public static final String NO_HTTP_RESPONSE_CODE = "EX";
+ 
++    /** Connect timeout for both clients. {@code OutboxDispatchService} budgets a tick with it. */
++    public static final int CONNECT_TIMEOUT_MS = 5000;
++
+     private final SyspropService syspropService;
++    /** For {@link #post} and {@link #get}: their callers include operator-facing screens. */
+     private final RestClient restClient;
++    /** For {@link #postWithIdempotencyKey}, whose only caller is the outbox dispatcher. */
++    private final RestClient outboxRestClient;
+ 
+-    // 1. Constructor Injection (Modern Standard)
+-    public HttpRestService(SyspropService syspropService) {
++    /**
++     * SBDEV-3672 — two clients, because one read timeout cannot serve both kinds of caller.
++     *
++     * <p>OMS {@code finishedShipping} processes a whole BOL inside the request. On ShipItEZ c1wh every
++     * payload of 37–107 KB outlived the old shared 15 s on its first attempt, and a 664 KB BOL outlived
++     * it on all six, ending {@code FAILED_TERMINAL}. Raising the shared value would make an operator
++     * wait just as long on a stock-update or resend button, so only the dispatcher's client gets the
++     * longer one.
++     *
++     * <p>⚠ The outbox value is bounded: a tick holds its claimed batch {@code IN_FLIGHT} for
++     * {@code batch-size × (connect + outbox read)}, which must stay under
++     * {@code OutboxDispatchService.STALE_INFLIGHT_TIMEOUT} or a second replica re-sends rows still in
++     * flight. {@code OutboxDispatchServiceUnitTest} pins that against the deployed properties file.
++     */
++    public HttpRestService(SyspropService syspropService,
++                           @Value("${app.oms.http.read-timeout-ms:15000}") int readTimeoutMs,
++                           @Value("${app.outbox.dispatcher.read-timeout-ms:30000}") int outboxReadTimeoutMs) {
+         this.syspropService = syspropService;
+-        // 2. Build the RestClient once with timeouts
++        this.restClient = buildClient("app.oms.http.read-timeout-ms", readTimeoutMs);
++        this.outboxRestClient = buildClient("app.outbox.dispatcher.read-timeout-ms", outboxReadTimeoutMs);
++    }
++
++    private static RestClient buildClient(String property, int readTimeoutMs) {
++        // SimpleClientHttpRequestFactory reads 0 as "wait forever", so a typo here would pin a thread
++        // (and, for the dispatcher, its advisory lock) indefinitely. Refuse to start instead.
++        if (readTimeoutMs <= 0) {
++            throw new IllegalArgumentException(property + " must be positive, was " + readTimeoutMs);
++        }
+         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+-        factory.setConnectTimeout(5000);
+-        factory.setReadTimeout(15000);
+-        this.restClient = RestClient.builder().requestFactory(factory).build();
++        factory.setConnectTimeout(CONNECT_TIMEOUT_MS);
++        factory.setReadTimeout(readTimeoutMs);
++        return RestClient.builder().requestFactory(factory).build();
+     }
+ 
+     /**
+@@ -115,7 +146,7 @@ public class HttpRestService {
+ 
+     public Map<String, String> postWithIdempotencyKey(String url, String message, String idempotencyKey) {
+         LOG.debug("postWithIdempotencyKey - url={}", url);
+-        var response = restClient.post()
++        var response = outboxRestClient.post()
+             .uri(url)
+             .headers(h -> { applyHeaders(h); h.set("Idempotency-Key", idempotencyKey); })
+             .body(message)
+diff --git a/src/main/java/net/aim_ai/wms/service/job/OutboxDispatchService.java b/src/main/java/net/aim_ai/wms/service/job/OutboxDispatchService.java
+index fe7629a5..8f43e31c 100644
+--- a/src/main/java/net/aim_ai/wms/service/job/OutboxDispatchService.java
++++ b/src/main/java/net/aim_ai/wms/service/job/OutboxDispatchService.java
+@@ -18,6 +18,7 @@ import net.aim_ai.wms.service.OmsResponseClassifier;
+ import net.aim_ai.wms.service.OutboxService;
+ import net.aim_ai.wms.service.SyspropService;
+ import net.aim_ai.wms.service.WmsConstants;
++import jakarta.annotation.PostConstruct;
+ import org.apache.commons.lang3.StringUtils;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -54,7 +55,8 @@ public class OutboxDispatchService {
+      * reverts it to {@code FAILED_RETRY}.
+      *
+      * <p><b>⚠ Invariant: this MUST exceed the longest a single tick can legitimately hold its
+-     * claimed batch in flight</b> — {@code batchSize × (HttpRestService connect 5s + read 15s)}.
++     * claimed batch in flight</b> — {@code batchSize × (HttpRestService.CONNECT_TIMEOUT_MS +
++     * app.outbox.dispatcher.read-timeout-ms)}.
+      * Phase 2 POSTs the batch sequentially with no transaction held, so a tenant whose OMS is timing
+      * out keeps every claimed row {@code IN_FLIGHT} for that whole window. Undershoot it and a second
+      * replica reclaims rows the first is still POSTing, and they are delivered twice.
+@@ -70,8 +72,6 @@ public class OutboxDispatchService {
+      */
+     static final Duration STALE_INFLIGHT_TIMEOUT = Duration.ofMinutes(15);
+ 
+-    /** Worst case per message: {@code HttpRestService} connect (5s) + read (15s) timeouts. */
+-    static final Duration WORST_CASE_PER_MESSAGE = Duration.ofSeconds(20);
+     private static final String TAG_OUTCOME = "outcome";
+     private static final String TAG_PROCESS_TYPE = "processType";
+     /** State-code written to the service-log row when no HTTP status came back (outcome unknown on a read timeout). */
+@@ -99,6 +99,37 @@ public class OutboxDispatchService {
+     @Value("${app.outbox.dispatcher.max-attempts:5}")
+     int maxAttempts;
+ 
++    /** Must match the value {@code HttpRestService}'s outbox client is built with: same key, same default. */
++    @Value("${app.outbox.dispatcher.read-timeout-ms:30000}")
++    int readTimeoutMs;
++
++    /**
++     * SBDEV-3672 — refuse to start when a tick could outlive {@link #STALE_INFLIGHT_TIMEOUT}.
++     *
++     * <p>{@code OutboxDispatchServiceUnitTest} pins the same bound against the deployed properties
++     * file, but an environment or {@code SPRING_*} override is invisible to a build-time test, and a
++     * breach does not fail anything at runtime: rows still being POSTed are reclaimed and sent twice.
++     * So the bound is checked against the values this bean was actually given.
++     *
++     * <p>The read timeout bounds each socket read, not the whole exchange. That is enough for OMS,
++     * whose PHP-FPM answers in one write once it has finished, but it is a bound on silence, not on
++     * a slow trickle.
++     */
++    @PostConstruct
++    public void assertStaleTimeoutCoversWorstCaseTick() {
++        Duration perMessage = Duration.ofMillis((long) HttpRestService.CONNECT_TIMEOUT_MS + readTimeoutMs);
++        Duration worstCaseTick = perMessage.multipliedBy(batchSize);
++        if (worstCaseTick.compareTo(STALE_INFLIGHT_TIMEOUT) >= 0) {
++            throw new IllegalStateException(String.format(
++                "app.outbox.dispatcher.batch-size=%d x (connect %dms + app.outbox.dispatcher.read-timeout-ms=%d)"
++                    + " = %ds worst-case tick, which does not fit under STALE_INFLIGHT_TIMEOUT (%ds): a"
++                    + " second replica would re-send rows still in flight. Lower the batch size or the read"
++                    + " timeout.",
++                batchSize, HttpRestService.CONNECT_TIMEOUT_MS, readTimeoutMs, worstCaseTick.toSeconds(),
++                STALE_INFLIGHT_TIMEOUT.toSeconds()));
++        }
++    }
++
+     public OutboxDispatchService(OutboxMessageRepository repo,
+                                   OutboxService outboxService,
+                                   HttpRestService httpRestService,
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index 7bdce62c..cd69118d 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -236,11 +236,18 @@ spring.task.scheduling.pool.size=14
+ # note that replicas do NOT add dispatch throughput: the advisory lock elects one dispatcher per lane.
+ #
+ # ⚠ BOUNDED BY OutboxDispatchService.STALE_INFLIGHT_TIMEOUT. A tick can hold its whole claimed batch
+-# IN_FLIGHT for batch-size x (HttpRestService connect 5s + read 15s); if that exceeds the stale
+-# timeout, a second replica may reclaim rows the first is still POSTing and they are sent twice.
+-# OutboxDispatchServiceUnitTest pins the relationship -- raise this and it fails until the timeout
+-# is raised with it.
++# IN_FLIGHT for batch-size x (HttpRestService connect 5s + app.outbox.dispatcher.read-timeout-ms);
++# if that exceeds the stale timeout, a second replica may reclaim rows the first is still POSTing
++# and they are sent twice. OutboxDispatchServiceUnitTest pins the relationship against THIS file --
++# raise either value and it fails until STALE_INFLIGHT_TIMEOUT is raised with it.
+ app.outbox.dispatcher.batch-size=25
++# SBDEV-3672: the dispatcher's own OMS read timeout. OMS finishedShipping processes a whole BOL in
++# the request; on ShipItEZ c1wh every 37-107 KB payload outlived the old shared 15s on its first
++# attempt. 30s is the ceiling at batch-size 25 (25 x 35s = 875s < 900s). Waits here hold up the rest
++# of the lane, every tenant included, so do not raise it as a fix for slow OMS endpoints (SBDEV-3754).
++app.outbox.dispatcher.read-timeout-ms=30000
++# Read timeout for every other OMS call (post/get). Operator screens wait on these: keep it short.
++app.oms.http.read-timeout-ms=15000
+ app.outbox.dispatcher.max-attempts=5
+ app.outbox.dispatcher.retention-days=7
+ app.idempotency.enforce=true
+diff --git a/src/test/java/net/aim_ai/wms/schedulejob/SchedulingConfigurationUnitTest.java b/src/test/java/net/aim_ai/wms/schedulejob/SchedulingConfigurationUnitTest.java
+index ce06772d..2e524648 100644
+--- a/src/test/java/net/aim_ai/wms/schedulejob/SchedulingConfigurationUnitTest.java
++++ b/src/test/java/net/aim_ai/wms/schedulejob/SchedulingConfigurationUnitTest.java
+@@ -674,7 +674,7 @@ class SchedulingConfigurationUnitTest extends BaseServiceUnitTest {
+                 .isNotNull();
+             // Twelve standing triggers on a cron replica: two outbox lanes, eight business crons,
+             // TenantConfigLoader.scheduledRefresh, TenantPoolEvictor. A task holds its thread for the
+-            // whole tick, and an outbox tick is bounded by tenants x batch x the 15s OMS read timeout.
++            // whole tick, and an outbox tick is bounded by tenants x batch x the outbox OMS read timeout.
+             assertThat(Integer.parseInt(configured.trim()))
+                 .as("fewer threads than standing triggers puts the lanes back in a queue behind each "
+                     + "other, which is the head-of-line blocking the lane split exists to remove")
+diff --git a/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceReadTimeoutTest.java b/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceReadTimeoutTest.java
+new file mode 100644
+index 00000000..db363fea
+--- /dev/null
++++ b/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceReadTimeoutTest.java
+@@ -0,0 +1,120 @@
++package net.aim_ai.wms.unit.service;
++
++import com.sun.net.httpserver.HttpServer;
++import net.aim_ai.wms.service.HttpRestService;
++import net.aim_ai.wms.service.SyspropService;
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++import org.springframework.web.client.ResourceAccessException;
++
++import java.io.OutputStream;
++import java.net.InetSocketAddress;
++import java.net.SocketTimeoutException;
++import java.nio.charset.StandardCharsets;
++import java.util.Map;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatCode;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++import static org.mockito.Mockito.mock;
++
++/**
++ * SBDEV-3672 — the outbox dispatcher's OMS calls get their own read timeout, separate from the one
++ * the interactive callers use.
++ *
++ * <p>OMS {@code finishedShipping} processes a whole BOL inside the request. On ShipItEZ c1wh every
++ * payload of 37–107 KB outlived the single shared 15 s read timeout on its first attempt, and a
++ * 664 KB BOL outlived it on all six, ending {@code FAILED_TERMINAL}. Raising the shared value would
++ * freeze operator screens behind the same wait, so the dispatcher's client is configured on its own.
++ *
++ * <p>Drives a real local HTTP server rather than a mocked {@code RestClient}: a mock cannot time out,
++ * so a mock-based test would pass whatever timeout either client was built with.
++ */
++@DisplayName("SBDEV-3672 — HttpRestService read timeouts: interactive vs outbox")
++class HttpRestServiceReadTimeoutTest {
++
++    /** How long the stub OMS takes to answer. Far above the interactive timeout, far below the outbox one. */
++    private static final int OMS_ANSWER_DELAY_MS = 1_500;
++    private static final int INTERACTIVE_READ_TIMEOUT_MS = 200;
++    private static final int OUTBOX_READ_TIMEOUT_MS = 10_000;
++
++    private HttpServer slowOms;
++    private String url;
++    private HttpRestService service;
++
++    @BeforeEach
++    void startSlowOms() throws Exception {
++        slowOms = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
++        slowOms.createContext("/services/call/finishedShipping", exchange -> {
++            try {
++                Thread.sleep(OMS_ANSWER_DELAY_MS);
++            } catch (InterruptedException e) {
++                Thread.currentThread().interrupt();
++            }
++            byte[] body = "{\"Status\":\"Success\",\"Message\":\"OK\",\"Result\":[]}"
++                .getBytes(StandardCharsets.UTF_8);
++            exchange.getResponseHeaders().add("Content-Type", "application/json");
++            exchange.sendResponseHeaders(200, body.length);
++            try (OutputStream out = exchange.getResponseBody()) {
++                out.write(body);
++            } catch (java.io.IOException clientAlreadyGone) {
++                // The interactive call hangs up at its timeout; writing to it then is expected to fail.
++            }
++        });
++        // One thread per request, so the interactive call that the client abandons cannot hold up
++        // the outbox call behind it.
++        slowOms.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
++        slowOms.start();
++        url = "http://127.0.0.1:" + slowOms.getAddress().getPort() + "/services/call/finishedShipping";
++
++        // applyHeaders reads two sysprops; an unstubbed mock answers null, which it already tolerates.
++        service = new HttpRestService(mock(SyspropService.class),
++            INTERACTIVE_READ_TIMEOUT_MS, OUTBOX_READ_TIMEOUT_MS);
++    }
++
++    @AfterEach
++    void stopSlowOms() {
++        slowOms.stop(0);
++    }
++
++    @Test
++    @DisplayName("the outbox call waits for an OMS answer that takes longer than the interactive timeout")
++    void outboxCallOutlivesTheInteractiveTimeout() {
++        @SuppressWarnings("unchecked")
++        Map<String, String>[] result = new Map[1];
++        // A timed-out call throws rather than returning, so assert "no throw" with a message naming
++        // the cause; otherwise the red is a bare SocketTimeoutException that names nothing.
++        assertThatCode(() -> result[0] = service.postWithIdempotencyKey(url, "{\"bol_id\":\"B1\"}", "key-1"))
++            .as("postWithIdempotencyKey must use the outbox read timeout (%d ms), not the interactive "
++                + "one (%d ms): OMS answers after %d ms", OUTBOX_READ_TIMEOUT_MS,
++                INTERACTIVE_READ_TIMEOUT_MS, OMS_ANSWER_DELAY_MS)
++            .doesNotThrowAnyException();
++        assertThat(result[0].get("code")).isEqualTo("200");
++        assertThat(result[0].get("answer")).contains("\"Status\":\"Success\"");
++    }
++
++    @Test
++    @DisplayName("an interactive call still gives up at the interactive timeout")
++    void interactiveCallKeepsTheShortTimeout() {
++        assertThatThrownBy(() -> service.post(url, "{\"bol_id\":\"B1\"}"))
++            .as("post() serves operator-facing screens and must keep the short read timeout "
++                + "(%d ms); OMS answers after %d ms", INTERACTIVE_READ_TIMEOUT_MS, OMS_ANSWER_DELAY_MS)
++            .isInstanceOf(ResourceAccessException.class)
++            .hasRootCauseInstanceOf(SocketTimeoutException.class);
++    }
++
++    @Test
++    @DisplayName("a non-positive timeout is rejected at construction, not discovered as an infinite wait")
++    void rejectsNonPositiveTimeouts() {
++        SyspropService sysprops = mock(SyspropService.class);
++        // SimpleClientHttpRequestFactory reads 0 as "wait forever": a typo would pin the dispatcher.
++        assertThatThrownBy(() -> new HttpRestService(sysprops, 0, OUTBOX_READ_TIMEOUT_MS))
++            .isInstanceOf(IllegalArgumentException.class)
++            .hasMessageContaining("app.oms.http.read-timeout-ms");
++        assertThatThrownBy(() -> new HttpRestService(sysprops, INTERACTIVE_READ_TIMEOUT_MS, 0))
++            .isInstanceOf(IllegalArgumentException.class)
++            .hasMessageContaining("app.outbox.dispatcher.read-timeout-ms");
++    }
++}
+diff --git a/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceUnitTest.java b/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceUnitTest.java
+index a0d18737..405caaff 100644
+--- a/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceUnitTest.java
++++ b/src/test/java/net/aim_ai/wms/unit/service/HttpRestServiceUnitTest.java
+@@ -52,7 +52,7 @@ class HttpRestServiceUnitTest extends BaseServiceUnitTest {
+ 
+     @BeforeEach
+     void setUp() throws net.aim_ai.wms.exceptions.BusinessException {
+-        httpRestService = new HttpRestService(syspropService);
++        httpRestService = new HttpRestService(syspropService, 15000, 30000);
+         ReflectionTestUtils.setField(httpRestService, "restClient", restClient);
+     }
+ 
+diff --git a/src/test/java/net/aim_ai/wms/unit/service/job/OutboxDispatchServiceUnitTest.java b/src/test/java/net/aim_ai/wms/unit/service/job/OutboxDispatchServiceUnitTest.java
+index 1546adf1..f0e46f8d 100644
+--- a/src/test/java/net/aim_ai/wms/unit/service/job/OutboxDispatchServiceUnitTest.java
++++ b/src/test/java/net/aim_ai/wms/unit/service/job/OutboxDispatchServiceUnitTest.java
+@@ -35,6 +35,8 @@ import java.util.List;
+ import java.util.Map;
+ 
+ import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatCode;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ import static org.mockito.ArgumentMatchers.any;
+ import static org.mockito.ArgumentMatchers.anyInt;
+ import static org.mockito.ArgumentMatchers.anyString;
+@@ -626,9 +628,12 @@ class OutboxDispatchServiceUnitTest extends BaseServiceUnitTest {
+         // reverting them to FAILED_RETRY delivers them twice. The margin was implicit until the
+         // batch size moved 10 -> 25 and silently consumed it (200s -> 500s against a 300s cutoff).
+         Duration timeout = (Duration) fieldValue("STALE_INFLIGHT_TIMEOUT");
+-        Duration perMessage = (Duration) fieldValue("WORST_CASE_PER_MESSAGE");
++        // SBDEV-3672: derived from the deployed outbox read timeout, not a constant restating it. A
++        // constant here was the pin's blind spot — raising the read timeout left it green.
++        Duration perMessage = Duration.ofMillis(HttpRestService.CONNECT_TIMEOUT_MS)
++            .plusMillis(intFromApplicationProperties("app.outbox.dispatcher.read-timeout-ms"));
+ 
+-        int configuredBatchSize = batchSizeFromApplicationProperties();
++        int configuredBatchSize = intFromApplicationProperties("app.outbox.dispatcher.batch-size");
+         Duration worstCaseTick = perMessage.multipliedBy(configuredBatchSize);
+ 
+         assertThat(timeout)
+@@ -639,6 +644,42 @@ class OutboxDispatchServiceUnitTest extends BaseServiceUnitTest {
+             .isGreaterThan(worstCaseTick);
+     }
+ 
++    /**
++     * SBDEV-3672 — the same bound, checked against the values the running bean was given.
++     *
++     * <p>The test above grades the deployed properties FILE. An environment or {@code SPRING_*}
++     * override at deploy time is invisible to it, so a 55 s override would pass the build and then
++     * re-send rows still in flight. The startup check closes that: the context refuses to start.
++     */
++    @Test
++    @DisplayName("SBDEV-3672: startup refuses a batch-size x (connect + read timeout) that outlives "
++        + "STALE_INFLIGHT_TIMEOUT")
++    void startupRefusesAReadTimeoutThatOutlivesTheStaleCutoff() {
++        ReflectionTestUtils.setField(service, "batchSize", 25);
++        ReflectionTestUtils.setField(service, "readTimeoutMs", 55_000);   // 25 x 60s = 1500s > 900s
++
++        assertThatThrownBy(() -> service.assertStaleTimeoutCoversWorstCaseTick())
++            .isInstanceOf(IllegalStateException.class)
++            .hasMessageContaining("app.outbox.dispatcher.read-timeout-ms=55000")
++            .hasMessageContaining("app.outbox.dispatcher.batch-size=25")
++            .hasMessageContaining("1500s");
++    }
++
++    @Test
++    @DisplayName("SBDEV-3672: startup accepts the deployed 25 x (5s + 30s) = 875s, and is exact at the edge")
++    void startupAcceptsTheDeployedValuesAndIsExactAtTheEdge() {
++        ReflectionTestUtils.setField(service, "batchSize", 25);
++        ReflectionTestUtils.setField(service, "readTimeoutMs", 30_000);   // 875s < 900s
++        assertThatCode(() -> service.assertStaleTimeoutCoversWorstCaseTick()).doesNotThrowAnyException();
++
++        // 900s exactly is not "under" the cutoff: a row claimed at t=0 is reclaimable at t=900s.
++        ReflectionTestUtils.setField(service, "batchSize", 30);
++        ReflectionTestUtils.setField(service, "readTimeoutMs", 25_000);   // 30 x 30s = 900s
++        assertThatThrownBy(() -> service.assertStaleTimeoutCoversWorstCaseTick())
++            .isInstanceOf(IllegalStateException.class)
++            .hasMessageContaining("900s");
++    }
++
+     private static Object fieldValue(String name) throws ReflectiveOperationException {
+         // Read at runtime rather than referencing: a direct reference to a compile-time constant
+         // would be inlined here and a stale .class would keep passing against the old value.
+@@ -650,13 +691,14 @@ class OutboxDispatchServiceUnitTest extends BaseServiceUnitTest {
+     }
+ 
+     /**
+-     * The DEPLOYED batch size, read from src/main/resources/application.properties on disk.
++     * A DEPLOYED outbox setting, read from src/main/resources/application.properties on disk.
+      *
+      * <p>Not the {@code @Value} default and not the field: src/test/resources/application.properties
+      * shadows main on the test classpath, so anything classpath-based here would grade the wrong
+-     * file and the assertion would pass against a batch size production never runs.
++     * file and the assertion would pass against a value production never runs. An environment
++     * override in a deployment is invisible here too; the file is what ships by default.
+      */
+-    private static int batchSizeFromApplicationProperties() throws java.io.IOException {
++    private static int intFromApplicationProperties(String key) throws java.io.IOException {
+         java.nio.file.Path mainProps =
+             java.nio.file.Path.of("src/main/resources/application.properties");
+         assertThat(mainProps)
+@@ -667,10 +709,10 @@ class OutboxDispatchServiceUnitTest extends BaseServiceUnitTest {
+         try (java.io.InputStream in = java.nio.file.Files.newInputStream(mainProps)) {
+             props.load(in);
+         }
+-        String raw = props.getProperty("app.outbox.dispatcher.batch-size");
++        String raw = props.getProperty(key);
+         assertThat(raw)
+-            .as("positive control — app.outbox.dispatcher.batch-size must be present, or the "
+-                + "arithmetic below would run against a default this file never sets")
++            .as("positive control — %s must be present, or the arithmetic below would run "
++                + "against a default this file never sets", key)
+             .isNotBlank();
+         return Integer.parseInt(raw.trim());
+     }

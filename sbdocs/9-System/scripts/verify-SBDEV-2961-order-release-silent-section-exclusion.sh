@@ -203,7 +203,8 @@ SVC_F=src/main/java/net/aim_ai/wms/service/job/ReleaseOrderJobService.java
 METRICS_F=src/main/java/net/aim_ai/wms/schedulejob/JobMetrics.java
 MONITOR_F=src/main/java/net/aim_ai/wms/repo/jpa/OrderMonitorViewRepository.java
 GUARD_T=src/test/java/net/aim_ai/wms/unit/schedulejob/OrderReleaseJobSectionGuardTest.java
-JOB_T=src/test/java/net/aim_ai/wms/unit/schedulejob/OrderReleaseJobTest.java
+# SBDEV-3102 C2: OrderReleaseJobTest was merged into OrderReleaseJobUnitTest.
+JOB_T=src/test/java/net/aim_ai/wms/unit/schedulejob/OrderReleaseJobUnitTest.java
 OPENPARCELS_F="$WEB_UI_ROOT/components/outbound/pickPack/openParcels.vue"
 PARCELDETAILS_F="$WEB_UI_ROOT/components/outbound/pickPack/parcelDetails.vue"
 CONSTANTS_F="$WEB_UI_ROOT/util/constantValues.js"
@@ -357,7 +358,7 @@ run T_guard_test_exists    "T guard test class exists"                    check_
 run T_never_releases       "T asserts releaseOrder never called"          check_T_never_releases
 run T_warm_map             "T covers warm-map self-heal (B4)"             check_T_warm_map
 run T_no_vacuous_oms       "T r1's vacuous OMS assertion not reused"      check_T_no_vacuous_oms
-run T1_existing_stubbed    "T1 OrderReleaseJobTest stubs getSectionId"    check_T1_existing_stubbed
+run T1_existing_stubbed    "T1 OrderReleaseJobUnitTest stubs getSectionId"    check_T1_existing_stubbed
 echo
 
 echo "Maven (slow; SKIP_MVN=1 to skip — but run WITHOUT it at least once)"

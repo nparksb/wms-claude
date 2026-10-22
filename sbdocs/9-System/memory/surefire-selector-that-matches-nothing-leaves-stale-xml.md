@@ -28,6 +28,10 @@ after you fixed it.
 **Practice**
 
 - Separate classes with `,`, never `+` or a space.
+- **A package selector with dots and `.*` also matches nothing** (measured 2026-10-21, SBDEV-3183 AC-7):
+  `-Dtest='net.aim_ai.wms.unit.security.*'` ran **zero** tests and exited 0, so every hand mutant would have
+  read green. Use the path form `-Dtest='net/aim_ai/wms/unit/security/**'` (281 tests). Check the run count
+  before reading any mutant verdict.
 - `rm -f target/surefire-reports/TEST-<the classes>.xml` before the run, then assert the files exist
   afterwards. A missing file is the signal that the selector matched nothing.
 - Read the **console** `Tests run:` line as the primary result, not the XML; drop `-q` when the

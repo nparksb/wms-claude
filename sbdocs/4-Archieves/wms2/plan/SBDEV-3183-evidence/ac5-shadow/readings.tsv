@@ -1,0 +1,64 @@
+utc	deployed	meter	domainType	function	count
+2026-10-19T13:35:39Z	develop-9fc529e142f4563767d1cbafca408f70adc51f6f	wms2.authz.sdr.would_deny	none	index	2
+2026-10-19T13:35:39Z	develop-9fc529e142f4563767d1cbafca408f70adc51f6f	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-19T19:46:59Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-19T19:46:59Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-19T19:48:06Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.would_deny	none	index	1
+2026-10-19T19:48:06Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.unruled	Customerorder	-	5
+2026-10-19T19:48:06Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.unruled	Boxtype	-	1
+2026-10-19T19:48:06Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.unruled	Client	-	1
+2026-10-19T19:48:06Z	develop-f862e81496db5cbb65cbb5dbee9be4405226f127	wms2.authz.sdr.unruled	Section	-	1
+2026-10-20T18:48:26Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-20T18:48:26Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-20T18:49:09Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-20T18:49:09Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	Sysprop	WEB_UI_VIEW_SYSTEM_PROPERTY	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	Advice	WEB_UI_VIEW_INBOUND_BOL	2
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	none	index	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	Cyclecount	WEB_UI_VIEW_CYCLECOUNT	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	Location	WEB_UI_VIEW_INBOUND_BOL	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	Location	WEB_UI_VIEW_BILL_OF_LADING	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	Location	WEB_UI_VIEW_STORAGE_LOCATION	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.would_deny	UserGroup	WEB_UI_VIEW_USER_MANAGEMENT	1
+2026-10-20T18:49:27Z	develop-d44d79ae68563320e2e06857112ec433ba8f7978	wms2.authz.sdr.unruled	Client	-	1
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	UserFunction	WEB_UI_VIEW_USER_MANAGEMENT	2
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	UserRole	WEB_UI_VIEW_USER_MANAGEMENT	2
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	Sysprop	WEB_UI_VIEW_SYSTEM_PROPERTY	6
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	Advice	WEB_UI_VIEW_INBOUND_BOL	6
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	Cyclecount	WEB_UI_VIEW_CYCLECOUNT	4
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	Location	WEB_UI_VIEW_INBOUND_BOL	2
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	Location	WEB_UI_VIEW_BILL_OF_LADING	2
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	Location	WEB_UI_VIEW_STORAGE_LOCATION	6
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.would_deny	UserGroup	WEB_UI_VIEW_USER_MANAGEMENT	2
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.unruled	Customerorder	-	2
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.unruled	Boxtype	-	3
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.unruled	Itemdata	-	6
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.unruled	Stockunit	-	3
+2026-10-20T20:38:11Z	develop-b445b768d2eb8042787677d81c8a6a56190baf9a	wms2.authz.sdr.unruled	Client	-	5
+2026-10-20T22:38:11Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-20T22:38:11Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-21T00:38:12Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-21T00:38:12Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	ReceivingDtoView	-	3
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	Boxtype	-	3
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	Client	-	1
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	Printer	-	1
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	Itemdata	-	2
+2026-10-21T12:19:49Z	develop-a49e6ebd2c67dabd37c3c721fdccdd0ef2991f80	wms2.authz.sdr.unruled	Section	-	2
+2026-10-21T14:38:12Z	develop-6a9312aae0fe3b38d5e5de9067d4b286f4decb5b	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-21T14:38:12Z	develop-6a9312aae0fe3b38d5e5de9067d4b286f4decb5b	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-21T17:50:51Z	develop-fb08768912c9e36d4b8b23cde0c8ac3390e775f7	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-21T17:50:51Z	develop-fb08768912c9e36d4b8b23cde0c8ac3390e775f7	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-21T17:51:37Z	develop-fb08768912c9e36d4b8b23cde0c8ac3390e775f7	wms2.authz.sdr.would_deny	none	index	2
+2026-10-21T17:51:37Z	develop-fb08768912c9e36d4b8b23cde0c8ac3390e775f7	wms2.authz.sdr.unruled	Boxtype	-	1
+2026-10-21T18:38:12Z	develop-fb08768912c9e36d4b8b23cde0c8ac3390e775f7	wms2.authz.sdr.would_deny	none	index	2
+2026-10-21T18:38:12Z	develop-fb08768912c9e36d4b8b23cde0c8ac3390e775f7	wms2.authz.sdr.unruled	Boxtype	-	1
+2026-10-21T20:38:11Z	develop-c9e8f9a1e4c4e020605c27f1cb05a132fa92649a	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-21T20:38:11Z	develop-c9e8f9a1e4c4e020605c27f1cb05a132fa92649a	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-21T22:38:11Z	develop-c274db50c56ca1431ba8a820223cf0edfee9d5e7	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-21T22:38:11Z	develop-c274db50c56ca1431ba8a820223cf0edfee9d5e7	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-22T00:38:13Z	develop-c274db50c56ca1431ba8a820223cf0edfee9d5e7	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-22T00:38:13Z	develop-c274db50c56ca1431ba8a820223cf0edfee9d5e7	wms2.authz.sdr.unruled	-	-	0	(absent)
+2026-10-22T02:38:12Z	develop-c274db50c56ca1431ba8a820223cf0edfee9d5e7	wms2.authz.sdr.would_deny	-	-	0	(absent)
+2026-10-22T02:38:12Z	develop-c274db50c56ca1431ba8a820223cf0edfee9d5e7	wms2.authz.sdr.unruled	-	-	0	(absent)

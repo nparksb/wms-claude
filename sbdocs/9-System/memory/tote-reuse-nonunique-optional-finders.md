@@ -1,6 +1,6 @@
 ---
 name: tote-reuse-nonunique-optional-finders
-description: "SBDEV-3287: pickingorder_unitload has only a PK, so every Optional<> finder over unitload_id/customerordernumber crashes once a tote is reused — fixed in v1, still live at 3 v2 call sites"
+description: "SBDEV-3287: pickingorder_unitload has only a PK, so every Optional<> finder over unitload_id/customerordernumber crashes once a tote is reused — fixed in v1; v2 fixed by SBDEV-3292 (PR #480)"
 metadata:
   type: project
 ---
@@ -25,11 +25,11 @@ strands a holder forever. The row that fired had sat harmless for six years.
 
 ## Still open
 
-- **v2/wms2-api has the same defect at 3 of 4 call sites.** SBDEV-2742 added the safe
-  `findLatestByUnitloadLabelid` *and repointed only `ToteStateService`*. `CustomerorderService`
-  (the same packageOrder path), `PickingorderUnitloadService` and `MobileInfoService` still call the
-  crashing one. Hydra prd had 0 armed collisions on 2026-09-09 — no fire, real latent risk. Proposed
-  on SBDEV-3287, not filed (2742 is Closed → status carve-out).
+- **v2/wms2-api: FIXED by SBDEV-3292 (PR #480, on dev 2026-10-08).** All 4 unsafe finders
+  deleted (one was an EXPORTED SDR route on `ReplenishorderRepository`); mutating callers use
+  `PickingorderUnitloadService.resolveAssignments(tote, orderNumber)` (native, keyed on both, returns a
+  List); `create()` sets the order number before the first save; rule pinned by
+  `PickingorderUnitloadSingleRowFinderArchTest`. See [[spring-data-derived-query-null-becomes-is-null]].
 - **The write side still produces orphans.** `MobilePickingService`, freeing a tote for reuse, nulls
   `customerorder.pickingtote_id` but not the `pickingorder_unitload` row holding the tote. A partial
   unique index `(unitload_id) where unitload_id is not null` would enforce the invariant but needs a

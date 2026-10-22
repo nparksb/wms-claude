@@ -202,11 +202,13 @@ run T7 "the ANONYMOUS sentinel is rejected before the function is consulted" bas
 # T8: SecurityContextHolder is thread-local and Surefire reuses threads — a leaked authenticated
 # context is a classic false-green generator.
 run T8 "tests clear the SecurityContext after each case" file_contains 'SecurityContextHolder\.clearContext\(\)' "$UACT"
-# T9: the leak that made a full-suite-only failure. FileImportControllerTest binds a MOCK
-# SecurityContext to the thread-local; unclearing it makes any later authorization test silently
-# exercise the ANONYMOUS path while looking authenticated.
-run T9 "FileImportControllerTest no longer leaks its mock SecurityContext" \
-        file_contains 'SecurityContextHolder\.clearContext\(\)' "$TST/unit/controller/FileImportControllerTest.java"
+# T9: the leak that made a full-suite-only failure. FileImportControllerTest bound a MOCK
+# SecurityContext to the thread-local; unclearing it made any later authorization test silently
+# exercise the ANONYMOUS path while looking authenticated. SBDEV-3102 slice B deleted the binding and
+# C3 merged that class into FileImportControllerUnitTest, so the row now asserts the leak SOURCE is
+# absent: the surviving class never touches SecurityContextHolder at all.
+run T9 "FileImportControllerUnitTest binds no SecurityContext" \
+        file_not_contains 'SecurityContextHolder' "$TST/unit/controller/FileImportControllerUnitTest.java"
 
 # ---------------------------------------------------------------------------
 echo; echo "Fix E — H1: the self-grant hole that defeated the gate (added 2026-08-17)"

@@ -168,12 +168,12 @@ Under `/v3/cycleCount/...`. Owner: `CycleCountController`.
 
 ## 6. Stock Adjustment Semantics
 
-When `count != amountbefore`, `countBySKURecount` does three things in one transaction:
+When `count != amountbefore`, `countBySKURecount` does three things in one transaction (true only since SBDEV-3854 ✓ merged(SBDEV-3854: wms2-api #552 c9e8f9a1, 2026-10-21); before it the method had no `@Transactional`, so the FINISHED position committed on its own and a recount to **zero** always failed with HTTP 500):
 
 1. **Position**: `position.amountafter = count; position.state = FINISHED`.
 2. **Stock unit**: one of:
    - `count == 0` → `sendStockUnitToNirvana(stockUnit)` (routes stock to the Nirvana unit load, effectively deleting it from inventory).
-   - `count > 0` → `stockunitBusinessService.changeAmount(stockUnit, count, WmsConstants.CODE_CYCLE_COUNT, position.getNumber(), comment)`. `changeAmount()` is `@Transactional("tenantTransactionManager")` at `StockunitBusinessService.java:362`.
+   - `count > 0` → `stockunitBusinessService.changeAmount(stockUnit, count, WmsConstants.CODE_CYCLE_COUNT, position.getNumber(), comment)`. `changeAmount()` is `@Transactional("tenantTransactionManager")` (`StockunitBusinessService.changeAmount`; re-verified 2026-10-21, SBDEV-3854). It takes the stock unit's PESSIMISTIC_WRITE lock through `LockReads.forUpdate`.
 3. **OMS message** (SBDEV-2214 deferral, 2026-05-10): `messageService.sendStockChangeMessage(List<StockChangeDto>)` now delegates to `StockChangeNotificationService.sendAfterCommit(...)` → `OmsNotificationService.sendAfterCommit(urlPath, payload, STOCK_UPDATE)`. The HTTP POST to `WEBSERVICE_STOCK_UPDATE` (sysprop `SYSTEM_PROPERTY_WEBSERVICE_STOCK_UPDATE_URL_KEY`) fires only AFTER the surrounding cycle-count transaction commits — rollback silently drops the POST. Result logged to `message` table as SENT/FAILED by `OmsNotificationService.doSend` on the listener side.
 
 Audit: `Stockrecord` is not written directly from this path — `changeAmount()` writes that itself.
@@ -198,16 +198,22 @@ Flipping `CYCLE_COUNT_SHOW_EXPECTED_AMOUNT` to `false` is the usual "blind count
 
 - `CycleCountController` methods have no explicit `@Transactional` — repositories inherit `tenantTransactionManager` via Spring Data JPA config.
 - `CyclecountService.cancelCycleCount()` walks parent + positions in one logical unit; if it throws mid-way, the whole cancel rolls back.
-- `MobileCycleCountService.countBySKURecount()` binds position write + stock adjustment + OMS message logging in one transaction; a failure anywhere rolls everything back — no partial commits.
-- No pessimistic locks in the cycle-count path. Optimistic `@Version` on both `Cyclecount` and `CyclecountPosition` (inherited from `AbstractBaseEntity`) is the only concurrency guard.
+- `MobileCycleCountService.countBySKURecount()` and `recountSingleUnitLoad()` bind position write + stock adjustment + OMS message in one transaction; a failure anywhere rolls everything back — no partial commits. **True only since SBDEV-3854 ✓ merged(SBDEV-3854: wms2-api #552 c9e8f9a1, 2026-10-21).** Before it neither method was `@Transactional`: the position was saved FINISHED on its own, and a recount to zero reached `sendStockUnitToNirvana` with no transaction and returned HTTP 500 (its self-invoked `changeAmount` lock read needs one). Measured 2026-10-21: no v2 PRD tenant has run a cycle count since 2026-02-05, so no residue. **Every mobile count judges the database row, never the posted copy, since SBDEV-3857 ✓ merged(SBDEV-3857: wms2-api #554 56797fed, 2026-10-21).** The request body carries whole `Stockunit` / `CyclecountPosition` entities.
+  - `recountSingleUnitLoad` locks the stock unit by the posted id (`LockReads.forUpdate`) and refuses unless it is still on the posted container ("was moved or removed from container … scan the container again").
+  - `countSingleUnitLoad` re-reads the stock unit and applies the same container check.
+  - `countCycleCountStockUnit` and `countBySKURecount` re-read the stored position and refuse a FINISHED or CANCELLED one ("is already counted or cancelled"), instead of saving the posted copy.
+  - `countBySKURecount` locks the position's stock unit, then refreshes the position and checks its state again under that lock.
+  - Both recounts take `amountbefore` and the OMS delta from the locked row.
+  - Before the fix, a posted `amount=0, reservedamount=0` retired a real stock unit (12 units, 5 reserved) on DEV and told OMS `normal:0`. The two first counts also run in one tenant transaction now.
+- Locks: the recount's stock change takes the stock unit's PESSIMISTIC_WRITE row lock (`changeAmount` → `LockReads.forUpdate`, also reached via `sendStockUnitToNirvana` on a recount to zero); since SBDEV-3854 ✓ merged(SBDEV-3854: wms2-api #552 c9e8f9a1, 2026-10-21) it is held until the recount commits. `Cyclecount` and `CyclecountPosition` themselves are guarded only by optimistic `@Version` (inherited from `AbstractBaseEntity`). *(Corrected 2026-10-21: this line used to say there were no pessimistic locks in the path.)*
 
-No `REQUIRES_NEW` anywhere in this flow.
+`REQUIRES_NEW`: only the position-number draw (`basicService.generateNumber` → `SequenceTransactionService`); everything else joins the recount's transaction. *(Corrected 2026-10-21: this line used to say there was none.)*
 
 ---
 
 ## 9. OMS Integration
 
-Only one touchpoint: `WEBSERVICE_STOCK_UPDATE` (via `MessageService.sendStockChangeMessage` line 101). Fires only when the recount path produces a non-zero delta. No cycle-count-lifecycle callback (no `WEBSERVICE_CYCLE_COUNT_*` sysprop) — OMS learns about inventory changes as stock deltas, not count events.
+Only one touchpoint: `WEBSERVICE_STOCK_UPDATE` (via `MessageService.sendStockChangeMessage`). `countBySKURecount` sends it only when the recount produces a non-zero delta; `recountSingleUnitLoad` does the same since SBDEV-3857 ✓ merged(SBDEV-3857: wms2-api #554 56797fed, 2026-10-21); before that it always sent one, with a 0 delta when the count matched. *(Corrected 2026-10-21, SBDEV-3854 round-3 review.)* No cycle-count-lifecycle callback (no `WEBSERVICE_CYCLE_COUNT_*` sysprop) — OMS learns about inventory changes as stock deltas, not count events.
 
 ---
 

@@ -51,6 +51,8 @@ v2 `validateStockOnStagingLane()` (lines 464-465) already filters cancelled orde
 
 ### 4. Helper Methods — 5 Methods MISSING Filter (Fixed)
 
+> **Later (2026-10-21, SBDEV-3102 E3):** `getAmountSKU()`, `getAmountBottles()` and `getAmountParcels()` were deleted from wms2-api — no caller in `src/main`, either v2 UI, or OMS; only their own unit tests used them. The rows below are the historical record of this plan.
+
 These methods fetched all orders including cancelled ones, inflating counts and applying unnecessary updates.
 
 | Method | Line | Issue | Fix Applied |

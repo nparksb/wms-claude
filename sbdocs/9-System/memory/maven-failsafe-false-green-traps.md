@@ -1,6 +1,6 @@
 ---
 name: maven-failsafe-false-green-traps
-description: "Two more ways the wms2-api failsafe lane reports success on tests that did not run or did fail — skipTests leaves stale XML, and failsafe:integration-test never fails the build"
+description: "Three more ways the wms2-api failsafe lane reports success on tests that did not run or did fail — skipTests leaves stale XML, failsafe:integration-test never fails the build, and a full verify can run ZERO ITs yet say BUILD SUCCESS (check for two summary lines)"
 metadata: 
   node_type: memory
   type: reference
@@ -26,3 +26,13 @@ result from a run that proved nothing**, and neither is in `v2/wms2-api/CLAUDE.m
 rather than the BUILD status. Related: [[wms2-running-one-integration-test-locally]],
 [[surefire-selector-that-matches-nothing-leaves-stale-xml]],
 [[mvn-without-clean-runs-deleted-tests]], [[a-zero-scan-needs-a-positive-control]].
+
+3. **A full `mvn clean verify -Pci` can print BUILD SUCCESS with the failsafe lane having run ZERO tests**
+   (measured 2026-10-09, SBDEV-3720). The log shows `failsafe:integration-test` immediately followed by
+   `failsafe:verify` with no "Using auto detected provider" / no "Tests run:" line, and
+   `target/failsafe-reports/failsafe-summary.xml` reads `result="254"` `<completed>0</completed>`. Tell:
+   `target/classes` and `test-classes` mtimes fell AFTER the surefire reports, i.e. something recompiled the
+   worktree mid-run (jacoco also warned "Execution data ... does not match"). Cause not pinned — a concurrent
+   process touching that worktree's target/ is the likely one. **Check: the verify log must contain TWO
+   `Tests run: N, Failures:` summary lines (surefire + failsafe), and failsafe-summary `completed` must be
+   non-zero. A single summary line is not a green.**

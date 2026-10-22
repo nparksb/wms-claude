@@ -6,7 +6,7 @@ version: "wms2-api develop (dev) / release (uat) / main (prd)"
 scope: wms2-api v2 / DEV + UAT + PRODUCTION
 owner: nam.park@siteboss.net
 created: 2026-07-27
-updated: 2026-09-01
+updated: 2026-10-16
 last_verified: 2026-09-01
 verified_by: nam.park@siteboss.net
 alert: "Deploy prerequisite — schema behind the environment's branch; 500s on replenishment monitor / lock report; 'column does not exist' after deploy"
@@ -474,9 +474,10 @@ UNION ALL
 SELECT 'V2.2.03', (count(*)=4)::text FROM information_schema.columns
  WHERE table_name='replenishorder' AND column_name LIKE 'moved\_%'
 UNION ALL
-SELECT 'V2.2.04', (count(*)=2)::text FROM los_sysprop
- WHERE syskey IN ('TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED',
-                  'REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED')
+-- V2.2.04 seeded two keys, but V2.2.39 (SBDEV-3659) deletes REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED,
+-- so probe only the surviving sibling or a fully migrated DB reads 'false' here.
+SELECT 'V2.2.04', (count(*)=1)::text FROM los_sysprop
+ WHERE syskey = 'TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED'
 UNION ALL
 SELECT 'V2.2.05', (count(*)=1)::text FROM los_sysprop
  WHERE syskey = 'OUTBOX_REJECT_ON_ERROR_STATUS_ACTIVATED'

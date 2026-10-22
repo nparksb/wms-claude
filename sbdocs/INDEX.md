@@ -27,6 +27,7 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 - **WMS v2 DB setup (START HERE to provision a tenant DB)** → [3-Resources/architecture/wms2-database-setup-guide.md](3-Resources/architecture/wms2-database-setup-guide.md) (fresh-start Flyway base dump vs v1→v2 migration toolkit — picks the path and links the runbooks)
 - **UTC timezone migration (SOP)** → [2-Areas/wms-utc-timezone-migration/README.md](2-Areas/wms-utc-timezone-migration/README.md) (per-client v1→v2 schema-bridge + UTC `timestamptz` migration)
 - **Runbooks** → [2-Areas/runbooks/README.md](2-Areas/runbooks/README.md) (2 docs — MOC)
+- **Proposals register** → [2-Areas/proposals-register.md](2-Areas/proposals-register.md) (findings proposed but not filed, usually T3, each with evidence and cost; Nam reviews weekly)
 
 ### Reference material
 

@@ -48,6 +48,17 @@ Cherry-picks v1 UI commits forward to v2 (Lane A of the weekly WMS v1→v2 sync 
 - Sync log: `sbdocs/2-Areas/wms-v1-v2-sync/sync-log.md` *(TBD)*
 - Migration plan skill: `owl/.claude/skills/wms-v2-migrate/SKILL.md`
 
+### `plan-inventory.py`
+
+Regenerates the **plan inventory** table in `1-Projects/wms{1,2}/plan/README.md`, between `<!-- BEGIN/END GENERATED: plan-inventory -->`. It has one row per plan file on disk, read from frontmatter (ticket, type, status, priority, updated). The hand-written notes elsewhere in the README are untouched. Hand-maintained lists drifted: SBDEV-3755's plan was never listed, and SBDEV-3672's was on disk but missing.
+
+```bash
+python3 -I sbdocs/9-System/scripts/plan-inventory.py            # regenerate both
+python3 -I sbdocs/9-System/scripts/plan-inventory.py --check    # exit 1 if stale; lists un-noted plans, dead note links, no-frontmatter plans
+```
+
+Called by `archive-plan` (step 5c), the plan-writing skills, and `refresh-moc` (`--check`).
+
 ### `verify-*.sh` (plan verification scripts)
 
 Per-plan verification harnesses (`verify-SBDEV-####-*.sh`, `verify-YYMMDD-*-*.sh`). These are generated alongside their plans by the `wms-bugfix-plan`, `wms-feature-plan`, and `wms-v2-migrate` skills, and are owned by the plan they ship with — not stable enough to enumerate here. To find the harness for a plan, match the filename stem (e.g. `verify-SBDEV-2216-*.sh` ↔ `SBDEV-2216-*.md`).

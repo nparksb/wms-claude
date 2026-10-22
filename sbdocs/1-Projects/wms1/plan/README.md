@@ -16,7 +16,42 @@ See also: [vault index](../../../INDEX.md) · [plan template](../../../9-System/
 
 ---
 
-## Current plans (filesystem snapshot)
+## Inventory (generated)
+
+<!-- BEGIN GENERATED: plan-inventory -->
+<!-- Generated from frontmatter by sbdocs/9-System/scripts/plan-inventory.py. Do not edit by hand; re-run it after adding, archiving or re-statusing a plan. -->
+
+**24 plan file(s) on disk**, newest `updated` first. 2 without frontmatter (flagged ⚠).
+
+| Plan | Ticket | Type | Status | Priority | Updated |
+|---|---|---|---|---|---|
+| [SBDEV-3266-oms-message-rows-lost-in-aftercommit.md](SBDEV-3266-oms-message-rows-lost-in-aftercommit.md) | SBDEV-3266 | bugfix | implemented | high | 2026-09-08 |
+| [SBDEV-2890-transaction-detail-ul-picks-excluded.md](SBDEV-2890-transaction-detail-ul-picks-excluded.md) | SBDEV-2890 | bugfix | reviewed | high | 2026-08-10 |
+| [SBDEV-2485-club-split-unitload-reprint-label.md](SBDEV-2485-club-split-unitload-reprint-label.md) | SBDEV-2485 | bug | draft | high | 2026-07-21 |
+| [SBDEV-2610-move-unitload-false-reserved-block.md](SBDEV-2610-move-unitload-false-reserved-block.md) | SBDEV-2610 | bugfix | draft | high | 2026-07-20 |
+| [260710-location-import-stale-rack-reference-optimistic-lock.md](260710-location-import-stale-rack-reference-optimistic-lock.md) |  | bugfix | draft | medium | 2026-07-10 |
+| [260709-multi-unitload-replen-reserve-availability-guard.md](260709-multi-unitload-replen-reserve-availability-guard.md) |  | bugfix | implemented | high | 2026-07-09 |
+| [260701-wineco-replenishment-job-index-and-cadence.md](260701-wineco-replenishment-job-index-and-cadence.md) |  | bugfix | draft | high | 2026-07-01 |
+| [260504-transfer-order-null-transferlane-crash.md](260504-transfer-order-null-transferlane-crash.md) |  | bug-fix | approved | high | 2026-05-05 |
+| [SBDEV-2164-stale-club-batch-cleanup-cron.md](SBDEV-2164-stale-club-batch-cleanup-cron.md) | SBDEV-2164 | feature | Planning |  | 2026-04-30 |
+| [SBDEV-2163-prevent-finished-club-batch-lane-reassignment.md](SBDEV-2163-prevent-finished-club-batch-lane-reassignment.md) | SBDEV-2163 | feature | ready |  | 2026-04-30 |
+| [SBDEV-1699-replenish-qty-requested-wrong-upperbound.md](SBDEV-1699-replenish-qty-requested-wrong-upperbound.md) | SBDEV-1699 | bugfix | draft | high | 2026-04-29 |
+| [260429-replenish-unit-load-stale-cache.md](260429-replenish-unit-load-stale-cache.md) |  | bug | verified | high | 2026-04-29 |
+| [260427-uniform-transactional-strategy.md](260427-uniform-transactional-strategy.md) |  | refactor | draft | high | 2026-04-27 |
+| [260427-putaway-unitloadlist-undefined-crash.md](260427-putaway-unitloadlist-undefined-crash.md) |  | bug | draft | high | 2026-04-27 |
+| [260427-putaway-new-sku-no-location-guidance.md](260427-putaway-new-sku-no-location-guidance.md) |  | bug | draft | high | 2026-04-27 |
+| [260427-changeReservedAmount-caller-rebind-followup.md](260427-changeReservedAmount-caller-rebind-followup.md) |  | bugfix | draft | critical | 2026-04-27 |
+| [SBDEV-2095-large-bol-close-decoupling-and-perf.md](SBDEV-2095-large-bol-close-decoupling-and-perf.md) | SBDEV-2095 | bugfix + performance | implemented | High | 2026-04-25… |
+| [260424-oms-notification-rollback-risk-remediation.md](260424-oms-notification-rollback-risk-remediation.md) |  | bug | implemented | high | 2026-04-25 |
+| [260424-runClubLine-transaction-boundary-hardening.md](260424-runClubLine-transaction-boundary-hardening.md) |  | bug | implemented-pending-review | urgent | 2026-04-24 |
+| [260422-mobile-picking-stale-tote-clear-loses-pickingtoteid.md](260422-mobile-picking-stale-tote-clear-loses-pickingtoteid.md) |  | bug | planning | urgent | 2026-04-22 |
+| [260422-changeReservedAmount-stale-object-state-fix.md](260422-changeReservedAmount-stale-object-state-fix.md) |  | bug | planning | urgent | 2026-04-22 |
+| [260416-move-stock-location-with-stock-shows-na.md](260416-move-stock-location-with-stock-shows-na.md) |  | bug | planning | medium | 2026-04-16… |
+| [SBDEV-2099-outbound-parcel-report-clears-after-palletize.md](SBDEV-2099-outbound-parcel-report-clears-after-palletize.md) ⚠ no frontmatter |  |  |  |  |  |
+| [SBDEV-2096-configurable-pick-path-direction.md](SBDEV-2096-configurable-pick-path-direction.md) ⚠ no frontmatter |  |  |  |  |  |
+<!-- END GENERATED: plan-inventory -->
+
+## Plan notes (hand-written commentary; the generated inventory above is the complete list)
 
 - [SBDEV-2485-club-split-unitload-reprint-label.md](SBDEV-2485-club-split-unitload-reprint-label.md) — **draft**; HIGH (urgent). Club staging-lane view hides the print/reprint label button for **split-created** unit loads. Root cause: `printable` is computed from `goodsreceiptposition` membership (receiving-only) via `findPrintableUnitLoadIds`, set in `CustomerorderBatchService.buildDtoList:1034`; split ULs (`createUnitload` w/ `CODE_MANUAL_SPLIT`) have no goodsreceiptposition row → `printable=false` → button hidden, even though `UnitloadService.reprintLabel` Path-2 already prints them. Fix (requester-approved + architect-refined): `printable = entry.getValue() > 0 && entityLock==NOT_LOCKED` (null-safe; has remaining stock AND active so it matches reprintLabel's precondition — else the button 500s on locked ULs) and delete the dead query — API-only, no UI change. v2 UAT twin DB shows 97.9% of stock-bearing ULs wrongly `printable=false`. Pairs [[../../wms2/plan/SBDEV-2485-club-split-unitload-reprint-label|v2]]
 - [260710-location-import-stale-rack-reference-optimistic-lock.md](260710-location-import-stale-rack-reference-optimistic-lock.md) — draft STUB; v1 pair of the archived v2 plan (wms2-api PR #64 merged 2026-07-10): identical latent bugs in v1 FileImportController (un-refreshed else-branch rack re-save `:239-243`, rackRowMap wrong GET key `:200`, copy-paste log strings). Open question: does Hibernate 5 exhibit the dirty-merge driver? Settle via version-invariance test before prioritizing; fixes apply defensively regardless

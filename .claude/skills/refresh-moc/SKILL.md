@@ -114,3 +114,5 @@ If the user explicitly says "fix them" / "apply updates" / "go ahead" → then o
 ## Exit criteria
 
 Done when the drift report has been printed (and, if the user asked for a fix, the minimal edits have been applied + re-audit shows 0 drift).
+
+> **Active-plans READMEs (added 2026-10-15):** the plan list in `1-Projects/wms{1,2}/plan/README.md` is generated. Run `python3 -I sbdocs/9-System/scripts/plan-inventory.py --check`: exit 1 means the inventory is stale (re-run without `--check`). It also lists plans with no hand-written note, notes linking to missing files, and plans without frontmatter. Report those; don't treat them as drift to hand-fix in the table.

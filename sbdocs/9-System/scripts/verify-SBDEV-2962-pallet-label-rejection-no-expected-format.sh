@@ -148,10 +148,12 @@ MOVE=src/main/java/net/aim_ai/wms/service/mobile/MobileMoveStockService.java
 T_CONV=src/test/java/net/aim_ai/wms/unit/util/StringConverterUnitTest.java
 # ⚠ BusinessExceptionUnitTest, not a new BusinessExceptionMessageUnitTest — the class already exists.
 T_MSG=src/test/java/net/aim_ai/wms/unit/exceptions/BusinessExceptionUnitTest.java
-T_PALLET=src/test/java/net/aim_ai/wms/unit/service/mobile/MobilePalletizingServiceTest.java
+# SBDEV-3102 C1 merged the former MobilePalletizingServiceTest into MobilePalletizingServiceUnitTest and deleted it;
+# this row now grades the merged class (a missing file makes file_not_contains return 1).
+T_PALLET=src/test/java/net/aim_ai/wms/unit/service/mobile/MobilePalletizingServiceUnitTest.java
 T_PALLET_FMT=src/test/java/net/aim_ai/wms/unit/service/mobile/MobilePalletizingScanPalletFormatTest.java
 T_MOVE=src/test/java/net/aim_ai/wms/unit/service/mobile/MobileMoveStockServiceTest.java
-T_TRUCK=src/test/java/net/aim_ai/wms/unit/service/mobile/MobileTruckLoadingServiceTest.java
+T_TRUCK=src/test/java/net/aim_ai/wms/unit/service/mobile/MobileTruckLoadingServiceUnitTest.java   # SBDEV-3102 C3: MobileTruckLoadingServiceTest became this class
 
 # === Fix A — the message gains an expected-format slot =======================
 check_A_format_slot()    { file_contains 'noValidString=.*%2\$s' "$BUNDLE"; }
@@ -246,7 +248,8 @@ check_T_msg_degrades()   { file_contains 'shouldDegradeToKeyAndParameters_whenOn
 # getParameter() DOES NOT EXIST on BusinessException (§8.1). A test CALLING it cannot compile — catch it here
 # rather than at the TDD gate's first mvn run. CODE-only: a Javadoc explaining the absence is not a call.
 check_T_no_getparameter(){ code_not_contains 'getParameter\(\)' "$T_MSG"; }
-# New sibling class, so a Maven row can gate it (MobilePalletizingServiceTest cannot — 1 pre-existing fail).
+# New sibling class, created so a Maven row could gate it (the former MobilePalletizingServiceTest then carried a
+# failing method, since fixed by SBDEV-3089; that class was merged into MobilePalletizingServiceUnitTest by SBDEV-3102 C1).
 check_T_pallet_exists()  { [ -f "$T_PALLET_FMT" ]; }
 check_T_pallet_format()  { file_contains 'shouldIncludeExpectedFormat' "$T_PALLET_FMT"; }
 check_T_pallet_both()    { file_contains 'shouldNameBothAcceptPatterns' "$T_PALLET_FMT"; }
@@ -255,7 +258,8 @@ check_T_pallet_both()    { file_contains 'shouldNameBothAcceptPatterns' "$T_PALL
 # MobileMoveStockFormatTest — the existing class is green on develop, so it can back a Maven row directly.
 # Fourth "already exists" correction in this plan.
 check_T_move_own_pat()   { file_contains 'selectDestination_shouldNameItsOwnPattern_whenDestinationMatchesNothing' "$T_MOVE"; }
-# C5 — the truck-loading assertion lives in the existing (green) MobileTruckLoadingServiceTest.
+# C5 — the truck-loading assertion lives in the existing (green) MobileTruckLoadingServiceUnitTest
+# (MobileTruckLoadingServiceTest until SBDEV-3102 C3 merged the pair under that name).
 check_T_truck_format()   { file_contains 'checkPallet_shouldIncludeExpectedFormat_whenLabelMatchesNoPattern' "$T_TRUCK"; }
 # Landmine: BusinessException resolves its message eagerly, so hasMessageContaining("noValidString")
 # FAILS on a correct implementation. Assert getKey()/getParameter() instead.
@@ -328,7 +332,7 @@ if [ "${SKIP_MVN:-0}" = "1" ] || [ "$HAVE_MVN" = "0" ]; then
     skip M_unit_msg     "BusinessExceptionUnitTest green"   "$MVN_SKIP_WHY"
     skip M_unit_pallet  "MobilePalletizingScanPalletFormatTest green" "$MVN_SKIP_WHY"
     skip M_unit_move    "MobileMoveStockServiceTest green"  "$MVN_SKIP_WHY"
-    skip M_unit_truck   "MobileTruckLoadingServiceTest green" "$MVN_SKIP_WHY"
+    skip M_unit_truck   "MobileTruckLoadingServiceUnitTest green" "$MVN_SKIP_WHY"
 else
     run M_test_compile "mvn -o clean test-compile"         mvn_test_compile_passes
     # ONE CLASS PER ROW, deliberately. Specifying two classes together let the pre-existing
@@ -342,14 +346,11 @@ else
     # ALREADY an executing gate for C5: testCheckPalletWithInvalidPattern asserts the message contains
     # "String is not valid", which survives Fix A only if Fix C is applied at that site (a one-argument
     # construction degrades to `noValidString, 'INVALID123'`). No pre-existing failures in this class.
-    run M_unit_truck   "MobileTruckLoadingServiceTest green" mvn_test_passes MobileTruckLoadingServiceTest
+    run M_unit_truck   "MobileTruckLoadingServiceUnitTest green" mvn_test_passes MobileTruckLoadingServiceUnitTest
 fi
 echo
-# NOT asserted here, deliberately:
-#  - MobilePalletizingServiceTest is NOT run as a gate row: it has ONE pre-existing failing method on
-#    clean develop (testScanParcelBulkPalletAlreadyAssignedToGate), so the class can never report
-#    "Failures: 0". Check its failing-method set by hand per plan §5.2 step 8.
-skip M_pallet_class "MobilePalletizingServiceTest as a gate row" "1 pre-existing failure on develop — verify the method set by hand"
+# (A skip row for the former MobilePalletizingServiceTest stood here. Its failing method was fixed by
+# SBDEV-3089 and the class was merged into MobilePalletizingServiceUnitTest by SBDEV-3102 C1; row removed.)
 
 echo "Result: $PASS pass, $FAIL fail, $SKIP skip"
 [ "$FAIL" -eq 0 ]

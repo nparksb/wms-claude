@@ -8,6 +8,8 @@ metadata:
   modified: 2026-08-20T12:57:17.825Z
 ---
 
+**Reaffirmed 2026-10-21 (Nam): "all the clients are migrated to v2 now — just work for v2."** A ticket tagged `1-wms`/`1-oms` or titled "WMSv1" (e.g. SBDEV-3059) is triaged on v2 ONLY: probe the v2 PRD DB/code, do not query `wms1-wineco` or compare against v1 — I did that on SBDEV-3059 and was corrected.
+
 **Update 2026-10-02 (Nam): WineCo has migrated to WMS v2 and NO client is on WMS v1 any more. All fixes from now on are WMS v2 only.** A v1 ticket (e.g. SBDEV-2623, the v1 half of SBDEV-2024) is parked/obsolete — redirect to its v2 sibling. wms1-wineco DB shows last traffic 2026-09-24.
 
 Original (2026-08-20) direction: **v2 is the default and only target for volunteered work**

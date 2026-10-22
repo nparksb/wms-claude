@@ -1,6 +1,6 @@
-- [New WMS tickets → Fulfillment Dev Backlog](clickup-wms-tickets-fulfillment-backlog.md) — default list_id 901103718309; don't re-ask
-- [Always update plan status at end of implementation](feedback_plan_status_after_implementation.md) — real SHAs + status flip + PR link before done
-- [Negative-test verify scripts before trusting them](negative-test-verify-scripts-before-trusting-them.md) — prove it FAILs on the pre-fix file
+- [New WMS tickets → Fulfillment Dev Backlog](clickup-wms-tickets-fulfillment-backlog.md) — list 901103718309, don't re-ask
+- [Update plan status at end of implementation](feedback_plan_status_after_implementation.md) — SHAs + status + PR link
+- [Negative-test verify scripts](negative-test-verify-scripts-before-trusting-them.md) — must FAIL on pre-fix file
 - [Gate Spring bean changes on clean compile](verify-spring-bean-changes-clean-compile-and-context-load.md) — unit tests miss DI wiring
 - [Run v1/wms-api Testcontainers ITs locally](run-v1-wms-api-testcontainers-its-locally.md) — Java 8 JAVA_HOME + `-Dapi.version=1.41` in argLine
 - [sb_admin comes via the Keycloak GROUPS claim](sb-admin-is-siteboss-super-admin-via-groups-claim.md) — staff-only; hasResourceRole never sees it
@@ -221,3 +221,49 @@
 - [Editing an unmerged migration breaks the reusable IT container](editing-unmerged-migration-breaks-reusable-test-container.md) — 51 ITs FlywayValidate checksum mismatch; delete the history row, not the container
 - [wms2 ProblemDetail props: flat OR nested by path](wms2-problemdetail-custom-properties-are-nested.md) — controller-returned = flat (live), exception-handler = properties.X (IT); read both
 - [Spring Security 6 ignores a custom expression-root override](spring-security-6-ignores-custom-expression-root-override.md) — Supplier path, private root factory; SBDEV-2863 began 2025-09-20
+- Running each repo's tests locally: [6 memories](hub-running-tests-locally.md)
+- [Idle executor on bg suite stalls](subagent-background-notification-can-stall.md) — a lane waiting on its background mvn suite may never wake; watch the build yourself
+- Locking / transaction traps: [6 memories](hub-locking-tx.md)
+- Flyway runtime, versioning, ownership and error traps: [8 memories](hub-flyway.md)
+- Mutation-testing traps: [4 memories](hub-mutation-testing.md)
+- Spring Data REST probe traps: [7 memories](hub-sdr-probe-traps.md)
+- [develop push can create NO CI run](wms2-develop-push-can-create-no-ci-run.md) — no dispatch; next push carries it
+- Known flaky ITs (rerun first): [4 memories](hub-flaky-its.md)
+- Scan/census instruments that lie: [8 memories](hub-scan-instruments-lie.md)
+- Maven/surefire/failsafe false verdicts: [9 memories](hub-maven-false-verdicts.md)
+- Shared IT DB/container cross-talk: [4 memories](hub-it-shared-state-crosstalk.md)
+- [wms2 dev actuator: 404 = never incremented; resets per deploy](wms2-dev-actuator-metrics-readable-counters-lazy-and-reset.md) — capture before deploys
+- [seqentities dual-island id space](wms2-seqentities-dual-island-id-space.md) — migrated DBs: check the next seqentities value lands in a free gap before cutover
+- [entity_lock NULL in IT fixtures](wms2-itemdata-entity-lock-null-in-it-fixtures.md)
+- [Squash via reset --soft reverts peers](squash-by-soft-reset-onto-moved-origin-reverts-peers.md) — use merge-base
+- [Papa dynamicTyping → numbers](papa-dynamictyping-makes-csv-cells-numbers.md)
+- [SBDEV-3325 OMS egress watchdog](sbdev-3325-oms-egress-watchdog.md)
+- [set_config in LATERAL doesn't apply](set-config-in-lateral-does-not-parameterize-current-setting.md)
+- [PRD public schema CREATE to PUBLIC](wms2-prd-public-schema-create-granted-to-public.md)
+- Process-match self-hits: [pgrep -f wait loops match themselves](pgrep-f-wait-loop-matches-itself.md) · [pkill -f kills its own shell](pkill-f-matches-its-own-shell.md)
+- [New sequence key first draw fails](wms2-new-sequence-key-first-draw-fails.md) — fixed dev, not PRD
+- [Derived finder null → IS NULL](spring-data-derived-query-null-becomes-is-null.md)
+- [Static ArchUnit imports OOM CI](wms2-static-archunit-imports-oom-the-ci-fork.md)
+- [Claude Code add-ons (LSPs, Context7, Serena, …)](claude-code-tooling-installed.md) — PATH/JDK pins
+- OMS↔WMS data gaps: [Empty BOL notify always rejected by OMS](wms-empty-bol-oms-notification-rejected.md) · [OMS v2 picking_date is UTC (Future Picking)](oms-v2-picking-date-utc-future-picking.md) · [stock_view exports every itemdata row](wms-stock-view-exports-every-itemdata-row.md)
+- wms2 config traps: [Client w/o section stalls Pick & Pack at RAW](wms2-client-without-section-silently-stalls-pickpack.md) · [Putaway config is sb_admin-only](wms2-putaway-config-is-sb-admin-only.md) · [146 live sysprop keys vs 124 constants](wms2-sysprop-live-keys-exceed-code-constants.md)
+- UTC migration: [V1.2.05 hard-codes 3 functions](wms2-utc-v1205-hardcoded-function-list.md) · [UI tz from stale persistedState](wms2-ui-warehouse-timezone-stale-persistedstate.md)
+- Tests that can't see it: [Controllers need /v3 prefix; standaloneSetup blind](wms2-controller-mappings-must-carry-v3-standalonesetup-cannot-see-it.md) · [web-ui coverage disarms render-source pins](wms2-web-ui-coverage-instrumentation-disarms-render-source-pins.md)
+- [PG partial index unusable with bind param](postgres-partial-index-unusable-with-bind-parameter.md) — inline the constant
+- [Stacked v2 PRs: merge base-first into develop](stacked-v2-pr-merge-order-orphan-trap.md) — or orphaned
+- Archived: `archive/` = shipped-ticket notes + superseded memories; grep by ticket ID first
+- [wms2 PG IT lane has NO tenant pool](wms2-pg-it-lane-has-no-tenant-pool.md) — N threads = N conns; limit max_connections
+- [`--` in a pom.xml comment breaks the build](xml-comment-double-dash-breaks-pom.md) — parse the POM
+- [IT seeding System client: evict `clients` cache](wms2-it-seeding-system-client-must-evict-clients-cache.md) — before+after
+- [Ungated wms2 handler? check tranche map first](wms2-ungated-handler-check-tranche-map-first.md) — SBDEV-3243
+- [BusinessException(String,Throwable).getMessage() is null](wms2-businessexception-string-throwable-getmessage-is-null.md) — resolves from key
+- [OMS transfer replay safety = createTransfer dup check](oms-shiptransfer-replay-safety-rests-on-createtransfer-duplicate-check.md) — cross-repo contract
+- [IdempotencyFilter caches /rest 200 failures](wms2-idempotency-filter-caches-rest-200-failures.md) — only cancelPositions excepted
+- [Unordered finder = heap order; UPDATE moves row](derived-finder-row-order-is-heap-order-update-moves-it.md) — assert fixture order
+- [H2 schema reset leaves stale app caches](wms2-h2-schema-reset-leaves-stale-app-caches.md) — cache-reset listener; guard hasApplicationContext
+- [is-ancestor ≠ fix shipped](is-ancestor-does-not-prove-a-fix-shipped.md) — revert-on-release; git grep at deployed sha
+- [UL relabel -X- + RETURN record-shape drift](wms-unitload-relabel-and-return-record-shape-traps.md) — join by id
+- [omc CLI lacks `ralph verify`](omc-cli-lacks-ralph-verify.md) — 4.14.6 vs skill 5.7.1; ralph cannot start
+- [RETURN advices allow over-delivery](wms2-return-advices-allow-overdelivery.md) — all PRD; guard never fires
+- [SBDEV-1581 job ships OFF](sbdev-1581-empty-pallet-cleanup-activation-pending.md) — flip ACTIVATED per tenant
+- [Repo IT base is H2: order ties + FKs invisible](wms2-base-repository-it-is-h2-order-ties-and-fks-invisible.md) — pin SQL on PG lane

@@ -36,7 +36,7 @@ pin makes CI represent production; it is not a fix. See
 **15 run no tests**. `wms2-web-ui`, `wms2-mobile-ui` and `v1/wms-api` remain ungated. The single
 exception, `wms2-mobile-ui/.github/workflows/playwright.yml`, runs `npx playwright test` but triggers
 on `[main, master]` — production only, and `master` does not exist. Survey:
-`sbdocs/1-Projects/wms2/plan/SBDEV-3195-evidence/ac6-cross-repo-ci-survey.md`.
+`sbdocs/4-Archieves/wms2/plan/SBDEV-3195-evidence/ac6-cross-repo-ci-survey.md`.
 
 
 ---

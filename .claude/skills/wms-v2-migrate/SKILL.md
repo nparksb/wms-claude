@@ -193,3 +193,5 @@ Never announce a phase complete, merge its branch, or move to the next phase wit
 - Can't locate v2 equivalent → grep the v2 repo for the method/class name, then ask the user.
 - v1 fix relies on a v2-refactored-away module → flag it and ask whether the v2 equivalent still has the problem.
 - Ambiguous severity of a NEW issue → include it with a conservative severity and a one-line justification rather than dropping it.
+
+> **Active-plans inventory (added 2026-10-15):** after writing or re-statusing a plan, run `python3 -I sbdocs/9-System/scripts/plan-inventory.py wms{1|2}`. It regenerates the README's inventory table from every plan's frontmatter. A hand-written note line in the README is optional commentary, and the generated table is the complete list.

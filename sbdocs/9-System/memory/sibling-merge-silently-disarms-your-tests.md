@@ -36,3 +36,18 @@ nothing STRICT_STUBS flags (an *unused* stub is flagged; a *missing* one is not)
 
 Related: [[wms2-merge-to-develop-is-a-dev-deploy-and-runs-flyway]] (a red develop silently stops
 deploying, so merging on a stale green is not self-correcting), [[mvn-without-clean-runs-deleted-tests]].
+
+**Second mechanism, measured 2026-10-15 (merging #510/#513/#518/#519 in sequence): STRUCTURAL rails break on a
+clean-looking merge.** Three reds, none of them a textual conflict, each caught only by the full `-Pci` suite on the
+real merge:
+- `ReplenHoldPolicyCallerArchTest` keys decided callers by `Class.method/ARITY`. One side added a parameter to the
+  helper (`/6` → `/7`), and the other side's allow-list went red. Same caller, same decision; only the key moved.
+- `NoBareTransferNeverRailTest` (added by one PR) flagged a bare `never().transferStockToUnitLoad(...)` that a
+  *third* PR (SBDEV-3758) had added in parallel. Neither PR could see the other.
+- `NeverMatcherNullBlindnessArchTest`'s per-class inventory moved in both directions. Note: an entry at `:0` is
+  treated as stale, so the entry must be **deleted** (leave a one-line removal note), not set to 0.
+Also: a signature change on one side (an added parameter) compiles-breaks the OTHER side's new tests that call the
+old arity. That's loud, but it only shows up after the merge.
+**How to apply:** after merging develop into a PR branch, run the full suite before pushing, and treat any
+arch/inventory red as "re-derive the key from the measured value". Never hand-edit the count from arithmetic; set
+it to what the test reports, after reading the signature.

@@ -1,6 +1,6 @@
 ---
 name: replenish-dup-concurrency-slice-it-is-timing-flaky
-description: "ReplenishDupConcurrencySliceIT.ac6 reds intermittently — the loser throws \"No replenish stock available\" instead of hitting idx_replenishorder_active_item_dest; rerun, don't debug your diff"
+description: "ReplenishDupConcurrencySliceIT.ac6 flake — FIX in PR #461 (SBDEV-3663, 2026-10-06, not yet merged); until it merges, rerun on the \"No replenish stock available\" signature"
 metadata:
   node_type: memory
   type: project
@@ -15,3 +15,5 @@ Signature of the flake, at assertion line ~247: `Expecting actual: "net.aim_ai.w
 **Why:** a red develop push run silently stops deploying (see [[outbox-concurrent-enqueue-it-is-timing-flaky]]), and a red PR check tempts you to chase a diff that did not cause it.
 
 **How to apply:** if this exact signature appears, rerun the failed job before touching anything. Any OTHER message from this test is real. A proper fix, which should be proposed as its own ticket, would accept either loser path, or give the fixture enough stock that both threads reach the index. Related: [[wms2-concurrency-it-fixture-traps]].
+
+**Status 2026-10-06:** fixed by SBDEV-3663, PR #461 (test-only; second free source + a CyclicBarrier at the pending check + a deterministic replay test). Two interleavings, not one: the stock one above, and a delayed thread seeing the committed order and returning null. Until #461 is on develop, the rerun advice stands; after it merges, ANY red from this class is real. A `@MockitoSpyBean` on a Spring Data repository is delegation-based, so `callRealMethod()` throws "Cannot call abstract real method"; delegate via `mockingDetails(mock).getMockCreationSettings().getDefaultAnswer().answer(inv)`.

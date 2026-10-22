@@ -6,7 +6,7 @@ version: v2
 scope: transfer-order
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-04-19
+updated: 2026-10-11
 last_verified: 2026-07-23
 verified_by: code read of v2/wms2-api TransferOrderService + TransfersController + BillofladingService.transferOrder/finishTransfer + AdviceService.acceptTransferAdvice; SBDEV-1762 partial-depletion toggle added (see plan SBDEV-1762-transfer-lane-club-like-depletion)
 related:
@@ -144,7 +144,8 @@ At `service/TransferOrderService.java`:
 
 | Method | Line | Writes | TM |
 |---|---|---|---|
-| `activateTransferOrder(Location lane, Customerorder co)` | 111 | `co.state = CUSTOMER_ORDER_ACTIVATED` (505) | `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` |
+| `activateAndAssignTransferLane(Location lane, Customerorder co)` | — | `co.state = CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED` (510) and `transferlaneId`, in ONE transaction; refuses a lane another open order holds (`getAvailableTransferLanesForUpdate`, `PESSIMISTIC_WRITE`). Called by the activate route (`TransfersController.activateTransferOrder`). *(260629-activate-transfer-atomicity)* | `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` |
+| ~~`activateTransferOrder(Location lane, Customerorder co)`~~ | — | **Deleted under SBDEV-3183 (2026-10-20).** It had no caller in `src/main` and saved `505` with a lane held, the stranded shape 260629 removed. The controller handler of the same name is unaffected. | — |
 | `assignTransferLaneToTransferOrder(Location lane, Customerorder co)` | 86 | `co.state = CUSTOMER_ORDER_TRANSFER_LANE_ASSIGNED` (510); sets `transferlaneId` | same |
 | `assignTransferLane(Customerorder co)` | 125 | `co.state = 510` (variant without location arg) | none |
 | `unlinkTransferLaneFromTransferOrder(Customerorder co)` | 104 | clears `transferlaneId` — no state change | `@Transactional("tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` *(added 2026-06-29, fix `260629-transfer-lane-leak-on-cancel`; previously **none** → ran on the `@Primary` landlord TM in auto-commit)* |
@@ -174,6 +175,8 @@ At `service/BillofladingService.java:898`. `@Transactional("tenantTransactionMan
 | `BillOfLading.state = CLOSED` (TRANSFER → CLOSED) | 920 |
 | Bulk JPQL: every `BillofladingPosition.state = CLOSED` | 929–934 |
 | Bulk transfer pallet `Unitload`s to `SHIPPED` location; `entityLock = SHIPPED` | 947+ |
+
+**From which states (SBDEV-3286 Phase 3, SBDEV-3728).** `finishTransfer` finishes a BOL from any non-terminal state, not only `TRANSFER`, because OMS calls it best-effort and completes the transfer whatever WMS answers. `CLOSED` is a no-op; `CANCELLED` is refused, and the refusal reason is returned as the 400 `description` and stored as the FAILED message row's `answer`. A BOL still at `CREATED` / `OPEN` / `TRUCK_LOADING` first runs closeBOL's shipping phase (`runShippingPhase` — orders and order positions `FINISHED`, batches finalised and their staging lane released, `shipped` date, `TRANSFER_IN_SHIPPING` audit, `ORDER_BATCH_SHIPPED` enqueued), then the close above. That notification reaches OMS after it completed the transfer; OMS treats it as a replay (`LegacyTransferShipService`: destination `createTransfer` answers "already exists", the parcel is already `DELIVERED`). The line numbers in this table predate both changes; grep the quoted writes.
 
 ### 4.4 Destination side — `AdviceService.acceptTransferAdvice()`
 

@@ -113,7 +113,7 @@ public int hashCode() {
 | MessageArchived | `src/main/java/net/aim_ai/wms/model/MessageArchived.java` |
 | OrderDetailMonitorView | `src/main/java/net/aim_ai/wms/model/OrderDetailMonitorView.java` |
 | OrderMonitorView | `src/main/java/net/aim_ai/wms/model/OrderMonitorView.java` |
-| OutboxMessage | `src/main/java/net/aim_ai/wms/model/OutboxMessage.java` — SBDEV-2221 transactional outbox; `Status` inner enum (PENDING/IN_FLIGHT/SENT/FAILED_RETRY/FAILED_TERMINAL); `@Version int version` (optimistic lock) |
+| OutboxMessage | `src/main/java/net/aim_ai/wms/model/OutboxMessage.java` — SBDEV-2221 transactional outbox; `Status` inner enum (PENDING/IN_FLIGHT/SENT/FAILED_RETRY/FAILED_TERMINAL); `@Version int version` (optimistic lock). Table column **`outbox_message.last_message_id`** (V2.2.40): nullable `bigint`, no default, **no FK** (the `message` rows it names are purged on their own schedule); id of the Service Log row of the row's latest dispatch attempt, written only for `ORDER_BATCH_SHIPPED` rows. It is **native-only and deliberately NOT mapped on the entity**: a tenant on which V2.2.40 failed must keep claiming and dispatching, and the claim's `RETURNING *` maps entity columns only (`OutboxMessageRepository.java:89-100`) ⏳ pending-merge(SBDEV-3672) |
 | ParcelMonitorView | `src/main/java/net/aim_ai/wms/model/ParcelMonitorView.java` |
 | Pickingorder | `src/main/java/net/aim_ai/wms/model/Pickingorder.java` |
 | PickingorderPosition | `src/main/java/net/aim_ai/wms/model/PickingorderPosition.java` |
@@ -286,5 +286,6 @@ UserUserRole, UserGroupUser, UserGroupUserRole, UserRoleUserFunction, Shippingme
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
 | 2026-05-01 | Frontmatter and staleness tracking added | — | verify-docs audit |
+| 2026-10-16 | SBDEV-3672: `OutboxMessage` row gains the native-only `outbox_message.last_message_id` column note. Read at wms2-api `1866ab66`: `V2.2.40__bol_shipped_chunk_size_and_outbox_message_link.sql`, `OutboxMessageRepository.java:89-100`, `model/OutboxMessage.java` (no such field). Rest of report not re-verified. | Marked ⏳ pending-merge(SBDEV-3672) | SBDEV-3672 docs lane |
 
 **Re-verify every 90 days.** Next due: **2026-07-29**.

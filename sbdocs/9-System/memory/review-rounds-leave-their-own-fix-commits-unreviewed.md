@@ -130,3 +130,30 @@ and the targeted re-run never loaded that test.
 **How to apply:** after ANY review-fix edit to a test class's annotations or base class, run the unit lane's
 arch tests (`mvn test -Dtest='*ArchTest'`, cheap) before pushing. Targeted re-runs prove the behaviour, not the
 repo's conventions about test classes.
+
+## 2026-10-06 (SBDEV-3658): asked again — and the unreviewed fix carried a FALSE JUSTIFICATION
+
+Nam asked *"Were the changes reviewed?"* on a T1 dead-code deletion. Honest answer: the deletion and both
+re-derived counts, yes; the fixes made in response to that lane, no. Lane 1 graded a 229-line diff, the
+commit was 256 lines, and the rail had grown 56 → 71 added lines in between.
+
+The second lane, scoped to that delta, returned **3 Medium + 5 Low** on ~15 added lines of test code —
+a higher defect density than the original change. Two were the kind nothing else catches:
+
+- **The justification for the added assertion was false.** The javadoc, the assertion message and the
+  commit message all said a drifted `countQuery` makes `ReplenishOrderJob.drainPageZero` emit a bogus
+  "rows likely stuck" warning. `drainPageZero` never reads a count (`getTotalElements|getTotalPages` → 0
+  hits, positive control `getNumberOfElements` → 4). The assertion was still worth having; the stated
+  reason was invented. A reader hitting the red would have looked for a warning that cannot exist and
+  concluded the rail was noise.
+- **A real false GREEN in the new assertion.** `.replaceAll(" ORDER BY .*$", "")` removed the sort from
+  grading, so deleting `ORDER BY itemData.id` outright passed — on a query `drainPageZero` re-fetches as
+  page 0 up to `pageLimit` times, where a lost sort skips rows for a whole run.
+
+**The new lesson: do not apply a review lane's suggested fix verbatim.** Lane 2's fix for the false GREEN
+was `endsWith("ORDER BY itemData.id")`, which would false-RED on a legitimate alias rename — the same
+failure class it had flagged two findings earlier in the same report. Deriving the sort column from the
+query's own projection fixes the GREEN without buying the RED. **Mutation-check the suggestion in both
+directions** (the defect it names AND the correct code it might now reject) before accepting it.
+
+Related: [[fixing-a-false-claim-tends-to-produce-a-new-one]], [[a-zero-scan-needs-a-positive-control]].

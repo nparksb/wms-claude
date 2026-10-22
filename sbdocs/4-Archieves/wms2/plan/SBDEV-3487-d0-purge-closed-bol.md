@@ -30,7 +30,7 @@ tags: [plan, wms2, truck-loading, data-integrity]
 > - §9 (d) and §12's base `messages.properties` gap (measured at 320 keys on 2026-09-24): **On a ticket**, [SBDEV-3495](https://app.clickup.com/t/868m9dzkg).
 > - §9 (e) post-release Hydra re-query: **Owner named**, Nam, at the prd release.
 > - §12 SBDEV-3491 (TRANSFER finishTransfer race): **On a ticket**, SBDEV-3491. §12 SBDEV-3490: **Fixed** (`5fa9bef0`).
-> - §12 fixture TM `@Qualifier` (5 PG test classes): **On a ticket**, [SBDEV-3496](https://app.clickup.com/t/868m9dzkr).
+> - §12 fixture TM `@Qualifier` (5 PG test classes): **Shipped on dev 2026-10-06**, [SBDEV-3496](https://app.clickup.com/t/868m9dzkr), PR #465 (`b6693a6a`). The fixture's `tx()` is now a real tenant transaction, and `TestClassTransactionManagerArchTest#noUnqualifiedLandlordPrimaryInjection` pins it.
 >
 > No acceptance script existed for this plan (T3 opt-out, §6). Implementation worktree removed 2026-09-24: wms2-api/SBDEV-3487 (merged local branch deleted; the remote branch is untouched).
 

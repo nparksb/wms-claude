@@ -413,10 +413,10 @@ COMMIT;
 > `status = 'SENT'` and a 2xx `statuscodeanswer`. A `FAILED` row with `503` means the POST threw.
 > **Even on `SENT`, go on to §5.3** — OMS accepting the call does not move the OMS *order* status.
 >
-> Also check `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` — it was **`false`** on
-> `wms1-wineco-dev` (2026-08-05). It does not gate `resendMessage`, but it does mean the
-> automatic callback is switched off in this environment, which is part of why this gap is
-> invisible in normal operation.
+> ~~Also check `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED`~~ — corrected 2026-10-06 (SBDEV-3373): it was
+> **`false`** on `wms1-wineco-dev` (2026-08-05), but no v1 code reads it, so it switches nothing off.
+> This note used to say the flag switched the automatic callback off and was part of why this gap is
+> invisible in normal operation. That explanation was wrong: the flag is not the reason.
 
 ---
 
@@ -662,7 +662,7 @@ itself:
 - There is no `cancelled_by` or `cancelled_at` column. Audit trail is `customerorder.modified` + `stockrecord.operator`.
 - **WMS has no working outbound cancel notification.** A `message` row does not send itself; there is no cron for `status = 'CREATED'` and no such thing as `'RELEASED'` (valid values: `SENT`, `CREATED`, `FAILED`, `RECEIVED`). Use `/v3/message/resend/{id}`. *This corrects the previous version of this runbook, which was wrong on both counts.*
 - **Delivery still isn't reconciliation.** Even a `SENT` row leaves `orders.order_status = 27` — §5.3 is mandatory.
-- `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` was `false` on `wms1-wineco-dev`. It does not gate `resendMessage`, but it does mean the automatic callback is off.
+- `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` was `false` on `wms1-wineco-dev`. No v1 code reads it (corrected 2026-10-06, SBDEV-3373), so it gates nothing. (v1 sends no automatic cancel callback at all: `cancelOrder`'s callback is gated off at every call site, and `cancelBatch` has no production caller. Only the manual `resendMessage` route below sends one.)
 - Past PACKED there are **no reservations to release** and **no `pickfromstockunit_id`** — source locations must be reconstructed from `stockrecord` (§4.5b), and that reconstruction is **not reliable**: `PICKING` rows are keyed by an OMS pick-request id with no join path from the WMS order, the tote-label join is polluted by other orders sharing the tote, and `fromstoragelocation` may be an operator location rather than a rack. Treat return-to-source as best-effort, not guaranteed.
 - Clearing is a holding location. The cancel does not return goods to sellable stock.
 - Unlocking the parcel (§5.2 step 2) is normally a no-op — 20/20 stuck orders already had `entity_lock = 0`.

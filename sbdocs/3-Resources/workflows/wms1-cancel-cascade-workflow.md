@@ -24,7 +24,7 @@ tags:
 - Describes every cancellation code path in `v1/wms-api`: OMS-initiated (`cancelOrder(order, false)` via `POST /rest/order/cancelPositions`) and WMS-initiated batch (`cancelBatch`), plus the deferred path (`cleanUpCancelledOrder`) and force path (`forceCancelOrder`).
 - Cascade order: `PickingorderPosition → Pickingorder → CustomerorderPosition → Customerorder → CustomerorderBatch`; stock reservations are released via `changeReservedAmount` at the `PickingorderPosition` level.
 - Terminal states block cancellation: `state >= FINISHED` (excluding `CANCELED`) or `entityLock == SHIPPED` on any parcel/stockunit throws `BusinessException`.
-- `cancellationFromWithinWMS=true` is dead code in v1 — no caller passes it; the OMS callback block inside `cancelOrder` never fires. The only live OMS callback for order cancels is through `cancelBatch`.
+- `cancellationFromWithinWMS=true` is dead code in v1 — no caller passes it; the OMS callback block inside `cancelOrder` never fires. **v1 sends no automatic cancel callback at all.** ⚠ corrected 2026-10-06 (SBDEV-3373 review): `cancelBatch` has no production caller either, so its callback never fires. The only route is a manual resend (`GET /v3/message/resend/{id}`, `MessageController`; see `wms1-cancel-packed-parcel` §5.2).
 - Deferred cancel: when an in-flight picking order prevents immediate cancellation, `markedforcancellation=true` is set; `cleanUpCancelledOrder` completes the job when the picking order finishes.
 - `forceCancelOrder` is the escape hatch for PACKED/PALLETIZED orders; only reachable for CLUB-type batches via the OMS path in v1.
 - Read this doc before touching any cancel endpoint, reservation-release logic, or any bug where orders get stuck in a non-terminal state after cancellation.
@@ -41,9 +41,9 @@ tags:
 Two things initiate cancellation in v1:
 
 1. **OMS-initiated** — OMS calls `POST /rest/order/cancelPositions` to cancel one or more orders by external ID. Passes `cancellationFromWithinWMS=false`. No OMS callback fires from `cancelOrder` (the callback block is gated on `cancellationFromWithinWMS=true`, which is never passed by any caller in v1).
-2. **WMS-initiated (batch)** — A WMS user or admin calls `CustomerorderBatchService.cancelBatch(...)`. This path has its own inline cascade and always fires the OMS callback unconditionally (no activation flag check at the batch level).
+2. **WMS-initiated (batch)** — `CustomerorderBatchService.cancelBatch(...)` has its own inline cascade and would fire the OMS callback unconditionally. ⚠ corrected 2026-10-06 (SBDEV-3373 review): `cancelBatch` has no production caller either, so nothing reaches this path on v1 `origin/develop`. Only unit tests call it.
 
-Key v1 difference from v2: **`cancellationFromWithinWMS=true` is never used in any v1 call site.** Every call to `cancelOrder` passes `false`. The OMS callback block inside `cancelOrder` (lines 664–723) is therefore dead code in v1. The only live OMS callback path for order-level cancels is through `cancelBatch`.
+Key v1 difference from v2: **`cancellationFromWithinWMS=true` is never used in any v1 call site.** Every call to `cancelOrder` passes `false`. The OMS callback block inside `cancelOrder` (lines 681–737) is therefore dead code in v1. ⚠ corrected 2026-10-06 (SBDEV-3373 review): `cancelBatch` has no production caller either, so v1 sends no automatic cancel callback from either path.
 
 A second v1-specific wrinkle: when an in-flight picking order prevents normal cancellation, the order is **marked for deferred cancellation** (`markedforcancellation=true`) rather than immediately cancelled. Completion of the picking order then triggers `cleanUpCancelledOrder` to finish the job.
 
@@ -56,7 +56,7 @@ A second v1-specific wrinkle: when an in-flight picking order prevents normal ca
 | `CustomerorderService.cancelOrder(order, false)` | `CustomerorderService.java:562` | Single order | OMS REST (`POST /rest/order/cancelPositions`) or internal utility |
 | `CustomerorderService.forceCancelOrder(order)` | `CustomerorderService.java:284` | Single order (force path) | Delegated from `cancelOrder` when order is PACKED/PALLETIZED |
 | `CustomerorderService.cleanUpCancelledOrder(order)` | `CustomerorderService.java:729` | Deferred single-order cancel | Called from `PickingorderBusinessService.finishPickingOrder` when `markedforcancellation=true` |
-| `CustomerorderBatchService.cancelBatch(batch, principal)` | `CustomerorderBatchService.java:183` | Entire batch (all child orders) | Declared, no live controller caller in v1 yet — prepared infrastructure |
+| `CustomerorderBatchService.cancelBatch(batch, principal)` | `CustomerorderBatchService.java:182` | Entire batch (all child orders) | Declared, no live controller caller in v1 yet — prepared infrastructure |
 | `CustomerorderBatchService.finalizeBatchIfComplete(batchId)` | `CustomerorderBatchService.java:337` | Batch rollup | Consequence of `cancelOrder` completing; not a cancel trigger |
 | `OrderRestController.cancelPositions(...)` | `OrderRestController.java:675` | HTTP entry — iterates orders, calls `cancelOrder(order, false)` per order | OMS POST `cancelPositions` |
 
@@ -177,21 +177,24 @@ cancelOrder — deferred path                              [CustomerorderService
 
 ## 6. WMS-Initiated Batch Cancel Cascade — `cancelBatch`
 
-`CustomerorderBatchService.cancelBatch` (`CustomerorderBatchService.java:183`) is a single-transaction cascade over the entire batch. Unlike the OMS path, it does NOT call `cancelOrder` per child — it implements its own inline cascade. It always fires the OMS callback (no `cancellationFromWithinWMS` gate).
+`CustomerorderBatchService.cancelBatch` (`CustomerorderBatchService.java:182`) is a single-transaction cascade over the entire batch. Unlike the OMS path, it does NOT call `cancelOrder` per child — it implements its own inline cascade. It has no `cancellationFromWithinWMS` gate, so it would always fire the OMS callback. ⚠ corrected 2026-10-06 (SBDEV-3373 review): `cancelBatch` has no production caller either: this whole section describes code nothing reaches.
 
 > **Note:** As of last verification, `cancelBatch` has no live controller caller in v1. It is declared and fully implemented but not yet wired to a REST or web-UI endpoint. Any WMS-user batch cancel currently goes through the Spring Data REST auto-exposure of the batch repository or a direct admin action — not this method.
 
 ```
-CustomerorderBatchService.cancelBatch(batch, principal) [CustomerorderBatchService.java:183]
+CustomerorderBatchService.cancelBatch(batch, principal) [CustomerorderBatchService.java:182]
   │
   ├── [Guard] batch.state >= FINISHED → throw BusinessException
   ├── [Guard] any child order.state >= FINISHED && < CANCELED → throw BusinessException
   │
   ├── Build OMS cancel payload (exclude already-CANCELED orders)
   │
-  ├── OmsNotificationHelper.deferToCommit(...)            (line 227)
+  ├── httpRestService.post(...)                           (line 233)
   │     POST SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_URL_KEY
-  │     after TX commit — fires regardless of cancellationFromWithinWMS
+  │     INLINE, inside the class-level @Transactional, BEFORE the order loop;
+  │     IOException caught at :245 (FAILED Message, cancel continues).
+  │     (Corrected 2026-10-06: used to say OmsNotificationHelper.deferToCommit /
+  │     after TX commit — that class never existed.)
   │
   ├── for each active child Customerorder:
   │     for each CustomerorderPosition:
@@ -323,22 +326,22 @@ Reservations are **not** released in the deferred cancel path (`cleanUpCancelled
 
 ### `cancelOrder` (OMS-initiated, `cancellationFromWithinWMS=false`)
 
-No OMS callback fires. The callback block at `CustomerorderService.java:664–723` is gated on `cancellationFromWithinWMS=true`, which no v1 caller ever passes. The inbound cancel from OMS is logged in the `message` table by `OrderRestController` (line 735–743) with type `ORDER_BATCH_CANCELLED_FROM_PSD`.
+No OMS callback fires. The callback block at `CustomerorderService.java:681–737` is gated on `cancellationFromWithinWMS=true`, which no v1 caller ever passes. The inbound cancel from OMS is logged in the `message` table by `OrderRestController` (line 735–743) with type `ORDER_BATCH_CANCELLED_FROM_PSD`.
 
 ### `cancelBatch` (WMS-initiated)
 
-Always fires one outbound callback per batch cancel, deferred to post-commit:
+⚠ **Unreachable on v1 `origin/develop` (verified 2026-10-06, SBDEV-3373 review): `cancelBatch` has no production caller** (`git grep -w cancelBatch -- src/main` finds only its declaration; only unit tests call it. Control: `runClubLine` is called from `ClubLineController`). If it were called, it would fire one outbound callback per batch cancel, **not** deferred to post-commit. It posts **inline**, inside the class-level `@Transactional`, *before* the loop that cancels the orders (v1 `origin/develop` `CustomerorderBatchService` `httpRestService.post(urlPath, payload)` in `cancelBatch`):
 
 | Property | Value |
 |---|---|
 | URL sysprop key | `WEBSERVICE_ORDER_BATCH_CANCELLED` (`WmsConstants.java:885`) |
 | Default URL | `https://oms-XXXXX.siteboss.net/services/call/cancelPosition` |
-| Activation flag | `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` — **but not checked in `cancelBatch`** (unlike v2, no activation gate in the batch path) |
+| Activation flag | `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` — **read by nothing, in either version** (v1 `origin/develop`, verified 2026-10-06 (SBDEV-3373): declaration in `WmsConstants` plus a commented-out seed line in `UtilRestController`, no reader; v2's is deleted by SBDEV-3373 `V2.2.37`) |
 | Message type | `ORDER_BATCH_CANCELLED_FROM_WMS` |
-| Timing | `OmsNotificationHelper.deferToCommit(...)` — fires after TX commit, never on rollback |
+| Timing | **Inline, inside the cancel transaction, before the orders are cancelled.** No `afterCommit`: the file's only `registerSynchronization` is in `runClubLine`. So a rollback after a successful POST leaves OMS told "cancelled" while WMS is not. ⚠ Corrected 2026-10-06: this row used to cite `OmsNotificationHelper.deferToCommit`, which never existed on any v1 ref (`git log --all -S OmsNotificationHelper` → 0 commits) |
 | Payload | `OrderBatchDto` with `facilityCode`, `batchId`, and list of active (non-already-cancelled) orders with their positions and SKU IDs |
 
-If the HTTP POST fails (IOException), a `Message` record is created with `status=FAILED` and `code=503`. The WMS transaction is already committed at that point — the callback failure does not roll back the cancel.
+If the HTTP POST fails (IOException), a `Message` record is created with `status=FAILED` and `code=503`. The `IOException` is caught, so a callback failure does not roll back the cancel. (Corrected 2026-10-06: this used to say the transaction is already committed at that point. It is not; the POST runs inside it.)
 
 ---
 

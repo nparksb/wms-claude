@@ -78,7 +78,17 @@ Read/report endpoints return `HTTP 200 OK` with a JSON body.
 
 ### 1.7 Message / Audit Log
 
-Every endpoint records a `Message` row (table `message`) for every call — both successful and failed — via `MessageService.createMessage(...)`. This log is queryable from the WMS Web UI and is the primary audit trail for OMS→WMS interactions.
+The OMS→WMS import, update and report endpoints record a `Message` row (table `message`) via `MessageService.createMessage(...)`: RECEIVED on success, FAILED on a rejection (`WebserviceBusinessExceptionClientSide`). This log is queryable from the WMS Web UI and is the primary audit trail for OMS→WMS interactions. ✓ merged(SBDEV-3102: #560 4960631d, 2026-10-22)
+
+Which handlers write a row (SBDEV-3102 E4, derived from the handlers at `b399ae5d` + E4):
+
+- **Write RECEIVED + FAILED:** advice create / createTransfer / createHubAndSpoke; order create / updatePriority / cancelPositions / finishedQA / updateShipper / finishedTransfer; sku create / update / **delete** (`SKU_DELETE`, new in E4); **stockcount getStockCount** (`REPORT_STOCK_COUNT`, new in E4); both transaction reports. Before E4, sku delete and getStockCount wrote no row on any path.
+- **Write no row:** `GET /rest/unitload/state/{labelId}` and `GET /rest/printer/findByType` (lookups called from the QA station; see the E4 report for why no row was added), `GET /rest/stockcount/triggerStockCount` (the export it runs writes its own `INVENTORY_FULL_EXPORT` rows), `POST /rest/stockcount/sendDummyMessageStockCountList` (test-only dummy), `POST /rest/advice/reopen` (not implemented).
+- **An exception that escapes a handler writes no row** — e.g. any runtime exception part-way through a sku delete batch (typically an FK `DataIntegrityViolationException`), getStockCount's unknown-item `EntityNotFoundException`. Only `finishedTransfer` records an escaping runtime failure (SBDEV-3728).
+- **sku delete is not atomic** (no `@Transactional`; each SKU's delete commits on its own). Its rows therefore carry which SKUs were actually deleted, as `"deleted":[{"client_id":..,"sku":..},..]` in `answer`: the RECEIVED/204 row's answer is `{"deleted":[..]}` (every SKU in the request), and a FAILED/400 row for a rejection part-way through the batch is the rejection shape plus `"deleted"` listing the SKUs before it. A rejection before any delete has no `"deleted"` key, so its row is the plain v1 shape. The 400 response itself does not say which SKUs were deleted (§4.3). ✓ merged(SBDEV-3102: #560 4960631d, 2026-10-22)
+- **A failure writing the row never changes the response**, on the success path as well as the rejection path: each of the 28 `messageService.createMessage` calls a `/rest` controller makes itself (advice, order, sku, stockcount, transaction report) sits in its own `try` with `catch (Exception)` at ERROR. Service-layer writes a handler reaches indirectly, e.g. `OmsNotificationService.sendAfterCommit` (catches only `BusinessException`), are outside this guarantee. Before E4 the success-path (RECEIVED) writes of advice create / createTransfer / createHubAndSpoke, order create / updatePriority / finishedQA, sku create / update and both reports caught only `IOException`, so a logging failure answered a 422 ProblemDetail or a 5xx instead of the success. For the writes this came after the change had committed, and `WmsApiService::makeWmsRequest` does not retry a 4xx or 5xx, so the OMS caller got a failure for a committed change. At order create, on OMS's default record-first path, the scheduled `batch-send-pending` sweep then read the batch back from the WMS and settled it. At `finishedQA` OMS does re-send: `ProcessQaWorkflowJob` or `QaWorkflowService` queues `ProcessWmsNotificationJob` (5 tries), each re-send is rejected WRONG_STATE as already past PICKED (e.g. "different state Packed"), a state OMS's `isAlreadyPastQa` does not treat as done, so the committed packing ended as a failed job. For the two reports (reads) it replaced the 200 report. ✓ merged(SBDEV-3102: #560 4960631d, 2026-10-22)
+
+A rejected call's FAILED row carries the rejection in `answer` as `{"code":..,"errorCodeName":..,"description":..}` — the shape v1 stored, and the same `description` the caller received (SBDEV-3102 E3; before it the answer was null on every `/rest` rejection except `finishedTransfer`'s). Covers advice create / createTransfer / createHubAndSpoke, order create / updatePriority / cancelPositions / finishedQA / updateShipper, sku create / update and both transaction reports. A partial `cancelPositions` batch (HTTP 200, FAILED/400 row) carries instead the body it answered, `{"status":"failure","message":..,"errors":{..}}`. A failure writing any of these rows is logged and never changes the response. The `/rest/order/create` "already exists" rejections name the identifier, not a DTO dump: `entity orderBatch|order|orderPosition|parcel_external_number already exists for <id>`; likewise `duplicate value parcel_external_number found in <parcel number>`. ✓ merged(SBDEV-3102: #556 b399ae5d, 2026-10-22)
 
 ---
 
@@ -475,14 +485,25 @@ Each `OrderDto` only needs `unique_id` (the external order ID).
 - The batch must exist.
 - Each order (`unique_id`) must exist.
 - Orders are cancelled via `CustomerorderService.cancelOrder()`. If an order is in a non-cancellable state (e.g., already packed, shipped), `400 WRONG_STATE` is returned.
-- Cancellation is all-or-nothing per request: if any order fails, the entire response is a failure.
+- Not all-or-nothing. Each order cancels in its own transaction. A refusal (unknown batch or order, non-cancellable state, unexpected error) aborts the request with a 400 before or at that order. A **contained** failure on one order does not: a tote-teardown failure (SBDEV-3339) or a lost concurrent race (SBDEV-3729) leaves that order uncancelled, cancels the rest, and the batch answers the partial 200 below. Re-sending the batch no-ops the orders already cancelled and retries only the failed ones. ✓ merged(SBDEV-3102: #556 b399ae5d, 2026-10-22)
 
-#### Success Response
+#### Success Responses
 
 ```
 HTTP 200 OK
 { "status": "success" }
 ```
+
+Partial batch: some orders were NOT cancelled. The status is still 200, because OMS reads a non-2xx as a refusal. The `status` token must be exactly `"failure"`, because that is what `WmsApiService::isFailureResponse` tests.
+
+```
+HTTP 200 OK
+{ "status": "failure",
+  "message": "<n> order(s) named in 'errors' were NOT cancelled; re-sending the batch retries only them",
+  "errors": { "<unique_id>": "<reason>" } }
+```
+
+The service-log row for a partial batch is FAILED/400, and its `answer` is this body (§1.7, SBDEV-3102 E3). A failure writing that row never changes this response. ✓ merged(SBDEV-3102: #556 b399ae5d, 2026-10-22)
 
 #### Failure Responses
 
@@ -549,7 +570,7 @@ HTTP 204 No Content
 | Order not found | 400 | `ENTITY_DOES_NOT_EXISTS` |
 | Order not in PICKED state | 400 | `WRONG_STATE` |
 | Order belongs to different batch | 400 | `CHILD_NOT_PART_OF_PARENT` |
-| Parcel label already used | 400 | `ENTITY_ALREADY_EXITS` |
+| Parcel label already used | 400 | `ENTITY_ALREADY_EXITS` — `entity parcel_external_number already exists for <label>` (SBDEV-3102 E3; was `entity <label> already exists for <OrderBatchDto dump>`) ✓ merged(SBDEV-3102: #556 b399ae5d, 2026-10-22) |
 | `packageOrder` fails | 400 | `GENERIC_ERROR` |
 
 ---
@@ -575,7 +596,10 @@ AcceptTransferDto
 #### Business Rules
 
 - Delegates to `BillofladingService.finishTransfer(transferId)`.
-- Advances the BOL and associated advice to a terminal state.
+- Closes the `TRANSFER_INTRACOMPANY` BOL and ships its pallets. It does not touch any advice (an earlier revision of this page said it did). A BOL below `TRANSFER` first gets closeBOL's shipping phase, including an `ORDER_BATCH_SHIPPED` to OMS (SBDEV-3728). Already `CLOSED` is a no-op.
+- An unknown `transfer_id` answers `404` through the global `RestExceptionHandler.handleEntityNotFound` (a ProblemDetail whose `detail` is the reason). Any other runtime failure is answered by the `/rest` advice chain by type (503 for transient database failures, 500 otherwise). Both still write a FAILED `ORDER_BATCH_FINISHED_TRANSFER` row whose `answer` is the exception type and message; its status code is `404` for the unknown transfer and empty otherwise (SBDEV-3728).
+- The service-log row (RECEIVED or FAILED) never changes the response: if writing it fails, that is logged and the outcome is answered as it would have been (SBDEV-3728).
+- Any other refusal (wrong BOL type, BOL `CANCELLED`) answers `400` with `{"status":"failure","description":"<the reason>"}` and writes a FAILED `ORDER_BATCH_FINISHED_TRANSFER` message row whose `answer` is the same reason (SBDEV-3728; before it, the description was GENERIC_ERROR's fixed text and the answer null).
 
 #### Success Response
 
@@ -758,6 +782,10 @@ HTTP 204 No Content
 | SKU not found for client | 400 | `ENTITY_DOES_NOT_EXISTS` |
 | `sku` or `client_id` missing | 400 | `FIELD_NOT_SET` |
 
+Service log (§1.7): `SKU_DELETE`, RECEIVED/204 on success with `answer` `{"deleted":[{"client_id","sku"},..]}`; FAILED/400 on a 400 with the rejection in `answer` plus `"deleted":[..]` when earlier SKUs of the batch were already deleted. Any runtime exception part-way through the batch (typically an FK violation) escapes as a 5xx and writes no row. ✓ merged(SBDEV-3102: #560 4960631d, 2026-10-22)
+
+> ⚠️ **Not atomic.** Each SKU's delete commits on its own. A batch rejected on its Nth SKU has already deleted the SKUs before it, but the 400 body names only the rejection; it does not say which SKUs were deleted. A caller re-sending the whole batch then gets `ENTITY_DOES_NOT_EXISTS` on the first, already-deleted SKU. For a batch ended by a 400 rejection, the service-log row (above) is currently the only record of the partial delete. A batch ended by a runtime exception part-way through (typically an FK violation) writes no row at all, so nothing records the SKUs deleted before it (proposed, SBDEV-3102 E4 report). OMS v2's only caller, `WmsApiService::deleteSku` (oms-laravel-api `a8f73897`), sends one SKU per call (`makeWmsRequest` wraps the single object in a one-element list), so it cannot hit this today; a multi-SKU caller can. ✓ merged(SBDEV-3102: #560 4960631d, 2026-10-22)
+
 ---
 
 ## 5. StockCountRestController — `/rest/stockcount`
@@ -814,6 +842,8 @@ Each `StockCountDto` in the response:
 | `facility_code` wrong | 400 | `WRONG_FACILITY_CODE` |
 | Client not found | 400 | `ENTITY_DOES_NOT_EXISTS` |
 | `itemDataNumber` provided without `clientNumber` | 400 | `NOT_UNIQUE_VALUE` |
+
+Service log (§1.7): `REPORT_STOCK_COUNT`, RECEIVED/200 on success, FAILED/400 with the rejection in `answer` on a 400. The row's payload is the request's identifying fields only, `{"facility_code","clientNumber","itemDataNumber"}`, not the whole DTO, whose zeroed stock fields would read as an answer. An unknown item escapes as `EntityNotFoundException` (404) and writes no row. ✓ merged(SBDEV-3102: #560 4960631d, 2026-10-22)
 
 ---
 
