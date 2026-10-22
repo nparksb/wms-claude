@@ -266,8 +266,9 @@ Cancel cascade from `Customerorder` goes through this entity — see §5.1.
 | Location | Transition |
 |---|---|
 | `service/ReplenishGeneratorService.java:188,237` (`generateReplenish`) | → `PROCESSABLE` |
-| `service/mobile/MobileReplenishService.java:234,245,263` (`startReplenish`) | → `STARTED` or `PROCESSABLE` (retry path) |
-| `service/mobile/MobileReplenishService.java:499` (`finishReplenish`) | → `FINISHED` |
+| `service/mobile/MobileReplenishService.java` `startOrder(Long)` / `resetOrder(Long)` — **SBDEV-3626 (branch `bugfix/SBDEV-3626-replenish-claim`, pending merge)**; the DTO-based `startOrder`/`resetOrder` were deleted by SBDEV-3608 | `PROCESSABLE` → `STARTED` (handheld claim, `operator_id` = caller) / `STARTED` → `PROCESSABLE` (holder release) |
+| `service/job/ReplenishOrderJobService.java` `releaseExpiredClaim` — **SBDEV-3626 (branch `bugfix/SBDEV-3626-replenish-claim`, pending merge)** | `STARTED` → `PROCESSABLE` (claim not stamped for `REPLENISHMENT_CLAIM_TIMEOUT_SECONDS`) |
+| `service/mobile/MobileReplenishService.java` `finishReplenishmentOrderWithoutRefill` (only via `POST /v3/replenish/multi-unitloads`) | → `FINISHED` |
 | `service/ReplenishmentOrderMaintenanceService.java:375` / `service/ReplenishorderService.java:219` (cancel paths) | → `CANCELED` |
 
 ### 4.7 `Advice` — **String state** (landmine)

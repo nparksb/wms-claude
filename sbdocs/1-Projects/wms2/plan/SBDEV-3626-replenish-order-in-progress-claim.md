@@ -4,14 +4,14 @@ ticket: "SBDEV-3626"
 ticket_url: "https://app.clickup.com/t/868mc5hpj"
 type: "bugfix"
 priority: ""
-status: approved — gate tests committed c99ddaff; PARKED until SBDEV-3621 merges (Nam, 2026-10-02)
+status: on dev — API #454 merged 74a07a34 (dev runs develop-74a07a34, V2.2.36 applied on wineco dev), UI #82 merged 39c30b01; manual test plan + fleet check pending
 project: [wms2]
 version: "v2"
 tier: "T3"
 db_verified: true
 requester: "Nam Park"
 created: "2026-10-02"
-updated: "2026-10-02"
+updated: "2026-10-05"
 revision: "r3 (ralplan round 3: architect-r2 + critic-r2 folded in; D7–D10 applied, §11)"
 refs: "wms2-api origin/develop 09f861da · wms2-mobile-ui origin/develop 62fc642 (local refs, not re-fetched)"
 related:
@@ -143,6 +143,8 @@ The new endpoints **do not use the 200 envelope**:
 - **UI rule:** `selectOrder` advances to `2_source` **only when** `startOrder` resolves `true`. Today it advances unconditionally after `getOrderById` (replenish.vue L213-219).
 
 ### Fix A: `startOrder(Long id)`, `heartbeatOrder(Long id)` and `POST /v3/replenish/order/{id}/start[?heartbeat=true]`
+*As built (review round 1): a claim is `STARTED` + operator. Start claims a 300 order whatever stale `operator_id` it carries and refuses every other in-progress state (301–699) with `REPLENISH_RESERVED`; reset is a no-op unless `STARTED`; the TTL is read through `ReplenishClaimTimeout` (floor 60 s) for both the claim response and the release; the release loop also catches any other per-row exception. See §12.*
+
 **start.** `findByIdForUpdate(id)` is the first touch (`orElseThrow FacadeException("MsgCannotReadOrder")`). Then: `state < PROCESSABLE` → `REPLENISH_NOT_RELEASED`; `>= FINISHED` → `REPLENISH_ALREADY_FINISHED`; `operatorId != null && != U` → `REPLENISH_RESERVED`; `state == STARTED && operatorId == U` → re-stamp; otherwise set `operatorId = U`, `state = STARTED`. An explicit start on a lapsed order (300/null after a release) **re-claims**: it is a deliberate re-open, and the UI commits the fresh DTO.
 
 **heartbeat** (`?heartbeat=true`, same mapping, same class gate). Lock first; re-stamp **only** when `state == STARTED && operatorId == U`, else `REPLENISH_CLAIM_LOST`. It never re-claims, so a lapse during which recalc re-sized or redirected the order (ROMS L719, L431→L499) is reported to the picker instead of hidden behind a 200 (architect r2 M2).
@@ -230,8 +232,9 @@ The JPQL bulk writes (`updatePriorityByIdIn`, `bulkUpdatePriorityForItems*`) set
 ### 7.1 Prerequisites (§5.1)
 | Item | Status |
 |---|---|
+| **Rebase (2026-10-05)** | **DONE.** Branch rebased onto origin/develop `ec42f43a` (SBDEV-3621 = PR #444 `951c1d9c`, on prod; SBDEV-3622 and SBDEV-3638 also landed). Gate commit `c99ddaff` → `5f579649`. Two append-only test conflicts (`ReplenishorderServiceUnitTest`, `MobileReplenishServiceUnitTest`), both sides kept. **SBDEV-3638 (PR #452) deleted the legacy single-UL path** — `checkSource`/`checkAmount`/`checkDestination`, `finishReplenishmentOrder[Internal]`, the single-UL switch, and the orphan DTO `startOrder`/`resetOrder` overloads. So: **Fix E's lock-free legacy mirror (rows 22-23, §5 Fix E, the §6 file row, AC-8's "same on `finishReplenishmentOrderInternal`") is void** — Fix E is the multi-UL guard only, and P2 now has no exception. Fix A/B no longer delete the DTO overloads, they only add the `Long` ones. The 3 legacy AC-8 tests were removed from `ReplenishClaimIT`. Re-run: unit 347 run / 26 failures (same 26 as the gate); IT 26 run / 7 failures (was 29/8; the delta is the 3 removed tests), 0 errors, every pin green. Flyway V2.2.36 still free (all-remote sweep, max V2.2.35) — re-sweep before merge |
 | **SBDEV-3621** (held-share release at web cancel / change-source / handheld switch+finish; [ticket](https://app.clickup.com/t/868mc1d6c), pr submitted, branch `bugfix/SBDEV-3621-release-held-share`). SBDEV-3632 was a duplicate of it and is closed | **Must be merged to `origin/develop`, and this branch (gate commit `c99ddaff`) rebased onto it, before ANY implementation step** — 3621 rewrites `MobileReplenishService` (+176) and `MobileReplenishServiceUnitTest` (+707), both touched here. Re-run the gate classes after the rebase. Lock order: 3621's cancel locks the SU first ("order row is not locked first … known, bounded residual"); Fix C locks the order before calling it → order → SU, the cron's order, closing that residual. AC-13's fixture uses held == requested, so it passes either way |
-| DB state | No 500 rows on 4 PRD tenants (§1), so no backfill. **UAT: re-query `state<700` and both ROJ gate sysprops before the UAT deploy** (unmeasured) |
+| DB state | No 500 rows on 4 PRD tenants (§1), so no backfill. **UAT measured 2026-10-07 (read-only):** wsl-wineco 300 × 570 (oldest 2025-02-19), c1wh-shipitez 300 × 96, nywh-hydra 300 × 8, nywh-shipitez 300 × 2. Every open order is at 300 with `operator_id` null on all four: nothing below 300 (OQ-1 = 0), no 500, no stale operator, so no backfill. `NEW_CRON_JOB_ACTIVATED` and `REPLENISHMENT_TIMER_ACTIVATED` are both `true` on all four, so the claim release will run. Flyway head 2.2.35 on all four (V2.2.36 lands with the UAT deploy; no `REPLENISHMENT_CLAIM_TIMEOUT_SECONDS` row yet, as expected) |
 | Flyway | V2.2.36. **Immediately before merge: `git -C v2/wms2-api fetch --all --prune`, then the all-remote-branch collision sweep.** Max was V2.2.35 on 2026-10-02 on unfetched local refs |
 | Gate | Release runs only where `NEW_CRON_JOB_ACTIVATED` and `REPLENISHMENT_TIMER_ACTIVATED` are both true (all 4 PRD tenants, §1). Where off, claims never expire (§9) |
 | **Fleet browser check (before the UI goes past dev)** | On the fleet's actual handheld + browser, dev, TTL 120: open an order, screen off 5 min, confirm `replenishorder.modified` advanced during screen-off; then screen on and confirm one heartbeat fires at once. **Pass** → keep 600. **Fail** (timers frozen/throttled) → raise `REPLENISHMENT_CLAIM_TIMEOUT_SECONDS` per tenant above the longest expected screen-off walk (sysprop only, no code change); the visibility heartbeat still reports a lapse on wake, before the next scan |
@@ -326,7 +329,7 @@ Testcontainers lane (`*IT`; failsafe includes `**/*IT.java` in any package). Fix
 | Cache / Jakarta / H2 / metrics | entity not cached; sysprop read uncached on this path (Fix G); `jakarta.persistence` lock exceptions; JPQL only, Testcontainers; reuse `replenishSubOpRows` (published, not yet scraped) |
 | External notifications | N/A: no OMS send on the touched paths |
 
-**Completeness:** DB verified on 4 PRD tenants (UAT noted) · all callsites in §0 · sibling sweep in Fix C, D6 writer table in Fix G · backward compatible in both deploy orders (§5.0) · error contract in §5.0 · rollback: V2.2.36 is idempotent and harmless; revert the UI, then the API, then drain any 500s by setting the TTL to 1 · v1: no work (reference-only; same unwired `startOrder`).
+**Completeness:** DB verified on 4 PRD tenants (UAT noted) · all callsites in §0 · sibling sweep in Fix C, D6 writer table in Fix G · backward compatible in both deploy orders (§5.0) · error contract in §5.0 · rollback: V2.2.36 is idempotent and harmless; revert the UI, then the API, then drain any 500s by setting the TTL to 1 (as built: values below 60 are raised to 60, so a drain takes up to about two ticks) · v1: no work (reference-only; same unwired `startOrder`).
 
 ## 10. Resolved decisions (Nam, 2026-10-02)
 
@@ -364,3 +367,60 @@ r3 → r4 (narrow; A-H1 = C-H1 plus Lows): TTL in its own store field `claimTtl`
 - **Why chosen:** fails at selection, before physical work (P1), and a strict heartbeat reports a lapse before the next scan; each half ships alone in either order (P3, §5.0); reuses existing columns, so the only Flyway file is a seed (D6).
 - **Consequences:** an abandoned order, its source UL and its FLA are pinned ≤ TTL; a supervisor cancel can still kill a pick; old handhelds unprotected until upgraded; `modified` doubles as claim age and is extended by web priority edits (pinned); one heartbeat tx per open handheld per ttl/4; the 600 s default depends on the fleet browser keeping timers alive (§7.1), with a sysprop-only fallback.
 - **Follow-ups:** (1) `REPLENISH_REQUIRE_CLAIM` once the fleet upgrades. (2) Holder column in "All" + web "release claim". (3) `/reservedOrder` resume banner. (4) Revisit the TTL per tenant from the fleet check (sysprop only). (5) SBDEV-3621 (merge first), SBDEV-3633. (6) Option D residual: accept a submit by the last holder of a system-cancelled order within the TTL.
+
+## 12. Implementation status (API half, 2026-10-05)
+
+**Branch** `bugfix/SBDEV-3626-replenish-claim` (wms2-api), worktree `.claude/worktrees/wms2-api/SBDEV-3626`, base `origin/develop` `ec42f43a`. **PR: https://github.com/SiteBossInc/wms2-api/pull/454** (opened 2026-10-05, ClickUp → pr submitted).
+
+| Commit | Content |
+|---|---|
+| `5f579649` | TDD gate tests (rebased from `c99ddaff`; 3 legacy AC-8 tests dropped, §7.1) |
+| `93b812fc` | Fix A + B + §5.0 contract (`POST /order/{id}/start[?heartbeat=true]`, `/reset`), `FacadeException.getKey`, keys `REPLENISH_RESERVED` (removed by SBDEV-3608, restored) / `NOT_RELEASED` / `CLAIM_LOST` in both bundles |
+| `2a7cce9e` | Fix C (cron cancel locks + skips `> 300`; `ReplenishorderService.cancelReplenishmentOrderById`; WARN catch) |
+| `4ee1b36d` | Fix D + E |
+| `4b610a2b` | Fix F (`sumRequestedAmountForActiveOrders`) |
+| `891bd87e` | Fix G + `V2.2.36` seed |
+| `6a0ff5f2` | AC-2 INFO assertion (conformance lane) |
+| `c7257ae7` | Review round 1 (4 lanes) |
+| `90b2c3e5` | Review round 2 (scoped) |
+| `92e2cddb` | Review round 3 Low (cutoff-test tolerance); round-4 comment Low folded in |
+
+**Deviations from the plan, deliberate:** (1) AC-3a's polarity tests live in `ReplenishClaimIT`, not a separate `ReplenishClaimReleaseQueryPolarityIntegrationTest` (same coverage, same lane). (2) Claim = `STARTED` + operator (above); the plan's text keyed on `operator_id != null`. (3) TTL floor 60 s (concurrency review F3). (4) `ReplenishOrderController` no longer takes `ReplenishorderRepository`. (5) The release loop catches the Spring `ConcurrencyFailureException` only (the jakarta types never reach it through the repository proxy) plus a per-row `Exception`.
+
+**Tests.** `ReplenishClaimIT` 35, `ReplenishOrderJobClaimIT` 7, `ReplenishmentOrderSourceSyncIT` 10, all green, also under `TZ=UTC`. Unit gate classes green. Mutation: 37 hand mutants, all killed except M14 (equivalent: the release's under-lock re-check refuses a fresh claim whatever the query selects; replaced by M14b, killed). Full suite at `6a0ff5f2`: unit 7815/0; IT 654 run, 1 failure + 2 errors, all also red on `origin/develop` `ec42f43a` in the same run shape (620 run, 5 + 2; `SequenceTransactionServiceConcurrencyIT` "too many clients", `CancellationReversalParcelSourceIntegrationTest` empty H2), both green in isolation on both. Final full run on `92e2cddb`: unit 7827/0; IT 663 run, 5 + 2, exactly the develop baseline's failing set (620 run, 5 + 2). An intermediate run showed 51 FlywayValidate errors; that was a local artifact (an edited unmerged V2.2.36 checksum on the reusable test container), repaired by deleting the stale history row.
+
+**Not done here:** the UI half (Fix H, AC-17, `wms2-mobile-ui`); the §7.1 fleet browser check; the UAT `state<700` + gate-sysprop query; Flyway re-sweep immediately before merge.
+
+**DECIDED (Nam, 2026-10-05): ship as planned; accepted risk, not a blocker.** Security review M1. One user can hold any number of claims and keep them alive by heartbeat; where the ROJ gate is off they never expire. Options considered: one active claim per user; run the release regardless of the activation gate. Neither is in this PR. On PRD all four tenants have the gate on, so claims expire there. Remedy is Follow-up 2 (supervisor release + holder column).
+
+**For the UI gate (concurrency review F1):** a lapsed claim's submit is accepted as an unclaimed 300 order (D3). Mitigation in Fix H: heartbeat immediately before `/multi-unitloads`, and abort on `'lost'`.
+
+### UI half (wms2-mobile-ui, 2026-10-07)
+
+**Branch** `bugfix/SBDEV-3626-replenish-claim`, worktree `.claude/worktrees/wms2-mobile-ui/SBDEV-3626`, base `origin/develop` `6449100`. **PR: https://github.com/SiteBossInc/wms2-mobile-ui/pull/82.** Commits: `31ba146` failing tests (gate) · `7c379ab` Fix H · `f841a81` B1 · `30e52e6` round 1 · `7db2d53` round 2 · `540a611` round 3 Lows · `e24f7c5` release during a submit (round-4 N-1; reset serialises behind the submit server-side, verified round 5).
+
+**As built vs Fix H text:**
+- **Refusal code is nested.** The store reads `data.code ?? data.properties.code`, because wms2-api's ObjectMapper nests ProblemDetail custom properties. Conformance blocker B1; the PR #454 comment records it.
+- **A claim is held iff `claimTtl != null`.** A TTL ≤ 0 still claims and must be released by the picker; it is never heartbeated.
+- **Pre-submit heartbeat** (concurrency review F1). `submitting` is raised before it.
+- **Double-tap guard and claim epoch.** A stale answer for an earlier open of the same order is ignored.
+- **A re-open waits ≤ 5 s** for that order's pending reset.
+- **Route leave** drops the order and the claim but not `process`. It releases nothing during a submit.
+- **The request page** releases a persisted claim before its own `resetState`.
+- **Only an authz 403 (with `reason`) is a lost claim.** A bare 401/403 is transient.
+
+**Tests:** 77 Jest tests (store + page). The suite has 520 passing; 3 suites cannot load in the worktree (missing `@openobserve/*` in the shared `node_modules`), the same as baseline. 43 mutants on the tip: 42 killed, 1 equivalent (U43). OQ-1 (orders below 300 can no longer be opened): PRD could not be queried on 2026-10-07 (MCP timeouts); §1's 2026-10-02 measurement had 0 rows below 300 on all 4 PRD tenants.
+
+**Still open:** merge #454 then #82 (Flyway re-sweep first); manual test plan on dev; §7.1 fleet browser check; UAT `state<700` + gate-sysprop query. **Follow-up (API, Low):** a server-side IT pinning reset-behind-submit serialisation (supervisor cancel's twin is AC-13).
+
+### Merged (2026-10-06)
+- **wms2-api #454** merged as `74a07a34`. Before merging, `develop` (`4390286d`, including SBDEV-3495's bundle contracts) was merged locally into a throwaway commit: 389 unit + 42 claim IT green. Develop pipeline green; dev `/api/public/version` = `develop-74a07a34`. `V2.2.36` applied on `dev_wh01_om1` at 17:44:21, sysprop 600.
+- **wms2-mobile-ui #82** merged as `39c30b01`; develop image built.
+- ClickUp → `on dev`. Filed from review: **SBDEV-3668** (handheld replenish endpoints don't scope by client).
+
+### Dev manual tests (2026-10-07, panderson / wineco wsl, API level, each checked in the DB)
+- **Claim through release** (T1–T12): claim, heartbeat re-stamp, holder PUT, resume, cron skip (positive control: the recalc sweep ran after the claim), reset, strict heartbeat, timeout release at TTL 60 (restored to 600), legacy `loadOrderById`, refusals. All pass.
+- **Submit** (REPL389517): 700, source 5 → 0, reservation released, destination 23 → 28. **Supervisor cancel** (REPL389516, claimed): 800, reservation 83 → 0, and the picker's next heartbeat gets `REPLENISH_CLAIM_LOST`.
+- **Wire shape measured live:** the claim endpoints return `code` flat (the exception-handler path nests it). The UI reads both.
+- **Not run:** second picker refused (no second login), the handheld UI on a device, the fleet browser check (§7.1), and the WARN log on supervisor cancel (no log access).
+

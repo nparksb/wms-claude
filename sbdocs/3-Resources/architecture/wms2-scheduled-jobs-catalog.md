@@ -295,10 +295,11 @@ public record TenantSchedule(TriggerSpec spec, ZoneId resolvedZone)  // TenantSc
 
 **Nine sub-operations per run** (⚠ this heading read "Six" — a pre-existing miscount, corrected 2026-09-06; `ReplenishOrderJob:413`'s own javadoc says "nine-operation sequence" and `replenish(:415-463)` makes exactly nine sub-op calls. Note `wms2-replenishment-design.md` §8's phase table has **10** rows because it counts the `ReplenishmentOrderMaintenanceService` block as a phase — both conventions are defensible, so say which you mean):**
 
+0. `releaseExpiredReplenishClaims()` — **SBDEV-3626 (branch `bugfix/SBDEV-3626-replenish-claim`, pending merge)**: runs **first**. Releases handheld claims (`STARTED 500` + `operator_id`) not stamped (`modified`) for `REPLENISHMENT_CLAIM_TIMEOUT_SECONDS` (default 600, `<= 0` off) back to `PROCESSABLE`, one `REQUIRES_NEW` `ReplenishOrderJobService.releaseExpiredClaim` per order that re-checks state and age under the row lock; released items join the per-item recalc; metric sub-op `release_expired_claim`. With it the count is ten calls. `replenish(String)` is package-private as the `ReplenishOrderJobClaimIT` seam.
 1. `mergePickingOrders()` — merge totes-on-cart picking orders (gated on `MERGE_PICKING_ORDERS_KEY`)
 2. `deleteEmptyFixAssignmentWithoutStockToReplenish()` — clean up empty fixed locations
 3. `cancelUnreachableReplenishment()` — cancel orders for unreachable locations
-4. `cancelReplenishmentIfFlowbinIsFull()` — cancel orders if flowbin full
+4. `cancelReplenishmentIfFlowbinIsFull()` — cancel orders if flowbin full. **SBDEV-3626 (branch `bugfix/SBDEV-3626-replenish-claim`, pending merge)**: both cancels now take the order's row lock first in `ReplenishOrderJobService.cancelReplenishmentOrder` and skip anything past `PROCESSABLE` (an order claimed after its id was selected); a lock timeout logs WARN.
 5. `generateReplenishmentForItemDataWithoutFixedAssignment()` — create new replenish orders
 6. `generateReplenishmentForItemDataWithFixedAssignmentWithOrders()` — ⚠ **added 2026-09-06: this call was missing from the list entirely**, which is how the heading's "Six" survived. It is the 6th of the nine calls `replenish()` makes
 7. `triggerRegularReplenishment()` — refill
