@@ -264,19 +264,23 @@ sbtest     groups: ['/wms_user', '/warehouse/develop', '/warehouse/wsl']
 - Enforced by: `@PreAuthorize(Authority.IS_SB_ADMIN)` on **20 active gates** (corrected from 18 on 2026-08-26) (was 9 before SBDEV-2732, which added 3 on `PutawayConfigController`, **5 on `PutawayConfigService`** — the putaway-config write surface enforces at the service layer as well as the controller — and 1 on `ItemDataController`) — 8 on `AdminController`: `findUsers` (:80), `findUserByUsername` (:108), `deleteUserByUsername` (:121), `findUserGroupsByUsername` (:134), `createUser` (:143), `updateUser` (:155), `resetPassword` (:176), `findGroup` (:200) — plus **`ReplenishmentReconciliationController:37`** (per-tenant stranded-reservation reconciliation, SBDEV-2610 C1), which this doc previously omitted.
 - Typical grantee: SiteBoss engineering / ops staff. Not tenant-scoped.
 
-> ## 🔴 THIS EXPRESSION WAS BROKEN FOR ~9 MONTHS — 2025-10-29 → 2026-08-07 (SBDEV-2863)
+> ## 🔴 THIS EXPRESSION WAS BROKEN FOR ~10½ MONTHS — 2025-09-20 → 2026-08-07 (SBDEV-2863; start corrected by SBDEV-2872)
 >
 > **Everything this section previously described as enforcement was not enforcement.** `IS_SB_ADMIN` read
-> `"isSbAdmin()"`, and **no such method has ever existed** on `CustomMethodSecurityExpressionRoot` — its only
-> admin predicate is `isAimAdmin()` (`:77`). Spring resolves a `@PreAuthorize` string reflectively against
-> that root, so every one of the 9 annotated endpoints threw
+> `"isSbAdmin()"` (and before `ded4d644`, `"isAimAdmin()"`). **Neither method exists on the root Spring
+> Security 6 builds.** Under `@EnableMethodSecurity` the interceptors call
+> `createEvaluationContext(Supplier, …)`, whose root is Spring's own `MethodSecurityExpressionRoot`, built by a
+> private method. The old `CustomMethodSecurityExpressionRoot` (the only home of `isAimAdmin()`) was reachable
+> only from the legacy `@EnableGlobalMethodSecurity` path, which `bd330a3a` (2025-09-20) removed. It was
+> deleted by SBDEV-2872. So every one of the 9 annotated endpoints threw
 > `SpelEvaluationException EL1004E` *inside the authorization check* and returned **HTTP 500 to every
 > caller, `sb_admin` included.** Not a denial — a crash. Those endpoints were non-functional, not protected.
 >
-> **Provenance:** `ded4d644` (2025-10-29, "cleaned up the code") renamed `IS_AIM_ADMIN`/`"isAimAdmin()"` to
-> `IS_SB_ADMIN`/`"isSbAdmin()"` and `AIM_ADMIN_ROLE` → `SB_ADMIN_ROLE`, but left the method on the
-> expression root named `isAimAdmin()`. A half-finished `aim_admin` → `sb_admin` rebrand. **The expression
-> worked before that commit.**
+> **Provenance (corrected 2026-10-14, SBDEV-2872):** the break is `bd330a3a` (2025-09-20, the Keycloak 26 /
+> `@EnableMethodSecurity` migration), not `ded4d644` (2025-10-29). `ded4d644` renamed `"isAimAdmin()"` to
+> `"isSbAdmin()"`, which turned one unresolvable expression into another. The SBDEV-2863 analysis blamed the
+> rename because it read the custom root as the live one. Measured with `javap` on spring-security-core 6.1.0
+> and 6.5.7, and by `MethodSecurityExpressionsResolveArchTest`'s `isAimAdminIsReported` fixture.
 >
 > **Operational consequence worth knowing:** `ReplenishmentReconciliationController:37` was added *after*
 > 2025-10-29, so **it has never once worked** — every attempt to run the SBDEV-2610 stranded-reservation
@@ -294,7 +298,9 @@ sbtest     groups: ['/wms_user', '/warehouse/develop', '/warehouse/wsl']
 > delegates to. ⚠️ The constant is a **compile-time constant**, so javac inlines its value into every
 > consumer class file — and `pom.xml:440` disables incremental compilation. **Verify this fix only against a
 > `mvn clean` build**; a warm `target/` reproduces the old 500. The release path (`Dockerfile:10`,
-> `mvn clean package`) is already safe. A durable guard for the whole defect class is tracked by **SBDEV-2872**.
+> `mvn clean package`) is already safe. The durable guard for the whole defect class is
+> `MethodSecurityExpressionsResolveArchTest` (**SBDEV-2872**): it evaluates every `@Pre/PostAuthorize` and
+> `@Pre/PostFilter` expression in `src/main` against the production handler bean.
 
 > ⚠️ **SECURITY GAP — CODE WRITTEN 2026-08-17, NOT YET MERGED. [SBDEV-2870](https://app.clickup.com/t/868knqrwr) remains OPEN.**
 >
@@ -782,7 +788,7 @@ Not a realm role in the sense above — it's a service-account principal. Its au
 4. **Personas are DB-backed seed rows hard-coded in `UtilRestController`, not Keycloak composite roles.** They are `UserRole`/`UserGroup`/`UserFunction` rows seeded on first run (`:239-416`). A new persona — or a new function added to an existing persona — requires a code change + deploy, not a Keycloak-only operation.
 5. **Group paths vs realm roles are distinct.** A user with all the right roles but no matching group membership will still fail tenant routing — and vice versa.
 6. **Orphan roles are defined but unused.** Granting them to a persona is a no-op until a consumer exists. Use the table in §5 before expecting a new permission to take effect.
-7. **`@PreAuthorize(Authority.IS_SB_ADMIN)` enforcement is thin, and was recently zero.** It guards **20 active** gates (corrected from 18 on 2026-08-26) — and from 2025-10-29 to 2026-08-07 it guarded **none of them**, because the expression named a method that did not exist and threw HTTP 500 for every caller (SBDEV-2863). **Nothing in the test suite could catch that**: `BaseControllerUnitTest:50` uses `standaloneSetup`, so no controller test evaluates `@PreAuthorize` at all, and although a full-context lane that could (`BaseControllerIntegrationTest`) long predates SBDEV-3239, no controller test uses it for this. A durable guard is tracked by **SBDEV-2872**. Separately, **5** endpoints were ungated (**SBDEV-2870** — gated on `wms_admin` on an unmerged branch, 3 of 6 ACs met). Everywhere else enforcement is service-layer — easy to miss when refactoring, and easy to silently disable by commenting an annotation.
+7. **`@PreAuthorize(Authority.IS_SB_ADMIN)` enforcement is thin, and was recently zero.** It guards **20 active** gates (corrected from 18 on 2026-08-26) — and from 2025-09-20 to 2026-08-07 (start corrected by SBDEV-2872) it guarded **none of them**, because the expression named a method that did not exist and threw HTTP 500 for every caller (SBDEV-2863). **Nothing in the test suite could catch that**: `BaseControllerUnitTest:50` uses `standaloneSetup`, so no controller test evaluates `@PreAuthorize` at all, and although a full-context lane that could (`BaseControllerIntegrationTest`) long predates SBDEV-3239, no controller test uses it for this. A durable guard is tracked by **SBDEV-2872**. Separately, **5** endpoints were ungated (**SBDEV-2870** — gated on `wms_admin` on an unmerged branch, 3 of 6 ACs met). Everywhere else enforcement is service-layer — easy to miss when refactoring, and easy to silently disable by commenting an annotation.
 8. **`MOBILE_UI_NEVER_TIME_OUT` is not a view role.** Granting it changes session timeout behavior on the mobile UI only. Don't assign casually.
 
 ---

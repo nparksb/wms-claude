@@ -52,7 +52,7 @@ and `AdminActionController:341`). Three of the 20 arguably stay `sb_admin`: `Adm
 (staff CSV import), `ReplenishmentReconciliationController:37` (curl-only), `AdminActionController:341`
 (`/accessAudit` — gating the rollout instrument on the rollout). Dead code to delete with the
 migration: `"ADMIN"` at `SecurityConfiguration:120` (a Spring Boot 2→3 placeholder from `09eb2f06`),
-`Authority.getExpAppAdminGroupOrSbAdminGroup` + `getExpAppUserGroupOrAppAdminGroup` +
+`Authority.getExp*` helpers (deleted by SBDEV-2872) +
 `NO_ASSIGN_USER_ROLE` (zero callers), `security.oauth2.app.admin.group` (bound by nothing), and rule C
 at `SecurityConfiguration:130-133` (identical to rule D yet labelled "Admin-Only WMS Endpoints").
 Report: `sbdocs/3-Resources/reports/260826-wms-admin-to-super-admin-authz-axis-audit.md`; plan:

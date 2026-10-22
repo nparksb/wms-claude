@@ -35,7 +35,9 @@ trap — a structural absence, asserted in src/main and src/test alike (`UserAdm
 `FunctionGuardArchTest:778` and `:214`). `standaloneSetup` installs no method-security advisor and the
 `@SpringBootTest` web lane is still blocked. So a `@PreAuthorize` change is **live-probe-only**; the
 substitutes are named reflection assertions on `Method.getAnnotation(PreAuthorize.class).value()` plus
-`CustomMethodSecurityExpressionRootUnitTest`'s production-faithful `evaluate(...)` harness (`:433-459`).
+`MethodSecurityExpressionsResolveArchTest` (SBDEV-2872), which evaluates every expression through the
+production handler bean. (The older `CustomMethodSecurityExpressionRootUnitTest` harness was NOT
+production-faithful: it used a root Spring Security 6 never builds; deleted by SBDEV-2872.)
 This is a stronger version of [[wms2-function-gate-anti-drift-only-covers-guarded-classes]]'s
 `setupMockMvc` trap: there an honest lane exists, here there is none.
 

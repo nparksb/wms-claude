@@ -3193,6 +3193,13 @@ census, which this ticket has been burned by repeatedly. (iii) **add a `hasFunct
 works at every layer *including* the SDR path, and testable through the existing production-faithful
 `evaluate(...)` harness in `CustomMethodSecurityExpressionRootUnitTest`.
 
+> ⚠ **Superseded 2026-10-14 by SBDEV-2872. Option (iii) as written would not work.** Under
+> `@EnableMethodSecurity`, Spring Security 6 builds the expression root through a private method and never
+> consults a custom root, so `CustomMethodSecurityExpressionRoot` was dead in production and has been deleted
+> (along with its "production-faithful" harness, which evaluated a root production never builds). A
+> `hasFunction(...)` member would need to override `createEvaluationContext(Supplier, MethodInvocation)` itself,
+> or be exposed as an `@bean` reference. `MethodSecurityExpressionsResolveArchTest` would then grade it.
+
 **(iii) is not built, and is the recommended shape if the remaining `sb_admin` sites are ever migrated** —
 it would dissolve §8.16's carve-out reason entirely rather than working around it. Recorded here because the
 option only became visible once the interceptor's limit was understood, and R8 did not need it: **lifting**

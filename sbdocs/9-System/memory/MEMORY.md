@@ -74,6 +74,7 @@
 - [Address Low review findings too](address-low-review-findings-too.md) — Nam 2026-08-26: fix Lows in the same pass
 - [Keycloak group `/sb_admin` IS the WMS `sb_admin` role](wms2-keycloak-groups-claim-emits-full-paths.md) — read `resource_access`, NOT `groups`; bare
 - [Headless-browser recipe for wms2-web-ui dev](wms2-web-ui-headless-browser-recipe.md) — puppeteer-core outside the repo; the only route to a visual
+- [Dev UI test login = panderson / dev@sb](wms2-dev-ui-test-credential-panderson.md) — Nam 2026-10-14; DEV only; HAS warehouse access, fake the claim for no-access paths
 - [Only ever merge to develop](deploy-only-to-develop-release-and-main-are-devops.md) — Nam 2026-08-26: release+main
 - [WineCo env map — v2 PRD = Hydra + ShipItEZ + WineCo](wineco-is-a-v2-client-prd-mcp-is-wms1-wineco.md) — WineCo live on v2 PRD 2026-09-26 via `wsl-wineco-prd`; `wms1-wineco` is v1
 - [v1 ITs leak a postgres container per run](v1-testcontainers-withreuse-leaks-a-container-per-run.md) — `withReuse(true)` w/o reuse enabled; 43
@@ -219,3 +220,4 @@
 - [git add -A in a worktree sweeps .omc/state](git-add-all-in-worktree-sweeps-omc-state.md) — leaked session files into an OMS commit; stage explicit paths, exclude .omc/
 - [Editing an unmerged migration breaks the reusable IT container](editing-unmerged-migration-breaks-reusable-test-container.md) — 51 ITs FlywayValidate checksum mismatch; delete the history row, not the container
 - [wms2 ProblemDetail props: flat OR nested by path](wms2-problemdetail-custom-properties-are-nested.md) — controller-returned = flat (live), exception-handler = properties.X (IT); read both
+- [Spring Security 6 ignores a custom expression-root override](spring-security-6-ignores-custom-expression-root-override.md) — Supplier path, private root factory; SBDEV-2863 began 2025-09-20

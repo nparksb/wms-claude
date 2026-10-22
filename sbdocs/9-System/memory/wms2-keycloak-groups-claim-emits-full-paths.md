@@ -36,8 +36,8 @@ jwt.path("groups").elements().forEachRemaining(r -> roles.add(r.asText()));
 So the authority set holds **both** forms, and `hasAuthority('sb_admin')` matches the **bare** copy that
 came in via `resource_access`. Keycloak emits each group as a client role as well — that is the mapping,
 and it happens in Keycloak plus the decoder, never by string-munging in Java (nothing in `src/main`
-strips a path; `CustomMethodSecurityExpressionRoot.isAimAdmin()` just calls
-`hasAuthority(SB_ADMIN_ROLE)`).
+strips a path; `Authority.IS_SB_ADMIN` is plain `hasAuthority('sb_admin')` evaluated on Spring's default
+`MethodSecurityExpressionRoot`. The custom root was dead under Spring Security 6 and deleted by SBDEV-2872).
 
 **Practical rule:** to test whether a user *holds* an app role, read `resource_access[<client>].roles`.
 To ask who *should* hold it, the answer is the Keycloak group of the same name. `hasResourceRole` CAN

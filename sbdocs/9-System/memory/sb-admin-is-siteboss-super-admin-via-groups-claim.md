@@ -30,9 +30,9 @@ entitled to it. **Any client-side `sb_admin` check must read the `groups` claim*
 `extractRoles` (see `wms2-web-ui/util/keycloakRoles.js`). Note no test caught this: every `$kc` mock
 was synchronously-ready and returned `true`, so the suite asserted the answer it was checking.
 
-**Escape hatch that exists but is unused:** `Authority.getExpAppAdminGroupOrSbAdminGroup(...)` and
-`getExpAppUserGroupOrAppAdminGroup(...)` are defined and called nowhere; they render
-`hasAuthority('X') or hasAuthority('Y')`. That is where a `wms_admin`-or-`sb_admin` expression would go
+**Escape hatch (helpers DELETED by SBDEV-2872, uncalled and unusable in an annotation):** write the literal
+`hasAuthority('wms_admin') or hasAuthority('sb_admin')` as a constant in `Authority`. That is where a
+`wms_admin`-or-`sb_admin` expression would go
 if product ever wants WMS admins to self-serve something currently sb_admin-gated. Product decision,
 not a defect.
 
