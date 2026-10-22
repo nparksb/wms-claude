@@ -33,7 +33,26 @@ Bridges plan review and implementation. Reads a critic-approved plan, writes the
 Executes a reviewed plan to an open PR: ralph-loops the implementation until the TDD-gate tests and verify script are green, confirms every §0 site and §8 criterion in an independent `verifier` lane, runs code review and fixes EVERY finding including Low, audits doc drift, commits, opens the PR into `develop`, updates the plan doc, and moves the ClickUp ticket to `pr submitted`.
 - **Trigger:** `/wms-plan-executor <plan-file | SBDEV-#### | "the plan we just wrote">` — or "implement plan X", "ship SBDEV-####"
 - **Output:** production code + tests on a feature branch, a PR into `develop`, updated plan §Implementation Status, ClickUp status + comment
-- **NOT for:** merging, deploying, applying Flyway to a tenant DB, or archiving the plan (→ `archive-plan` after merge); implementing a `draft` plan (get ralplan sign-off first)
+- **NOT for:** merging and taking it to dev (→ `wms-merge`), applying Flyway to a tenant DB, or archiving the plan (→ `archive-plan` after merge); implementing a `draft` plan (get ralplan sign-off first)
+
+### `wms-merge`
+Takes reviewed PRs from "PR submitted" to **merged, deployed to dev, and recorded**:
+1. A read-only preflight that flags stacked bases, CI that graded a stale base, trial-merge conflicts, Flyway collisions, and overlap between PRs.
+2. Re-grade **every** PR on the current base before merging it: merge the base in, run the full suite on the actual merge, push. After any merge, every remaining PR is stale, overlap or not.
+3. Retarget stacked PRs. The push re-triggers their CI.
+4. Merge through `merge-one.sh`, pinned to the graded head.
+5. Prove the merge and its content reached `develop`, and confirm the dev deploy.
+6. Bookkeeping: ClickUp `on dev` plus ACs, the `⏳ pending-merge(SBDEV-####)` doc markers, and plan status.
+- **Trigger:** "merge PR #N", "merge 510 and 513", "take SBDEV-#### to dev". Only on the user's explicit request
+- **Scripts:** `wms-merge/scripts/merge-preflight.sh`, `merge-one.sh` (the only merge path; pinned to the graded head), `post-merge-verify.sh`, `flip-pending-markers.sh`
+- **NOT for:** UAT or PRD promotion (devops); writing the fix (→ `wms-plan-executor`); archiving (→ `archive-plan`)
+
+### `wms-dev-probe`
+A kit for manual and dev tests on **dev only**:
+- **Scripts:** `token.sh` (credential from a mode-600 file, never chat), `api.sh`, `q.sh` (a psql fallback that refuses non-dev DBs), and `snapshot.sh save|diff`, the restore proof.
+- **Procedure:** deploy check → feasibility queries → snapshot → a control for every negative result → seed with out-of-band ids → clean up through the API → prove the restore → record on the ticket.
+- **Trigger:** "test on dev", "run the manual test plan", "dev test SBDEV-####"
+- **NOT for:** UAT or PRD (the scripts refuse them); unit or integration tests (those belong in the repo)
 
 ### `wms-v2-migrate`
 Ports an existing v1 plan into a v2-specific plan; flags already-done, still-needed, and new-in-v2 issues.

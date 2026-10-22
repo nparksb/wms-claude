@@ -94,6 +94,7 @@ TICKET=SBDEV-####
 BRANCH=bugfix/SBDEV-####-kebab                       # from the plan
 WT="$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
 
+"$MONO/.claude/scripts/ticket-lease.sh" claim "$TICKET" "executor: implement"   # exit 1 = another live session holds it: STOP, coordinate
 git -C "$MONO/$REPO" fetch origin                    # MUST be fresh — the base is origin/develop as of now
 git -C "$MONO/$REPO" worktree list                   # reuse an existing worktree for this ticket, don't duplicate
 git -C "$MONO/$REPO" worktree add -b "$BRANCH" "$WT" origin/develop
@@ -103,7 +104,7 @@ cd "$WT" && git status --short && git branch --show-current && git log --oneline
 - Base is `origin/develop` **after a fetch** — a stale local `develop` is the whole reason this gate exists. Confirm with `git merge-base --is-ancestor origin/develop HEAD`.
 - **Reuse, don't recreate.** `wms-tdd-gate` creates this same worktree when it runs first on the chained path; if `worktree list` already shows `<repo>/<TICKET>`, work in it. Its uncommitted TDD-gate tests are expected, not a dirty-tree failure. Any *other* uncommitted content in it → stop and ask.
 - If the branch already exists (remote or local), attach instead of creating: `git worktree add "$WT" "$BRANCH"`, then verify it is up to date with `origin/develop` and say whether it already carries commits.
-- **Stacked branch:** if this plan builds on another unmerged branch, base the worktree off that branch instead (`git worktree add -b "$BRANCH" "$WT" origin/<base-branch>`), set the PR base to it in Phase 6, and state the merge order explicitly. Stacked PRs must merge base-first into `develop`; verify with `git merge-base --is-ancestor` before advancing anything.
+- **Stacked branch:** if this plan builds on another unmerged branch, base the worktree off that branch instead (`git worktree add -b "$BRANCH" "$WT" origin/<base-branch>`), set the PR base to it in Phase 6, and state the merge order explicitly. Stacked PRs must merge base-first into `develop`; verify with `git merge-base --is-ancestor` before advancing anything. **Never stack on an unpushed base** (`git ls-remote --heads origin <base-branch>` must show it), and `ticket-lease.sh check <base-ticket>` first. On 2026-10-15 a stack on a local-only base was orphaned when the base's session rebased and pushed.
 - Never implement on `develop` or `main`, and never `git checkout` inside the main checkout to do this work.
 
 **Everything after this point runs inside `$WT`.** Concretely:
@@ -154,7 +155,7 @@ Prove the wiring before you trust a single run: append a marker matching one cur
 
 1. **Verify script:** → record the `Result:` line. Expect failures. **`0 fail` here means the script asserts nothing** — tighten it to call-site regexes before continuing, or the final green proves nothing.
 2. **Targeted tests:** run the TDD-gate test classes → record which fail and why.
-3. **Pre-existing suite failures:** `mvn test` on the untouched branch, or trust the known baseline (2 of ~4442 fail on clean v2 `develop` as of 2026-07-28 — `OptionalSafetyArchTest` ArchUnit drift and `MobilePalletizingServiceTest`). Without this you will later blame your own change for someone else's red test.
+3. **Pre-existing suite failures:** `mvn test` on the untouched branch to derive the baseline (the recorded figure is historical: 2 of ~4442 failed on clean v2 `develop` as of 2026-07-28 — `OptionalSafetyArchTest` ArchUnit drift and `MobilePalletizingServiceTest`; both were fixed by SBDEV-3089, and `MobilePalletizingServiceTest` was later merged into `MobilePalletizingServiceUnitTest` by SBDEV-3102 C1). Without this you will later blame your own change for someone else's red test.
 
 ### ClickUp — mark work started
 
@@ -288,6 +289,7 @@ Skill("verify-docs", "<changed file list, or origin/develop..HEAD>")
 `verify-docs` is report-only, so act on its output:
 
 - **Doc the diff actually invalidated** (a documented signature, flow, sysprop default, or state transition that this change altered) → update it now. Shipping a change that silently falsifies an architecture doc is part of the change, not follow-up work. Bump `last_verified` / `verified_by`.
+- **Pending-merge marker (convention since 2026-10-15).** Text describing code that is not yet on `develop` must carry, inline, exactly `⏳ pending-merge(SBDEV-####)`, with no other wording. `wms-merge` flips that token to `✓ merged(SBDEV-####: #PR sha, date)` with `flip-pending-markers.sh`, only once **every** PR of the ticket is merged (it takes the full PR list). Use `SBDEV-####`, never a real number, when quoting the convention in prose. Free-text variants ("pending merge (PR stacked on #510)", "branch not yet merged") cannot be flipped safely by a script. On 2026-10-15, only 13 of 38 such hits in four docs belonged to the ticket being merged.
 - **Doc merely stale by date** with content the diff didn't touch → list it in the final report. Don't bulk-touch dates you didn't actually verify.
 - New landmine or non-obvious behavior worth durable capture → note it for the user rather than inventing a doc.
 
@@ -332,6 +334,7 @@ PR title:      <title>
 Inline notes:  <N> review comments to post on the PR (Phase 6a) — dispatched Lows, non-obvious
                design decisions, load-bearing ordering. 0 is a valid answer.
 ClickUp:       SBDEV-#### → "pr submitted"
+Lease:         .claude/scripts/ticket-lease.sh release SBDEV-####   (after the PR is open; wms-merge claims it again)
 ```
 
 Wait for go. Skip the wait only if the user invoked the skill with `--auto` or already said to run unattended. Push and PR creation are outward-facing and effectively irreversible in a shared repo — one gate, not three.

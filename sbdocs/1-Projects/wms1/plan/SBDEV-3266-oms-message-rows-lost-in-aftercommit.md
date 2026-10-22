@@ -380,11 +380,94 @@ supplying its own try/catch proves nothing about production).
 
 ## 4. V1/V2 Applicability
 
-v2 already has `@Transactional(value = "tenantTransactionManager", propagation = REQUIRES_NEW)` on
-its `createServiceLog` and retired the afterCommit dispatchers for a transactional outbox under
-SBDEV-2381. **Nothing here ports forward.**
+⚠️ **CORRECTED 2026-10-07 (SBDEV-3674). The original text of this section was false, and it is why
+v2 was never swept.** It read:
 
-v2 carries the same *class* of bug by a different mechanism — filed separately as **SBDEV-3267**.
+> v2 already has `@Transactional(value = "tenantTransactionManager", propagation = REQUIRES_NEW)` on
+> its `createServiceLog` and retired the afterCommit dispatchers for a transactional outbox under
+> SBDEV-2381. **Nothing here ports forward.**
+
+The annotation is really there, but it is **inert on almost every path, for exactly the reason §3.2
+Option 1 above gives** — *"all call sites are self-invocations from `createMessage`. Spring's proxy is
+bypassed, so the annotation is never honoured."* This section cited the presence of that annotation as
+evidence v2 was protected, two pages after correctly reasoning that its presence proves nothing.
+
+What is actually true of v2 (`origin/develop`, measured 2026-10-07):
+
+- `createServiceLog` carries the annotation and has **2** external callers, where it does fire —
+  `BillofladingService` (`messageService.createServiceLog(WmsConstants.SERVICE_LOG_SENDER_WMS`, inside
+  an `afterCommit`) and `PendingReversalReconciliationJob`. Derived by `git grep` for
+  `createServiceLog` over `origin/develop:src/main`; blind spot — a reflective or SpEL-mediated caller
+  would not appear.
+- The other **37** external call sites, in **10** files, reach it through one of the two
+  `createMessage` overloads, both of which call it unqualified on `this`, so the proxy is bypassed.
+  (All **39** external sites together span **12** files; 37-in-12 mixes the two counts and is wrong.
+  Reconciled by two instruments — a `git grep` of both method names and a per-file census — which
+  agree per file.)
+- What that costs depends entirely on the caller's transaction state, and it is **not** uniform:
+  **33 of 39** sites have no enclosing transaction, so `SimpleJpaRepository.save`'s own `REQUIRED`
+  opens one and commits — the row survives, correct by accident. **One** (`BillofladingService`'s
+  direct `createServiceLog` call) is inside an `afterCommit` callback but reached **through the
+  proxy**, so its real `REQUIRES_NEW` suspends the completing transaction and commits — the only site
+  that is correct *on purpose*, and the state the v2 fix generalises. **Two** are inside a live
+  transaction and roll back with it: `OrderBatchCreationService.createAll`, and
+  `OmsNotificationService`'s inline `urlPath == null` branch, which `return`s *before* the deferral
+  branch and so runs in whatever transaction the caller holds.
+  **Three** (`OmsNotificationService.doSend` ×3) run inside an `afterCommit()` callback, where
+  `processCommit` has run `triggerAfterCommit()` but not yet `cleanupAfterCompletion()`, so a
+  `REQUIRED` save *participates* in an already-committed transaction: nothing commits, nothing
+  flushes, the EntityManager is closed at cleanup, and **the insert is lost with no row and no
+  exception**. That third case is this v1 plan's own mechanism, and it is where v2's measured loss
+  actually is.
+- The outbox migration is **partial**, not complete: `OmsNotificationService.sendAfterCommit` still
+  exists on `origin/develop` and still has 4 `createMessage` sites of its own. "Retired the afterCommit
+  dispatchers" overstates SBDEV-2238's scope.
+- Measured loss, using this plan's own §2.3 instrument — **v2 era only**, because both UAT `message`
+  tables carry migrated v1 history and a whole-table rate dilutes the defect across years in which it
+  did not exist: **rate = burned / issued**, where issued = surviving rows + burned — Hydra PRD (all v2)
+  **402 of 3,403 issued — 11.8%**; hydra-uat post-cutover **1,612 of 4,965 issued — 32.5%** (3,353
+  surviving rows) against 3 burns in its entire v1 era; wineco-uat post-cutover **42,285 of 106,530
+  issued — 39.7%** (64,245 surviving rows) against 250 across 2019–2025. *(An earlier revision printed
+  these as burned/rows fractions beside burned/issued percentages, so the arithmetic on the page did
+  not check out.)*
+  The step function at each cutover is itself evidence the defect is v2-specific. *(An earlier revision
+  of this correction quoted 2.35% and 2.32%, computed over the whole table — understated ~10×.)*
+  `message_archived` is empty and `min(number)` is 1 (3 on prd) with history back to the first row ever
+  written on all three, so `MessageCleanupBatchService` deletion is excluded rather than assumed.
+
+**So the bug class does port forward — and it ports forward as THIS plan's own mechanism**, the
+`afterCommit` discard, tracked in v2 as SBDEV-3674. On Hydra PRD the leading contributor is
+receiving-driven `STOCK_UPDATE` — 304 of 402 burns fall on the 17 days with receiving activity
+(17.9/day) against 98 on the 69 days without (1.42/day), a 12.6× ratio — and only 28 `STOCK_UPDATE`
+rows have ever survived there. ⚠ **At most ~66%**, not all: 138 of 402 burns occur in intervals with
+no receipt activity at all, and there is no dose-response (one interval holding 210 receipt positions
+burned 3). An earlier revision of this correction stated the identification as fact, dropping the
+hedge the v2 plan carried.
+
+⚠ **An earlier revision of this correction said v2's largest exposure was "235 of 237 advice imports
+have no ADVICE_IMPORT service-log row, from a controller that carries no `@Transactional` at all".
+That is withdrawn, and its second clause refutes its first** — a controller with no `@Transactional`,
+under `open-in-view=false`, has no enclosing transaction, so the row has nothing to roll back with.
+Two independent lanes broke it: all 235 of those advices carry a 13-digit `externalid` equal to their
+own `created` timestamp to within 0.9–27.8 ms, i.e. `ReceivingService`'s
+`String.valueOf(System.currentTimeMillis())` — they were hand-keyed inbound BOLs, never imported, and
+no service-log row was owed.
+
+**One distinction this plan should carry forward, because only the sequence burn reveals it.** A
+*double* deferral — a synchronization registered from inside `afterCommit`, which Spring discards
+unseen — produces no POST, no row **and no burn**. A *single* deferral reaches `createMessage`, so it
+burns a number and loses the row. So a burn means the attempt got as far as `createMessage`, while a
+zero-row process type with no burn means the callback never ran at all. Those are opposite operational
+problems and nothing else in the schema separates them. In v2 the first is SBDEV-3267 and the second
+is SBDEV-3674.
+
+⚠ **A burn does NOT mean the notification was delivered** — an earlier revision of this correction
+said it did. `doSend` burns on **all three** of its exits, including the transport-exception catch
+where the POST never completed and the non-2xx arm where OMS refused it. The burn proves the attempt
+reached `createMessage`; the outcome is precisely what the lost row would have recorded.
+
+SBDEV-3267 (`sendAfterCommit` guard) remains a *separate* v2 defect in the same family; it is not the
+whole of what ports.
 
 ---
 

@@ -31,3 +31,10 @@ made the same call with opposite expectations.
 Related: [[verify-script-traps]],
 [[negative-test-verify-scripts-before-trusting-them]],
 [[resourcebundle-parent-chain-hides-child-deletion]]
+
+**Third trap (SBDEV-3325, 2026-10-07): `new BusinessException(msg, cause)` has a NULL `getMessage()`.**
+That constructor calls `super(message, cause)` but leaves `key` null, and `getMessage()` is overridden
+to `resolveMessage(null, key, parameter)` — so it returns null. Any caller that shows
+`e.getMessage()` (e.g. `MessageController.resentMessage`'s `errors` payload) displays "null". To keep
+both the text and the cause: `BusinessException be = new BusinessException(msg); be.initCause(cause);`
+— caught only because a test asserted `hasMessageContaining`, not just the exception type.

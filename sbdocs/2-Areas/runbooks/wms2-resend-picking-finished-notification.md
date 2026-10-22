@@ -157,6 +157,11 @@ WHERE pop.pickingorder_id = :picking_order_id
 GROUP BY co.id, co.externalnumber, co.orderbatch_id, cob.batchid, ul.labelid;
 ```
 
+> ⚠ **Superseded code path (noted 2026-10-21):** since the 2026-05-20 fix `finishPickingOrder` enqueues
+> PICKING_FINISHED on the outbox via `ManageOrderService.buildPickedPayloadJson`; `customerOrderPicked`
+> was retired to a no-op shim (SBDEV-2381) and deleted (SBDEV-3102 D2). The one-POST-per-CO rule below
+> still holds — one outbox row per CO.
+>
 > **Important:** `finishPickingOrder` calls `customerOrderPicked(singletonList(order))` — one
 > customer order at a time. Each customer order in the picking order may belong to a **different
 > order batch** and needs its own separate POST to OMS.
@@ -434,7 +439,7 @@ even though the notification was never sent. There is **no retry, no error log, 
 
 ## 10. Code & Schema References
 
-**WMS v2 (wms2-api):**
+**WMS v2 (wms2-api):** ⚠ these references describe the code **as of the 2026-05-20 incident**. `customerOrderPicked` no longer exists (retired SBDEV-2381, deleted SBDEV-3102 D2, 2026-10-21); see §5.4 / the outbox path for the current mechanism.
 - `MobilePickingService.java:699–709` — Case 1 early exit in `releaseRegularPickingOrder`
 - `MobilePickingService.java:1227` — `finishPickingOrder` call inside `rapidPickingScanSource`
 - `PickingorderBusinessService.java:248–281` — Callback A registration + `pickingconfirmationsent` flag

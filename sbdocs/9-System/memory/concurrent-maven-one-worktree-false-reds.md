@@ -81,3 +81,11 @@ shows the peer's worktree path. ⚠ `pgrep -f SBDEV-3418` substring-matches `SBD
 peer's Ryuk finishes reaping. Unit-only lanes (`mvn test`) stay safely parallel across worktrees; it
 is only `verify` that contends. See [[wms2-concurrency-it-fixture-traps]] and
 [[outbox-concurrent-enqueue-it-is-timing-flaky]] for the failures that look identical but are real.
+
+**The other contender need not be Maven (2026-10-09, SBDEV-3286 Phase 2):** an Eclipse jdtls language
+server rooted at the monorepo (`/home/nampark/dev/wms-claude`, spawned by LSP/Serena tooling and review
+subagents) imports each worktree as a Maven project and **compiles into its `target/classes`**. A plain
+`mvn verify` in the worktree failed `testCompile` with `bad class file ... NoSuchFileException:
+target/classes/.../WmsConstants$OrderBatchType.class` in classes nobody touched. Check with
+`ps -eo pid,args | grep jdt.ls`. Fix that held for a whole phase: `rsync -a --delete --exclude target
+--exclude .git` the worktree into a scratchpad build dir outside the jdtls root and run Maven there.

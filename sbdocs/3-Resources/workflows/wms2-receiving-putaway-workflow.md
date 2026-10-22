@@ -226,9 +226,41 @@ named `anonymous` (`ReceivingService:376` — `/rest/**` is unauthenticated, so
 `SecurityContextUtils.getUserName()` returns its fallback); and the `MAXIMUM_RECEIVING_DURING_INBOUND`
 and `WAREHOUSE_NAME` sysprops set (both are unguarded reads inside `receiveGoods`).
 
+> ⚠ **SBDEV-3736 (branch, not merged):** `markFinished` now saves the advice as an entity, and dock-received RETURN advices can also reach FINISHED on an exact match — see the SBDEV-3736 block before §4.4.
+
 **Note the notification timing moved.** `CODE_RECEIVING_RETURN` `STOCK_UPDATE` now fires at
 advice-create time for auto-received RETURNs, not at dock-receive time — which is v1's timing, and
 what SBDEV-2236 had deliberately changed.
+
+#### SBDEV-3736 — RETURN receiving changes (**MERGED** to develop 2026-10-15 (PR #518, merge `a05e8998`, PR head `f6445546`; on dev))
+
+Everything below describes the branch, not `origin/develop`. Re-verify after merge.
+
+1. **RETURN advice finishes on an exact match.** `ReceivingService.finishReturnAdviceIfComplete(Advice)` (public, joins the
+   caller's tx) runs at the end of `receiveGoods` (`finishReturnAdviceIfComplete(advice);`) and after
+   `GoodsReceiptPositionService.adjust` / `.delete`. A RETURN advice with at least one position is FINISHED (positions, then
+   advice, via entity `save`) when **every** position's received total `compareTo(notifiedamount) == 0`. Exact, not `>=`:
+   RETURN advices have `allowoverdelivery=true`, so an over-key stays OPEN and correctable. So a **dock-received** RETURN
+   advice can now reach FINISHED, and so can one corrected by adjust/delete. It locks OPEN sibling positions in ascending id
+   order (`LockReads.forUpdate`), re-reads totals (`LockReads.reconcileLocked`), and throws
+   `ObjectOptimisticLockingFailureException` if a locked sibling is FINISHED or missing. Residual windows (method javadoc):
+   a sibling adjust/delete committing after the re-read (adjust/delete lock no position); and a same-location concurrent
+   completion deadlock (40P01, operator retries).
+2. **`ReturnAdviceAutoReceiveService.markFinished`** (§3.5) saves the advice as an entity
+   (`adviceRepository.saveAndFlush(advice)`), so `advice.modified` bumps. The position flip stays a bulk update.
+3. **`goodsreceipt.receiptdate`** is stamped at creation: `goodsreceiptTemp.setReceiptdate(LocalDateTime.now(ZoneOffset.UTC));`
+   (set once at the only creator; the reuse branch does not re-stamp).
+4. **Damaged return transfer carries the position number.** `setLockDamaged(received, ..., "RETURN DAMAGED " + line.positionExternalId(), false, null, line.number())`
+   in `ReturnAdviceAutoReceiveService` — the `adviceposition.number` becomes `stockrecord.ordernumber`, so `transaction_detail`
+   DAMAGED rows show an order/transaction number.
+5. **Correction notifications.** `GoodsReceiptPositionService.adjust` / `.delete` pick the code through `receivingCode(advice)`:
+   `CODE_RECEIVING_RETURN` (`"RETURN"`) for RETURN advices, `CODE_RECEIVING_REGULAR` (`"RECEIVING"`) for every other type, as
+   before. For TRANSFER, `receiveGoods` writes `RECEIVING_TRANSFER` as the activity code on WMS's own stock record, but sends
+   OMS **no** stock-change message (`case AdviceType.TRANSFER: // intentionally empty`). Adjust/delete still send OMS a
+   `RECEIVING` delta for that stock (SBDEV-3775, not fixed).
+   Still gated by `INBOUND_UPDATE_STOCK_IMMEDIATELY`.
+6. **New read endpoint:** `GET /v3/report/returnsAudit` (+ `/v3/dashboard/returnsAudit`, inherited), `@RequiresFunction(WEB_UI_VIEW_RECEIVED_STOCK_OVERVIEW)`;
+   params `from`, `to` (ISO date-time, window max 366 days), `page`, `size`, optional `clientNumber`.
 
 ### 4.4 Post-commit label print
 
@@ -433,6 +465,7 @@ All callbacks use `omsNotificationService.sendAfterCommit(...)` — post-commit 
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-10-15 | **SBDEV-3736 — **MERGED** to develop 2026-10-15 (PR #518, merge `a05e8998`, PR head `f6445546`; on dev).** Added the SBDEV-3736 block before §4.4 (RETURN finisher, `markFinished` entity save, `receiptdate`, damaged `ordernumber`, correction notification code, `returnsAudit`) and a pointer under §3.5. **Scope: those only; `last_verified` unchanged.** | Code read of the branch (`ReceivingService`, `GoodsReceiptPositionService`, `ReturnAdviceAutoReceiveService`, `ReportController`). Re-verify after merge. | Code read (SBDEV-3736 branch) |
 | 2026-08-29 | **FULL PASS — the first since 2026-04-19.** Every line anchor in the document re-derived against `origin/develop` at `e5daa8ca` and **all 24 rebased**; the load-bearing behavioural claims of §3–§9 re-checked. | ⚠ **Every anchor in the doc had drifted** — the three cited files had grown (`ReceivingService` 765 lines, `AdviceService` 559, `MobilePutAwayService` 589) and anchors were stale by 12–29 lines each. Rebased: `receiveGoods` 303-543→**320-614**; `AdviceService.close` 264-353→**284-381**; `acceptTransferAdvice` 356→**384**; `acceptHubAndSpoke` 145→**157**; Goodsreceipt create 405-414→**423-431**; anonymous-user lookup 359→**376**; core loop 459-499→the `while (amountBottles > 0)` at **522**; `carrier == null` 491-495→**508-509**; stock-change gate 505-523→**578-594**; `registerSynchronization` 532-541→**603**; putaway classification 268-295→**322-335**; `calculatePutAwayList` 217→**246**; fixed-assignment 433-455→**481-492**; area gate 427→**470-471**; readOnly trio 211/353/396→**245/412/455**; `WmsConstants` 741→**769**; `AdviceRestController.reopen` 648→**730**. `verifyPalletOrCartLabel` **616** was already correct (widened 616-628→616-642). All 24 re-verified programmatically after rewriting. Behaviour spot-checks all **held**: `reopen` still `throw new RuntimeException("method not supported")`; the SBDEV-3004 sysprop-default fallback present at `:621-623`; `receiveGoods` carries `@Transactional(tenantTransactionManager, rollbackFor=…)` at `:319`, so §4.4's one-transaction claim stands; `SecurityContextUtils.ANONYMOUS = "anonymous"` confirmed, so §4.5's per-tenant `anonymous` user prerequisite stands. **Scope of this pass: anchors (exhaustive) + behavioural claims (load-bearing ones). NOT re-read line-by-line: the §2 entity cast, §10 debug recipes, and the §9 landmine prose.** | Code read on `origin/develop` + programmatic anchor sweep |
 | 2026-04-19 | `AdviceService` (close, accept variants, reopen stub); `ReceivingService.receiveGoods` loop + stock-change gate; `MobilePutAwayService` all 6 methods + location classification + fixed-assignment validator; OMS callbacks | All file:line refs confirmed against `src/main/java` | Code read (grep-based) |
 | 2026-08-03 | §3.5 added: RETURN auto-receive at advice-create time (SBDEV-2778, supersedes SBDEV-2236); advice-lifecycle diagram annotated; `/rest/advice/create` row corrected | Verified against the SBDEV-2778 branch only — **the rest of the doc was NOT re-verified, so `last_verified` is deliberately left at 2026-05-10** | Code read (SBDEV-2778 diff) |

@@ -8,6 +8,13 @@ metadata:
   modified: 2026-09-15T14:26:21.653Z
 ---
 
+> **UPDATED 2026-10-15 (SBDEV-3769): the reachable set is now NINE tenant-DB MCPs, not six.** PRD gained
+> `wsl-wineco-prd` (wh01_om1_v2), `nywh-hydra-prd` (wh01_hydra_v2), `nywh-shipitez-prd` (wh02_shipitez_v2),
+> `c1wh-shipitez-prd` (wh01_shipitez_v2); UAT also has `wsl-wineco-uat`; the table below is the 2026-09-15
+> set (`wms2-hydra` is no longer in the tool list). Rule unchanged: sweep EVERY tenant-DB MCP the session
+> lists. PRD MCPs time out on the first query(ies) after idle — retry before calling them unreachable.
+> Settings live in `los_sysprop` (`syskey`/`sysvalue`), not `sysprop`/`name`.
+
 An "across the whole v2 estate" claim needs **all six** reachable tenant-DB MCP servers, not the
 Hydra/ShipItEZ four that come to mind first:
 

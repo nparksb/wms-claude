@@ -24,7 +24,7 @@ really is 2 is a misleading log message plus a skipped occurrence — not data l
 **How to apply:** do NOT re-raise this as a blocking finding in step 5 parts 2-4's reviews (or any
 later step-5/6 PR) — it is a closed, recorded decision, not an open item. If a live pool-cap reading
 becomes available for free later (e.g. actuator MCP starts working), it's still worth doing and
-recording, but it is a nice-to-have, not a gate. Full record: `sbdocs/1-Projects/wms2/plan/SBDEV-3198-per-tenant-cron-scheduling.md`
+recording, but it is a nice-to-have, not a gate. Full record: `sbdocs/4-Archieves/wms2/plan/SBDEV-3198-per-tenant-cron-scheduling.md`
 §7a step 5, PR #291's entry.
 
 See also [[wms-mcp-tools-not-surfaced-use-psql-direct]] — DB/actuator MCP servers failing to connect

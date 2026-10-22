@@ -6,7 +6,7 @@ version: v2
 scope: state-machines
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-08-14
+updated: 2026-10-06
 last_verified: 2026-05-08
 verified_by: code read of v2/wms2-api src/main at commit HEAD
 related:
@@ -294,6 +294,29 @@ Same `AdviceState` values as Advice. Write sites: `ReceivingService:240,292`, `A
 > They run only after every position's `receiveGoods` succeeded. This supersedes SBDEV-2236, which had
 > removed the behavior; see 📕 [wms2-receiving-putaway-workflow §3.5](../workflows/wms2-receiving-putaway-workflow.md).
 
+> **SBDEV-3736 — **MERGED** to develop 2026-10-15 (PR #518, merge `a05e8998`, PR head `f6445546`; on dev).**
+>
+> - **`markFinished` now saves the Advice as an entity.** `advice.setState(AdviceState.FINISHED); adviceRepository.saveAndFlush(advice);`
+>   so `advice.modified` bumps (the bulk JPQL it replaced left `modified = created`). The position flip is
+>   unchanged: `advicepositionRepository.updateAdvicepositionToStateByAdviceId(AdviceState.FINISHED, adviceId)`.
+> - **New write sites: `ReceivingService.finishReturnAdviceIfComplete(Advice)`** (public, `@Transactional`, joins the
+>   caller's tx). Writes `position.setState(AdviceState.FINISHED); advicepositionRepository.save(position);` per
+>   still-OPEN position, then `advice.setState(AdviceState.FINISHED); adviceRepository.save(advice);` — entity saves,
+>   not bulk. Callers: end of `receiveGoods` (`finishReturnAdviceIfComplete(advice);` before the label print) and
+>   `GoodsReceiptPositionService.adjust` / `.delete` (last statement of each).
+> - **Rule: exact match.** Guard is `AdviceType.RETURN.equals(advice.getType())`, at least one position, and for **every**
+>   position `receivedTotal.compareTo(notifiedamount) == 0` (null `notifiedamount` fails). Over-keyed stays OPEN, because
+>   RETURN advices have `allowoverdelivery=true` and the advice must remain correctable.
+> - **Consequence: a dock-received or adjusted RETURN advice can now reach FINISHED** — not only via `/rest/advice/create`
+>   auto-receive. An over-key corrected down to exactly the notified amount (adjust or delete) finishes it.
+> - **Locking:** OPEN sibling positions locked in ascending id order (`LockReads.forUpdate(... advicepositionRepository::findByIdForUpdate)`),
+>   then totals re-read via `LockReads.reconcileLocked(...)`. A locked sibling that is FINISHED or missing throws
+>   `ObjectOptimisticLockingFailureException` (rolls the caller back).
+> - **Residual windows (per the method javadoc):** an adjust/delete of a sibling receipt that commits after the re-read
+>   (adjust/delete take no position lock) can leave a FINISHED advice with a position off its notified amount; and two
+>   receives into the **same put-away location** can deadlock (40P01, one aborted, operator retries).
+> - **No reopen path for RETURN:** `AdviceService.close` handles REGULAR only and adjust/delete require OPEN. (`AdviceRestController.reopen`, above, is the only explicit reopener.)
+
 ### 4.9 `Billoflading` + `BillofladingPosition` — String state
 
 | | |
@@ -302,6 +325,56 @@ Same `AdviceState` values as Advice. Write sites: `ReceivingService:240,292`, `A
 | **States reachable** | `CREATED`, `OPEN`, `TRUCK_LOADING`, `TRANSFER`, `CLOSED`, `CANCELLED` |
 | **Primary writer** | `service/BillofladingService.java` (`openBillOfLading:229`, `updateBillOfLading:646,464,473,520`, `finalizeBillOfLading:920`, `finishClubRun:744,749`) |
 | **Cross-writer** | `ParcelMonitorViewService:220`, `MobileTruckLoadingWriteService:394` (SBDEV-3418 moved this write out of `MobileTruckLoadingService`; the state is now decided as a `pendingState` predicate in PHASE C and applied in PHASE D, so the decision and the write are at two different lines), `BillofladingPositionService:44` |
+
+#### 4.9.1 What counts as "shipped": several predicates, deliberately different (SBDEV-3494)
+
+**Read this before writing a new "is it shipped?" guard.** Choose the predicate from this table and name it in the guard's javadoc. There is no single `isShipped` helper, and that is on purpose. Unifying the guards would reverse SBDEV-3487 decision 2; Nam chose doc-only on 2026-10-06. (The only `isShipped*` method is the private `CustomerorderService.isShippedOrPastCancellationBoundary`.)
+
+**How the states are written.**
+- `BillofladingService.closeBOL` accepts REGULAR, TRANSFER_OFFSITE, HUB_AND_SPOKE and TRANSFER_INTRACOMPANY BOLs; it rejects CLUB and PICK_PACK.
+- For a `TRANSFER_INTRACOMPANY` BOL it sets the BOL and its positions to `TRANSFER`. For the other accepted types it sets them to `CLOSED`.
+- Both branches move the pallets and their child unit loads to the `Shipped` location and give them entity lock **404** (`TRANSFER`) or **405** (`SHIPPED`).
+- The stock-unit lock update reaches only stock on the pallet's **child** unit loads (`WHERE s.unitloadId IN (SELECT u.id … WHERE u.carrierunitloadId IN :palletIds)`). Stock sitting directly on the pallet keeps its lock.
+- Both branches set every order on the BOL to `FINISHED`.
+- `finishTransfer` later rewrites a TRANSFER BOL to `CLOSED`, with lock 405 on the same rows.
+
+The resulting nesting, **Shipped location ⇔ position CLOSED or TRANSFER** and **position CLOSED ⇔ lock 405**, is **observed in data, not enforced by code**. See the data check below.
+
+**Guards (they refuse an action):**
+
+| # | Predicate | TRANSFER counts? | Sites (origin/develop @ `69d6126a`) | Why it differs |
+|---|---|---|---|---|
+| P1 | pallet has a BOL position in `CLOSED` | **no** | `MobileTruckLoadingService.checkPallet` (`case …CLOSED: throw`); `BillofladingPositionService.assertPalletNotShipped`, called from the scanGate facade (`SCAN_GATE_FACADE`) and the four D0 backstops in `MobileMoveUnitloadService` (`ShippedGuardSite` `SCAN_GATE_D0*` and `MOVE_UNITLOAD_D0*`). Enforced at delete time by `BillofladingPositionRepository.NOT_CLOSED_PREDICATE`, which fences the D0 delete queries | SBDEV-3487 decision 2: a TRANSFER pallet stays **re-scannable at the gate**. The consequence: re-scanning a TRANSFER pallet onto another BOL lets D0 purge its TRANSFER position tree, because `NOT_CLOSED_PREDICATE` makes TRANSFER rows deletable (SBDEV-3487 §2.1, "purged legitimately") |
+| P2 | a position in `CLOSED` **or** `TRANSFER` | **yes** | `BillofladingPositionService.assertParcelCarrierNotShipped` (parcel's carrier pallet), called from `ParcelMonitorViewService` (SBDEV-2507 Fix A), `MobilePalletizeWriteService` (2 sites) and `MobileMoveUnitloadService` (source-carrier check). Also `BillofladingPositionService.removeBOLPositionIfExists` (the parcel's own position): CLOSED throws `"already shipped!"`, while TRANSFER falls to `default:` and throws `"Unexpected status=TRANSFER found!"`, so it is rejected with a misleading message | Taking a parcel *off* a pallet. Once a pallet has left on a transfer, its contents are frozen, the same as for a closed BOL |
+| P3 | unit load stands on the `Shipped` location | **yes** (both `closeBOL` branches move there) | `MobileMoveUnitloadService` source checks (`"Can not move unit load from "`, scanUnitLoad and scanDestination; SBDEV-3490) and destination check (`"Can not move unit load to shipped location:"`); `MobileMoveStockService`. Non-refusing P3 consumers (they filter or display, never reject): `StockUnitController` (Shipped excluded from the destination dropdown) and `MobileInfoService` (Shipped/Nirvana display) | The strongest physical test. On move-unitload, scanDestination's Shipped-source check runs **before** the only path to the `MOVE_UNITLOAD_D0` backstop (`handleTruckOffLoading`). So P1's TRANSFER exemption never opens a move out of Shipped |
+| P3+ | destination's lock is not `NOT_LOCKED`, **then** the location is `Shipped` | **yes** (404 is a non-zero lock) | `DestinationEligibilityService.gatedViolationReason` (`REASON_ALREADY_SHIPPED`) | Rejects any lock first, so both 404 and 405 are refused before the location test runs |
+| P4 | order state ≥ `FINISHED`, **or** parcel/stock lock == 405 | **yes**, through the order-state arm (`closeBOL` sets `FINISHED` in both branches) | `CustomerorderService.isShippedOrPastCancellationBoundary` | Behaves like P3 for any order that went through `closeBOL`. The lock-405 arm decides only orders still below `FINISHED` |
+| P5 | stock-unit lock == **405** | **no** (404 passes) | `StockunitService` adjust-amount and adjust-reserved-amount guards; `ReservationCut.decide` (`REFUSE_LOCKED`); `CancellationReversalService` (the lock arm only: the same expression still refuses a stock unit holding stock whose container is not `OFF`). By contrast, `setLockDamaged` and remove-lock reject 404 through their `default:` arms | Not designed against TRANSFER. Exposure measured 2026-10-06: **1** stock unit at 404 on WineCo dev (`dev_wh01_om1`), **0** on Hydra PRD. ShipItEZ PRD not measured (the MCP role lacks the grant). Not filed; revisit if TRANSFER volume grows |
+
+**Inventory and reporting (they count or hide stock; they do not refuse).** These split on TRANSFER stock, so the same 404 stock unit appears in some views and not others:
+
+| Treats TRANSFER as… | Sites |
+|---|---|
+| **on hand / visible** (lock-405 exclusion only) | `stock_view.total_stock` (`V2.2.00__base_v2_schema.sql`, `entity_lock <> ALL (ARRAY[405, 2])`; the view also reports it in a separate `transfer` column); the lock report (`V2.2.02__lock_report_exclude_shipped.sql`, `<> 405`); the SBDEV-3500 grids (`StockunitRepository`, `entity_lock != 405`; `UnitloadRepository`, the container-popup query `NOT IN (405, 2)` and the grid query `!= 405`. In the two grid queries (`StockunitRepository` and the `UnitloadRepository` grid) the lock-2 half is lifted when "Show To Delete" is on; the popup has no toggle. The 405 half always applies); cycle-count candidates (`StockunitRepository.getStockUnitsBySkuSetAndAreaSetAndStates`, `NOT IN (:stateShipped, :stateDeleted)`) |
+| **gone** (Shipped location excluded) | `OnHandQuantityService` (`SINK_LOCATIONS`); `ViewWarehouseLocationReportRepository` (`loc.name NOT IN ('Nirwana','Shipped')`) and the DB view `view_warehouse_location_report` (`V2.2.00`); `ReplenishOrderJob` (stock on Shipped does not count as stock to replenish) |
+| **not yet shipped** (`bp.state = 'CLOSED'` only) | the stored functions `stock_history` (`V2.2.07`), `transaction_detail` (`V2.2.25`, earlier `V2.2.08`/`V2.2.12`) and `transaction_summary` (`V2.2.00`). A TRANSFER pallet is reported as shipped only after `finishTransfer` |
+
+**BOL-level checks treat TRANSFER as closed:**
+- `MobileTruckLoadingWriteService` PHASE C rejects a target BOL in TRANSFER, CLOSED or CANCELLED.
+- `BillofladingService.setTrackingDeviceID` rejects TRANSFER and CLOSED.
+- `closeBOL` rejects a BOL already in TRANSFER.
+- The BOL export uses the CLOSED-only detail query, so a TRANSFER BOL exports the not-closed shape.
+
+**How the sites were found.**
+- `git grep` over `src/main` for `assertPalletNotShipped`, `assertParcelCarrierNotShipped`, `BillOfLadingState.(TRANSFER|CLOSED)`, `STORAGE_LOCATION_SHIPPED` and `BusinessObjectLockState.(SHIPPED|TRANSFER)`.
+- `git grep` for raw `405`/`404` literals in the repositories and migrations.
+- An independent review lane re-swept and added the reporting group, `DestinationEligibilityService`, `NOT_CLOSED_PREDICATE` and `removeBOLPositionIfExists`.
+- **Remaining blind spots:** `"Shipped"` spelled as a bare string literal outside the queries above, and the `db/v1-to-v2-onboarding` views (`V1.0.02`/`V1.2.04`), which were not enumerated. Treat the lists as near-complete, not closed.
+
+**Data check (2026-10-06):**
+- **WineCo dev:** every CLOSED pallet position is on Shipped at 405 (15,887 pallets, 396,008 children). The single TRANSFER pallet is on Shipped at 404. TRUCK_LOADING positions are off Shipped at lock 0.
+- **Hydra PRD:** all 52 CLOSED pallets are on Shipped at 405, and there are no TRANSFER rows.
+- **Result:** among the guards (P1–P5) the predicates disagree only where the table says they should. The inventory/reporting group does disagree on 404 stock, as tabled above.
 
 ### 4.10 `Cyclecount` / `CyclecountPosition` — String state
 
@@ -435,6 +508,8 @@ Outside these paths, there is no safe way to "fix" a stuck state — direct SQL 
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-10-15 | **SBDEV-3736 — **MERGED** to develop 2026-10-15 (PR #518, merge `a05e8998`, PR head `f6445546`; on dev).** §4.8 SBDEV-2778 note extended: `markFinished` saves the Advice as an entity; new `ReceivingService.finishReturnAdviceIfComplete` write sites (exact-match rule, lock order, residual windows); a dock-received/adjusted RETURN advice can now reach FINISHED. **Scope: §4.7/§4.8 only** — `last_verified` unchanged. | Code read of branch `feature/SBDEV-3736-returns-audit-linkage` @ `b002934f` (`ReceivingService`, `GoodsReceiptPositionService`, `ReturnAdviceAutoReceiveService`). Not merged; re-verify against `origin/develop` after merge. | Code read (SBDEV-3736 branch) |
+| 2026-10-06 | **SBDEV-3494: added §4.9.1, "what counts as shipped".** Scope: that section only. The rest of the document was not re-verified, and `last_verified` is unchanged. Note: the §4.9 header row still lists `finishClubRun`, which §5.4 says does not exist; left as found. | `git grep` sweep on `origin/develop` @ `69d6126a` (patterns and blind spots listed in §4.9.1), an independent re-sweep by a review lane, and DB queries on WineCo dev and Hydra PRD. | SBDEV-3494 |
 | 2026-09-22 | **SBDEV-3418 — `scanGate` split into two classes.** §4.2's key-transition row and §4.9's `Billoflading` cross-writer row both cited `MobileTruckLoadingService`; the state writes now live in the new `MobileTruckLoadingWriteService`, which is the `@Transactional` half. Note the BOL-state row is no longer a single site: PHASE C decides `pendingState` (:334) and PHASE D applies it (:394), because PHASE C is predicate-only by construction. **Scope: those two rows only**; the rest of the document was not re-verified and `last_verified` is unchanged. | `grep -n "LOADED_TO_TRUCK\|setState(pendingState)"` on the SBDEV-3418 branch; positive control: the same grep against `origin/develop` returns the old in-place sites. | SBDEV-3418 implementation |
 | 2026-08-29 | **PARTIAL — §4.1 and §4.2 write-site tables fully rebased; the rest of the doc NOT re-verified.** Extracted all 74 citations and machine-checked them against `origin/develop` at `e5daa8ca`. | ⚠ **Read this before trusting any anchor here: this doc's parenthetical names are sometimes DESCRIPTIVE LABELS, not declared methods.** `PickingOrderMergeService` has taken **0 commits** since the last verification yet cites `:127` (`cancelOrderIfMergeFails`) and `:161` (`mergeOrders`), neither of which is a declared method — both are lines *inside* `mergePickingOrders` (:46). Four successive automated checks each mis-read that convention as "method deleted", so the untouched citations below **cannot be machine-swept** and need per-citation reading. **Rebased and re-verified against code (24 anchors):** `CustomerorderService` `239-244 (createForRelease)`→**285,290-291 (`setPickingDate`)** (`createForRelease` does not exist; `:239` is an unrelated method), `485 (pack)`→**557 (`packageOrder`)**, `351/675 (cancel)`→**356,361 (`checkAndCleanUpPickingOrderPositions`) / 408,415 (`updateOrderPositions`)** with the public entry `cancelOrder` at **:690**; `ReleaseOrderJobService` `643,647 (releaseOrderAndPosition)`→**196,395,440,454 / 723 (`releaseOrder`)** — that method name does not exist either; `TransferOrderService` `96,110,124,132`→**100,155,163 / 115 / 132** with all four enclosing methods named; `PickingorderBusinessService` `238,241,343,502`→**249,252 (`finishPickingOrder`) / 419 (`cleanUpCancelledOrder`) / 594 (`confirmPick`)**; `ParcelMonitorViewService` `156,283 / 401`→**193,345 / 465**; `MobilePalletizingService` `220`→**269,421**; `MobileTruckLoadingService` `304`→**306 (`scanGate`)**; `BillofladingService` `481`→**503,546 (`closeBOL`)**; `UtilRestController` `960`→**1092,1095,1099 (`resetOrdersInReleasedStatus`)**; `CustomerorderBatchService` `427`→**474 (`activateOrderBatch`)**, `606`→**628 (`validateClubLine`)**, `689`→**716 (`finalizeClubLine`)**, `434`→**479**, `279,339`→**260**, `358`→**393**; and `startPicking`→**`startPickingOrder`**. Every rewritten anchor re-verified to contain the state token the row claims. **STILL STALE, not fixed:** §4.1's four guard citations (`OrderRestController:180`, `CustomerorderService:471`, `:382,554`, `:639`) — these are interpretive prose claims, not state writes, and need a human read; and §4.3 onward plus §5's cascades were not audited at all. **`last_verified` deliberately NOT bumped — it stays at 2026-05-08.** | Code read on `origin/develop` + machine citation sweep, every replacement re-verified |
 | 2026-04-19 | All state field declarations, `WmsConstants.State` + `AdviceState` + `BillOfLadingState` + `CycleCountState` values, write-site inventories (~160 total), primary guards, cascade methods, recovery endpoints | All counts and file:line refs confirmed against `src/main/java` | Code read (grep-based) |

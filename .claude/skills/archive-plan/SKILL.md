@@ -81,6 +81,7 @@ acceptance box — and for each one require **exactly one** of these disposition
 |---|---|
 | **Fixed** | in this plan's PRs; name the commit |
 | **On a ticket** | give the ticket id. Per the ticket policy in `wms-triage`: a sub-T3 finding goes on the ticket you are already in (unless it is `on dev` or later); T3 is proposed, never filed |
+| **Proposed** | give its row id in `sbdocs/2-Areas/proposals-register.md` (e.g. `P4`). A proposal recorded only in a ticket comment or in the plan does **not** count. Add the row first |
 | **Dropped** | with a one-line reason. A deliberate drop is a fine outcome; a silent one is not |
 | **Not machine-knowable, owner named** | manual QA, a per-environment check, a decision — name who holds it |
 
@@ -100,7 +101,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
 
 - **5a.** Move the file with plain `mv` — `sbdocs/` is not a git repository under the OWL umbrella. Never use `git mv`.
 - **5b.** Edit the moved file's frontmatter — flip `status` and append a row to the Verification Log table if one exists.
-- **5c.** Edit the source (active) README — remove the matching `- [<filename>](<filename>)` line (or its equivalent in the inventory table). Preserve the rest of the README.
+- **5c.** Edit the source (active) README: remove the plan's hand-written note line (`- [<filename>](<filename>) — …`), if it has one. Then regenerate the inventory with `python3 -I sbdocs/9-System/scripts/plan-inventory.py wms{1|2}`. The generated table is rebuilt from disk, so never edit it by hand. Preserve the rest of the README.
 - **5d.** Edit `4-Archieves/README.md` — increment the `~N` count by 1 for the matching row. Leave the commentary untouched.
 - **5e.** Handle the verify script (default flipped 2026-07-24). For every plan the actionable-plan skills emit (`wms-bugfix-plan`, `wms-feature-plan`, `wms-v2-migrate`), there is a paired acceptance script at `sbdocs/9-System/scripts/verify-<plan-id>.sh` where `<plan-id>` is the plan filename without `.md` (some plans also have suffixed siblings — `-v2`, `-web`, `-mobile`, `-followup`, `-prekickoff`).
    - **Default: retire the script alongside the plan.** Move it to `sbdocs/4-Archieves/scripts/verify-<plan-id>.sh` (create the dir if missing). Rationale: these harnesses are *pre-merge acceptance gates*, not living CI — durable regression protection belongs in each repo's JUnit suite. Keeping the active pool (`9-System/scripts/`) signal-rich matters more than the rarely-realized "future contributor greps for the script" case (there is no code→script index).
@@ -125,7 +126,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
 
    **If nothing matches, skip 5f entirely and say so** — "no worktree for this plan" is a normal outcome, not a problem to solve. Never create one, and never remove a worktree whose directory name doesn't match this plan's ticket.
 
-   **Pre-removal gates — all four, per worktree.** Removal deletes a working tree and its branch ref; anything in it that was never pushed is gone for good. Push state is the entire safety net, so prove it before deleting.
+   **Pre-removal gates — all five, per worktree.** Removal deletes a working tree and its branch ref; anything in it that was never pushed is gone for good. Push state is the entire safety net, so prove it before deleting.
    1. **Merged.** Confirm the branch actually landed: `gh pr list --head "$BRANCH" --state all --json number,state,mergedAt` from inside the repo. Prefer this over `git merge-base --is-ancestor "$BRANCH" origin/develop` — that ancestor check reports "not merged" for a **squash-merged** PR even though it landed, which is the normal merge style here. If the PR is still open or was closed unmerged → **stop, do not remove**, and report it: archiving a plan whose PR never merged is itself worth surfacing to the user.
    2. **Nothing uncommitted.** `git -C "$WT" status --porcelain` must be empty. If it isn't, show the user the file list and ask before proceeding — never pass `--force` on your own initiative. (Expect a stray mutated ArchUnit store from a `mvn test` run; still ask.)
    3. **Nothing unpushed.** Compare against `origin/<branch>` **explicitly** — do **not** use `@{u}`:
@@ -137,7 +138,8 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
       ```
 
       `git worktree add -b <branch> ... origin/develop` sets the new branch's upstream to **`origin/develop`**, not `origin/<branch>` (verified 2026-08-03: `branch.<b>.merge = refs/heads/develop`). So `log @{u}..` lists the branch's own legitimate commits and reads as "unpushed" even for a fully-pushed branch — it fails open in the noisy direction on every worktree. Unpushed commits, or no remote head at all → stop and ask; a worktree with commits that exist nowhere else is the one thing removal can permanently destroy.
-   4. **Repo matches the plan's version.** Same guardrail as 5e: v1/v2 plan pairs share a base name and can have sibling worktrees in *different* repos. Retire only the worktree(s) whose repo matches the plan being archived (`v1/...` for a v1 plan, `v2/...` for a v2 plan); **keep any worktree in a repo whose sibling plan is still active in `1-Projects/`.** A multi-repo plan of one version (API + web-ui, e.g. `SBDEV-2731`) has sibling worktrees that all belong to that plan — remove them all together.
+   4. **No live session holds the ticket.** `/home/nampark/dev/wms-claude/.claude/scripts/ticket-lease.sh check <TICKET>` must exit 0 (free, yours, or stale). On 2026-10-15 a ticket's worktree was removed by one session while another was still using its branch.
+   5. **Repo matches the plan's version.** Same guardrail as 5e: v1/v2 plan pairs share a base name and can have sibling worktrees in *different* repos. Retire only the worktree(s) whose repo matches the plan being archived (`v1/...` for a v1 plan, `v2/...` for a v2 plan); **keep any worktree in a repo whose sibling plan is still active in `1-Projects/`.** A multi-repo plan of one version (API + web-ui, e.g. `SBDEV-2731`) has sibling worktrees that all belong to that plan — remove them all together.
 
    **Execute, once every gate passes:**
 
@@ -145,6 +147,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
    git -C "$MONO/$REPO" worktree remove "$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
    git -C "$MONO/$REPO" branch -d "$BRANCH"    # -d, not -D; it refuses if the branch isn't merged
    git -C "$MONO/$REPO" worktree prune
+   "$MONO/.claude/scripts/ticket-lease.sh" release "$TICKET"   # once all of the ticket's worktrees are gone
    ```
 
    - Use `branch -d` and let it refuse. If it refuses on a **squash-merged** branch (git can't see the squash as a merge), that is the one case `-D` is correct — but only after gate 1 proved `mergedAt` is set. Leave the remote branch alone; GitHub's own merge settings own that.

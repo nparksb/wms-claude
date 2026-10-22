@@ -6,7 +6,7 @@ version: v2
 scope: cancel-cascade
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-09-15
+updated: 2026-10-16
 last_verified: 2026-05-08
 verified_by: code read of v2/wms2-api src/main + state-machine architecture doc
 related:
@@ -348,6 +348,14 @@ There are two ways to close a row.
 
 **Residue restore after a waive.** `completeReversal` computes each SU's waived share **once, before its movement loop**. It no longer re-locks residue that is only a waived row's share; otherwise that stock would be stranded at 100 with no operator path out. An unknown (null) share restores the lock, which is the conservative choice.
 
+**Pending Reversals status** ✓ merged(SBDEV-3804: #524 d21d570e, 2026-10-16). `detail()` and `listPendingReversals()` add a per-row `rtsStatus` (`READY` · `SHORT` · `SHIPPED` · `BLOCKED` · `UNKNOWN`) with `rtsStatusReason`, plus `rtsStatusCounts` per order. It is display-only and gates nothing.
+- It is computed by complete's own row rules: the pre-validate was moved into `judgeRow`, which complete throws from.
+- The move itself is modelled by `StockunitService.previewReturnTransfer`: the arm taken, available amount net of earlier rows on the same SU, source container and bin locks, and the source bin resolving.
+- Rows are classified in log-id order, the order complete moves them.
+- **One-way contract, for Complete to the source bin (no staging lane):** every non-READY status means complete refuses. READY can still be refused for unmodelled destination-side causes.
+- **Known exception:** two rows on one SU where the first takes all of it *and* moves it whole (re-homes the SU because there is no FLA at the container's bin, or relocates its container). The second shows SHORT, but complete re-moves the first row's units and completes it (proposal P10 in `2-Areas/proposals-register.md`). If the first row takes only part, complete agrees with the status.
+- The read paths never persist the SBDEV-3316 recovery.
+
 **Accepted gap.** A row whose SU id had to be recovered in the waiving call is closed with its lock kept, and nothing ever retries the release. Measured exposure: 0 live rows across the 3 PRD tenants on 2026-09-26.
 
 ---
@@ -356,6 +364,7 @@ There are two ways to close a row.
 
 | Date | By | Scope | Result |
 |---|---|---|---|
+| 2026-10-16 | SBDEV-3804 | §11a: added the "Pending Reversals status" paragraph. **Scope: that paragraph only.** The refusal set in the §11a table is unchanged by the diff (complete's messages and order are preserved), so `last_verified` stays unchanged. | Code read of `feature/SBDEV-3804-rts-status` @ 66b0c835; agreement IT 23 cases / 0 failures (nested `CancellationReversalLockClearIntegrationTest.RtsStatusAgreement`), preview unit test 7/0; 30 hand mutants killed; full suite 8432/0 unit, 912/0 IT | SBDEV-3804 implementation |
 | 2026-09-27 | SBDEV-3381 | New §11a (waive endpoint, four-state tote check, shared OMS enqueue with whole-order suppression, waive-aware residue restore) and a §11 debug row. **Scope: §11a only.** No other section was re-audited, so `last_verified` stays unchanged. | Code read of `feature/SBDEV-3381-waive` @ 723e1ba0; conformance verifier PASS; targeted unit 197/0 and IT 26/0; full suite at 373a31c0 unit 7228/0 and IT 539/0 | SBDEV-3381 implementation |
 | 2026-09-26 | SBDEV-3362 | `forceCancelOrder` OMS signal | §6 intro + table row, §9 item 7, §10 item 8 rewritten: force-cancel now enqueues through the shared `enqueueCancellationSignal`. **Scope: those claims only**; line-number drift still unaudited, `last_verified` unchanged. | Unit tests `cancelOrder_forceCancel_*` (CustomerorderServiceUnitTest) + code read on the branch | SBDEV-3362 implementation |
 | 2026-09-15 | SBDEV-3332 | `cancelOrder` / `forceCancelOrder` / `cleanUpCancelledOrder` flag lifecycle + the OMS cancel emitters | §9 gained items 6–7; §10 items 6, 8, 9 added or withdrawn. Corrected: the activation sysprop is inert in v2 (2 refs, one commented out); `forceCancelOrder` emits no OMS cancellation; the two real emitters now share `CO-CANCELLED-<id>`. ⚠ §9's `CustomerorderService:323/351/356` citations are drifted — grep the method name. |

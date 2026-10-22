@@ -1492,7 +1492,7 @@ the verification. This plan neither adds nor relies on a lock: the soft-fail pat
 | T13 | `createReturns200WithWarningWhenAutoReceivePartiallyFails` | 200; `status == "success"`; `warning.code` / `.reason` / `.correlation_id` present |
 | T14 | `createStillReturns204OnFullSuccess` | Regression guard on REGULAR + happy RETURN |
 | T15 | `createStillReturns400OnPreflightRejection` | Unknown SKU rejected by `validate()` is still a hard 400 with **no** advice row saved |
-| T16 | `warningBodyContainsNoInternalIdentifiers` | Same allow-list assertion as T12, at the HTTP boundary |
+| T16 | `warningBodyCarriesOnlyAllowListedKeysAndNoRequestValues` (was `warningBodyContainsNoInternalIdentifiers`; renamed and made non-vacuous under SBDEV-3102 B11, 2026-10-19) | Same allow-list assertion as T12, at the HTTP boundary |
 | T17 | `auditRowRecords200AndReasonWhenWarned` | `service_log` row: status code `200`, `answer` carries reason + correlation id |
 | T18 | `auditRowStillRecords204AndNullAnswerOnCleanSuccess` | Regression |
 | T19 | `partialMessageIsFormattedWithAllSixArguments` | The arity trap — the rendered description contains **no** literal `%5s` / `%6s` |

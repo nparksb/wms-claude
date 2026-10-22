@@ -8,7 +8,7 @@ owner: Nam Park
 created: 2026-04-19
 updated: 2026-09-24
 last_verified: 2026-09-24
-verified_by: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired); source-lock row re-verified 2026-09-14 against origin/develop d80b5083 for SBDEV-3341 (it was wrong); handleTruckOffLoading source-label + CLOSED-position rows re-verified 2026-09-24 for SBDEV-3487; scanDestination source-guard rows for SBDEV-3490 (merged 5fa9bef0)
+verified_by: "SBDEV-3755 doc pass 2026-10-13 — re-verified ONLY the new §6 Move Stock replen-hold guard row and the replen-hold note under 'Core API: StockunitBusinessService.transferStockToUnitLoad', by reading StockunitBusinessService, ReplenHoldPolicy and the ALLOW_ANY call sites in worktree .claude/worktrees/wms2-api/SBDEV-3755-fix1 (branch fix/SBDEV-3755-transferstock-replen-held-opt-in @ 75346acd, unmerged, stacked on PR #510). last_verified and updated deliberately NOT bumped; nothing else in this doc was re-derived. Prior: code read of v2/wms2-api MobileMoveUnitloadService + MobileMoveStockService + UnitloadBusinessService + StockunitBusinessService; §4 re-verified 2026-08-28 against SBDEV-2996 (moveStock/scanDestination retired); source-lock row re-verified 2026-09-14 against origin/develop d80b5083 for SBDEV-3341 (it was wrong); handleTruckOffLoading source-label + CLOSED-position rows re-verified 2026-09-24 for SBDEV-3487; scanDestination source-guard rows for SBDEV-3490 (merged 5fa9bef0)"
 related:
   - ../architecture/wms2-transaction-osiv-boundary-map.md
   - ../architecture/wms2-tenant-routing-datasource-topology.md
@@ -191,6 +191,8 @@ At line 173–322. Two code paths:
 
 **Pessimistic `PESSIMISTIC_WRITE` lock** on source stockunit via `StockunitRepository.findByIdForUpdate()` at line 188 — prevents TOCTOU under concurrent splits.
 
+**Replen-hold displacement guard — SBDEV-3755, merged to develop 2026-10-15 (#510 ebb52109, #513 3734751f).** The full-move row above (re-parent) and the drain-to-zero merge both strand an active replenishment order that holds the source stock unit, so the method now refuses them by default. The `ReplenHoldPolicy`-taking overload (returns `TransferOutcome`) carries the body; the 8/9-argument overloads delegate with `REFUSE`. The guard is skipped when an FLA is in play, when `amount < source.amount` (a split or partial merge), or on a true self-merge (the chosen destination stock unit is the source itself). Four call sites pass `ALLOW_ANY` (derived by grepping `ALLOW_ANY` over `src/main` in the worktree): the replen finish (`MobileReplenishService`), the pick confirm (`PickingorderBusinessService`), the Damaged arm of `StockunitService.moveStock`, and `UnitloadService.moveStockToNewDamagedContainer`. Every other `transferStockToUnitLoad` caller, including Move Stock's non-Damaged arms in `StockunitService`, calls an 8/9-argument overload and so gets `REFUSE`. See `wms2-stockunit-design.md` §2 for the full contract, and `wms2-replenishment-design.md` §9 for the Move Unit Load multi-holder path, which is a different mechanism (`syncForMovedStockUnit`).
+
 ---
 
 ## 4.2 Scanned-identifier case resolution (SBDEV-3134, PR #234 + mobile-ui #50, merged 2026-08-29)
@@ -307,6 +309,7 @@ lives on `StockunitService.transferStock`; both halves are listed below.
 | Source UL is the Nirvana UL | `"Can not move stock from <label>"` | `MobileMoveStockService:111` |
 | Source UL on NIRVANA location | `"Can not move unit load from Nirwana"` | `MobileMoveStockService:118` |
 | `transfer > available` | `"Entered amount more than available"` | `MoveStockController:80` |
+| Active replen order holds the source stock unit and the transfer re-parents it or drains it to zero (no FLA, not a self-merge) — **SBDEV-3755, merged to develop 2026-10-15 (#510 ebb52109, #513 3734751f)** | `BusinessException`: `"Stock unit <id> on unit load <label>: "` + `ReplenishmentOrderMessages.replenBlockMessage(order)` when the holder is `>= STARTED`, else `replenHoldsStockMessage(order)`; WARN `REPLEN_HELD_REFUSED`. Opt-in callers (`ALLOW_ANY`) are not refused | `StockunitBusinessService.transferStockToUnitLoad` guard block (worktree `:385-410`) + `refuseIfHeld` (`:~528-545`) |
 
 **Source container — `SourceContainerGuard` (SBDEV-3353, 2026-09-24, branch not yet merged).** There are three entry points, and each call site uses exactly one:
 - `assertUnitloadNotParcel(Long unitloadId, …)`: `StockunitService.transferStock`. It is handed the unit load **id** read as a scalar, so nothing gets managed before `transferStockToUnitLoad`'s `findByIdForUpdate`.

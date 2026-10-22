@@ -190,6 +190,20 @@ Per-operator guards in `MobilePickingService`:
 | 333 | `>= RESERVED` — only claimed picks can advance |
 | 340 | `< RESERVED` — not yet claimed |
 
+> **SBDEV-3865 — the pick is judged on the STORED line, not the request body** ✓ merged(SBDEV-3865: #558 bafa2301, 2026-10-22). The rapid
+> endpoints (`/processRapidPickScanSource`, `/processRapidPickScanSourcePass`, `/processRapidPickScanPackageToVerify`,
+> `/resetPickingOrder`) take a whole `PickingorderPosition` in the body; they now re-read it by id and act on the stored row.
+> The rapid pick refuses a body whose picking order, amount, pick-from stock unit or pick-to unit load differs from it
+> (`"does not match the stored pick (<field>)"`), comparing the picking order **before** reading the line's state; an
+> already-picked line still answers `PICK_ALREADY_FINISHED`. `processPick` refuses a line that is not on the order it
+> locked. Reset and release lock the stored line's order and refuse one held by another operator, and so does
+> `GET /releasePickingOrder/{id}` (`releaseRegularPickingOrder`), after its Case 1 OMS re-enqueue safety net.
+> `PickingorderBusinessService.confirmPick` (the one stock-moving step of both pick paths) takes the picking-order lock
+> **first**, then the customer order, and refuses an amount other than the stored one (`PICK_CONFIRM_AMOUNT_MISMATCH`), a
+> stored order held by another operator (`PICK_CONFIRM_ORDER_ASSIGNED_TO_OTHER_OPERATOR`, "free or the caller") and a
+> tote other than the stored pick-to unit load (`PICK_CONFIRM_WRONG_PICK_TO_UNITLOAD`, null-tolerant for the first pick).
+> Before this, a rapid pick posted with amount 7 against a stored 2 moved 7 units on DEV, 5 of them unreserved stock.
+
 ---
 
 ## 6. Rapid Pick Side-Door
@@ -228,13 +242,13 @@ Picking-lifecycle OMS callbacks use **two delivery mechanisms** depending on the
 
 | OMS callback | Fired from | Delivery | Sysprop URL key |
 |---|---|---|---|
-| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `ManageOrderService.customerOrderReleaseForPicking()` | `sendAfterCommit` | `…RELEASED_FOR_PICKING_URL_KEY` |
+| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | Every producer enqueues on the outbox: the release job (`ReleaseOrderJobService.releaseOrder()`), club finalize (`CustomerorderBatchService.finalizeClubLine()`) and the BOL transfer path (`BillofladingService.transferOrder()`, sysprop-gated). Only the job builds with `ManageOrderService.buildReleasedForPickingPayloadJson`; the other two send the STARTED payload (`buildPickingStartedPayloadJson`) | **outbox** (SBDEV-2381; the former `customerOrderReleaseForPicking` dispatcher was deleted by SBDEV-3102 D2, 2026-10-21) | `…RELEASED_FOR_PICKING_URL_KEY` |
 | `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED` | `ManageOrderService.customerOrderToteAssigned()` | `sendAfterCommit` | `…PICKING_TOTE_ASSIGNED_URL_KEY` |
 | `WEBSERVICE_ORDER_BATCH_PICKING` | `PickingorderBusinessService.confirmPick()` | **outbox** ¹ | `…PICKING_URL_KEY` |
 | `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `PickingorderBusinessService.finishPickingOrder()` | **outbox** ¹ | `…FINISHED_PICKING_URL_KEY` |
 | `WEBSERVICE_ORDER_BATCH_HELD` | `ManageOrderService.customerOrderOnHold()` | `sendAfterCommit` | `…HELD_URL_KEY` |
 
-> ¹ **2026-05-20 (picking-finished fix):** `PICKING_STARTED` and `PICKING_FINISHED` were previously routed through `ManageOrderService.customerOrderPickingStarted/Picked` via a nested `registerSynchronization` call inside `sendAfterCommit`, which Spring silently discarded (double-afterCommit bug — see investigation report `260520-wms2-picking-finished-oms-notification-dropped.md`). Both call-sites in `PickingorderBusinessService` now call `outboxService.enqueue(OutboxMessage)` directly inside the still-open `@Transactional("tenantTransactionManager")` boundary — the outbox row commits atomically with the state change. `OutboxDispatcherJob` delivers with at-least-once retry. `ManageOrderService.customerOrderPickingStarted()` and `customerOrderPicked()` are retained (`@Deprecated`) for `CustomerorderBatchService` callers.
+> ¹ **2026-05-20 (picking-finished fix):** `PICKING_STARTED` and `PICKING_FINISHED` were previously routed through `ManageOrderService.customerOrderPickingStarted/Picked` via a nested `registerSynchronization` call inside `sendAfterCommit`, which Spring silently discarded (double-afterCommit bug — see investigation report `260520-wms2-picking-finished-oms-notification-dropped.md`). Both call-sites in `PickingorderBusinessService` now call `outboxService.enqueue(OutboxMessage)` directly inside the still-open `@Transactional("tenantTransactionManager")` boundary — the outbox row commits atomically with the state change. `OutboxDispatcherJob` delivers with at-least-once retry. `ManageOrderService.customerOrderPickingStarted()` and `customerOrderPicked()` were later retired to no-op shims (SBDEV-2381) and deleted (SBDEV-3102 D2, 2026-10-21); every caller now uses the `build*PayloadJson` builders plus `outboxService.enqueue`.
 >
 > **Safety net:** `MobilePickingService.releaseRegularPickingOrder` Case 1 (already-finished early exit) now calls `PickingorderBusinessService.reenqueuePickingFinishedIfMissing(pickingOrder)` before returning, to recover any CO with `state≥PICKED` AND `pickingconfirmationsent=false` stranded by the pre-fix bug.
 
@@ -343,6 +357,7 @@ general contract!` from `TimSort` on larger inputs. If you touch these tiers, te
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-10-22 | SBDEV-3865: §5 note — the rapid endpoints, processPick, reset and release judge the stored pick line; confirmPick's picking-order-first lock and three new refusals. ✓ merged(SBDEV-3865: #558 bafa2301, 2026-10-22). Nothing else re-derived | Code read of the SBDEV-3865 branch (`fix/SBDEV-3865-picking-trusts-posted-position`) plus its unit tests and PG IT |
 | 2026-08-29 | **New §9.1 — pick-path ordering** (SBDEV-3133, wms2-api PR #233, merged 2026-08-29). The four tiers, the three comparators sharing `LocationPathOrdering`, and the cyclic-relation explanation. | Tier logic read directly from `LocationPathOrdering.compareResolved` on `origin/develop`; all three comparators confirmed delegating to it. The worked cycle (rack ordinals 9 / 2 / 5) matches `LocationPathOrderingUnitTest.mixedFixture()` exactly. ⚠ **Correction made during verification:** an earlier draft of §9.1 said that test *"reproduces it against the pre-fix comparators"* — it does not. It asserts `isAntisymmetric` / `is transitive for every triple` against the **fixed** comparators, i.e. it is a regression guard, not a reproduction. Text corrected. **Scoped check — the rest of the doc was NOT re-verified.** | Code + test read on `origin/develop` |
 | 2026-04-19 | `PickingorderBusinessService.finalizePicking` (lines 238-568) + all mobile guards (lines 222-340) + release job release path + merge service + rapid-pick side-door | All file:line refs confirmed against `src/main/java` | Code read + state-machine / transaction architecture docs |
 | 2026-05-08 | Group P verification follow-up (commits da64cc0, 99340b0, 4430824, 892169b, 930be52, b68cbbf, d61040c). Re-confirmed `ReleaseOrderJobService.releaseOrder` pessimistic lock at line 107, `findByIdForUpdate` sites in `MobilePickingService` (4 sites incl. line 400 in `processPick` per the Group-P lock-ordering note in the file), `PickingOrderMergeService.saveAll` at lines 194/198 (state writes still at 127 / 161). `finalizePicking` write sites shifted +1 (line 451/464/485 etc.) and §4 table was rebumped to current line numbers. §6 rapid-pick guard cite updated from `645` to `639` (guard) + `645` (state write). | Code read of v2/wms2-api at HEAD |

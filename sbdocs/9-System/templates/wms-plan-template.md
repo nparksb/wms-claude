@@ -146,14 +146,20 @@ List everything that must be prepared before implementation starts. Every row is
   cross-tenant environment issues that no isolated test exercises. Mark "N/A" with a
   one-sentence rationale only for changes with no user-visible path (pure internal
   helper refactor, log-only change).
+
+  Precondition query: one SQL count against the dev tenant DB (v2: dev_wh01_om1 via wms2-wineco-dev;
+  v1: wh01_om1 via wms1-wineco-dev) of the rows the scenario needs. Run it NOW, while writing the plan, and record the count. If it is 0, say how the test will
+  seed (wms-dev-probe: out-of-band ids, snapshot/diff restore) or mark the row dev-infeasible
+  with the reason. SBDEV-3755 (2026-10-15) only learned after merge that dev had no data for 3 of its
+  7 scenarios.
 -->
 
-| Scenario | Environment | Steps | Expected Result | Pass/Fail |
-|---|---|---|---|---|
-| <!-- UI smoke: happy path through the changed flow --> | staging | 1. … 2. … | | |
-| <!-- UI smoke: error / edge case --> | staging | | | |
-| <!-- Cross-system: OMS / printer / keycloak interaction, if touched --> | staging | | | |
-| <!-- SQL-level sanity against a real tenant DB, if SQL / migration changed --> | staging DB | psql: `SELECT …` | non-empty, no grammar error | |
+| Scenario | Environment | Precondition query → dev count | Steps | Expected Result | Pass/Fail |
+|---|---|---|---|---|---|
+| <!-- UI smoke: happy path through the changed flow --> | dev | `SELECT count(*) …` → <n> | 1. … 2. … | | |
+| <!-- UI smoke: error / edge case --> | dev | `SELECT count(*) …` → <n> | | | |
+| <!-- Cross-system: OMS / printer / keycloak interaction, if touched --> | dev | `SELECT count(*) …` → <n> | | | |
+| <!-- SQL-level sanity against a real tenant DB, if SQL / migration changed --> | dev DB | `SELECT count(*) …` → <n> | psql: `SELECT …` | non-empty, no grammar error | |
 
 ### Test execution (fill in after running)
 

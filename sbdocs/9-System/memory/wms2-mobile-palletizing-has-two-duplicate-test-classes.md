@@ -1,9 +1,17 @@
 ---
 name: wms2-mobile-palletizing-has-two-duplicate-test-classes
-description: wms2-api has 11 XxxTest/XxxUnitTest pairs (9 real duplicates) — a red test can be duplicated-green, and scoping PIT to one class misattributes the kill; tracked as SBDEV-3102
+description: wms2-api XxxTest/XxxUnitTest duplicate pairs (11 at 2026-08; MobilePalletizing merged 2026-10-20) — a red test can be duplicated-green, and scoping PIT to one class misattributes the kill; SBDEV-3102 slice C
 metadata:
   type: reference
 ---
+
+> **UPDATE 2026-10-20 (SBDEV-3102 C1, merged to develop as #543, head 006c483a):** the
+> `MobilePalletizingService` pair is merged. `MobilePalletizingServiceTest` was folded into
+> `MobilePalletizingServiceUnitTest` and deleted; the merged class runs under `STRICT_STUBS` (both LENIENT
+> opt-outs and the `FROZEN_PAIRS` entry removed). The dead `"PALLET-001"` stubs listed at the bottom were
+> deleted with it. `FROZEN_OPT_OUTS` is now EMPTY: no wms2-api test opts out of STRICT_STUBS. Slice C finished 2026-10-21
+> (C3 #545, C2 #547): every duplicate pair is consolidated; `FROZEN_PAIRS` holds only the deliberate
+> CustomerorderService KEEP. The pairs listed below are HISTORY.
 
 Tracked as **SBDEV-3102** (filed 2026-08-26). `wms2-api` has **11 `XxxTest`+`XxxUnitTest` pairs**
 across 365 test files — **9 genuine same-kind duplicates**, plus 2 legitimate integration-vs-unit

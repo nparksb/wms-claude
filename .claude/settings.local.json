@@ -18,5 +18,18 @@
       "Bash(grep -rln \"lock_overview_dto_view\\\\|lock_overview\" src/main/resources/db/migration/)",
       "Bash(grep -rli \"lock_overview\\\\|lock_overview_dto\" src/main/resources/db/migration/)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/nampark/dev/wms-claude/.claude/scripts/memory-index-check.sh 2>/dev/null || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

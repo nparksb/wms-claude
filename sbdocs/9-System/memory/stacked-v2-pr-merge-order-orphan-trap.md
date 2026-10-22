@@ -31,3 +31,11 @@ git merge-base --is-ancestor <commit> origin/develop && echo ON || echo NOT-ON
 **Root cause was concurrency:** another session was merging PRs and editing the same plan document at the
 same time (it also appended a duplicate section number). **When another session may be active on the same
 repo, re-fetch and re-check ancestry before assuming any earlier push still describes reality.**
+
+**Retargeting mechanics on wms2-api (measured 2026-10-15, #510 → #513).** The repo has `deleteBranchOnMerge: false`, so
+merging the base PR does **not** auto-retarget the stacked one (#513's own PR body wrongly claimed it would). Retarget
+by hand: `gh pr edit <n> --base develop`. Retargeting does **not** start the PR CI run: the workflow's
+`pull_request` trigger uses the default types (opened/synchronize/reopened), and a retarget is `edited`. Close and
+reopen the PR to get a run. A conflicting PR gets **no run at all**, so "no check" ≠ green. Check
+`mergeable`/`mergeStateStatus` (`CONFLICTING DIRTY`), and trial-merge with
+`git merge-tree --write-tree --name-only origin/develop <head>`.

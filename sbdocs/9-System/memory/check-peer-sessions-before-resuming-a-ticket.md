@@ -15,3 +15,10 @@ On 2026-09-30 "start 3561" was resumed in session owl-a7 while peer session owl-
 **How to apply:**
 - Before the first write or Maven/Jest run in a resumed ticket worktree, call `ListAgents`. If a peer is busy, ask it or the user who owns the ticket.
 - Never `git checkout`/restore a file on an assumption about whose change it holds. Read the diff first, and make the restore conditional on that check, not just preceded by it.
+
+**Superseded in mechanism, 2026-10-15:** use `.claude/scripts/ticket-lease.sh claim <TICKET>` rather than eyeballing
+ListAgents. A lease names the owning session and process. `claim` exits 1 while another live session holds it, and the
+lease goes stale by itself once that session's process exits. The executor, tdd-gate, wms-merge and archive-plan skills
+call it. ListAgents is still how to see cloud/remote sessions, which the local lease can't detect. Cause of the change:
+on 2026-10-15 a peer's rebase and push of SBDEV-3736 orphaned a stack built on its local SHA, and the 3736 worktree was
+removed while a stacked branch still depended on it.

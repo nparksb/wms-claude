@@ -296,6 +296,8 @@ The **load-bearing** assertion is the **delta invariant** — the AC is "doesn't
 
 **Why:** AC2 says "Load test with a transfer BOL of 100 pallets × 10 parcels × 20 stock units completes in < 5 seconds and does not block concurrent picking on a different BOL." Only mocked unit tests exist (`BillofladingServiceUnitTest:1196-1410`, four test methods). Mocks cannot measure wall-clock or row-lock contention.
 
+> ⚠ **2026-10-09 — that test is DELETED (SBDEV-3294).** It ran on H2 in-memory (`@ActiveProfiles("integration")`), not Testcontainers as written below, so its 15 s wall-clock bound and its "does not block concurrent picking on a different BOL" proof said nothing about PostgreSQL. It had also failed in `seedShared` since its fixtures rotted behind `@Disabled`. **AC2 has no executable proof today**: the < 5 s bound and the no-cross-BOL-blocking half are both untested on PostgreSQL. `BillofladingServiceFinishTransferIT` is also H2 and cannot stand in for the row-lock half. The run command in §6 below points at a file that no longer exists.
+
 **Remediation:** New Testcontainers integration test `BillofladingServiceFinishTransferPerformanceIT` with two methods.
 
 #### G2.a — Wall-clock measurement (warm-up isolated; bound widened)

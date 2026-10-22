@@ -115,3 +115,13 @@ callee. `sendToNirvana` returns early for a container already on Nirwana (before
 of 16,242 rows it was a silent no-op reported as DELETED. The claim then spread into 4 comments, 2 commit
 messages and the reviewer brief, and a review lane repeated it back as confirmed. **Before writing "X would
 happen", read the callee to the line that does X and check every early return above it.**
+
+**SBDEV-3373 (2026-10-06): six review rounds, and every round's DOC fixes carried a new false claim — all about
+v1, the code I was not changing.** Each correction was a confident one-hop sentence that I had not traced:
+"v1 consults the flag", "v1 sends from `cancelBatch` (`afterCommit`)", "`git grep -w cancelBatch` finds only its
+declaration" (the unit tests call it), and the reviewer's own "v1 sends from both methods". The truth needed
+three hops: who CALLS the method, with which ARGUMENT, inside which TRANSACTION. Answer: v1 sends no automatic
+cancel callback at all. A related instrument trap from the same session: `grep -v WmsConstants`, meant to drop
+declarations, also dropped every `WmsConstants.KEY`-qualified *reference*, which hid a real sender.
+**Before writing any sentence about whether code RUNS, establish reachability (callers + arguments) and
+timing (transaction boundary). Don't stop at the line that contains the call.**

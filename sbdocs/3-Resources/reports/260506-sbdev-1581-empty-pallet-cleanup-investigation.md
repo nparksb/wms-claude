@@ -184,7 +184,7 @@ The downstream feature plan must ship with a `verify-SBDEV-1581.sh` script per t
 
 ## 9. Open Questions
 
-1. **Should the cleanup job also handle empty CART-type unit loads?** The `transferStock()` switch in `MobileMoveUnitloadService.java:376–380` treats Pallet and Cart identically (waterfall case). WmsConstants has `STORAGE_LOCATION_EMPTY_PALLETS` but no `STORAGE_LOCATION_EMPTY_CARTS`. Clarify with Brent whether carts should go to the same location or be excluded.
+1. **ANSWERED 2026-10-19 (v2, SBDEV-1581): no.** The first build included Carts; the dev test showed EmptyPallets' location type refuses a Cart (location_constraint "only pallets allowed" / Pallet + Case on all nine v2 tenant DBs), so Carts were excluded by product decision. Original question: **Should the cleanup job also handle empty CART-type unit loads?** The `transferStock()` switch in `MobileMoveUnitloadService.java:376–380` treats Pallet and Cart identically (waterfall case). WmsConstants has `STORAGE_LOCATION_EMPTY_PALLETS` but no `STORAGE_LOCATION_EMPTY_CARTS`. Clarify with Brent whether carts should go to the same location or be excluded.
 
 2. **Should the job delete or relocate?** The ticket says "moves them to EmptyPallets." The `transferStock()` path does a location transfer, not a deletion. Is this the desired behavior, or should truly empty pallets eventually be deleted from the unitload table? Leaving them in EmptyPallets indefinitely will grow that location's count.
 

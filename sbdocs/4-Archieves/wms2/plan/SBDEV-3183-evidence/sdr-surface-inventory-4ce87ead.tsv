@@ -1,0 +1,219 @@
+domainType	path	kind	exported	collectionVerbs	itemVerbs	writable
+Advice	/advice	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS,PATCH	WRITABLE
+Advice	/advice/search/findByExternalid	SEARCH	true	GET		read-only
+Advice	/advice/search/findByKeywordAndState	SEARCH	true	GET		read-only
+Advice	/advice/search/findByState	SEARCH	true	GET		read-only
+Advice	/advice/search/findByTransferId	SEARCH	true	GET		read-only
+Adviceposition	/adviceposition	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Billoflading	/billoflading	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+BillofladingPosition	/billofladingPosition	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Boxtype	/boxtype	COLLECTION	true	GET,HEAD,OPTIONS	DELETE,GET,HEAD,OPTIONS,PUT	WRITABLE
+Boxtype	/boxtype/search/findByAdvicePositionId	SEARCH	true	GET		read-only
+Boxtype	/boxtype/search/findByBoxtypeprocesstype	SEARCH	true	GET		read-only
+Boxtype	/boxtype/search/findByExternalid	SEARCH	true	GET		read-only
+Boxtype	/boxtype/search/findByName	SEARCH	true	GET		read-only
+Client	/client	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS,PATCH	WRITABLE
+Client	/client/search/findAllByOrderByName	SEARCH	true	GET		read-only
+Client	/client/search/findByClNr	SEARCH	true	GET		read-only
+Client	/client/search/findByClNrIgnoreCase	SEARCH	true	GET		read-only
+Client	/client/search/findByClientId	SEARCH	true	GET		read-only
+Client	/client/search/findByName	SEARCH	true	GET		read-only
+Client	/client/search/findByPrinterId	SEARCH	true	GET		read-only
+Customerorder	/customerorder	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Customerorder	/customerorder/search/findByExternalIdList	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByExternalNumber	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByExternalNumberIn	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByHistorytote	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByKeyword	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByNumber	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByOrderbatchId	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByShipperidId	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/findByState	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/getByParcelIdList	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/getByParcelLabelId	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/getNumUniqueSkusById	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/getOrderByToteLabelId	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/getOrderViewsByBatchId	SEARCH	true	GET		read-only
+Customerorder	/customerorder/search/getOrderViewsByBolId	SEARCH	true	GET		read-only
+CustomerorderBatch	/customerorderBatch	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+CustomerorderBatch	/customerorderBatch/search/findByBatchid	SEARCH	true	GET		read-only
+CustomerorderBatch	/customerorderBatch/search/findByTransferid	SEARCH	true	GET		read-only
+CustomerorderBatch	/customerorderBatch/search/getActiveClubBatch	SEARCH	true	GET		read-only
+CustomerorderCancellationLog	/customerorderCancellationLogs	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+CustomerorderPosition	/customerorderPosition	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Cyclecount	/cyclecount	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS,PATCH	WRITABLE
+Cyclecount	/cyclecount/search/getClosedCycleCounts	SEARCH	true	GET		read-only
+Cyclecount	/cyclecount/search/getClosedCycleCountsPage	SEARCH	true	GET		read-only
+Cyclecount	/cyclecount/search/getClosedCycleCountsPageAndKeyword	SEARCH	true	GET		read-only
+Cyclecount	/cyclecount/search/getCycleCountOrders	SEARCH	true	GET		read-only
+Cyclecount	/cyclecount/search/getPlannedCycleCounts	SEARCH	true	GET		read-only
+Cyclecount	/cyclecount/search/getPlannedCycleCountsPage	SEARCH	true	GET		read-only
+Cyclecount	/cyclecount/search/getPlannedCycleCountsPageAndKeyword	SEARCH	true	GET		read-only
+CyclecountDtoView	/cyclecountDtoView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+CyclecountPosition	/cyclecountPosition	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+FixLocationAssignment	/fixLocationAssignment	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+FlowbinMonitorView	/flowbinMonitorView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Goodsreceipt	/goodsreceipt	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Goodsreceiptposition	/goodsreceiptposition	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Goodsreceiptposition	/goodsreceiptposition/search/countByGoodsreceiptId	SEARCH	true	GET		read-only
+Goodsreceiptposition	/goodsreceiptposition/search/findByAdvicepositionId	SEARCH	true	GET		read-only
+Goodsreceiptposition	/goodsreceiptposition/search/findByAdvicepositionIdIn	SEARCH	true	GET		read-only
+Goodsreceiptposition	/goodsreceiptposition/search/findByGoodsreceiptId	SEARCH	true	GET		read-only
+Goodsreceiptposition	/goodsreceiptposition/search/findByUnitloadId	SEARCH	true	GET		read-only
+Goodsreceiptposition	/goodsreceiptposition/search/generatePositionCountStringByGoodsreceiptId	SEARCH	true	GET		read-only
+Goodsreceiptposition	/goodsreceiptposition/search/getDetailViewByAdvicePositionId	SEARCH	true	GET		read-only
+InventoryRecord	/inventoryRecord	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Itemdata	/itemdata	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Itemdata	/itemdata/search/findByClientId	SEARCH	true	GET		read-only
+Itemdata	/itemdata/search/findByClientIdAndItemNr	SEARCH	true	GET		read-only
+Itemdata	/itemdata/search/findByClientIdIn	SEARCH	true	GET		read-only
+Itemdata	/itemdata/search/findByClientNumberAndSkuSet	SEARCH	true	GET		read-only
+Itemdata	/itemdata/search/findByItemNr	SEARCH	true	GET		read-only
+Itemdata	/itemdata/search/findNameById	SEARCH	true	GET		read-only
+Itemunit	/itemunit	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Itemunit	/itemunit/search/findByUnitname	SEARCH	true	GET		read-only
+Location	/location	COLLECTION	true	GET,HEAD,OPTIONS	DELETE,GET,HEAD,OPTIONS	WRITABLE
+Location	/location/search/findByAreaId	SEARCH	true	GET		read-only
+Location	/location/search/findByGateTrue	SEARCH	true	GET		read-only
+Location	/location/search/findByKeyword	SEARCH	true	GET		read-only
+Location	/location/search/findByName	SEARCH	true	GET		read-only
+Location	/location/search/findByStaginglaneTrue	SEARCH	true	GET		read-only
+Location	/location/search/findPutawayCandidates	SEARCH	true	GET		read-only
+Location	/location/search/getAllCrossDockingLanes	SEARCH	true	GET		read-only
+Location	/location/search/getFlowBinHavingNoFixedAssignment	SEARCH	true	GET		read-only
+Location	/location/search/getLocationList	SEARCH	true	GET		read-only
+Location	/location/search/getLocationsByAreaName	SEARCH	true	GET		read-only
+Location	/location/search/getPickableLocations	SEARCH	true	GET		read-only
+Location	/location/search/getStorageLocationsForPutAwayItemData	SEARCH	true	GET		read-only
+Location	/location/search/getStorageLocationsForStockUnitItemData	SEARCH	true	GET		read-only
+LocationArea	/locationArea	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LocationArea	/locationArea/search/findByClientIdAndName	SEARCH	true	GET		read-only
+LocationArea	/locationArea/search/findByName	SEARCH	true	GET		read-only
+LocationConstraint	/locationConstraint	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LocationRack	/locationRack	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LocationRack	/locationRack/search/findByName	SEARCH	true	GET		read-only
+LocationRackRow	/locationRackRow	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LocationType	/locationType	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LocationType	/locationType/search/findBySltname	SEARCH	true	GET		read-only
+LockOverviewAllDtoView	/lockOverviewAllDtoView	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LockOverviewAllDtoView	/lockOverviewAllDtoView/search/findByKeyword	SEARCH	true	GET		read-only
+LockOverviewDtoView	/lockOverviewDtoView	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+LockOverviewDtoView	/lockOverviewDtoView/search/findByKeyword	SEARCH	true	GET		read-only
+LosSequencenumber	/losSequencenumber	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Message	/message	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Message	/message/search/findAllFromDaysPeriod	SEARCH	true	GET		read-only
+Message	/message/search/findByKeyword	SEARCH	true	GET		read-only
+Message	/message/search/findByProcess	SEARCH	true	GET		read-only
+MessageArchived	/message_archived	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+OrderDetailMonitorView	/orderDetailMonitorView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+OrderMonitorView	/orderMonitorView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+OutboxMessage	/outboxMessages	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+ParcelMonitorView	/parcelMonitorView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Pickingorder	/pickingorder	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Pickingorder	/pickingorder/search/findByNumber	SEARCH	true	GET		read-only
+Pickingorder	/pickingorder/search/findByStateAndSectionId	SEARCH	true	GET		read-only
+PickingorderPosition	/pickingorderPosition	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+PickingorderUnitload	/pickingorderUnitload	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Printer	/printer	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Printer	/printer/search/findAllTypeAndProcessdefaultTrue	SEARCH	true	GET		read-only
+Printer	/printer/search/findByType	SEARCH	true	GET		read-only
+Printer	/printer/search/findByTypeAndProcessdefaultTrue	SEARCH	true	GET		read-only
+PutawayConfigAudit	/putawayConfigAudits	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+Queryrepository	/queryrepository	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+ReceivedDtoView	/receivedDtoView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+ReceivingDtoView	/receivingDtoView	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+ReceivingDtoView	/receivingDtoView/search/findByAdvicenumber	SEARCH	true	GET		read-only
+ReceivingDtoView	/receivingDtoView/search/findByAdvicepositionid	SEARCH	true	GET		read-only
+ReceivingDtoView	/receivingDtoView/search/findByKeyword	SEARCH	true	GET		read-only
+ReplenishmentMonitorView	/replenishmentMonitorView	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Replenishorder	/replenishorder	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Replenishorder	/replenishorder/search/findByState	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateAndItemdataId	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateLessThan	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateLessThanAndItemdataId	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateLessThanAndItemdataIdAndRequestedlocationId	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateLessThanAndPrioLessThanAndItemdataIdIn	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateLessThanAndRequestedlocationId	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findByStateLessThanEqualAndDestinationIdIsNull	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/findDetailMapById	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/getActiveByStateAndItemDataAndLocation	SEARCH	true	GET		read-only
+Replenishorder	/replenishorder/search/sumRequestedAmountForOpenOrders	SEARCH	true	GET		read-only
+RestIdempotency	/restIdempotencies	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+Section	/section	COLLECTION	true	GET,HEAD,OPTIONS	DELETE,GET,HEAD,OPTIONS	WRITABLE
+Section	/section/search/findByName	SEARCH	true	GET		read-only
+Section	/section/search/findBySectionpickingtype	SEARCH	true	GET		read-only
+Shipperid	/shipperid	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Shipperid	/shipperid/search/findAllOrderByName	SEARCH	true	GET		read-only
+Shippingmethod	/shippingmethod	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+ShippingmethodShipperid	/shippingmethodShipperid	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+StockView	/stockView	COLLECTION	true	OPTIONS	GET,HEAD,OPTIONS	read-only
+StockView	/stockView/search/findByClientIdAndItemId	SEARCH	true	GET		read-only
+StockView	/stockView/search/findByKeyword	SEARCH	true	GET		read-only
+Stockrecord	/stockrecord	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+StockrecordView	/stockrecordView	COLLECTION	true	OPTIONS	GET,HEAD,OPTIONS	read-only
+StockrecordView	/stockrecordView/search/findByKeyword	SEARCH	true	GET		read-only
+StockrecordView	/stockrecordView/search/findByKeywordAndClient	SEARCH	true	GET		read-only
+Stockunit	/stockunit	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Stockunit	/stockunit/search/findByItemdataId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/findByUnitloadId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/findByUnitloadIdAndItemdataId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/findByUnitloadIdIn	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/findCountByUnitloadId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/findEligibleByUnitloadIdIn	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/getAmountAvailable	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/getByUnitLoadLabelId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/getListByLocationId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/getListByLocationIdWithClient	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/getStockUnitsByItemDataId	SEARCH	true	GET		read-only
+Stockunit	/stockunit/search/getStockUnitsForReplenishment	SEARCH	true	GET		read-only
+Sysprop	/sysprop	COLLECTION	true	GET,HEAD,OPTIONS	DELETE,GET,HEAD,OPTIONS,PUT	WRITABLE
+Sysprop	/sysprop/search/findByClientId	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findByGroupname	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findBySyskey	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findBySyskeyAndClientId	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findBySyskeyAndClientIdAndWorkstation	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findBySyskeyContaining	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findSysvalueByClientIdAndSyskey	SEARCH	true	GET		read-only
+Sysprop	/sysprop/search/findSysvalueBySyskey	SEARCH	true	GET		read-only
+Tenant	/tenants	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+TenantAuthConfiguration	/tenantAuthConfigurations	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+TenantDbConfiguration	/tenantDbConfigurations	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+TenantDiscovery	/tenantDiscoveries	COLLECTION	false	GET,HEAD,OPTIONS,POST	DELETE,GET,HEAD,OPTIONS,PATCH,PUT	WRITABLE
+Unitload	/unitload	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+Unitload	/unitload/search/findByCarrierunitloadId	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findByCarrierunitloadIdIn	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findByLabelid	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findByLabelidIn	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findByStoragelocationId	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findByStoragelocationIdIn	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findCountByCarrierunitloadId	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findEmptyByStoragelocationId	SEARCH	true	GET		read-only
+Unitload	/unitload/search/findNameById	SEARCH	true	GET		read-only
+Unitload	/unitload/search/getBatchLocationsByItemIdAndLaneName	SEARCH	true	GET		read-only
+Unitload	/unitload/search/getBatchLocationsByItemIdAndTransferableAreas	SEARCH	true	GET		read-only
+UnitloadRecord	/unitloadRecord	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UnitloadRecord	/unitloadRecord/search/findByKeyword	SEARCH	true	GET		read-only
+UnitloadType	/unitloadType	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UnitloadType	/unitloadType/search/findByName	SEARCH	true	GET		read-only
+UnitloadType	/unitloadType/search/findNameById	SEARCH	true	GET		read-only
+User	/user	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UserFunction	/userFunction	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UserFunction	/userFunction/search/findByKeyword	SEARCH	true	GET		read-only
+UserFunction	/userFunction/search/findByName	SEARCH	true	GET		read-only
+UserFunction	/userFunction/search/findByNameContaining	SEARCH	true	GET		read-only
+UserGroup	/userGroup	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS,PUT	WRITABLE
+UserGroup	/userGroup/search/findByConnectorFalse	SEARCH	true	GET		read-only
+UserGroup	/userGroup/search/findByName	SEARCH	true	GET		read-only
+UserGroupUser	/userGroupUser	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UserGroupUser	/userGroupUser/search/findByGrouplistId	SEARCH	true	GET		read-only
+UserGroupUser	/userGroupUser/search/findByUserlistId	SEARCH	true	GET		read-only
+UserGroupUser	/userGroupUser/search/findByUserlistIdAndGrouplistId	SEARCH	true	GET		read-only
+UserGroupUserRole	/userGroupUserRole	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UserRole	/userRole	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UserRole	/userRole/search/findByConnectorFalse	SEARCH	true	GET		read-only
+UserRole	/userRole/search/findByName	SEARCH	true	GET		read-only
+UserRoleUserFunction	/userRoleUserFunction	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+UserUserRole	/userUserRole	COLLECTION	false	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+ViewWarehouseLocationReport	/viewWarehouseLocationReport	COLLECTION	true	GET,HEAD,OPTIONS	GET,HEAD,OPTIONS	read-only
+ViewWarehouseLocationReport	/viewWarehouseLocationReport/search/findByKeyword	SEARCH	true	GET		read-only
+ViewWarehouseLocationReport	/viewWarehouseLocationReport/search/findByLocation	SEARCH	true	GET		read-only

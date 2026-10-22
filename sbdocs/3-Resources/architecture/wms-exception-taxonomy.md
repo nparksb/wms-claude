@@ -3,7 +3,7 @@ type: architecture
 status: active
 system: wms1+wms2
 last_verified: 2026-09-30
-verified_by: SBDEV-3562 (batch-id carve-out, §3 SBDEV-2994 table) + SBDEV-2994 implementation — code read of v2 StockunitService, StockUnitController, DestinationEligibilityService, RestExceptionHandler + both message bundles
+verified_by: SBDEV-3688 doc pass 2026-10-08 added ONLY the five sequence/label keys (SequenceKeyMissing, ToteSequenceBehind from SBDEV-3682 on develop; PalletSequenceBehind, UnitloadSequenceBehind, UnitloadLabelTaken on unmerged branch fix/SBDEV-3688-refuse-taken-minted-label) from both message bundles. Prior: SBDEV-3562 (batch-id carve-out, §3 SBDEV-2994 table) + SBDEV-2994 implementation — code read of v2 StockunitService, StockUnitController, DestinationEligibilityService, RestExceptionHandler + both message bundles
 ---
 
 # WMS Exception Taxonomy
@@ -321,6 +321,11 @@ Fallback behaviour: if the bundle or key is missing, the key and parameters are 
 | `BusinessException.SequenceInvalid` | `Invalid sequence value=%2$s for key=%1$s` (SBDEV-2217 — caller-side defense-in-depth guard at format-helper sites) |
 | `BusinessException.StockCountTooLarge` | `stock_view row count %1$s exceeds configured cap %2$s` (SBDEV-2219 — `WarehouseStockReportService.streamStockCount` hard-cap safety net; sysprop `STOCK_SUMMARY_EXPORT_MAX_ROWS_KEY`, default 1,000,000) |
 | `BusinessException.InvalidSyspropValue` | `Invalid system property value: %1$s=%2$s` (SBDEV-2220 — surfaces malformed numeric sysprop values as domain errors instead of raw `NumberFormatException`; currently used by `CleanUpOldMessageJobService.readPeriod` for `CLEAN_UP_OLD_MESSAGES_PERIOD`) |
+| `BusinessException.SequenceKeyMissing` | `No sequence name was given (got [%1$s]). …` (SBDEV-3682 — a blank sequence key is refused instead of silently starting a sequence under `""`) |
+| `BusinessException.ToteSequenceBehind` | `Tote sequence %1$s is behind the existing totes: %2$s labels in a row were already in use, the last one %3$s. …` (SBDEV-3682; since SBDEV-3688 raised by `UnitloadService.nextFreeLabel` for the Dashboard tote print) |
+| `BusinessException.PalletSequenceBehind` | `Pallet sequence %1$s is behind the existing pallets: %2$s labels in a row were already in use, the last one %3$s. …` (SBDEV-3688 — outbound pallets in `ParcelMonitorViewService.palletise` and `BillofladingService.transferOrder`) |
+| `BusinessException.UnitloadSequenceBehind` | `Unit load sequence %1$s is behind the existing unit loads: %2$s labels in a row were already in use, the last one %3$s. …` (SBDEV-3688 — `UnitloadService.mintUnitloadLabel`) |
+| `BusinessException.UnitloadLabelTaken` | `Unit load label %1$s was taken (by %2$s) just before this unit load could be created, so nothing was created. …` (SBDEV-3688 — `UnitloadService.createNewUnitload`) |
 | `CLIENT_PERMISSION_DENIED` | `No permission for client %1$s` |
 | `ENTITY_NOT_LONGER_PERTINENT` | `Entity no longer pertinent %1$s` |
 | `OUT_OF_RANGE` | `Value out of range` |

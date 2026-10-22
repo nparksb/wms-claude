@@ -470,7 +470,7 @@ degradation case, which asserts the fallback text.
 | `mvn -o test -Dtest=BusinessExceptionUnitTest` | _pending_ |
 | `mvn -o test -Dtest=MobilePalletizingScanPalletFormatTest` | _pending_ |
 | `mvn -o test -Dtest=MobileMoveStockFormatTest` | _pending_ |
-| `mvn -o test -Dtest=MobileTruckLoadingServiceTest` | _pending_ |
+| `mvn -o test -Dtest=MobileTruckLoadingServiceUnitTest` (2026-10-20: was `MobileTruckLoadingServiceTest`; SBDEV-3102 C3 merged that class into the UnitTest name) | _pending_ |
 | `mvn -o test` (full) | _pending — expect 2 pre-existing; confirm the `MobilePalletizingServiceTest` method set is unchanged_ |
 | verify (post) | _pending — require `Result: N pass, 0 fail`_ |
 
@@ -482,6 +482,8 @@ degradation case, which asserts the fallback text.
 | v1 | Out of scope (§4) |
 | C3 (`scanPalletBulk` null/empty) has no test | The path is **unreachable** through its only caller (§3.3) — a test would have to call the service method directly to exercise code no request can reach. The count row in §9.1 is what keeps the edit honest |
 | `MobilePalletizingServiceTest` is not a gate row | One pre-existing failing method, so the class can never report `Failures: 0`. The new assertions live in `MobilePalletizingScanPalletFormatTest` instead, precisely so a Maven row *can* gate them |
+
+> **Update 2026-10-20 (SBDEV-3102 C1):** `MobilePalletizingServiceTest` no longer exists — it was merged into `MobilePalletizingServiceUnitTest`, and the verify script's skip row for it was removed (a tombstone comment marks the spot). The rationale above is historical.
 
 ⚠ **Removed from this table during drafting:** "No test for `MobileTruckLoadingService` /
 `MobileMoveStockService` call sites — covered by the verify script's per-site rows plus manual 3 and 4." Both

@@ -30,6 +30,10 @@ Filename convention: `YYMMDD-kebab-description.md` (date-prefixed) or a stable t
 
 | Report | Scope | Created |
 |---|---|---|
+| [Returns audit linkage — field map (SBDEV-3736)](261013-returns-audit-linkage-field-map.md) | wms2 + oms2 | 2026-10-13 |
+| [WineCo PRD — Cancelled Orders Whose Picked Stock Shipped (SBDEV-3740, SBDEV-3741)](261012-wineco-cancelled-orders-stock-shipped.md) | wms2 | 2026-10-12 |
+| [c1wh Pending Reversals — Why and How to Waive (SBDEV-3313)](261012-c1wh-pending-reversals-waive.md) | wms2 | 2026-10-12 |
+| [SBDEV-3678 — Two production decisions on the WMS v2 DB load (query stats + replenish sweep cadence)](261007-sbdev-3678-prd-db-load-two-decisions.md) | wms2 | 2026-10-07 |
 | [Hydra UAT — Triage of Three Failed QA Flows (Pick & Pack, Club Line Palletize, Transfer Offsite)](260814-hydra-uat-three-flow-qa-triage.md) | wms2 | 2026-08-14 |
 | [WMS v2 — `los_sysprop` Current-Value Census (DEV + UAT)](260730-wms2-sysprop-current-value-census.md) | wms2 | 2026-07-30 |
 | [SBDEV-2514 — WineCo post-release (v1.26.43): Reserved-Out unit-load block + Replen Monitor QTY accuracy](260702-sbdev-2514-wineco-post-release-reserved-out-and-replen-monitor.md) | wms1 | 2026-07-02 |

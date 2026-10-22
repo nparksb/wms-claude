@@ -10,8 +10,12 @@
 # Two tickets queued behind it touch these exact endpoints: SBDEV-3071 (scoping getAllRoles/isWmsUser
 # to the caller) and SBDEV-3017 slice B (the Spring Data REST half of /v3/user). Re-run it after either.
 #
-# ⚠️ THE ACCOUNT CHOICE IS LOAD-BEARING. `sbtest` holds 35 functions and NOT
-# WEB_UI_VIEW_USER_MANAGEMENT; `panderson` holds all 80 and IS sb_admin. Swapping in an admin for the
+# ⚠️ THE ACCOUNT CHOICE IS LOAD-BEARING. The non-admin subject must hold NO functions. It was `sbtest`
+# (35 functions, no WEB_UI_VIEW_USER_MANAGEMENT) until dev grants drifted: on 2026-10-20 `sbtest` held 83
+# INCLUDING WEB_UI_VIEW_USER_MANAGEMENT, and both "non-admin DENIED" rows failed (SBDEV-3183 AC-9). It is now
+# `wmstest` (0 functions): zero is a floor and cannot drift downward. Re-check it before trusting a run:
+#   a user's functions = group -> role -> function (see SBDEV-3183 ticket comments for the query).
+# `panderson` holds all of them and IS sb_admin. Swapping in an admin for the
 # non-admin rows makes every row pass regardless of whether the code is correct — that is a vacuous
 # green, and it is the specific mistake this script exists to prevent. Verify with:
 #   SELECT ... FROM mywms_user ... -- see the plan's §6.5, or the SBDEV-3063 ticket comments.
@@ -22,15 +26,22 @@
 #     https://wms-api.dev.sbo.li/actuator/metrics | grep -o 'wms2.authz.public'
 # /actuator/metrics needs an sb_admin token; it 401s for an ordinary user.
 #
-# Usage:  PW='...' ./smoke-wms2-user-authz-dev.sh
+# Usage:  PW='<admin pw>' PW_NON='<non-admin pw>' MODE=SHADOW ./smoke-wms2-user-authz-dev.sh
+#   NON_USER  zero-function subject (default wmstest)      MODE  dev's WMS2_SDR_READ_GUARD_MODE (default OFF):
+#   OFF|SHADOW allow every SDR read; ENFORCE_RULED denies a RULED type to a non-holder; FAIL_CLOSED also denies
+#   UNRULED types. Read it first:  SELECT sysvalue FROM los_sysprop WHERE syskey='WMS2_SDR_READ_GUARD_MODE';
 set -u
 API=https://wms-api.dev.sbo.li
 KC=https://kc2.dev.sbo.li/realms/wineco/protocol/openid-connect/token
-PW="${PW:?set PW to the dev password}"
+PW="${PW:?set PW to the admin (panderson) dev password}"
+NON_USER="${NON_USER:-wmstest}"; PW_NON="${PW_NON:?set PW_NON to the $NON_USER dev password}"
+MODE="${MODE:-OFF}"
+case "$MODE" in OFF|SHADOW) RULED=200; UNRULED=200;; ENFORCE_RULED) RULED=403; UNRULED=200;;
+  FAIL_CLOSED) RULED=403; UNRULED=403;; *) echo "MODE must be OFF|SHADOW|ENFORCE_RULED|FAIL_CLOSED"; exit 2;; esac
 pass=0; fail=0
 
 tok() { curl -s --max-time 15 -X POST "$KC" -d grant_type=password -d client_id=om1 \
-        --data-urlencode "username=$1" --data-urlencode "password=$PW" \
+        --data-urlencode "username=$1" --data-urlencode "password=$2" \
         | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))"; }
 
 check() { # name expected-code token path
@@ -56,13 +67,13 @@ checkm() { # name expected-code token method path [body]
   else printf '  FAIL  %-52s got %s, want %s\n' "$1" "$got" "$2"; fail=$((fail+1)); fi
 }
 
-T_NON=$(tok sbtest); T_ADM=$(tok panderson)
+T_NON=$(tok "$NON_USER" "$PW_NON"); T_ADM=$(tok panderson "$PW")
 [ -n "$T_NON" ] && [ -n "$T_ADM" ] || { echo "token fetch failed"; exit 2; }
 
-echo "SBDEV-3063 dev smoke — sbtest (non-admin, no WEB_UI_VIEW_USER_MANAGEMENT) / panderson (admin)"
+echo "dev authz smoke — $NON_USER (non-admin, 0 functions) / panderson (admin) — guard MODE=$MODE"
 # THE regression: without these two open, 61 of 99 users cannot log in.
-check "non-admin: isWmsUser OPEN"                200 "$T_NON" "user/isWmsUser/sbtest"
-check "non-admin: getAllRoles OPEN"              200 "$T_NON" "user/getAllRoles/sbtest"
+check "non-admin: isWmsUser OPEN"                200 "$T_NON" "user/isWmsUser/$NON_USER"
+check "non-admin: getAllRoles OPEN"              200 "$T_NON" "user/getAllRoles/$NON_USER"
 # The surface must not have been opened by the class-level move.
 check "non-admin: getDetails DENIED"             403 "$T_NON" "user/getDetails"
 check "non-admin: userDetailsById DENIED"        403 "$T_NON" "user/userDetailsById/52610"
@@ -119,7 +130,8 @@ check "control: userRole ALLOWED for admin"      200 "$T_ADM" "userRole"
 # only as corroboration. A body-free write against a missing id remains the cheapest thing that
 # actually distinguishes "refused" from "reached the code", and it is what every row below does.
 #
-# Account choice is load-bearing here exactly as it is above: `sbtest` is a plain wms_user. If these
+# Account choice is load-bearing here exactly as it is above: the non-admin ($NON_USER, default wmstest) is a
+# plain wms_user with NO functions. If these
 # rows are run as `panderson` they prove nothing, because he holds every function.
 #
 # 🔴 STRUCTURAL BLIND SPOT, found re-running this script live on 2026-09-04 (SBDEV-3183): a
@@ -151,8 +163,8 @@ checkm "control: userFunction DELETE WITHDRAWN"   405 "$T_NON" DELETE "userFunct
 # The reads. 347 exported searches, none gated — this is the ticket's founding complaint, still live
 # after the write half. These two rows are the READ half's open criterion: they must become 403 for a
 # caller denied the function. Until then a 200 here is the finding, not a healthy row.
-check  "non-admin: SDR itemdata list STILL OPEN"  200 "$T_NON" "itemdata?size=1"
-check  "non-admin: SDR sysprop list STILL OPEN"   200 "$T_NON" "sysprop?size=1"
+check  "non-admin: SDR itemdata list (unruled; OMS reads it)" "$UNRULED" "$T_NON" "itemdata?size=1"
+check  "non-admin: SDR sysprop list (ruled, SBDEV-3222)"     "$RULED"   "$T_NON" "sysprop?size=1"
 
 # The writes, post-withdrawal. 47 of the 58 writable resources had their write verbs removed; the other
 # 11 kept theirs because a UI writes to them at their SDR path, and those close only via the gate.
@@ -199,6 +211,26 @@ checkm "non-admin: SDR sysprop PUT-for-creation WITHDRAWN"   405 "$T_NON" PUT "s
 checkm "non-admin: SDR userGroup PUT-for-creation WITHDRAWN" 405 "$T_NON" PUT "userGroup/999999999" '{}'
 checkm "non-admin: SDR userRole PUT-for-creation WITHDRAWN"  405 "$T_NON" PUT "userRole/999999999"  '{}'
 
+echo "  --- SBDEV-3183: rules on Advice/Cyclecount/Location (+2 Location overrides), rail, withdrawals ---"
+# Read rows are MODE-dependent (see Usage). Run them with the mode dev is actually in, or they lie.
+check  "non-admin: SDR advice list (ruled INBOUND_BOL)"              "$RULED"   "$T_NON" "advice?size=1"
+check  "non-admin: SDR cyclecount list (ruled CYCLECOUNT)"          "$RULED"   "$T_NON" "cyclecount?size=1"
+check  "non-admin: SDR location list (ruled STORAGE_LOCATION)"      "$RULED"   "$T_NON" "location?size=1"
+check  "non-admin: location/findByGateTrue (override BILL_OF_LADING)" "$RULED" "$T_NON" "location/search/findByGateTrue"
+check  "non-admin: location/getAllCrossDockingLanes (override)"     "$RULED"   "$T_NON" "location/search/getAllCrossDockingLanes"
+check  "non-admin: SDR client list (must stay open: OMS reads it)"  "$UNRULED" "$T_NON" "client?size=1"
+check  "admin: SDR advice list ALLOWED (holder control)"            200        "$T_ADM" "advice?size=1"
+check  "admin: location/findByGateTrue ALLOWED (holder control)"    200        "$T_ADM" "location/search/findByGateTrue"
+# Withdrawn verbs answer 405 in every mode, before any lookup, so a missing id is a safe probe for these.
+checkm "non-admin: SDR advice PUT WITHDRAWN"        405 "$T_NON" PUT    "advice/999999999" '{}'
+checkm "non-admin: SDR advice DELETE WITHDRAWN"     405 "$T_NON" DELETE "advice/999999999"
+checkm "non-admin: SDR cyclecount DELETE WITHDRAWN" 405 "$T_NON" DELETE "cyclecount/999999999"
+checkm "non-admin: SDR location PUT WITHDRAWN"      405 "$T_NON" PUT    "location/999999999" '{}'
+checkm "non-admin: SDR location collection POST WITHDRAWN" 405 "$T_NON" POST "location" '{}'
+# AC-3. A withdrawn PATCH answers 404 on a MISSING id (SDR loads the entity while binding, before the
+# method check), so it must be graded on a REAL id. The body is {} so a mis-withdrawn PATCH merges nothing.
+# 987803844 is a dev order (state 700, no lane) as of 2026-10-20; if it is ever purged this row reads 404.
+checkm "admin: SDR customerorder PATCH WITHDRAWN (AC-3, real id)" 405 "$T_ADM" PATCH "customerorder/987803844" '{}'
 echo "  ---"
 echo "  Result: $pass pass, $fail fail"
 echo "  NOTE: a PASS on an *_UNGATED or *_STILL_OPEN row confirms the EXPOSURE, not a healthy system."

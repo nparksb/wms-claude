@@ -6,9 +6,9 @@ version: v2
 owner: Nam Park
 requester: "nam.park@siteboss.net"
 created: 2026-09-10
-updated: 2026-09-11
+updated: 2026-10-16
 last_verified: 2026-09-11
-verified_by: "Every SQL statement below checked against the actual schema and Flyway seeds on all 6 live v2 tenant DBs (1 PRD, 4 UAT, 1 DEV) via direct psql, 2026-09-10. 2026-09-11: full audit run against DEV (dev_wh01_om1) on build 1be9db0e — §5 passed 14/14 after activating the 4 keys still at seed value; §2.2 added for WEBSERVICE_TRANSFER_PICKING_NOTIFICATIONS_ACTIVATED, with its enable path exercised end-to-end (OMS answered processed:1 on both transfer types) and then reverted."
+verified_by: "Every SQL statement below checked against the actual schema and Flyway seeds on all 6 live v2 tenant DBs (1 PRD, 4 UAT, 1 DEV) via direct psql, 2026-09-10. 2026-09-11: full audit run against DEV (dev_wh01_om1) on build 1be9db0e — §5 passed 14/14 after activating the 4 keys still at seed value; §2.2 added for WEBSERVICE_TRANSFER_PICKING_NOTIFICATIONS_ACTIVATED, with its enable path exercised end-to-end (OMS answered processed:1 on both transfer types) and then reverted. 2026-10-16 (SBDEV-3659): the retired REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED was removed from Steps 1–2 and §5, so §5 now expects 13 rows. The 14/14 above is the 2026-09-11 result, from before that change."
 related:
   - ../../../3-Resources/data-dictionary/wms2-sysprop-catalog.md
   - ./wms2-apply-pending-tenant-flyway.md
@@ -126,7 +126,7 @@ Four corrections, all load-bearing:
 | 3 | **`groupname` corrected per key** | The draft filed everything under `Operation Options`. Flyway seeds several of these under `Backend`, and `PRINT_CASE_LABEL` under `System Settings`. This only matters when the INSERT branch fires — but it already has: `wsl-wineco-uat`'s `WEBSERVICE_ORDER_BATCH_UPDATE_PICKING_DATE_ACTIVATED` sits under `Operation Options` today because the draft created it before `V2.2.24` landed, and `V2.2.24`'s `WHERE NOT EXISTS` then skipped it. The row is misfiled in the admin UI permanently until corrected. |
 | 4 | **Two `WEBSERVICE_*_ACTIVATED` gates now have a hard pre-check** | See §1.2. Enabling either with a wrong or missing URL enqueues outbox messages that cannot be delivered. |
 
-The draft's comment `-- same seven keys` described 12 keys. Corrected to 10 below.
+The draft's comment `-- same seven keys` described 12 keys. Corrected to 10 below. That is 9 since 2026-10-16, when SBDEV-3659 removed the retired lane-exclusion key.
 
 ### 1.2 Required pre-check for the two OMS notification gates
 
@@ -148,6 +148,8 @@ This is not hypothetical — see §7, finding B.
 
 ### 1.3 The script
 
+> **`REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED` is not in this script, and must not be re-added.** SBDEV-3654 (merged `df8dff6d`) retired it: nothing reads it, and lanes are excluded from replenishment sourcing on every tenant. SBDEV-3659's Flyway `V2.2.39` ✓ merged(SBDEV-3659: #523 ee3747f2, 2026-10-16) deletes the row. Inserting it here would put back a control that does nothing. It was removed from Step 1, Step 2 and the verify query on 2026-10-16.
+
 ```sql
 -- STEP 1 — activate v2-only functions. Idempotent; safe to re-run.
 -- Descriptions must stay under 255 chars: los_sysprop.description is varchar(255) and
@@ -164,8 +166,6 @@ WITH forced(syskey, sysvalue, groupname, descr) AS (VALUES
      'Enables case-label printing.'),
     ('TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED', 'true', 'Operation Options',
      'SBDEV-1762: run transfer consumes only the order''s required SKUs/qty from the lane.'),
-    ('REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED', 'true', 'Operation Options',
-     'SBDEV-1666: staging and transfer lanes are never selected as a replenishment source.'),
     ('OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED', 'true', 'Operation Options',
      'SBDEV-2381: dispatcher samples held-aggregate stats and emits the stuck-aggregate gauge.'),
     ('RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED', 'true', 'Operation Options',
@@ -188,14 +188,13 @@ SELECT nextval('public.seqentities'), 0, 0, false, f.syskey, f.sysvalue,
   FROM forced f
 ON CONFLICT (client_id, syskey, workstation) DO NOTHING;
 
--- (b) correct the value on rows that already existed. Same 10 keys, single source of truth.
+-- (b) correct the value on rows that already existed. Same 9 keys, single source of truth.
 UPDATE public.los_sysprop s
    SET sysvalue = f.sysvalue, modified = now()
   FROM (VALUES
     ('API_TIMESTAMP_FORMAT', 'ISO8601_UTC'),
     ('PRINT_CASE_LABEL', 'true'),
     ('TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED', 'true'),
-    ('REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED', 'true'),
     ('OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED', 'true'),
     ('RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED', 'true'),
     ('REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS', 'true'),
@@ -402,7 +401,7 @@ UPDATE los_sysprop SET sysvalue = replace(sysvalue, 'https://api-oms.shipitez.sb
 ```
 
 `replace()` is a no-op on values that do not contain the search string, so running the wrong line here
-is harmless — unlike §4.1. `LIKE 'WEBS%'` also matches non-URL keys (`WEBSERVICE_BEHAVIOUR`, the
+is harmless — unlike §4.1. `LIKE 'WEBS%'` also matches non-URL keys (`WEBSERVICE_BEHAVIOUR` until SBDEV-3373's `V2.2.37` deletes it, the
 `*_ACTIVATED` gates); `replace()` leaves those untouched.
 
 ### 4.3 ⚠ Re-run §4.2 after every deploy that adds a `WEBSERVICE_*` URL key
@@ -430,7 +429,6 @@ SELECT s.syskey, s.sysvalue, s.groupname,
         ('API_TIMESTAMP_FORMAT','ISO8601_UTC'),
         ('PRINT_CASE_LABEL','true'),
         ('TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED','true'),
-        ('REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED','true'),
         ('OUTBOX_STUCK_AGGREGATE_METRIC_ACTIVATED','true'),
         ('RETURN_ADVICE_AUTO_RECEIVE_ACTIVATED','true'),
         ('REPLENISH_ALLOW_NON_FLOWBIN_DESTINATIONS','true'),
@@ -444,7 +442,7 @@ SELECT s.syskey, s.sysvalue, s.groupname,
        ) AS e(syskey, expected) ON e.syskey = s.syskey
  WHERE s.client_id = 0 AND s.workstation = 'DEFAULT'
  ORDER BY verdict DESC, s.syskey;
--- expect: 14 rows, all OK. Fewer than 14 rows means Flyway is behind (§0.2 check 1).
+-- expect: 13 rows, all OK. Fewer than 13 rows means Flyway is behind (§0.2 check 1).
 --
 -- ⚠ THIS INNER JOIN CANNOT DISTINGUISH "absent" FROM "not expected". A key with no row
 -- simply vanishes from the result, and the only signal is a row COUNT you have to notice.

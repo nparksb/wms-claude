@@ -42,7 +42,7 @@ A **club run** is one execution of a recurring-delivery batch — typically wine
 
 Two load-bearing facts:
 
-1. **Club orders use a synthetic UUID-based tote label**, not a physical tote. `ManageOrderService.customerOrderPicked` (line 328–346) sets `customerOrder.historytote = UUID.randomUUID().toString()` for any order where `OrderBatchType == CLUB`. This is what `cancelOrder`'s rapid-pick side-door keys on (see [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §7).
+1. **Club orders use a synthetic UUID-based tote label**, not a physical tote. `ManageOrderService.buildPickedPayloadJson` (formerly `customerOrderPicked`, deleted SBDEV-3102 D2) sets `customerOrder.historytote = UUID.randomUUID().toString()` for any order where `OrderBatchType == CLUB`. This is what `cancelOrder`'s rapid-pick side-door keys on (see [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §7).
 2. **`runClubLine` error-recovery reverts the batch state** via `rollbackClubLineState` (line 709) to `originalState`. This is the **only** revert pattern in the codebase. Don't generalize it to a reusable helper — the caller-specific context is what makes it safe.
 
 The v1 equivalent is [wms1-club-order-processing.md](./wms1-club-order-processing.md); this doc is the v2 companion.
@@ -182,7 +182,7 @@ Separate **transfer** endpoints for individual club-order relocations:
 
 ### 6.1 Synthetic UUID tote
 
-When `OrderBatchType.CLUB.equals(orderBatch.getType())`, `ManageOrderService.customerOrderPicked` (line 328–346):
+When `OrderBatchType.CLUB.equals(orderBatch.getType())`, `ManageOrderService.buildPickedPayloadJson(List, ActorDto)` (formerly `customerOrderPicked`, deleted SBDEV-3102 D2):
 
 ```java
 if (isClub) {
@@ -201,10 +201,10 @@ Most callbacks below fire post-commit via `TransactionSynchronizationManager.reg
 
 | Callback | Fired from | Line | When |
 |---|---|---|---|
-| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderReleaseForPicking`, now retired no-op shim) | — | Per-CO release, enqueued in-tx during finalize |
+| `WEBSERVICE_ORDER_BATCH_RELEASED_FOR_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderReleaseForPicking`, retired to a no-op shim, deleted SBDEV-3102 D2) | — | Per-CO release, enqueued in-tx during finalize |
 | `WEBSERVICE_ORDER_BATCH_PICKING_TOTE_ASSIGNED` | `ManageOrderService.customerOrderToteAssigned` | 223 | Tote assigned to order |
-| `WEBSERVICE_ORDER_BATCH_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderPickingStarted`, now retired no-op shim) | — | Picking begins — fake UUID tote label set for club orders |
-| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderPicked`, now retired no-op shim) | — | Picking done — `historytote` populated |
+| `WEBSERVICE_ORDER_BATCH_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderPickingStarted`, retired to a no-op shim, deleted SBDEV-3102 D2) | — | Picking begins — no tote side-effect (`buildPickingStartedPayloadJson`) |
+| `WEBSERVICE_ORDER_BATCH_FINISHED_PICKING` | `CustomerorderBatchService.finalizeClubLine` → `outboxService.enqueue` (SBDEV-2381; was `ManageOrderService.customerOrderPicked`, retired to a no-op shim, deleted SBDEV-3102 D2) | — | Picking done — fake UUID tote label set for club orders and `historytote` populated, by `buildPickedPayloadJson` (§6.1) |
 | `WEBSERVICE_ORDER_BATCH_HELD` | `ManageOrderService.customerOrderOnHold` | 95 | Stock shortage / hold |
 | `WEBSERVICE_ORDER_BATCH_PALLETIZED` | `ManageOrderService.customerOrderPalletized` | 413 | After palletize (downstream BOL workflow) |
 | `WEBSERVICE_ORDER_BATCH_LOADED_TO_TRUCK` | `ManageOrderService.customerOrderLoadedToTruck` | 474 | After truck load |
@@ -277,7 +277,7 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 1. **Phase 1 of `runClubLine` commits state to `ORDER_BATCH_CLUB_RUN_IN_PROGRESS` before the rest runs.** If Phase 2 or 3 throws, `rollbackClubLineState` must revert in its own transaction. Any refactor that tries to wrap all 4 phases in one `@Transactional` will lose the "observable mid-run state" property — tools like the `/activeClubRun` endpoint depend on it.
 2. **`historytote = UUID` drives the rapid-pick cancel side-door.** Removing the UUID write breaks club cancellation (order stays stuck in picking instead of returning to pool). See [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §7.
 3. **`ORDER_BATCH_CLUB_RUN_FINISHED` is NOT terminal.** The batch eventually reaches `FINISHED` (700) via BOL close. Don't treat `CLUB_RUN_FINISHED` as a stop state.
-4. **~~`WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` defaults to `false`~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` has exactly two references in `src/main` — its own declaration in `WmsConstants` and a **commented-out** seed line in `UtilRestController` — so no code reads it. v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (v1 does read it; do not carry the v1 behaviour across.)
+4. **~~`WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` defaults to `false`~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` has exactly two references in `src/main` — its own declaration in `WmsConstants` and a **commented-out** seed line in `UtilRestController` — so no code reads it. v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (Corrected 2026-10-06, SBDEV-3373: v1 does **not** read it either — v1 `origin/develop`, verified 2026-10-06 (SBDEV-3373): declaration in `WmsConstants` plus a commented-out seed line in `UtilRestController`, no reader. The row is deleted by `V2.2.37`.)
 5. **`finalizeBatchIfComplete` is NOT a cancel trigger.** It's a post-cancel rollup — don't invoke it directly to "force" batch cancel.
 6. **No mobile path.** Club runs are desktop-only. Adding mobile support requires parallel mobile controllers + services; the `runClubLine` orchestration is currently web-UI-bound.
 7. **The pack-guard regression pattern** (`Cancel_Club_Parcels_Packed_State_Fix`): guards at `CustomerorderService:382, 554` block normal cancel when orders are already `PACKED` or `PALLETIZED`. The force path (`forceCancelOrder`) bypasses this — but a plain `cancelOrder` on a club-run-finished order must get through the guard first.
@@ -300,7 +300,7 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 |---|---|
 | "Club run stuck in `ORDER_BATCH_CLUB_RUN_IN_PROGRESS`" | §6.3 — was an exception thrown mid-run? Check logs for `rollbackClubLineState` invocation |
 | "Cancel hangs on a running batch" | §9 item 9 — pessimistic lock held by `runClubLine` |
-| "OMS never got club-run notifications" | §6.2 + `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` + `message` table |
+| "OMS never got club-run notifications" | §6.2 + `outbox_message` + `message` table. ⚠ Not `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED`: it gates nothing (see §9 item 4) |
 | "Club order cancel left Pickingorder in PROCESSABLE, not CANCELED" | §6.1 + [wms2-cancel-cascade-workflow.md](./wms2-cancel-cascade-workflow.md) §7 — expected behavior |
 | "Can't cancel a club batch in PACKED state" | §9 item 7 — guard at `CustomerorderService:382`. Use `forceCancelOrder` |
 | "Transfer lane reassignment silently changed batch state to CLUB_RUN_FINISHED" | §5 — `transferOrder` intentionally writes this state + nulls `staginglaneId` |
@@ -317,5 +317,6 @@ See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osi
 
 | 2026-09-10 | **SBDEV-3304 — club-line size cap.** Added the Phase-1 size-cap step (§3), landmines §9.12 (the cap and its single surface) and §9.13 (why raising it does not shorten a run). Replaced two stale line citations — the doc pointed at `CustomerorderBatchService:606` and `:689`, which are now a blank line and `return sb.toString();` respectively — with method names, which relocate themselves. **Scope note: this was NOT a full re-verification of the document**, so `last_verified` is deliberately left at 2026-06-01 and the doc remains overdue. Only the cap path was read. | §3, §9 updated; the rest unverified since 2026-06-01 | Claude (SBDEV-3304), on Nam's request |
 | 2026-09-14 | **SBDEV-3354 — `cancelBatch` deleted.** Four claims in this doc named `CustomerorderBatchService.cancelBatch` as the club batch-cancel path: the §6 method table row, the §6 OMS callback table, the §7 cancellation-paths table (two of its three rows) and the §8 transaction-boundary bullet asserting batch-atomicity. The method had no route, no caller and no production message; it was deleted. All four now describe the real path — `OrderRestController.cancelPositions` looping `cancelOrder`, one transaction per order, partial success possible. **Scope: the `cancelBatch` claims only** — `last_verified` stays at 2026-06-01 and the doc remains overdue. | `git grep` on `origin/develop` (1 `src/main` occurrence → 0; positive control 54 in `src/test`) plus Hydra PRD `outbox_message`: 0 rows of the pair only `cancelBatch` wrote, against a positive control of 3 rows of the same `process_type` under `aggregate_type='CUSTOMER_ORDER'`. | SBDEV-3354 implementation |
+| 2026-10-21 | **SBDEV-3102 slice D2 — the three retired `ManageOrderService` dispatcher shims deleted.** §1 and §6.1 now name `buildPickedPayloadJson` as the owner of the club UUID tote label; the three §6.2 rows say the shims are deleted; and (review L4) the UUID-tote side-effect moved from the PICKING row to the FINISHED_PICKING row, verified against `buildPickedPayloadJson` (sets `historytote` + `saveAll` for CLUB) and `buildPickingStartedPayloadJson` (no tote write). **Scope: those claims only** — `last_verified` stays at 2026-06-01. | `git grep -nw` of each name in `src/main`: only the shim definitions and comments, no caller | SBDEV-3102 D2 |
 
 **Re-verify every 60 days.** Next due: **2026-07-31** — club-run area has multiple active and recently archived plans; high rate of change warrants more frequent re-verification than typical workflows.
