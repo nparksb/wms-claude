@@ -40,7 +40,13 @@ TIP_SRC=pushed
 echo "repo: ${NWO:-$(basename "$(pwd)")}   $BASE_REF: ${TIP:0:8} ($TIP_SRC $TIP_TIME)   git $GITV"
 echo
 INCOMPLETE=0
-declare -A FILES FLY
+# Per-PR maps kept as files: macOS ships bash 3.2, which has no associative arrays (declare -A).
+KV=$(mktemp -d); trap 'rm -rf "$KV"' EXIT
+kv_set() { printf '%s\n' "$3" > "$KV/$1.$2"; }
+kv_get() { cat "$KV/$1.$2" 2>/dev/null; }
+# ISO-8601 -> epoch seconds. GNU date takes -d; BSD/macOS needs -j -f (GitHub timestamps end in Z).
+# Prints nothing if neither parses, so callers fail closed on an empty value.
+epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
 nonempty() { grep -c . || true; }
 
 for PR in "$@"; do
@@ -74,7 +80,9 @@ for PR in "$@"; do
         RS=$(jq -r '.headSha // ""' <<<"$RJ"); RC=$(jq -r '.createdAt // ""' <<<"$RJ")
         NOTE=""
         [ -n "$RS" ] && [ "$RS" != "$HEAD" ] && NOTE=" ** graded ${RS:0:8}, not the current head **"
-        [ -n "$RC" ] && [ "$(date -d "$TIP_TIME" +%s)" -gt "$(date -d "$RC" +%s)" ] && NOTE="$NOTE ** $BASE_BRANCH moved after this run ($TIP_TIME > $RC) **"
+        TE=$(epoch_of "$TIP_TIME"); RE=$(epoch_of "$RC")
+        [ -n "$RC" ] && { [ -z "$TE" ] || [ -z "$RE" ]; } && NOTE="$NOTE ** cannot compare $BASE_BRANCH push time with this run: treat as stale **"
+        [ -n "$TE" ] && [ -n "$RE" ] && [ "$TE" -gt "$RE" ] && NOTE="$NOTE ** $BASE_BRANCH moved after this run ($TIP_TIME > $RC) **"
         echo "   check: $NAME = $RES  (run $RID on ${RS:0:8} at $RC)$NOTE"
       else
         echo "   check: $NAME = $RES"
@@ -93,7 +101,7 @@ for PR in "$@"; do
   MB=$(git merge-base "$HEAD" "$BASE_REF" 2>/dev/null)
   [ -n "$MB" ] || { echo "   ** no merge-base with $BASE_REF: checks NOT RUN **"; INCOMPLETE=1; echo; continue; }
   PRFILES=$(git diff --no-renames --name-only "$MB" "$HEAD" | sort)
-  FILES[$PR]="$PRFILES"
+  kv_set FILES "$PR" "$PRFILES"
   echo "   files: $(nonempty <<<"$PRFILES")   $BASE_BRANCH commits since PR base: $(git rev-list --count "$MB..$BASE_REF")"
   MOVED=$(comm -12 <(echo "$PRFILES") <(git diff --no-renames --name-only "$MB" "$BASE_REF" | sort) | sed '/^$/d')
   if [ -n "$MOVED" ]; then
@@ -112,7 +120,7 @@ for PR in "$@"; do
   # Flyway: versions this PR adds (db/migration and db/landlord-migration)
   V=$(grep -E '(^|/)db/(landlord-)?migration/V[^/]+__[^/]+\.sql$' <<<"$PRFILES" | sed -E 's#.*/(db/[^/]+)/V([^_]+)__.*#\1 \2#' | sort -u)
   if [ -n "$V" ]; then
-    FLY[$PR]="$V"
+    kv_set FLY "$PR" "$V"
     while read -r DIR VER; do
       [ -z "$VER" ] && continue
       ONBASE=$(git ls-tree --name-only "$BASE_REF" "src/main/resources/$DIR/" 2>/dev/null | grep -E "/V${VER}__" | grep -v -F "$(grep -E "$DIR/V${VER}__" <<<"$PRFILES")")
@@ -131,11 +139,13 @@ if [ ${#PRS[@]} -gt 1 ]; then
   echo "== file overlap between the PRs given (NOT the semantic-conflict test; see header)"
   for ((i=0; i<${#PRS[@]}; i++)); do for ((j=i+1; j<${#PRS[@]}; j++)); do
     A=${PRS[i]}; B=${PRS[j]}
-    [ -n "${FILES[$A]:-}" ] && [ -n "${FILES[$B]:-}" ] || continue
-    O=$(comm -12 <(echo "${FILES[$A]}") <(echo "${FILES[$B]}") | sed '/^$/d')
+    FA=$(kv_get FILES "$A"); FB=$(kv_get FILES "$B")
+    [ -n "$FA" ] && [ -n "$FB" ] || continue
+    O=$(comm -12 <(echo "$FA") <(echo "$FB") | sed '/^$/d')
     [ -n "$O" ] && { echo "   #$A x #$B: $(nonempty <<<"$O") file(s)"; sed 's/^/      /' <<<"$O" | head -10; }
-    if [ -n "${FLY[$A]:-}" ] && [ -n "${FLY[$B]:-}" ]; then
-      FC=$(comm -12 <(sort <<<"${FLY[$A]}") <(sort <<<"${FLY[$B]}") | sed '/^[[:space:]]*$/d')
+    YA=$(kv_get FLY "$A"); YB=$(kv_get FLY "$B")
+    if [ -n "$YA" ] && [ -n "$YB" ]; then
+      FC=$(comm -12 <(sort <<<"$YA") <(sort <<<"$YB") | sed '/^[[:space:]]*$/d')
       [ -n "$FC" ] && echo "   ** #$A x #$B: same Flyway version(s): $(tr '\n' ' ' <<<"$FC")**"
     fi
   done; done

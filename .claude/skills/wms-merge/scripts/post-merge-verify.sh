@@ -19,6 +19,12 @@
 #      probe; asking for one there is a FAIL, not a silent skip.
 # Exit: 0 = all proven; 1 = a check failed; 3 = runs still in progress; 2 = usage/fetch error.
 set -uo pipefail
+# ISO-8601 -> epoch seconds. GNU date takes -d; BSD/macOS needs -j -f (GitHub timestamps end in Z).
+# Prints nothing if neither parses, so callers fail closed on an empty value.
+epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
+# True only when every line carries a TAB-delimited "completed" field. Not `! grep -qvP`: BSD grep has
+# no -P, exits 2, and the `!` turned that error into "all completed".
+all_completed() { local T=$'\t' rc; printf '%s\n' "$1" | grep -qv "${T}completed${T}"; rc=$?; [ "$rc" -eq 1 ]; }  # 0 = a pending line, 2 = error
 
 REPO=${1:?usage}; PR=${2:?usage}; shift 2
 MARKER=""; NOMARKER=0; WAITRUN=0; WAITDEP=0; BASE_BRANCH=develop
@@ -66,9 +72,9 @@ runs() { gh run list --commit "$MC" --limit 50 --json databaseId,workflowName,ev
 PREVN=-1
 for i in $(seq 1 60); do
   R=$(runs); N=$(grep -c . <<<"$R")
-  if [ -n "$R" ] && ! grep -qvP '\tcompleted\t' <<<"$R" && [ "$N" -eq "$PREVN" ]; then break; fi
-  if [ -n "$R" ] && ! grep -qvP '\tcompleted\t' <<<"$R" && [ $WAITRUN -eq 0 ]; then
-    AGE=$(( $(date +%s) - $(date -d "$(jq -r '.mergedAt' <<<"$J")" +%s) ))
+  if [ -n "$R" ] && all_completed "$R" && [ "$N" -eq "$PREVN" ]; then break; fi
+  if [ -n "$R" ] && all_completed "$R" && [ $WAITRUN -eq 0 ]; then
+    ME=$(epoch_of "$(jq -r '.mergedAt' <<<"$J")"); AGE=$(( $(date +%s) - ${ME:-$(date +%s)} ))   # unparseable -> age 0: keep waiting
     [ "$AGE" -gt 600 ] && break   # merged >10 min ago: every push workflow has long since queued
     sleep 45; R2=$(runs); [ "$(grep -c . <<<"$R2")" -eq "$N" ] && break; R=$R2; PEND=1; break
   fi
