@@ -21,9 +21,10 @@
 #   Keep lanes out of each other's worktree by instruction (memory review-lanes-must-not-share-a-worktree).
 # Leases live in .claude/worktrees/.leases/ (git-ignored). Every write is atomic (ln / rename).
 set -uo pipefail
-DIR=/home/nampark/dev/wms-claude/.claude/worktrees/.leases
+# Resolve from the script's own location: a hardcoded absolute path breaks on every other machine.
+DIR=${LEASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/worktrees/.leases}
 MAXH=${LEASE_MAX_HOURS:-12}
-mkdir -p "$DIR"
+mkdir -p "$DIR" || { echo "cannot create lease dir $DIR" >&2; exit 2; }
 ME=${CLAUDE_CODE_SESSION_ID:-}; MYPID=${CLAUDE_PID:-}
 CMD=${1:?usage: ticket-lease.sh claim|check|release|list ...}
 
@@ -38,7 +39,7 @@ status() {  # $1 = lease file -> mine | live | stale
 show() { echo "   session=$(field "$1" session) pid=$(field "$1" pid) claimed=$(field "$1" claimed) note=$(field "$1" note)"; }
 write_lease() {  # $1 = target tmp file, $2 = note (newlines/control chars stripped)
   local note; note=$(printf '%s' "$2" | tr -d '\000-\037')
-  printf 'session=%s\npid=%s\nclaimed=%s\nepoch=%s\nnote=%s\n' "$ME" "$MYPID" "$(date -Is)" "$(date +%s)" "$note" > "$1"
+  printf 'session=%s\npid=%s\nclaimed=%s\nepoch=%s\nnote=%s\n' "$ME" "$MYPID" "$(date +%Y-%m-%dT%H:%M:%S%z)" "$(date +%s)" "$note" > "$1"
 }
 
 case "$CMD" in
@@ -70,7 +71,8 @@ case "$CMD" in
       mv "$F" "$DIR/.stale.$T.$$" 2>/dev/null || { echo "$T: another session is taking over this stale lease; re-check"; exit 1; }
       rm -f "$DIR/.stale.$T.$$"
     fi
-    TMP=$(mktemp "$DIR/.$T.XXXXXX"); write_lease "$TMP" "${3:-}"
+    TMP=$(mktemp "$DIR/.$T.XXXXXX") || { echo "mktemp failed in $DIR" >&2; exit 2; }
+    write_lease "$TMP" "${3:-}" || { rm -f "$TMP"; exit 2; }
     if ln "$TMP" "$F" 2>/dev/null; then rm -f "$TMP"
     else rm -f "$TMP"; echo "$T: claimed by another session a moment ago"; show "$F"; exit 1; fi
     [ "$(field "$F" session)" = "$ME" ] || { echo "$T: lost the race"; show "$F"; exit 1; }

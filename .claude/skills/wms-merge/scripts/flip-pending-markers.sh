@@ -30,7 +30,9 @@ while [ $# -gt 0 ]; do case "$1" in
   *) echo "unknown arg $1" >&2; exit 2;;
 esac; done
 [ -n "$PRS" ] || { echo "--prs is required: every PR of $T, as <repo-dir>:<PR>" >&2; exit 2; }
-MONO=/home/nampark/dev/wms-claude
+# The monorepo root, from this script's location (.claude/skills/wms-merge/scripts/): a hardcoded
+# absolute path breaks on every other machine.
+MONO=${MONO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}
 ROOT=${SBDOCS_ROOT:-$MONO/sbdocs}
 
 ALL=1

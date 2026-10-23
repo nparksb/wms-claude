@@ -11,9 +11,12 @@ WMS_DEV_DB_SERVER=wms2-wineco-dev                  # the ONLY DB (MCP server nam
 WMS_DEV_DB_ALLOW=dev_wh01_om1
 CRED=$HOME/.config/wms-dev-probe/credentials
 umask 077
+# Octal permission bits. GNU stat spells it -c %a, BSD/macOS -f %Lp; GNU alone made every macOS run
+# refuse an already-700 dir (the error then told the user to rm -rf it).
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
 mkdir_secure() {  # $1 = dir; refuse a symlink, a dir we don't own, or a loose mode
   mkdir -p -m 700 "$1" 2>/dev/null
-  if [ -L "$1" ] || [ ! -O "$1" ] || [ "$(stat -c %a "$1" 2>/dev/null)" != 700 ]; then
+  if [ -L "$1" ] || [ ! -O "$1" ] || [ "$(mode_of "$1")" != 700 ]; then
     echo "refusing: insecure dir $1 (fix: rm -rf '$1' && mkdir -m 700 '$1')" >&2; return 2
   fi
 }
@@ -24,7 +27,7 @@ mkdir_secure "$HOME/.cache/wms-dev-probe" && mkdir_secure "$STATE" && mkdir_secu
 
 WMS_DEV_USER=""; WMS_DEV_PASSWORD=""; WMS_DEV_KEY=wsl-wineco; WMS_DEV_TENANT=wineco; WMS_DEV_FACILITY=wsl
 if [ -e "$CRED" ]; then
-  if [ ! -f "$CRED" ] || [ -L "$CRED" ] || [ ! -O "$CRED" ] || [ "$(stat -c %a "$CRED")" != 600 ]; then
+  if [ ! -f "$CRED" ] || [ -L "$CRED" ] || [ ! -O "$CRED" ] || [ "$(mode_of "$CRED")" != 600 ]; then
     echo "refusing: $CRED must be a regular file you own, mode 600 (fix: chmod 600 '$CRED')" >&2; return 2 2>/dev/null || exit 2
   fi
   while IFS= read -r line || [ -n "$line" ]; do
