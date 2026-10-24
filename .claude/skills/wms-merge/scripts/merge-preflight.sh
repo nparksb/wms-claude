@@ -26,6 +26,7 @@ BASE_BRANCH=develop
 REPO=${1:?usage: merge-preflight.sh [--base <branch>] <repo-dir> <PR> [<PR> ...]}
 shift
 [ $# -ge 1 ] || { echo "usage: merge-preflight.sh [--base <branch>] <repo-dir> <PR> [<PR> ...]" >&2; exit 2; }
+for PR in "$@"; do [[ "$PR" =~ ^[0-9]+$ ]] || { echo "PR must be a number, not a branch or URL: $PR" >&2; exit 2; }; done
 cd "$REPO" || exit 2
 git fetch -q origin || { echo "git fetch failed" >&2; exit 2; }
 BASE_REF=origin/$BASE_BRANCH
@@ -36,17 +37,25 @@ TIP=$(git rev-parse "$BASE_REF")
 NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
 TIP_TIME=$(gh api "repos/$NWO/activity?ref=$BASE_BRANCH&per_page=5" --jq "[.[] | select(.after==\"$TIP\")][0].timestamp // empty" 2>/dev/null)
 TIP_SRC=pushed
-[ -n "$TIP_TIME" ] || { TIP_TIME=$(git log -1 --format=%cI "$BASE_REF"); TIP_SRC="committed (no push record; push may be later)"; }
+[ -n "$TIP_TIME" ] || { TIP_TIME=$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$BASE_REF"); TIP_SRC="committed (no push record; push may be later)"; }
 echo "repo: ${NWO:-$(basename "$(pwd)")}   $BASE_REF: ${TIP:0:8} ($TIP_SRC $TIP_TIME)   git $GITV"
 echo
 INCOMPLETE=0
 # Per-PR maps kept as files: macOS ships bash 3.2, which has no associative arrays (declare -A).
-KV=$(mktemp -d); trap 'rm -rf "$KV"' EXIT
-kv_set() { printf '%s\n' "$3" > "$KV/$1.$2"; }
+KV=$(mktemp -d) || { echo "mktemp failed" >&2; exit 2; }; trap 'rm -rf "$KV"' EXIT INT TERM
+# A failed write marks the report incomplete: a lost entry silently skipped the cross-PR checks.
+kv_set() { printf '%s\n' "$3" > "$KV/$1.$2" || { echo "   ** could not record $1 for #$2 **"; INCOMPLETE=1; }; }
 kv_get() { cat "$KV/$1.$2" 2>/dev/null; }
-# ISO-8601 -> epoch seconds. GNU date takes -d; BSD/macOS needs -j -f (GitHub timestamps end in Z).
-# Prints nothing if neither parses, so callers fail closed on an empty value.
-epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
+# Strict UTC 'YYYY-MM-DDTHH:MM:SSZ' (every GitHub timestamp these scripts read) -> epoch seconds.
+# GNU date takes -d; BSD/macOS needs -j -f. Anything else -- trailing junk, an offset, fractional
+# seconds, an impossible date BSD would normalize (Feb 30 -> Mar 2), "" which GNU reads as today --
+# prints nothing and returns 1, and every caller treats an empty value as "cannot decide".
+epoch_of() {
+  [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
+  local e; e=$(date -u -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null) || return 1
+  [ "$(date -u -d "@$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" = "$1" ] || return 1
+  printf '%s\n' "$e"
+}
 nonempty() { grep -c . || true; }
 
 for PR in "$@"; do
@@ -81,6 +90,7 @@ for PR in "$@"; do
         NOTE=""
         [ -n "$RS" ] && [ "$RS" != "$HEAD" ] && NOTE=" ** graded ${RS:0:8}, not the current head **"
         TE=$(epoch_of "$TIP_TIME"); RE=$(epoch_of "$RC")
+        [ -z "$RC" ] && NOTE="$NOTE ** cannot read run $RID: treat as stale **"
         [ -n "$RC" ] && { [ -z "$TE" ] || [ -z "$RE" ]; } && NOTE="$NOTE ** cannot compare $BASE_BRANCH push time with this run: treat as stale **"
         [ -n "$TE" ] && [ -n "$RE" ] && [ "$TE" -gt "$RE" ] && NOTE="$NOTE ** $BASE_BRANCH moved after this run ($TIP_TIME > $RC) **"
         echo "   check: $NAME = $RES  (run $RID on ${RS:0:8} at $RC)$NOTE"

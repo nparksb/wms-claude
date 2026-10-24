@@ -13,7 +13,12 @@ CRED=$HOME/.config/wms-dev-probe/credentials
 umask 077
 # Octal permission bits. GNU stat spells it -c %a, BSD/macOS -f %Lp; GNU alone made every macOS run
 # refuse an already-700 dir (the error then told the user to rm -rf it).
-mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null; }
+# BSD: %p is the full octal mode (e.g. 41700); keep the 4 permission digits and drop leading zeros, so
+# setuid/setgid/sticky count exactly as GNU %a counts them (BSD %Lp silently dropped them).
+mode_of() {
+  stat -c %a "$1" 2>/dev/null && return
+  local m; m=$(stat -f %p "$1" 2>/dev/null) && [ -n "$m" ] && printf '%o\n' $(( 8#${m: -4} ))
+}
 mkdir_secure() {  # $1 = dir; refuse a symlink, a dir we don't own, or a loose mode
   mkdir -p -m 700 "$1" 2>/dev/null
   if [ -L "$1" ] || [ ! -O "$1" ] || [ "$(mode_of "$1")" != 700 ]; then

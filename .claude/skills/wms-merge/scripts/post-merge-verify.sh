@@ -19,12 +19,19 @@
 #      probe; asking for one there is a FAIL, not a silent skip.
 # Exit: 0 = all proven; 1 = a check failed; 3 = runs still in progress; 2 = usage/fetch error.
 set -uo pipefail
-# ISO-8601 -> epoch seconds. GNU date takes -d; BSD/macOS needs -j -f (GitHub timestamps end in Z).
-# Prints nothing if neither parses, so callers fail closed on an empty value.
-epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
-# True only when every line carries a TAB-delimited "completed" field. Not `! grep -qvP`: BSD grep has
-# no -P, exits 2, and the `!` turned that error into "all completed".
-all_completed() { local T=$'\t' rc; printf '%s\n' "$1" | grep -qv "${T}completed${T}"; rc=$?; [ "$rc" -eq 1 ]; }  # 0 = a pending line, 2 = error
+# Strict UTC 'YYYY-MM-DDTHH:MM:SSZ' (every GitHub timestamp these scripts read) -> epoch seconds.
+# GNU date takes -d; BSD/macOS needs -j -f. Anything else -- trailing junk, an offset, fractional
+# seconds, an impossible date BSD would normalize (Feb 30 -> Mar 2), "" which GNU reads as today --
+# prints nothing and returns 1, and every caller treats an empty value as "cannot decide".
+epoch_of() {
+  [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
+  local e; e=$(date -u -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null) || return 1
+  [ "$(date -u -d "@$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" = "$1" ] || return 1
+  printf '%s\n' "$e"
+}
+# True only when every run line has exactly 4 TAB fields and its status field (3rd) is "completed".
+# Was `! grep -qvP`: BSD grep has no -P, exited 2, and the `!` turned that error into "all completed".
+all_completed() { printf '%s\n' "$1" | awk -F'\t' 'NF!=4 || $3!="completed" {bad=1} END {exit bad}'; }  # runs() emits id, workflow, status, conclusion
 
 REPO=${1:?usage}; PR=${2:?usage}; shift 2
 MARKER=""; NOMARKER=0; WAITRUN=0; WAITDEP=0; BASE_BRANCH=develop
@@ -74,7 +81,7 @@ for i in $(seq 1 60); do
   R=$(runs); N=$(grep -c . <<<"$R")
   if [ -n "$R" ] && all_completed "$R" && [ "$N" -eq "$PREVN" ]; then break; fi
   if [ -n "$R" ] && all_completed "$R" && [ $WAITRUN -eq 0 ]; then
-    ME=$(epoch_of "$(jq -r '.mergedAt' <<<"$J")"); AGE=$(( $(date +%s) - ${ME:-$(date +%s)} ))   # unparseable -> age 0: keep waiting
+    ME=$(epoch_of "$(jq -r '.mergedAt' <<<"$J")"); AGE=$(( $(date +%s) - ${ME:-$(date +%s)} ))   # unparseable -> treated as a fresh merge (one 45s re-count)
     [ "$AGE" -gt 600 ] && break   # merged >10 min ago: every push workflow has long since queued
     sleep 45; R2=$(runs); [ "$(grep -c . <<<"$R2")" -eq "$N" ] && break; R=$R2; PEND=1; break
   fi

@@ -30,10 +30,25 @@ while [ $# -gt 0 ]; do case "$1" in
   *) echo "unknown arg $1" >&2; exit 2;;
 esac; done
 [ -n "$PRS" ] || { echo "--prs is required: every PR of $T, as <repo-dir>:<PR>" >&2; exit 2; }
-# The monorepo root, from this script's location (.claude/skills/wms-merge/scripts/): a hardcoded
-# absolute path breaks on every other machine.
-MONO=${MONO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}
+# The MAIN checkout of the owl repo, whichever symlink, copy or git worktree this script runs from.
+# Anchored on git's common dir, not on this file's path: a path-derived root gave a symlinked or
+# worktree copy its own lease set, so two sessions could both "claim" one ticket. Prints nothing
+# (return 1) if it cannot be resolved; callers refuse on that.
+main_root() {
+  local src=${BASH_SOURCE[0]} d n=0 common
+  while [ -L "$src" ] && [ $n -lt 20 ]; do   # follow symlinks; BSD readlink has no -f
+    d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
+    src=$(readlink -- "$src"); case "$src" in /*) ;; *) src=$d/$src;; esac; n=$((n+1))
+  done
+  d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
+  common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  [ -n "$common" ] && dirname -- "$common"
+}
+MONO=${MONO_ROOT:-$(main_root)} || { echo "cannot resolve the owl repo root; set MONO_ROOT" >&2; exit 2; }
+[ -n "$MONO" ] || { echo "cannot resolve the owl repo root; set MONO_ROOT" >&2; exit 2; }
 ROOT=${SBDOCS_ROOT:-$MONO/sbdocs}
+# A missing root walks nothing and would report "0 flipped" as a clean run.
+[ -d "$ROOT" ] || { echo "no sbdocs at $ROOT" >&2; exit 2; }
 
 ALL=1
 for rp in $PRS; do

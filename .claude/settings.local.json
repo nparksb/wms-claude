@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash /home/nampark/dev/wms-claude/.claude/scripts/memory-index-check.sh 2>/dev/null || true",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/memory-index-check.sh\" 2>/dev/null || true",
             "timeout": 10
           }
         ]

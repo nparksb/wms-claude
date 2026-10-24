@@ -78,7 +78,7 @@ Implementation **never** happens in the main checkout (`v1/wms-api`, `v2/wms2-ap
 **Layout** — one worktree per repo per ticket, under the monorepo root:
 
 ```
-/home/nampark/dev/wms-claude/.claude/worktrees/<repo-dir-name>/<TICKET>
+$MONO/.claude/worktrees/<repo-dir-name>/<TICKET>   (MONO = owl's main checkout, below)
 ```
 
 `<repo-dir-name>` is the sub-repo's directory name (`wms2-api`, `wms-api`, `wms2-web-ui`, …) so a multi-repo plan gets sibling worktrees. `<TICKET>` is the bare ticket id (`SBDEV-2778`); for an untracked plan with no ticket, use the plan-id's date-slug (`260424-runclubline-transaction-boundary-hardening`). `.claude/worktrees/` is already in the umbrella `.gitignore` — do not add it to `.claudecodeignore`, that would hide the very files being edited.
@@ -88,7 +88,7 @@ Implementation **never** happens in the main checkout (`v1/wms-api`, `v2/wms2-ap
 **Create it:**
 
 ```bash
-MONO=/home/nampark/dev/wms-claude
+MONO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")   # owl's MAIN checkout (run from inside owl; works from a worktree too)
 REPO=v2/wms2-api                                     # the target sub-repo, relative to $MONO
 TICKET=SBDEV-####
 BRANCH=bugfix/SBDEV-####-kebab                       # from the plan
@@ -136,10 +136,10 @@ mvn -v    # confirm; v1/wms-api needs Java 8, v2/wms2-api needs Java 21
 
 Run these **in the worktree** (`cd "$WT"`).
 
-**Verify scripts need a shadow root — this is not optional.** Every script defaults `PROJECT_ROOT=/home/nampark/dev/wms-claude` and asserts against paths like `v2/wms2-api/src/...`, so run as-is it grades the **main checkout** and is blind to everything you just wrote. Build a symlink tree that mirrors the monorepo but points the worktree'd repo at `$WT`, and pass it as `PROJECT_ROOT`:
+**Verify scripts need a shadow root — this is not optional.** Most scripts default `PROJECT_ROOT` to a hardcoded Linux path (`/home/nampark/dev/wms-claude` or one of its sub-repos: 38 of 48 as of 2026-10-24); the rest derive it from their own location, which is the main checkout. Either way, run as-is a script never grades your worktree: on the Linux box it grades the **main checkout**, and on the Mac it grades a path that does not exist, where every positive row reds and an unguarded negative row passes. Build a symlink tree that mirrors the monorepo but points the worktree'd repo at `$WT`, and pass it as `PROJECT_ROOT`:
 
 ```bash
-MONO=/home/nampark/dev/wms-claude
+MONO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")   # owl's MAIN checkout (run from inside owl; works from a worktree too)
 VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"
 rm -rf "$VROOT"; mkdir -p "$VROOT/v1" "$VROOT/v2"
 for p in "$MONO"/v1/*/ "$MONO"/v2/*/; do
@@ -200,7 +200,7 @@ Abort the loop and report if: the plan's design is provably wrong, a fix needs a
 cd "$WT"                                 # everything below runs in the worktree
 mvn test -Dtest=<TouchedClass>          # fast feedback, per touched class
 mvn test                                 # full unit suite
-bash /home/nampark/dev/wms-claude/sbdocs/9-System/scripts/verify-<plan-id>.sh
+bash "$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
 ```
 
 **Landmines — each one has produced a false green in this repo:**

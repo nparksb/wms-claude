@@ -22,9 +22,16 @@
 #       before retrying) · 3 MERGED, with a WARNING (base moved during the merge, the merge commit could not be
 #       read, or gh pr merge failed but the PR reads MERGED, possibly merged by someone else or as a squash).
 set -uo pipefail
-# ISO-8601 -> epoch seconds. GNU date takes -d; BSD/macOS needs -j -f (GitHub timestamps end in Z).
-# Prints nothing if neither parses, so callers fail closed on an empty value.
-epoch_of() { date -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
+# Strict UTC 'YYYY-MM-DDTHH:MM:SSZ' (every GitHub timestamp these scripts read) -> epoch seconds.
+# GNU date takes -d; BSD/macOS needs -j -f. Anything else -- trailing junk, an offset, fractional
+# seconds, an impossible date BSD would normalize (Feb 30 -> Mar 2), "" which GNU reads as today --
+# prints nothing and returns 1, and every caller treats an empty value as "cannot decide".
+epoch_of() {
+  [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
+  local e; e=$(date -u -d "$1" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null) || return 1
+  [ "$(date -u -d "@$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" = "$1" ] || return 1
+  printf '%s\n' "$e"
+}
 [ $# -ge 3 ] || { echo "usage: merge-one.sh <repo-dir> <PR> <graded-head-sha> [options]" >&2; exit 2; }
 REPO=$1; PR=$2; GRADED=$3; shift 3
 BASE_BRANCH=develop; CHECK=test; NOPR=""; GBASE=""
@@ -86,7 +93,7 @@ else
     [ -n "$TIPT" ] || die "no push record for $BASE_BRANCH tip ${TIP:0:8} in GitHub's activity API, and it is not an ancestor of the graded head, so whether it moved after the graded run can't be proven: re-grade (merge it in, push, wait for the check)"
     TE=$(epoch_of "$TIPT"); RE=$(epoch_of "$RC")
     [ -n "$TE" ] && [ -n "$RE" ] || die "cannot parse $BASE_BRANCH push time ($TIPT) or run start ($RC): re-grade"
-    [ "$TE" -le "$RE" ] \
+    [ "$TE" -lt "$RE" ] \
       || die "$BASE_BRANCH was pushed after the graded run ($TIPT > $RC): re-grade on the new $BASE_BRANCH (merge it in, push, wait for the check)"
     echo "graded: run $RID on ${RS:0:8} at $RC; $BASE_BRANCH tip ${TIP:0:8} pushed $TIPT"
   fi

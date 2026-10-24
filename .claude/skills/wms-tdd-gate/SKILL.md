@@ -57,14 +57,14 @@ If the plan has no §0 table, §3 Fix Design, or §8 Acceptance section, stop an
 
 Plans live in `sbdocs/` (not git), but this skill writes Java into `v1/wms-api` or `v2/wms2-api` — real repositories. On the chained path nothing has touched git yet, and this skill is the first thing that does.
 
-**Claim the ticket first:** `/home/nampark/dev/wms-claude/.claude/scripts/ticket-lease.sh claim <TICKET> "tdd-gate"`. Exit 1 means another live session holds it; stop and coordinate (SendMessage), don't write into its worktree.
+**Claim the ticket first:** `.claude/scripts/ticket-lease.sh claim <TICKET> "tdd-gate"`, run from the owl root. Exit 1 means another live session holds it; stop and coordinate (SendMessage), don't write into its worktree. **Any other non-zero exit is also a stop** (2 = setup error, 127 = script not found): it means the claim did not happen, never that the ticket is free.
 
 Tests go into a **dedicated per-ticket worktree**, never the main checkout — the same worktree `wms-plan-executor` will implement in, so the gate tests and the production code share one branch and one tree.
 
 1. Read the branch name from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout — for phased plans use the **Phase 1** branch). If the plan names none, derive one matching the repo's own prefixes (`feature/`, `bugfix/`, `fix/`, `task/`), defaulting to `feature/<plan-id>`.
 2. Create or reuse the worktree at `.claude/worktrees/<repo-dir-name>/<TICKET>` (bare ticket id, e.g. `SBDEV-2778`; for an untracked plan use the plan-id date-slug):
    ```bash
-   MONO=/home/nampark/dev/wms-claude
+   MONO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")   # owl's MAIN checkout (run from inside owl; works from a worktree too)
    REPO=v2/wms2-api; TICKET=SBDEV-####; BRANCH=<from the plan>
    WT="$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
    git -C "$MONO/$REPO" fetch origin

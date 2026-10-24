@@ -5,21 +5,28 @@
 #   - MEMORY.md is over WARN_BYTES (default 22500, about 92% of the 24.4 KB load limit; past the limit,
 #     index lines are dropped from every session's context), or
 #   - the last consolidation (stamp file .last-consolidation, a YYYY-MM-DD) is older than MAX_DAYS (default 35).
-# After consolidating, re-stamp:  date +%F > ~/.claude/projects/-home-nampark-dev-wms-claude/memory/.last-consolidation
+# After consolidating, re-stamp:  date +%F > "$STAMP" (the exact path is printed in the notice)
 # How to consolidate: move each long cluster line into a hub-<topic>.md memory and point the index at it
 # (done 2026-10-15: 26.3 KB -> 22.0 KB, 9 hubs, all 262 links still reachable). Archive the notes of shipped tickets.
 set -uo pipefail
-MEM=$HOME/.claude/projects/-home-nampark-dev-wms-claude/memory
+# Claude Code names a project's memory dir after its path with every non-alphanumeric turned into '-'
+# (/Users/np1076/dev/spk/owl -> -Users-np1076-dev-spk-owl). Was hardcoded to the Linux box's path, so on
+# the Mac the `[ -f "$IDX" ] || exit 0` below exited silently while the index overflowed.
+PROJ=${CLAUDE_PROJECT_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)}
+[ -n "$PROJ" ] || exit 0
+MEM=$HOME/.claude/projects/$(printf '%s' "$PROJ" | sed 's/[^A-Za-z0-9]/-/g')/memory
 IDX=$MEM/MEMORY.md
 STAMP=$MEM/.last-consolidation
 WARN_BYTES=${WARN_BYTES:-22500}; MAX_DAYS=${MAX_DAYS:-35}
 [ -f "$IDX" ] || exit 0
-SIZE=$(wc -c < "$IDX")
+SIZE=$(wc -c < "$IDX" | tr -d ' ')   # BSD wc pads with spaces
 REASONS=()
 [ "$SIZE" -gt "$WARN_BYTES" ] && REASONS+=("MEMORY.md is $SIZE bytes (warn at $WARN_BYTES; the load limit is about 24.4 KB, and lines past it are dropped)")
-if [ -f "$STAMP" ] && LAST=$(date -d "$(head -1 "$STAMP")" +%s 2>/dev/null); then
+D=$(head -1 "$STAMP" 2>/dev/null)
+# GNU date -d, else BSD date -j -f (macOS); the regex keeps BSD from accepting trailing junk.
+if [[ "$D" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && LAST=$(date -d "$D" +%s 2>/dev/null || date -j -f %Y-%m-%d "$D" +%s 2>/dev/null); then
   AGE=$(( ( $(date +%s) - LAST ) / 86400 ))
-  [ "$AGE" -gt "$MAX_DAYS" ] && REASONS+=("last consolidation was $AGE days ago ($(head -1 "$STAMP"))")
+  [ "$AGE" -gt "$MAX_DAYS" ] && REASONS+=("last consolidation was $AGE days ago ($D)")
 else
   REASONS+=("no consolidation stamp at $STAMP")
 fi

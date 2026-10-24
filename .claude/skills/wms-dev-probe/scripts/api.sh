@@ -12,12 +12,14 @@ M=${1:?usage: api.sh METHOD PATH [JSON]}; P=${2:?usage}; B=${3-}
 case "$P" in /*) ;; *) echo "PATH must start with /" >&2; exit 2;; esac
 PUBLIC=0; case "$P" in /api/public/*) PUBLIC=1;; esac
 call() {
+  # ${auth[@]+...}: bash < 4.4 treats an empty "${auth[@]}" as unbound under set -u, which killed
+  # every /api/public/* call on macOS's bash 3.2.
   local auth=(); [ $PUBLIC -eq 1 ] || auth=(-H "@$HDR_FILE")
   if [ -n "$B" ]; then
-    printf '%s' "$B" | curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" "${auth[@]}" \
+    printf '%s' "$B" | curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
       -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" -H 'Content-Type: application/json' --data-binary @-
   else
-    curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" "${auth[@]}" \
+    curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
       -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY"
   fi
 }

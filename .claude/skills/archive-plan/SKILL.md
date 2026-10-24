@@ -115,7 +115,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
    **Discover, don't assume.** The plan may have no worktree at all (docs-only plans, investigation-derived plans, plans implemented before the worktree convention). Enumerate rather than deriving paths:
 
    ```bash
-   MONO=/home/nampark/dev/wms-claude
+   MONO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")   # owl's MAIN checkout (run from inside owl; works from a worktree too)
    TICKET=SBDEV-####                       # bare ticket id, or the plan-id date-slug for untracked plans
    for REPO in v1/wms-api v1/wms-web-ui v1/wms-mobile-ui v2/wms2-api v2/wms2-web-ui v2/wms2-mobile-ui; do
      [ -d "$MONO/$REPO/.git" ] || [ -f "$MONO/$REPO/.git" ] || continue
@@ -138,7 +138,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
       ```
 
       `git worktree add -b <branch> ... origin/develop` sets the new branch's upstream to **`origin/develop`**, not `origin/<branch>` (verified 2026-08-03: `branch.<b>.merge = refs/heads/develop`). So `log @{u}..` lists the branch's own legitimate commits and reads as "unpushed" even for a fully-pushed branch — it fails open in the noisy direction on every worktree. Unpushed commits, or no remote head at all → stop and ask; a worktree with commits that exist nowhere else is the one thing removal can permanently destroy.
-   4. **No live session holds the ticket.** `/home/nampark/dev/wms-claude/.claude/scripts/ticket-lease.sh check <TICKET>` must exit 0 (free, yours, or stale). On 2026-10-15 a ticket's worktree was removed by one session while another was still using its branch.
+   4. **No live session holds the ticket.** `"$MONO/.claude/scripts/ticket-lease.sh" check <TICKET>` must exit 0 (free, yours, or stale); any non-zero exit, including 2 or 127, means do not proceed. On 2026-10-15 a ticket's worktree was removed by one session while another was still using its branch.
    5. **Repo matches the plan's version.** Same guardrail as 5e: v1/v2 plan pairs share a base name and can have sibling worktrees in *different* repos. Retire only the worktree(s) whose repo matches the plan being archived (`v1/...` for a v1 plan, `v2/...` for a v2 plan); **keep any worktree in a repo whose sibling plan is still active in `1-Projects/`.** A multi-repo plan of one version (API + web-ui, e.g. `SBDEV-2731`) has sibling worktrees that all belong to that plan — remove them all together.
 
    **Execute, once every gate passes:**

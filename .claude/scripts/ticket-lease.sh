@@ -21,8 +21,25 @@
 #   Keep lanes out of each other's worktree by instruction (memory review-lanes-must-not-share-a-worktree).
 # Leases live in .claude/worktrees/.leases/ (git-ignored). Every write is atomic (ln / rename).
 set -uo pipefail
-# Resolve from the script's own location: a hardcoded absolute path breaks on every other machine.
-DIR=${LEASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/worktrees/.leases}
+# The MAIN checkout of the owl repo, whichever symlink, copy or git worktree this script runs from.
+# Anchored on git's common dir, not on this file's path: a path-derived root gave a symlinked or
+# worktree copy its own lease set, so two sessions could both "claim" one ticket. Prints nothing
+# (return 1) if it cannot be resolved; callers refuse on that.
+main_root() {
+  local src=${BASH_SOURCE[0]} d n=0 common
+  while [ -L "$src" ] && [ $n -lt 20 ]; do   # follow symlinks; BSD readlink has no -f
+    d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
+    src=$(readlink -- "$src"); case "$src" in /*) ;; *) src=$d/$src;; esac; n=$((n+1))
+  done
+  d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
+  common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  [ -n "$common" ] && dirname -- "$common"
+}
+if [ -z "${LEASE_DIR:-}" ]; then
+  MR=$(main_root) || { echo "cannot resolve the owl repo root from this script; set LEASE_DIR" >&2; exit 2; }
+  LEASE_DIR=$MR/.claude/worktrees/.leases
+fi
+DIR=$LEASE_DIR
 MAXH=${LEASE_MAX_HOURS:-12}
 mkdir -p "$DIR" || { echo "cannot create lease dir $DIR" >&2; exit 2; }
 ME=${CLAUDE_CODE_SESSION_ID:-}; MYPID=${CLAUDE_PID:-}
@@ -33,7 +50,7 @@ status() {  # $1 = lease file -> mine | live | stale
   local s p e; s=$(field "$1" session); p=$(field "$1" pid); e=$(field "$1" epoch)
   if [ -n "$ME" ] && [ "$s" = "$ME" ]; then echo mine; return; fi
   if [ -n "$e" ] && [ $(( $(date +%s) - e )) -gt $(( MAXH * 3600 )) ]; then echo stale; return; fi
-  if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && [ "$(ps -o comm= -p "$p" 2>/dev/null)" = claude ]; then echo live
+  if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && case "$(ps -o comm= -p "$p" 2>/dev/null)" in claude|*/claude) true;; *) false;; esac; then echo live
   else echo stale; fi
 }
 show() { echo "   session=$(field "$1" session) pid=$(field "$1" pid) claimed=$(field "$1" claimed) note=$(field "$1" note)"; }
@@ -59,7 +76,8 @@ case "$CMD" in
     case "$ST" in
       live) echo "$T: HELD by another live session; coordinate (SendMessage) before touching its branch or worktree"; show "$F"; exit 1;;
       mine) if [ "$CMD" = claim ]; then   # refresh (note + time), atomically
-              TMP=$(mktemp "$DIR/.$T.XXXXXX"); write_lease "$TMP" "${3:-$(field "$F" note)}"; mv -f "$TMP" "$F"; fi
+              TMP=$(mktemp "$DIR/.$T.XXXXXX") || { echo "mktemp failed in $DIR" >&2; exit 2; }
+              write_lease "$TMP" "${3:-$(field "$F" note)}" && mv -f "$TMP" "$F" || { rm -f "$TMP"; echo "$T: refresh failed" >&2; exit 2; }; fi
             echo "$T: yours"; exit 0;;
       stale) echo "$T: stale lease (owner gone, PID reused, or older than ${MAXH}h)"; show "$F"
              [ "$CMD" = check ] && exit 0;;

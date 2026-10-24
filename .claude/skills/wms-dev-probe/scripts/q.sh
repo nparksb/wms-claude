@@ -11,7 +11,8 @@
 set +x; set -uo pipefail
 . "$(dirname "$0")/env.sh" || exit 2
 SQL=${1:?usage: q.sh "<SQL>"}
-PSQL=$(command -v psql || ls /usr/local/opt/libpq/bin/psql 2>/dev/null) || { echo "psql not found" >&2; exit 2; }
+PSQL=$(command -v psql || ls /opt/homebrew/opt/libpq/bin/psql /usr/local/opt/libpq/bin/psql 2>/dev/null | head -1)
+[ -n "$PSQL" ] || { echo "psql not found" >&2; exit 2; }   # the ls|head pipeline exits 0 even when empty
 PARTS=$(python3 -I - "$WMS_DEV_DB_SERVER" "$WMS_DEV_DB_ALLOW" <<'EOF'
 import json, os, sys, urllib.parse
 want, allow = sys.argv[1], set(sys.argv[2].split(','))
