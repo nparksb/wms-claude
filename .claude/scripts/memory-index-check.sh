@@ -19,7 +19,7 @@ PROJ=${CLAUDE_PROJECT_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 
 [ -n "$PROJ" ] || exit 0
 MAINP=$(CDPATH= cd -- "$PROJ" 2>/dev/null && CDPATH= cd -- "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)
 MEM=""
-for P in "$PROJ" $MAINP; do
+for P in "$PROJ" ${MAINP:+"$MAINP"}; do
   C=$HOME/.claude/projects/$(printf '%s' "$P" | sed 's/[^A-Za-z0-9]/-/g')/memory
   [ -f "$C/MEMORY.md" ] && { MEM=$C; break; }
 done

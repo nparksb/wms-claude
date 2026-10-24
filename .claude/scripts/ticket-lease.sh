@@ -38,8 +38,11 @@ main_root() {
   [ -L "$src" ] && return 1                  # still a link after 20 hops: refuse, don't guess
   d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
   # cd into the common dir rather than --path-format=absolute: git < 2.31 echoes that flag back with
-  # rc 0, which made the root "." and the lease dir cwd-relative.
-  common=$(CDPATH= cd -- "$d" >/dev/null && CDPATH= cd -- "$(git rev-parse --git-common-dir 2>/dev/null)" >/dev/null && pwd -P) || return 1
+  # rc 0, which made the root "." (cwd-relative). git's own failure must stop here: `cd -- ""` is a
+  # successful no-op in bash, so an unchecked empty answer resolved to this file's own directory.
+  # env -u: a GIT_DIR/GIT_COMMON_DIR exported by a git hook would redirect git to another repo.
+  local g; g=$(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$d" rev-parse --git-common-dir 2>/dev/null) && [ -n "$g" ] || return 1
+  common=$(CDPATH= cd -- "$d" >/dev/null && CDPATH= cd -- "$g" >/dev/null && pwd -P) || return 1
   case "$common" in /*/.git) dirname -- "$common";; *) return 1;; esac
 }
 if [ -z "${LEASE_DIR:-}" ]; then

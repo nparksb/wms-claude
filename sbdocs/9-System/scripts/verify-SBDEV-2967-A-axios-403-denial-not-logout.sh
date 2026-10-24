@@ -9,7 +9,7 @@
 #
 # PROJECT_ROOT is MONO-ROOTED — it must contain v2/wms2-web-ui. Against a per-ticket
 # worktree, point it at a symlink shadow root or it grades the main checkout.
-# (37 of 44 verify scripts want the SUB-REPO root; this one does not. Passing the
+# (Most verify scripts want the SUB-REPO root (plan-state.sh names a script's shape); this one does not. Passing the
 #  wrong shape reds every row as credible, honest-looking work-not-done.)
 #
 # Run BEFORE any change for the FAIL baseline. Acceptance is "Result: N pass, 0 fail".

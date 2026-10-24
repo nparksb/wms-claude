@@ -89,7 +89,7 @@ $MONO/.claude/worktrees/<repo-dir-name>/<TICKET>   (MONO = owl's main checkout, 
 
 ```bash
 MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
-[ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; false; }
+[ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; exit 1; }
 REPO=v2/wms2-api                                     # the target sub-repo, relative to $MONO
 TICKET=SBDEV-####
 BRANCH=bugfix/SBDEV-####-kebab                       # from the plan
@@ -137,11 +137,12 @@ mvn -v    # confirm; v1/wms-api needs Java 8, v2/wms2-api needs Java 21
 
 Run these **in the worktree** (`cd "$WT"`).
 
-**Verify scripts need a shadow root — this is not optional.** Most scripts default `PROJECT_ROOT` to a hardcoded Linux path (`/home/nampark/dev/wms-claude` or one of its sub-repos: 38 of 48 as of 2026-10-24); the rest derive it from their own location, which is the main checkout. Either way, run as-is a script never grades your worktree: on the Linux box it grades the **main checkout**, and on the Mac it grades a path that does not exist, where every positive row reds and an unguarded negative row passes. Build a symlink tree that mirrors the monorepo but points the worktree'd repo at `$WT`, and pass it as `PROJECT_ROOT`:
+**Verify scripts need a shadow root — this is not optional.** Every script defaults `PROJECT_ROOT` to the **main checkout**, derived from its own location (plus `/v1|v2/<repo>` for a sub-repo-shaped script), so run as-is it grades the main checkout and is blind to everything you just wrote. Scripts come in two shapes, sub-repo and monorepo; pick the shape once (below) and use it for every run. Build a symlink tree that mirrors the monorepo but points the worktree'd repo at `$WT`, and pass it as `PROJECT_ROOT`:
 
 ```bash
+: "${WT:?set WT}" "${TICKET:?set TICKET}" "${REPO:?set REPO}"   # shell state does not survive between calls; an empty TICKET would rm -rf every shadow root
 MONO=${WT%%/.claude/worktrees/*}   # derive from $WT: inside $WT, git rev-parse names the SUB-repo, not owl
-[ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo (is WT set?)" >&2; false; }
+[ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo (is WT set?)" >&2; exit 1; }
 VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"
 rm -rf "$VROOT"; mkdir -p "$VROOT/v1" "$VROOT/v2"
 for p in "$MONO"/v1/*/ "$MONO"/v2/*/; do
@@ -150,7 +151,13 @@ done
 ln -sfn "$MONO/sbdocs" "$VROOT/sbdocs"
 ln -sfn "$WT" "$VROOT/$REPO"        # override each repo that has a worktree; repeat for multi-repo plans
 
-PROJECT_ROOT="$VROOT" bash "$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
+# Pick the PROJECT_ROOT SHAPE once, from the script's own default (plan-state.sh <TICKET> prints it too):
+# a /v1|v2/<repo> suffix means sub-repo-shaped -> "$VROOT/v2/<repo>" (= the $WT symlink above); none means
+# monorepo-shaped -> "$VROOT". The wrong shape reds every path row, which reads like an honest baseline.
+VS="$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
+SFX=$(grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" | sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p')
+VPR="$VROOT$SFX"
+PROJECT_ROOT="$VPR" bash "$VS"
 ```
 
 Prove the wiring before you trust a single run: append a marker matching one currently-failing assertion to a file **in the worktree**, then run both roots — the shadow root's pass count must move and the plain monorepo root's must not. (Verified 2026-08-01 on `verify-SBDEV-2731`: mono `8 pass, 33 fail` unchanged, shadow `9 pass, 32 fail`.) Remove the marker afterwards. Always state which root each reported `Result:` line came from; a `Result:` from the wrong root is worse than no result.
@@ -199,14 +206,19 @@ Abort the loop and report if: the plan's design is provably wrong, a fix needs a
 ## Phase 2 — Test and verify
 
 ```bash
-cd "$WT"                                 # everything below runs in the worktree
+: "${WT:?set WT}" "${TICKET:?set TICKET}" "${REPO:?set REPO}"   # restate them: shell state does not survive between calls
+cd "$WT" || exit 1                       # everything below runs in the worktree
 MONO=${WT%%/.claude/worktrees/*}         # not git rev-parse: in $WT that names the sub-repo
 mvn test -Dtest=<TouchedClass>          # fast feedback, per touched class
 mvn test                                 # full unit suite
 VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"   # the shadow root built in Baselines, never the bare main checkout
-# Match the script's PROJECT_ROOT shape (read its default): monorepo-shaped -> "$VROOT"; sub-repo-shaped
-# (most of them, e.g. .../v2/wms2-api) -> "$VROOT/$REPO". The wrong shape reds every path row.
-PROJECT_ROOT="$VROOT/$REPO" bash "$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
+# Pick the PROJECT_ROOT SHAPE once, from the script's own default (plan-state.sh <TICKET> prints it too):
+# a /v1|v2/<repo> suffix means sub-repo-shaped -> "$VROOT/v2/<repo>" (= the $WT symlink above); none means
+# monorepo-shaped -> "$VROOT". The wrong shape reds every path row, which reads like an honest baseline.
+VS="$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
+SFX=$(grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" | sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p')
+VPR="$VROOT$SFX"
+PROJECT_ROOT="$VPR" bash "$VS"            # SAME shape as the Baselines run, or the two are not comparable
 ```
 
 **Landmines — each one has produced a false green in this repo:**

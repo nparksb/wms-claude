@@ -65,7 +65,7 @@ Tests go into a **dedicated per-ticket worktree**, never the main checkout — t
 2. Create or reuse the worktree at `.claude/worktrees/<repo-dir-name>/<TICKET>` (bare ticket id, e.g. `SBDEV-2778`; for an untracked plan use the plan-id date-slug):
    ```bash
    MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
-   [ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; false; }
+   [ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; exit 1; }
    REPO=v2/wms2-api; TICKET=SBDEV-####; BRANCH=<from the plan>
    WT="$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
    git -C "$MONO/$REPO" fetch origin
