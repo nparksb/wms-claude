@@ -28,11 +28,7 @@
 #
 # Exit code is NOT a verdict — 0 means the probe ran. Read the output.
 
-if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
-  echo "FATAL: needs bash >= 4 (associative arrays, mapfile). You are on ${BASH_VERSION:-unknown}." >&2
-  echo "       macOS /bin/bash is 3.2 — use \`brew install bash\` or run under a modern bash." >&2
-  exit 2
-fi
+# Runs on macOS /bin/bash 3.2 and on Linux bash 5: no mapfile, no associative arrays (2026-10-24).
 set -uo pipefail
 
 MONO="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
@@ -63,9 +59,10 @@ dim "monorepo: $MONO   $( [ $DO_FETCH = 1 ] && echo '(fetching)' )$( [ $DO_TESTS
 
 # ── 1. the plan document ────────────────────────────────────────────────────────────────────────
 b "1. Plan document"
-mapfile -t PLANS < <(find "$MONO/sbdocs/1-Projects" "$MONO/sbdocs/4-Archieves" \
+PLANS=()
+while IFS= read -r l; do [ -n "$l" ] && PLANS+=("$l"); done < <(find "$MONO/sbdocs/1-Projects" "$MONO/sbdocs/4-Archieves" \
                           -name "${TICKET}*.md" -not -path '*/reviews/*' 2>/dev/null | sort)
-if [ "${#PLANS[@]}" -eq 0 ]; then
+if [ "${#PLANS[@]}" -eq 0 ] || [ -z "${PLANS[0]:-}" ]; then
   bad "  no plan doc found under 1-Projects/ or 4-Archieves/ for '$TICKET'"
   PLAN=""
 else
@@ -88,15 +85,19 @@ fi
 b "2. Implementation worktrees (git is the only source that cannot be hand-edited)"
 # -not -path '*/.verify-root/*': this script builds its own shadow root under .claude/worktrees/,
 # and without the exclusion the probe discovers its own scratch directory and reports it as a repo.
-mapfile -t WTS < <(find "$MONO/.claude/worktrees" -maxdepth 2 -mindepth 2 -type d -name "$TICKET" \
+WTS=()
+while IFS= read -r l; do [ -n "$l" ] && WTS+=("$l"); done < <(find "$MONO/.claude/worktrees" -maxdepth 2 -mindepth 2 -type d -name "$TICKET" \
                         -not -path '*/.verify-root/*' 2>/dev/null | sort)
-declare -A WT_FOR_REPO=()
-if [ "${#WTS[@]}" -eq 0 ]; then
+# repo -> worktree map as two parallel arrays (bash 3.2 has no declare -A). Repo dir names are unique
+# per ticket, since find yields one <repo>/<TICKET> dir each.
+WT_REPOS=(); WT_PATHS=()
+wt_for() { local i; for i in ${WT_REPOS[@]+"${!WT_REPOS[@]}"}; do [ "${WT_REPOS[$i]}" = "$1" ] && { printf '%s\n' "${WT_PATHS[$i]}"; return 0; }; done; return 1; }
+if [ "${#WTS[@]}" -eq 0 ] || [ -z "${WTS[0]:-}" ]; then
   warn "  none — nothing has been implemented in a worktree for this ticket"
 else
   for wt in "${WTS[@]}"; do
     repo="$(basename "$(dirname "$wt")")"
-    WT_FOR_REPO["$repo"]="$wt"
+    WT_REPOS+=("$repo"); WT_PATHS+=("$wt")
     [ $DO_FETCH = 1 ] && git -C "$wt" fetch -q origin develop 2>/dev/null
     br="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null)"
     head="$(git -C "$wt" rev-parse --short HEAD 2>/dev/null)"
@@ -155,12 +156,16 @@ if [ -z "$VS" ] || [ ! -f "$VS" ]; then
   echo "  no verify script — expected for T2 and below (assertions live in JUnit/Jest); only a T3 plan opts into one"
 else
   echo "  ${VS#$MONO/}"
-  PR_DEFAULT="$(grep -m1 -oE 'PROJECT_ROOT="\$\{PROJECT_ROOT:-[^}]*\}"' "$VS" | sed 's/.*:-//; s/}"$//')"
-  ROOTKIND=mono
-  case "$PR_DEFAULT" in
-    *'$('*)         ROOTKIND=mono ;;                  # computed from BASH_SOURCE — monorepo shape
-    */v1/*|*/v2/*)  ROOTKIND=repo ;;
-  esac
+  # Shape = the /v1|v2/<repo> suffix at the END of the PROJECT_ROOT default line, if any. Not the old
+  # "[^}]*" match: a computed default contains ${BASH_SOURCE[0]}, whose "}" cut the match short, and
+  # since 82129a6 every default is computed AND keeps its suffix, so "computed => mono" became false.
+  PR_LINE="$(grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS")"
+  PR_SUFFIX="$(printf '%s' "$PR_LINE" | sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p')"
+  if [ -n "$PR_SUFFIX" ]; then ROOTKIND=repo; PR_DEFAULT="$MONO$PR_SUFFIX"; else ROOTKIND=mono; PR_DEFAULT="$MONO"; fi
+  if [ -z "$PR_LINE" ]; then
+    if grep -q 'PROJECT_ROOT' "$VS"; then dim "  (script has no PROJECT_ROOT default: it must be passed explicitly)"
+    else warn "  ⚠ script never reads PROJECT_ROOT — no root can point it at the worktree"; fi
+  fi
   TARGET_REPO="$(basename "$PR_DEFAULT")"
   dim "  PROJECT_ROOT convention: $ROOTKIND-rooted${PR_DEFAULT:+  (default: ${PR_DEFAULT#$MONO/})}"
 
@@ -169,10 +174,10 @@ else
     # The script grades ONE repo and wants that repo's root. No symlink tree needed: point it straight
     # at the worktree. A multi-repo plan is only partly covered by such a script — say so.
     MONO_ARG="$PR_DEFAULT"
-    if [ -n "${WT_FOR_REPO[$TARGET_REPO]:-}" ]; then
-      SHADOW_ARG="${WT_FOR_REPO[$TARGET_REPO]}"
+    if wt_for "$TARGET_REPO" >/dev/null; then
+      SHADOW_ARG="$(wt_for "$TARGET_REPO")"
     fi
-    echo "  grades repo: $TARGET_REPO$( [ "${#WT_FOR_REPO[@]}" -gt 1 ] && echo "  ⚠ this plan touches ${#WT_FOR_REPO[@]} repos — the script covers only this one" )"
+    echo "  grades repo: $TARGET_REPO$( [ "${#WT_REPOS[@]}" -gt 1 ] && echo "  ⚠ this plan touches ${#WT_REPOS[@]} repos — the script covers only this one" )"
   else
     # Monorepo-shaped: build a symlink mirror with every worktree'd repo swapped in, because the
     # script's default grades the MAIN checkouts, which sit on whatever branch you left them on.
@@ -184,9 +189,9 @@ else
         ln -sfn "${p%/}" "$VROOT/$(basename "$(dirname "${p%/}")")/$(basename "${p%/}")"
       done
       ln -sfn "$MONO/sbdocs" "$VROOT/sbdocs"
-      for repo in "${!WT_FOR_REPO[@]}"; do
+      for i in ${WT_REPOS[@]+"${!WT_REPOS[@]}"}; do repo="${WT_REPOS[$i]}"
         for v in v1 v2; do
-          [ -e "$MONO/$v/$repo" ] && ln -sfn "${WT_FOR_REPO[$repo]}" "$VROOT/$v/$repo"
+          [ -e "$MONO/$v/$repo" ] && ln -sfn "${WT_PATHS[$i]}" "$VROOT/$v/$repo"
         done
       done
       SHADOW_ARG="$VROOT"
@@ -206,9 +211,9 @@ else
   # Which number is the answer depends on WHERE the work lives, and getting this backwards is easy:
   # for a MERGED plan the worktree is stale and the shadow root reads as "nothing implemented".
   work_in_wt=0
-  for repo in "${!WT_FOR_REPO[@]}"; do
-    a="$(git -C "${WT_FOR_REPO[$repo]}" rev-list --count origin/develop..HEAD 2>/dev/null || echo 0)"
-    d="$(git -C "${WT_FOR_REPO[$repo]}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  for i in ${WT_REPOS[@]+"${!WT_REPOS[@]}"}; do repo="${WT_REPOS[$i]}"
+    a="$(git -C "${WT_PATHS[$i]}" rev-list --count origin/develop..HEAD 2>/dev/null || echo 0)"
+    d="$(git -C "${WT_PATHS[$i]}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
     { [ "$a" != "0" ] || [ "$d" != "0" ]; } && work_in_wt=1
   done
   if [ -n "$shadow" ] && [ "$shadow" = "$mono" ]; then
@@ -237,8 +242,8 @@ if [ $DO_TESTS = 0 ]; then
   dim "  green here means nothing without (a) the repo's known-failure baseline and (b) a mutation"
   dim "  check: on SBDEV-2968 a fail-OPEN mutant left 100/100 targeted tests green."
 else
-  for repo in "${!WT_FOR_REPO[@]}"; do
-    wt="${WT_FOR_REPO[$repo]}"
+  for i in ${WT_REPOS[@]+"${!WT_REPOS[@]}"}; do repo="${WT_REPOS[$i]}"
+    wt="${WT_PATHS[$i]}"
     if [ -f "$wt/pom.xml" ]; then
       echo "  $repo (maven) …"
       JH="$HOME/.sdkman/candidates/java/21.0.11-ms"; MVN="$HOME/.sdkman/candidates/maven/3.9.15/bin"
