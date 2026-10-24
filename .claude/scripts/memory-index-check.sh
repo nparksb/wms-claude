@@ -12,9 +12,18 @@ set -uo pipefail
 # Claude Code names a project's memory dir after its path with every non-alphanumeric turned into '-'
 # (/Users/np1076/dev/spk/owl -> -Users-np1076-dev-spk-owl). Was hardcoded to the Linux box's path, so on
 # the Mac the `[ -f "$IDX" ] || exit 0` below exited silently while the index overflowed.
+# Candidates, first one holding a MEMORY.md wins: the session's project dir, then owl's MAIN checkout
+# (a session started from an owl worktree has a worktree-path project dir; whichever of the two Claude
+# Code keys memory by, the index is found rather than silently skipped).
 PROJ=${CLAUDE_PROJECT_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)}
 [ -n "$PROJ" ] || exit 0
-MEM=$HOME/.claude/projects/$(printf '%s' "$PROJ" | sed 's/[^A-Za-z0-9]/-/g')/memory
+MAINP=$(CDPATH= cd -- "$PROJ" 2>/dev/null && CDPATH= cd -- "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)
+MEM=""
+for P in "$PROJ" $MAINP; do
+  C=$HOME/.claude/projects/$(printf '%s' "$P" | sed 's/[^A-Za-z0-9]/-/g')/memory
+  [ -f "$C/MEMORY.md" ] && { MEM=$C; break; }
+done
+[ -n "$MEM" ] || exit 0
 IDX=$MEM/MEMORY.md
 STAMP=$MEM/.last-consolidation
 WARN_BYTES=${WARN_BYTES:-22500}; MAX_DAYS=${MAX_DAYS:-35}

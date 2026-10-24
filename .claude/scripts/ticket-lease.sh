@@ -6,6 +6,9 @@
 #        ticket-lease.sh release <TICKET> [--force]                 drops your lease (--force: someone else's)
 #        ticket-lease.sh list
 #
+# ANY non-zero exit means stop: 1 = held by another live session; 2 = setup error (cannot resolve or
+# create the lease dir, mktemp failed, no session id). 2 means the claim did NOT happen -- never "free".
+#
 # Why: on 2026-10-15 a peer session rebased and pushed SBDEV-3736 while this one stacked SBDEV-3775 on the
 # old local SHA, which left the stack orphaned and slipped pin rows into its path. Another session also
 # removed the 3736 worktree mid-flight. ListAgents shows WHO is running, not WHAT they are touching.
@@ -24,16 +27,20 @@ set -uo pipefail
 # The MAIN checkout of the owl repo, whichever symlink, copy or git worktree this script runs from.
 # Anchored on git's common dir, not on this file's path: a path-derived root gave a symlinked or
 # worktree copy its own lease set, so two sessions could both "claim" one ticket. Prints nothing
-# (return 1) if it cannot be resolved; callers refuse on that.
+# (return 1) if it cannot be resolved; callers refuse on that. Keep in sync with the copy in
+# .claude/skills/wms-merge/scripts/flip-pending-markers.sh.
 main_root() {
   local src=${BASH_SOURCE[0]} d n=0 common
   while [ -L "$src" ] && [ $n -lt 20 ]; do   # follow symlinks; BSD readlink has no -f
     d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
     src=$(readlink -- "$src"); case "$src" in /*) ;; *) src=$d/$src;; esac; n=$((n+1))
   done
+  [ -L "$src" ] && return 1                  # still a link after 20 hops: refuse, don't guess
   d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
-  common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  [ -n "$common" ] && dirname -- "$common"
+  # cd into the common dir rather than --path-format=absolute: git < 2.31 echoes that flag back with
+  # rc 0, which made the root "." and the lease dir cwd-relative.
+  common=$(CDPATH= cd -- "$d" >/dev/null && CDPATH= cd -- "$(git rev-parse --git-common-dir 2>/dev/null)" >/dev/null && pwd -P) || return 1
+  case "$common" in /*/.git) dirname -- "$common";; *) return 1;; esac
 }
 if [ -z "${LEASE_DIR:-}" ]; then
   MR=$(main_root) || { echo "cannot resolve the owl repo root from this script; set LEASE_DIR" >&2; exit 2; }

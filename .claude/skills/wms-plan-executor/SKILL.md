@@ -88,13 +88,14 @@ $MONO/.claude/worktrees/<repo-dir-name>/<TICKET>   (MONO = owl's main checkout, 
 **Create it:**
 
 ```bash
-MONO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")   # owl's MAIN checkout (run from inside owl; works from a worktree too)
+MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
+[ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; false; }
 REPO=v2/wms2-api                                     # the target sub-repo, relative to $MONO
 TICKET=SBDEV-####
 BRANCH=bugfix/SBDEV-####-kebab                       # from the plan
 WT="$MONO/.claude/worktrees/$(basename "$REPO")/$TICKET"
 
-"$MONO/.claude/scripts/ticket-lease.sh" claim "$TICKET" "executor: implement"   # exit 1 = another live session holds it: STOP, coordinate
+"$MONO/.claude/scripts/ticket-lease.sh" claim "$TICKET" "executor: implement"   # ANY non-zero: STOP (1 = another live session holds it, coordinate; 2 = setup error; 127 = not found)
 git -C "$MONO/$REPO" fetch origin                    # MUST be fresh — the base is origin/develop as of now
 git -C "$MONO/$REPO" worktree list                   # reuse an existing worktree for this ticket, don't duplicate
 git -C "$MONO/$REPO" worktree add -b "$BRANCH" "$WT" origin/develop
@@ -139,7 +140,8 @@ Run these **in the worktree** (`cd "$WT"`).
 **Verify scripts need a shadow root — this is not optional.** Most scripts default `PROJECT_ROOT` to a hardcoded Linux path (`/home/nampark/dev/wms-claude` or one of its sub-repos: 38 of 48 as of 2026-10-24); the rest derive it from their own location, which is the main checkout. Either way, run as-is a script never grades your worktree: on the Linux box it grades the **main checkout**, and on the Mac it grades a path that does not exist, where every positive row reds and an unguarded negative row passes. Build a symlink tree that mirrors the monorepo but points the worktree'd repo at `$WT`, and pass it as `PROJECT_ROOT`:
 
 ```bash
-MONO=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")   # owl's MAIN checkout (run from inside owl; works from a worktree too)
+MONO=${WT%%/.claude/worktrees/*}   # derive from $WT: inside $WT, git rev-parse names the SUB-repo, not owl
+[ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo (is WT set?)" >&2; false; }
 VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"
 rm -rf "$VROOT"; mkdir -p "$VROOT/v1" "$VROOT/v2"
 for p in "$MONO"/v1/*/ "$MONO"/v2/*/; do
@@ -198,9 +200,13 @@ Abort the loop and report if: the plan's design is provably wrong, a fix needs a
 
 ```bash
 cd "$WT"                                 # everything below runs in the worktree
+MONO=${WT%%/.claude/worktrees/*}         # not git rev-parse: in $WT that names the sub-repo
 mvn test -Dtest=<TouchedClass>          # fast feedback, per touched class
 mvn test                                 # full unit suite
-bash "$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
+VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"   # the shadow root built in Baselines, never the bare main checkout
+# Match the script's PROJECT_ROOT shape (read its default): monorepo-shaped -> "$VROOT"; sub-repo-shaped
+# (most of them, e.g. .../v2/wms2-api) -> "$VROOT/$REPO". The wrong shape reds every path row.
+PROJECT_ROOT="$VROOT/$REPO" bash "$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
 ```
 
 **Landmines — each one has produced a false green in this repo:**

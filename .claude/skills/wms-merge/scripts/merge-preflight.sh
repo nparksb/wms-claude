@@ -92,7 +92,7 @@ for PR in "$@"; do
         TE=$(epoch_of "$TIP_TIME"); RE=$(epoch_of "$RC")
         [ -z "$RC" ] && NOTE="$NOTE ** cannot read run $RID: treat as stale **"
         [ -n "$RC" ] && { [ -z "$TE" ] || [ -z "$RE" ]; } && NOTE="$NOTE ** cannot compare $BASE_BRANCH push time with this run: treat as stale **"
-        [ -n "$TE" ] && [ -n "$RE" ] && [ "$TE" -gt "$RE" ] && NOTE="$NOTE ** $BASE_BRANCH moved after this run ($TIP_TIME > $RC) **"
+        [ -n "$TE" ] && [ -n "$RE" ] && [ "$TE" -ge "$RE" ] && NOTE="$NOTE ** $BASE_BRANCH moved at or after this run ($TIP_TIME >= $RC; merge-one refuses a tie) **"
         echo "   check: $NAME = $RES  (run $RID on ${RS:0:8} at $RC)$NOTE"
       else
         echo "   check: $NAME = $RES"

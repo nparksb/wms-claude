@@ -50,7 +50,7 @@ Review-fix commits get their own scoped re-review.
 4. **Never merge red.** Never use `--force` or `--admin`. The PR check is advisory on this plan (no branch
    protection), so the discipline is yours.
 5. **Another session's branch:** before pushing to any PR branch, run
-   `.claude/scripts/ticket-lease.sh claim <TICKET> "wms-merge"`. Exit 1 means another live session holds it; ask, don't push.
+   `.claude/scripts/ticket-lease.sh claim <TICKET> "wms-merge"`. Exit 1 means another live session holds it; ask, don't push. Any other non-zero exit (2 = setup error, 127 = not found) is also a stop: the claim did not happen.
    The lease covers this machine; for cloud sessions also check `ListAgents`. Release with `ticket-lease.sh release <TICKET>`
    once the PR is merged. Never stack on an **unpushed** branch.
 

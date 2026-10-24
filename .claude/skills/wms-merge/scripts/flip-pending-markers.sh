@@ -31,18 +31,22 @@ while [ $# -gt 0 ]; do case "$1" in
 esac; done
 [ -n "$PRS" ] || { echo "--prs is required: every PR of $T, as <repo-dir>:<PR>" >&2; exit 2; }
 # The MAIN checkout of the owl repo, whichever symlink, copy or git worktree this script runs from.
-# Anchored on git's common dir, not on this file's path: a path-derived root gave a symlinked or
-# worktree copy its own lease set, so two sessions could both "claim" one ticket. Prints nothing
-# (return 1) if it cannot be resolved; callers refuse on that.
+# Anchored on git's common dir, not on this file's path: run from a worktree copy of owl, a
+# path-derived root would flip that worktree's sbdocs instead of the live vault in the main checkout.
+# Keep in sync with the copy in .claude/scripts/ticket-lease.sh. Prints nothing (return 1) if it
+# cannot be resolved; callers refuse on that.
 main_root() {
   local src=${BASH_SOURCE[0]} d n=0 common
   while [ -L "$src" ] && [ $n -lt 20 ]; do   # follow symlinks; BSD readlink has no -f
     d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
     src=$(readlink -- "$src"); case "$src" in /*) ;; *) src=$d/$src;; esac; n=$((n+1))
   done
+  [ -L "$src" ] && return 1                  # still a link after 20 hops: refuse, don't guess
   d=$(CDPATH= cd -P -- "$(dirname -- "$src")" >/dev/null && pwd) || return 1
-  common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  [ -n "$common" ] && dirname -- "$common"
+  # cd into the common dir rather than --path-format=absolute: git < 2.31 echoes that flag back with
+  # rc 0, which made the root "." and the lease dir cwd-relative.
+  common=$(CDPATH= cd -- "$d" >/dev/null && CDPATH= cd -- "$(git rev-parse --git-common-dir 2>/dev/null)" >/dev/null && pwd -P) || return 1
+  case "$common" in /*/.git) dirname -- "$common";; *) return 1;; esac
 }
 MONO=${MONO_ROOT:-$(main_root)} || { echo "cannot resolve the owl repo root; set MONO_ROOT" >&2; exit 2; }
 [ -n "$MONO" ] || { echo "cannot resolve the owl repo root; set MONO_ROOT" >&2; exit 2; }
