@@ -41,12 +41,12 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 # Monorepo root — only for the sbdocs-side sibling-script check (A8). Independent
 # of PROJECT_ROOT because sbdocs/ is not part of any sub-repo worktree.
-MONO="${MONO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+MONO="${MONO:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 
 SVC="src/main/java/net/aim_ai/wms/service/CyclecountService.java"
 TST="src/test/java/net/aim_ai/wms/unit/controller/CycleCountControllerUnitTest.java"

@@ -40,7 +40,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 WMS_ROOT="${WMS_ROOT:-$PROJECT_ROOT/v2/wms2-api}"
 OMS_ROOT="${OMS_ROOT:-$PROJECT_ROOT/v2/oms-laravel-api}"
 RUN_MVN="${RUN_MVN:-0}"

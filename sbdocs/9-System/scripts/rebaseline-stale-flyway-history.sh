@@ -132,7 +132,7 @@ else warn "seqentities=$SEQ <= max los_sysprop id=$MAXS — seed INSERTs may col
 CK="$(PGPASSWORD_OWNER=x "$BACKFILL" --dbname "$DBNAME" --owner "$DBUSER" --up-to "$BASELINE" --dry-run 2>/dev/null \
       | grep -oE "checksum=-?[0-9]+" | tail -1 | cut -d= -f2)"
 [[ -n "$CK" ]] || die "could not compute checksum for $BASELINE"
-BASE_SCRIPT="$(cd "$MIG" && ls V${BASELINE}__*.sql)"
+BASE_SCRIPT="$(CDPATH= cd "$MIG" && ls V${BASELINE}__*.sql)"
 BASE_DESC="$(printf '%s' "$BASE_SCRIPT" | sed -E "s/^V${BASELINE}__//; s/\\.sql$//; s/_/ /g")"
 ok "baseline row: $BASE_SCRIPT  checksum=$CK"
 

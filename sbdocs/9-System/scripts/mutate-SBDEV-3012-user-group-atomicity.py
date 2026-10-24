@@ -40,7 +40,10 @@ import shutil
 import subprocess
 import sys
 
-WT = "/home/nampark/dev/wms-claude/.claude/worktrees/wms2-api/SBDEV-3012"
+# owl root = three levels above this file (sbdocs/9-System/scripts), on any machine; override with WT=.
+WT = os.environ.get("WT") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    ".claude", "worktrees", "wms2-api", "SBDEV-3012")
 os.chdir(WT)
 
 HOME = os.path.expanduser("~")

@@ -112,7 +112,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
 
 - **5f. Clean up the implementation worktree(s) (added 2026-08-03).** `wms-tdd-gate` / `wms-plan-executor` implement in per-ticket worktrees at `.claude/worktrees/<repo-dir-name>/<TICKET>` and deliberately leave them in place after the PR so review feedback can be applied without re-creating them (`wms-plan-executor` Phase 7). Archival is the point where that lease expires — the plan is done, the PR is merged, the tree is dead weight holding a stale branch checkout. Retire them here.
 
-   **Discover, don't assume.** The plan may have no worktree at all (docs-only plans, investigation-derived plans, plans implemented before the worktree convention). Enumerate rather than deriving paths:
+   **Discover, don't assume.** (Each Bash tool call is its own shell, so `exit 1` ends only that block. Pasting into an interactive terminal? Wrap the block in `( … )` first, or `exit` closes the terminal.) The plan may have no worktree at all (docs-only plans, investigation-derived plans, plans implemented before the worktree convention). Enumerate rather than deriving paths:
 
    ```bash
    MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree

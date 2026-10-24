@@ -50,7 +50,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-api}"   # owl root from this file (templates/ or scripts/ alike): same on Mac and Linux; set the suffix to your repo
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0

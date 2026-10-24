@@ -13,21 +13,21 @@
 # a prefix of what remains. CHECK B never depended on the pairing and is unaffected either way.
 set -u
 ROOT="${1:?usage: never-audit-sweep.sh <repo-root>}"
-AUD="$(cd "$(dirname "$0")" && pwd)/never-audit.py"
+AUD="$(CDPATH= cd "$(dirname "$0")" && pwd)/never-audit.py"
 cd "$ROOT" || exit 1
 
-export LC_ALL=C   # byte-order sorts: GNU and BSD sort collate differently under a UTF-8 locale
 IDX=$(mktemp); trap 'rm -f "$IDX"' EXIT
 # "<Class>\t<path>". Not find -printf + sed '\t' -- both GNU-only (BSD sed reads \t as a literal t).
-find src/main/java -name '*.java' | awk -F/ '{ f = $NF; sub(/\.java$/, "", f); print f "\t" $0 }' | sort > "$IDX"
+find src/main/java -name '*.java' | awk -F/ '{ f = $NF; sub(/\.java$/, "", f); print f "\t" $0 }' | LC_ALL=C sort > "$IDX"
 
-grep -rl "never()" src/test/java | sort | while read -r T; do
+# LC_ALL=C on each sort: byte order, so GNU and BSD sort agree under any locale
+grep -rl "never()" src/test/java | LC_ALL=C sort | while read -r T; do
   CAND=$(basename "$T" .java | sed -E 's/(UnitTest|Test)$//')
   # exact match first, then longest production name that prefixes CAND
   P=$(awk -F'\t' -v c="$CAND" '$1==c {print $2; exit}' "$IDX")
   if [ -z "$P" ]; then
     P=$(awk -F'\t' -v c="$CAND" 'index(c,$1)==1 {print length($1)"\t"$2}' "$IDX" \
-        | sort -rn | head -1 | cut -f2)
+        | LC_ALL=C sort -rn | head -1 | cut -f2)
   fi
   if [ -n "$P" ]; then python3 "$AUD" "$T" "$P"; else python3 "$AUD" "$T"; fi
 done

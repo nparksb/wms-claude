@@ -114,8 +114,8 @@ set -u
 # skimming) must treat a MISSING Result line as FAILURE. This trap makes that unmissable.
 trap 'rc=$?; [ "${VERIFY_COMPLETED:-0}" = "1" ] || { echo; echo "*** ABORTED before completion (exit $rc) — checks after this point DID NOT RUN. Do NOT read this as a pass. ***"; }' EXIT
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
-UI_ROOT="${UI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+UI_ROOT="${UI_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
 RUN_MVN="${RUN_MVN:-0}"
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }

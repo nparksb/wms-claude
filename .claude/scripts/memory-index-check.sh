@@ -17,7 +17,9 @@ set -uo pipefail
 # Code keys memory by, the index is found rather than silently skipped).
 PROJ=${CLAUDE_PROJECT_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null)}
 [ -n "$PROJ" ] || exit 0
-MAINP=$(CDPATH= cd -- "$PROJ" 2>/dev/null && CDPATH= cd -- "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)
+MAINP=""
+G=$(env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE git -C "$PROJ" rev-parse --git-common-dir 2>/dev/null) && [ -n "$G" ] \
+  && MAINP=$(CDPATH= cd -- "$PROJ" >/dev/null 2>&1 && CDPATH= cd -- "$G/.." >/dev/null 2>&1 && pwd -P)
 MEM=""
 for P in "$PROJ" ${MAINP:+"$MAINP"}; do
   C=$HOME/.claude/projects/$(printf '%s' "$P" | sed 's/[^A-Za-z0-9]/-/g')/memory

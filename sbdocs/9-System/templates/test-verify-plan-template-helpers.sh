@@ -17,7 +17,7 @@
 # Honest limit: a stub mvn controls its own output, so this cannot simulate `-q` suppressing REAL
 # maven output. What it does pin is the contract — exit code AND a verified surefire summary.
 set -uo pipefail
-TEMPLATE="${TEMPLATE:-/home/nampark/dev/wms-claude/sbdocs/9-System/templates/verify-plan-template.sh}"
+TEMPLATE="${TEMPLATE:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/verify-plan-template.sh}"
 
 # Source only the helper definitions, not the template's driver/echo lines.
 HELPERS=$(mktemp); trap 'rm -f "$HELPERS"' EXIT

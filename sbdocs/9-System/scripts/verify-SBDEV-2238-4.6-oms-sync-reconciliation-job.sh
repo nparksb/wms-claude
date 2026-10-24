@@ -29,8 +29,8 @@ set -u
 # ---------------------------------------------------------------------------
 # Resolve repo root (this script lives at sbdocs/9-System/scripts/)
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+SCRIPT_DIR="$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(CDPATH= cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 WMS2_API_SRC="${REPO_ROOT}/v2/wms2-api/src/main/java/net/aim_ai/wms"
 WMS2_API_TEST="${REPO_ROOT}/v2/wms2-api/src/test/java/net/aim_ai/wms"

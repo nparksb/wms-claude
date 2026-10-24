@@ -232,14 +232,17 @@ in the direction that looks like *your work* is broken, so the natural reaction 
 
 ## 3. Rows that vanish, or fail for a non-code reason
 
-**3.1 The `PROJECT_ROOT` convention is split 37/7.** `sbdocs/9-System/scripts/verify-*.sh` have **two
-incompatible conventions**. Measured 2026-08-20 across the **44** that define one: **37 expect the SUB-REPO
-root** (`…/v2/wms2-api`) and **7 expect the MONOREPO root** (`…/wms-claude`, usually computed from
-`BASH_SOURCE`). SBDEV-2968 is mono-rooted; SBDEV-3011, 3005, 2995, 2994 and most others are repo-rooted.
+**3.1 The `PROJECT_ROOT` convention is split.** `sbdocs/9-System/scripts/verify-*.sh` come in **three
+shapes**: most expect the SUB-REPO root (`…/v2/wms2-api`), some the MONOREPO (owl) root, and a few declare no
+default or never read `PROJECT_ROOT` at all. SBDEV-2968 is mono-rooted; SBDEV-3011, 3005, 2995, 2994 and most
+others are repo-rooted. (Counts are not given on purpose: they drift; derive them.)
 
-Detect it, never assume it:
-`grep -m1 -oE 'PROJECT_ROOT="\$\{PROJECT_ROOT:-[^}]*\}"' <script>` — a default containing `/v1/` or `/v2/` is
-repo-rooted; a `$(…)` default is mono-rooted.
+Detect it, never assume it: **run `sbdocs/9-System/scripts/plan-state.sh <TICKET>`**, which names the shape and
+refuses to grade an undeclared one. The rule it applies (rewritten 2026-10-24): since 82129a6 **every** default
+is computed from `BASH_SOURCE`, so "a `$(…)` default is mono-rooted" is now FALSE. The shape is the
+`/v1|v2/<repo>` suffix at the END of the default line —
+`sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p'` — present = repo-rooted, absent with a plain
+`/../../.." && pwd)}"` ending = mono-rooted, anything else = unknown (do not grade).
 
 Pass the wrong shape and *every* path assertion fails, which prints as **a plausible wall of honest-looking
 reds rather than as an error**. A probe reported SBDEV-3011 as `3 pass / 51 fail` against a plan whose real

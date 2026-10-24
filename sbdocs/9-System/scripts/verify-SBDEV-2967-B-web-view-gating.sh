@@ -24,7 +24,7 @@
 # about a NEW file. Each helper below requires the file to exist first.
 set -uo pipefail
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 WEB="$PROJECT_ROOT/v2/wms2-web-ui"
 API="$PROJECT_ROOT/v2/wms2-api"
 SRC="$API/src/main/java/net/aim_ai/wms"

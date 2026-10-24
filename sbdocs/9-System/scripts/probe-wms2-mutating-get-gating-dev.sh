@@ -145,7 +145,8 @@ run_group() { # <token> <want> <array-name...>
   local tokv="$1" want="$2"; shift 2
   local name row
   for name in "$@"; do
-    local arr=(); eval 'arr=("${'"$name"'[@]}")'   # eval copy, no nameref (bash 4.3+): runs on macOS bash 3.2
+    case $name in ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*) echo "run_group: bad group name '$name'" >&2; exit 2;; esac
+    local arr=(); eval 'arr=(${'"$name"'[@]+"${'"$name"'[@]}"})'   # eval copy, no nameref (bash 4.3+); validated name; empty-safe on 3.2
     for row in ${arr[@]+"${arr[@]}"}; do
       probe "$(echo "$row" | awk '{print $1}')" "$tokv" "$(echo "$row" | awk '{print $2}')" "$want"
     done

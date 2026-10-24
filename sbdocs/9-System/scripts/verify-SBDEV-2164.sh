@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+ROOT="$(CDPATH= cd "$(dirname "$0")/../../.." && pwd)"
 SVC="$ROOT/v1/wms-api/src/main/java/net/aim_ai/wms/service"
 JOB="$ROOT/v1/wms-api/src/main/java/net/aim_ai/wms/schedulejob"
 JOB_SVC="$ROOT/v1/wms-api/src/main/java/net/aim_ai/wms/service/job"

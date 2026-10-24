@@ -58,7 +58,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 API="v2/wms2-api"
@@ -134,7 +134,7 @@ file_contains_n_times() {
 # and would otherwise read as a pass.
 mvn_test_passes() {
     local test_class=$1 out
-    out=$( cd "$API" && mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1 ) || return 1
+    out=$( CDPATH= cd "$API" && mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1 ) || return 1
     printf '%s\n' "$out" | grep -qE "Tests run: [1-9][0-9]*, Failures: 0, Errors: 0"
 }
 
@@ -155,7 +155,7 @@ mvn_test_passes() {
 jest_test_passes() {
     local pattern=$1 out
     [ -x "$UI/node_modules/.bin/jest" ] || return 1
-    out=$( cd "$UI" && node_modules/.bin/jest --testPathPattern="$pattern" \
+    out=$( CDPATH= cd "$UI" && node_modules/.bin/jest --testPathPattern="$pattern" \
         --coverage=false --silent 2>&1 ) || return 1
     printf '%s\n' "$out" | grep -qE "Tests:.*[1-9][0-9]* passed"
 }

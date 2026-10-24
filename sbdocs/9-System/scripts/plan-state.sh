@@ -31,7 +31,7 @@
 # Runs on macOS /bin/bash 3.2 and on Linux bash 5: no mapfile, no associative arrays (2026-10-24).
 set -uo pipefail
 
-MONO="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+MONO="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 TICKET="${1:-}"
 DO_FETCH=0; DO_TESTS=0
 shift || true
@@ -161,16 +161,29 @@ else
   # since 82129a6 every default is computed AND keeps its suffix, so "computed => mono" became false.
   PR_LINE="$(grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS")"
   PR_SUFFIX="$(printf '%s' "$PR_LINE" | sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p')"
-  if [ -n "$PR_SUFFIX" ]; then ROOTKIND=repo; PR_DEFAULT="$MONO$PR_SUFFIX"; else ROOTKIND=mono; PR_DEFAULT="$MONO"; fi
-  if [ -z "$PR_LINE" ]; then
-    if grep -q 'PROJECT_ROOT' "$VS"; then dim "  (script has no PROJECT_ROOT default: it must be passed explicitly)"
-    else warn "  ⚠ script never reads PROJECT_ROOT — no root can point it at the worktree"; fi
+  # Three outcomes, never a silent guess: repo (a /v1|v2/<repo> suffix), mono (the plain derived owl
+  # root), or UNKNOWN (no default, an odd default, or a script that never reads PROJECT_ROOT). An
+  # unknown shape is NOT graded: guessing "mono" graded the main checkout and still printed a verdict.
+  ROOTKIND=unknown; PR_DEFAULT=""
+  if [ -n "$PR_SUFFIX" ]; then ROOTKIND=repo; PR_DEFAULT="$MONO$PR_SUFFIX"
+  elif printf '%s' "$PR_LINE" | grep -qE '/\.\./\.\./\.\."( >/dev/null)? && pwd\)\}"([[:space:]].*)?$'; then ROOTKIND=mono; PR_DEFAULT="$MONO"
   fi
-  TARGET_REPO="$(basename "$PR_DEFAULT")"
-  dim "  PROJECT_ROOT convention: $ROOTKIND-rooted${PR_DEFAULT:+  (default: ${PR_DEFAULT#$MONO/})}"
+  if [ "$ROOTKIND" = unknown ]; then
+    if [ -z "$PR_LINE" ] && grep -q 'PROJECT_ROOT' "$VS"; then
+      warn "  ⚠ shape undeclared: the script has no PROJECT_ROOT default (it must be passed explicitly). Read its header for the shape; not graded here."
+    elif [ -z "$PR_LINE" ]; then
+      warn "  ⚠ the script never reads PROJECT_ROOT — no root can point it at the worktree. Its own root vars: $(grep -oE '^[A-Z_]*ROOT=' "$VS" | tr -d '=' | tr '\n' ' ')— set those by hand. Not graded here."
+    else
+      warn "  ⚠ unrecognised PROJECT_ROOT default — not graded here: ${PR_LINE:0:160}"
+    fi
+  fi
+  TARGET_REPO="$(basename "${PR_DEFAULT:-x}")"
+  [ "$ROOTKIND" = unknown ] || dim "  PROJECT_ROOT convention: $ROOTKIND-rooted  (default: $( [ "$PR_DEFAULT" = "$MONO" ] && echo '<owl>' || echo "<owl>/${PR_DEFAULT#$MONO/}"))"
 
   SHADOW_ARG=""; MONO_ARG=""
-  if [ "$ROOTKIND" = repo ]; then
+  if [ "$ROOTKIND" = unknown ]; then
+    :
+  elif [ "$ROOTKIND" = repo ]; then
     # The script grades ONE repo and wants that repo's root. No symlink tree needed: point it straight
     # at the worktree. A multi-repo plan is only partly covered by such a script — say so.
     MONO_ARG="$PR_DEFAULT"
@@ -199,6 +212,7 @@ else
     MONO_ARG="$MONO"
   fi
 
+  if [ "$ROOTKIND" != unknown ]; then
   mono="$(PROJECT_ROOT="$MONO_ARG" bash "$VS" 2>&1 | grep -E '^Result:' | tail -1)"
   if [ -n "$SHADOW_ARG" ]; then
     shadow="$(PROJECT_ROOT="$SHADOW_ARG" bash "$VS" 2>&1 | grep -E '^Result:' | tail -1)"
@@ -212,11 +226,15 @@ else
   # for a MERGED plan the worktree is stale and the shadow root reads as "nothing implemented".
   work_in_wt=0
   for i in ${WT_REPOS[@]+"${!WT_REPOS[@]}"}; do repo="${WT_REPOS[$i]}"
-    a="$(git -C "${WT_PATHS[$i]}" rev-list --count origin/develop..HEAD 2>/dev/null || echo 0)"
+    # A failed rev-list (no origin/develop in that worktree) is "cannot tell", not "nothing ahead".
+    a="$(git -C "${WT_PATHS[$i]}" rev-list --count origin/develop..HEAD 2>/dev/null)" || a=""
     d="$(git -C "${WT_PATHS[$i]}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
-    { [ "$a" != "0" ] || [ "$d" != "0" ]; } && work_in_wt=1
+    if [ -z "$a" ]; then work_in_wt=unknown; warn "  ⚠ $repo: no origin/develop to compare against — run with --fetch"
+    elif [ "$work_in_wt" != unknown ]; then { [ "$a" != "0" ] || [ "$d" != "0" ]; } && work_in_wt=1; fi
   done
-  if [ -n "$shadow" ] && [ "$shadow" = "$mono" ]; then
+  if [ "$work_in_wt" = unknown ]; then
+    warn "  → cannot tell where the work lives, so neither number is authoritative yet."
+  elif [ -n "$shadow" ] && [ "$shadow" = "$mono" ]; then
     if [ "$work_in_wt" = 0 ]; then
       dim  "  → IDENTICAL, and expected: no un-merged work in the worktree, so both roots hold the"
       dim  "    same content. This is the normal reading for a merged plan."
@@ -231,6 +249,7 @@ else
     warn "    snapshot and its low score is not evidence of anything. If the plan says merged, grade"
     warn "    the checkout that contains the merge."
   fi
+  fi   # ROOTKIND != unknown
   dim "  reds worth checking by hand: a row naming the wrong file is a PERMANENT red that reads as"
   dim "  honest work-not-done (SBDEV-2968 F3/F4), and a row can pre-pass and assert nothing at all."
 fi
@@ -246,9 +265,14 @@ else
     wt="${WT_PATHS[$i]}"
     if [ -f "$wt/pom.xml" ]; then
       echo "  $repo (maven) …"
-      JH="$HOME/.sdkman/candidates/java/21.0.11-ms"; MVN="$HOME/.sdkman/candidates/maven/3.9.15/bin"
-      grep -q '<java.version>8' "$wt/pom.xml" 2>/dev/null && JH="$HOME/.sdkman/candidates/java/8.0.412-tem"
-      out="$(cd "$wt" && JAVA_HOME="$JH" PATH="$MVN:$JH/bin:$PATH" \
+      # JDK by MAJOR version, found on either machine: sdkman (Linux and Mac), else macOS java_home.
+      # Never "whatever java is current": JDK 25 makes PIT report a silent 0% (memory: mutation-harness-traps).
+      MAJ=21; grep -q '<java.version>\(1\.\)\{0,1\}8<' "$wt/pom.xml" 2>/dev/null && MAJ=8
+      JH=""; for d in "$HOME"/.sdkman/candidates/java/"$MAJ".* "$HOME"/.sdkman/candidates/java/"$MAJ"-*; do [ -d "$d" ] && { JH=$d; break; }; done
+      [ -n "$JH" ] || JH=$(/usr/libexec/java_home -v "$( [ $MAJ = 8 ] && echo 1.8 || echo $MAJ )" 2>/dev/null) || JH=""
+      MVN=$(dirname "$(command -v mvn 2>/dev/null || echo "$HOME/.sdkman/candidates/maven/current/bin/mvn")")
+      if [ -z "$JH" ] || [ ! -x "$MVN/mvn" ]; then echo "    <not run: no JDK $MAJ or no mvn found — set JAVA_HOME / PATH>"; continue; fi
+      out="$(CDPATH= cd "$wt" && JAVA_HOME="$JH" PATH="$MVN:$JH/bin:$PATH" \
               mvn -B -o test -Djacoco.skip=true -Dmaven.javadoc.skip=true 2>&1 | \
               grep -E 'Tests run: [0-9]+, Failures: [0-9]+, Errors: [0-9]+, Skipped: [0-9]+\s*$' | tail -1)"
       echo "    ${out:-<no summary — build likely failed before tests>}"
@@ -259,7 +283,7 @@ else
       dim "    compare against the known baseline, not against zero — v2 develop carries 2 failures"
     elif [ -f "$wt/package.json" ] && [ -x "$wt/node_modules/.bin/jest" ]; then
       echo "  $repo (jest) …"
-      out="$(cd "$wt" && node_modules/.bin/jest --ci 2>&1 | grep -E '^(Tests|Test Suites):' )"
+      out="$(CDPATH= cd "$wt" && node_modules/.bin/jest --ci 2>&1 | grep -E '^(Tests|Test Suites):' )"
       sed 's/^/    /' <<<"$out"
       dim "    compare the TESTS line, not the SUITES line — a suite that dies at import level leaves"
       dim "    'Tests: N passed' green while the exit code is red"

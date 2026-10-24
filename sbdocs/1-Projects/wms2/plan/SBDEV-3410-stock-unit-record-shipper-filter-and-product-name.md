@@ -1784,8 +1784,8 @@ because each is a cross-**repo** invariant no single-repo test can see:
 | 3 | The export key agrees: `exportReport.vue` sends `filter` **and** `ReportController` reads `"filter"` | Revert the controller read → FAIL. Prove it against the pre-fix `ReportController.java`. |
 | 4 | `V2.2.33` exists and its version is still free: `bash v2/wms2-api/src/main/resources/db/check-migration-version-collision.sh V2.2.33` exits 0 | Push a colliding `V2.2.33` on any remote ref → FAIL. This is the one row whose input changes after the code is written. |
 
-⚠ Verify-script traps that apply: **scripts do not share a `PROJECT_ROOT` convention** (37 of 44 want the
-sub-repo root, 7 want the monorepo root — this one wants the **monorepo** root, since it spans two repos),
+⚠ Verify-script traps that apply: **scripts do not share a `PROJECT_ROOT` convention** (most want the
+sub-repo root, some the monorepo root; plan-state.sh names a script's shape — this one wants the **monorepo** root, since it spans two repos),
 and rows shelling out to `mvn`/`yarn` red spuriously when the toolchain is off PATH, because bash's 127
 records as an ordinary FAIL. **Negative-test every row before trusting it.**
 

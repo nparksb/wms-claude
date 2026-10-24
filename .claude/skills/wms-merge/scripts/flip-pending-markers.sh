@@ -60,7 +60,7 @@ ROOT=${SBDOCS_ROOT:-$MONO/sbdocs}
 ALL=1
 for rp in $PRS; do
   R=${rp%%:*}; N=${rp##*:}; case "$R" in /*) ;; *) R=$MONO/$R;; esac
-  ST=$(cd "$R" 2>/dev/null && gh pr view "$N" --json state -q .state 2>/dev/null)
+  ST=$(CDPATH= cd "$R" 2>/dev/null && gh pr view "$N" --json state -q .state 2>/dev/null)
   echo "   PR $rp: ${ST:-NOT FOUND}"
   [ "$ST" = MERGED ] || ALL=0
 done
@@ -68,7 +68,7 @@ done
 # Completeness hint: PRs in the same repos that mention the ticket but are missing from --prs.
 for R in $( { for rp in $PRS; do echo "${rp%%:*}"; done; echo v2/wms2-api v2/wms2-web-ui v2/wms2-mobile-ui v2/oms-laravel-api v2/siteboss-frontend | tr ' ' '\n'; } | sort -u); do
   RR=$R; case "$RR" in /*) ;; *) RR=$MONO/$RR;; esac
-  for N in $(cd "$RR" 2>/dev/null && gh pr list --state all --search "$T" --limit 30 --json number,title,body --jq "[.[] | select(((.title // \"\") + \" \" + (.body // \"\")) | test(\"$T([^0-9]|$)\"))] | .[].number" 2>/dev/null); do
+  for N in $(CDPATH= cd "$RR" 2>/dev/null && gh pr list --state all --search "$T" --limit 30 --json number,title,body --jq "[.[] | select(((.title // \"\") + \" \" + (.body // \"\")) | test(\"$T([^0-9]|$)\"))] | .[].number" 2>/dev/null); do
     grep -qw -- "$R:$N" <<<"$PRS" || echo "   WARN: $R #$N mentions $T but is not in --prs: is it one of this ticket's PRs?"
   done
 done

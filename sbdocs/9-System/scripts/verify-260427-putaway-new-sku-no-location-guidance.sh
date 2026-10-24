@@ -10,8 +10,8 @@
 
 set -u
 
-UI_ROOT="${UI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-mobile-ui}"
-API_ROOT="${API_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-api}"
+UI_ROOT="${UI_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-mobile-ui}"
+API_ROOT="${API_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-api}"
 SCAN_FLOWBIN="$UI_ROOT/components/putaway/scanFlowBin.vue"
 FLA_SERVICE="$API_ROOT/src/main/java/net/aim_ai/wms/service/FixLocationAssignmentService.java"
 PUTAWAY_SERVICE="$API_ROOT/src/main/java/net/aim_ai/wms/service/mobile/MobilePutAwayService.java"

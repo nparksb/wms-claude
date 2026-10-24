@@ -25,7 +25,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 # mvn / java are installed via SDKMAN on this machine and are NOT on a default
@@ -71,10 +71,11 @@ skip() {
 
 file_contains()     { grep -qE "$1" "$2"; }
 file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
-# Whole-file multi-line regex via perl, not grep -Pz (BSD grep has no -P). The file guard is load-bearing:
-# perl -0777 exits 0 on a file it cannot open, which would pass a positive row and a negated one alike.
-file_contains_ml()  { [ -f "$2" ] || return 1; PAT="$1" perl -0777 -ne 'BEGIN { $p = $ENV{PAT} } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"; }
-file_lacks_ml()     { [ -f "$2" ] || return 1; ! file_contains_ml "$1" "$2"; }
+# Whole-file multi-line regex via perl, not grep -Pz (BSD grep has no -P). Three-valued: 0 = match,
+# 1 = clean no-match, 2 = could not decide (missing/unreadable file, invalid regex, no perl -> 127).
+# file_lacks_ml passes ONLY on a clean 1: a bare `!` turned every perl error into a PASS.
+file_contains_ml()  { [ -f "$2" ] && [ -r "$2" ] || return 2; PAT="$1" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"; }
+file_lacks_ml()     { file_contains_ml "$1" "$2"; [ $? -eq 1 ]; }
 
 file_contains_n_times() {
     local pattern=$1 file=$2 n=$3 count

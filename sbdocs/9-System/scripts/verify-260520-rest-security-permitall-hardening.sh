@@ -21,8 +21,8 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
-DOCS_ROOT="${DOCS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sbdocs}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+DOCS_ROOT="${DOCS_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sbdocs}"
 MVN="${MVN:-$(command -v mvn || echo mvn)}"   # from PATH: was a Linux-only sdkman path
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }

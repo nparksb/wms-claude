@@ -108,7 +108,7 @@
 
 set -u
 
-WEB_UI_ROOT="${WEB_UI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
+WEB_UI_ROOT="${WEB_UI_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
 [ -d "$WEB_UI_ROOT" ] || { echo "FATAL: WEB_UI_ROOT=$WEB_UI_ROOT not found"; exit 2; }
 
 PASS=0

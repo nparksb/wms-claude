@@ -55,7 +55,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+PROJECT_ROOT="${PROJECT_ROOT:-$(CDPATH= cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 SKIP_JEST="${SKIP_JEST:-0}"

@@ -85,7 +85,7 @@ $MONO/.claude/worktrees/<repo-dir-name>/<TICKET>   (MONO = owl's main checkout, 
 
 **Branch name** stays independent of the directory name: take it from the plan (§5 Implementation Steps / §5 Phased Implementation Plan / §8 Rollout). Phased plan → the branch for the phase being implemented. If the plan names none, derive one matching what the target repo actually uses — observed prefixes are `feature/`, `bugfix/`, `fix/`, and `task/`; pick by change type and fall back to `feature/<plan-id>`.
 
-**Create it:**
+**Create it:** (Each Bash tool call is its own shell, so `exit 1` ends only that block. Pasting into an interactive terminal? Wrap the block in `( … )` first, or `exit` closes the terminal.)
 
 ```bash
 MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
@@ -157,6 +157,10 @@ ln -sfn "$WT" "$VROOT/$REPO"        # override each repo that has a worktree; re
 VS="$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
 SFX=$(grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" | sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p')
 VPR="$VROOT$SFX"
+# Refuse what cannot be graded rather than guessing "monorepo" (plan-state.sh applies the same rule):
+grep -q 'PROJECT_ROOT' "$VS" || { echo "$VS never reads PROJECT_ROOT: set its own *ROOT var by hand" >&2; exit 1; }
+grep -qE '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" || { echo "$VS has no PROJECT_ROOT default: read its header for the shape, set VPR by hand" >&2; exit 1; }
+[ -d "$VPR" ] || { echo "shape $SFX is not in the shadow root ($VPR)" >&2; exit 1; }
 PROJECT_ROOT="$VPR" bash "$VS"
 ```
 
@@ -218,6 +222,10 @@ VROOT="$MONO/.claude/worktrees/.verify-root/$TICKET"   # the shadow root built i
 VS="$MONO/sbdocs/9-System/scripts/verify-<plan-id>.sh"
 SFX=$(grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" | sed -nE 's#.*(/v[12]/[A-Za-z0-9_.-]+)\}"([[:space:]].*)?$#\1#p')
 VPR="$VROOT$SFX"
+# Refuse what cannot be graded rather than guessing "monorepo" (plan-state.sh applies the same rule):
+grep -q 'PROJECT_ROOT' "$VS" || { echo "$VS never reads PROJECT_ROOT: set its own *ROOT var by hand" >&2; exit 1; }
+grep -qE '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" || { echo "$VS has no PROJECT_ROOT default: read its header for the shape, set VPR by hand" >&2; exit 1; }
+[ -d "$VPR" ] || { echo "shape $SFX is not in the shadow root ($VPR)" >&2; exit 1; }
 PROJECT_ROOT="$VPR" bash "$VS"            # SAME shape as the Baselines run, or the two are not comparable
 ```
 
