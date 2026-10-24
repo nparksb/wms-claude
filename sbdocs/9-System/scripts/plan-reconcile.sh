@@ -218,7 +218,7 @@ for p in "${PLANS[@]}"; do
     # in a function that does not also assert presence somewhere (i.e. not conjoined)
     while IFS= read -r fn; do
         name="${fn%%(*}"
-        body=$(awk -v f="$name" '$0 ~ "^"f"\\(\\)" {p=1} p {print} p && /^}/ {exit} p && /;\s*}/ {exit}' "$vs")
+        body=$(awk -v f="$name" '$0 ~ "^"f"\\(\\)" {p=1} p {print} p && /^}/ {exit} p && /;[[:space:]]*}/ {exit}' "$vs")
         echo "$body" | grep -q 'file_contains' && continue          # conjoined -> fine
         sym=$(echo "$body" | grep -oE "file_not_contains(_ml)? +'[^']+'" | head -1 \
               | sed -E "s/.*'([^']+)'.*/\1/" | grep -oE '^[A-Za-z][A-Za-z0-9_]{5,}$')

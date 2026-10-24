@@ -2187,7 +2187,7 @@ check_P2A_svc_tx() {
 # transaction. A bare "no @Transactional near eligibleLocations" passes trivially before the mapping exists.
 check_P2A_ctl_exposes_no_tx() {
     file_contains '@GetMapping\("/eligibleLocations"\)' "$CFGCTL" \
-      && ! file_contains_multiline '@GetMapping\("/eligibleLocations"\)[\s\S]{0,300}?@Transactional' "$CFGCTL"
+      && file_not_contains_multiline '@GetMapping\("/eligibleLocations"\)[\s\S]{0,300}?@Transactional' "$CFGCTL"
 }
 # ⚠ Prose-satisfiable in its first form -- the stub's own javadoc names the constant, so a bare grep
 # passed with zero code referencing it. Same defect as P2-br-7 had. Require the constant to be PASSED
@@ -2205,7 +2205,7 @@ check_P2A_left_join() {
 # H2 lane: JPQL only. Every other query in LocationRepository is nativeQuery = true and Postgres-shaped.
 check_P2A_h2() {
     file_contains_multiline 'findPutawayCandidates' "$LREPO" \
-      && ! file_contains_multiline 'findPutawayCandidates[\s\S]{0,200}?nativeQuery' "$LREPO" \
+      && file_not_contains_multiline 'findPutawayCandidates[\s\S]{0,200}?nativeQuery' "$LREPO" \
       && file_not_contains '::bigint' "$QSVC"
 }
 # ONE authority for P2. The service must DELEGATE to the validator, never re-derive the predicates --
