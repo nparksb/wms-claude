@@ -57,7 +57,10 @@ file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2" 2>/dev/null;
 # Whole-file PCRE, for anchoring a pattern INSIDE a specific method body.
 # withEventVersion() already uses readTree/ObjectNode, so unanchored greps
 # would pass before the classifier is written.
-file_contains_ml()  { grep -Pzoq "$1" "$2" 2>/dev/null; }
+# Whole-file multi-line regex via perl, not grep -Pz (BSD grep has no -P). The file guard is load-bearing:
+# perl -0777 exits 0 on a file it cannot open, which would pass a positive row and a negated one alike.
+file_contains_ml()  { [ -f "$2" ] || return 1; PAT="$1" perl -0777 -ne 'BEGIN { $p = $ENV{PAT} } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"; }
+file_lacks_ml()     { [ -f "$2" ] || return 1; ! file_contains_ml "$1" "$2"; }
 
 CLASSIFIER=src/main/java/net/aim_ai/wms/service/OmsResponseClassifier.java
 DISPATCH=src/main/java/net/aim_ai/wms/service/job/OutboxDispatchService.java

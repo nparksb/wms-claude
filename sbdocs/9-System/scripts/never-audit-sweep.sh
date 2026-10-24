@@ -16,8 +16,10 @@ ROOT="${1:?usage: never-audit-sweep.sh <repo-root>}"
 AUD="$(cd "$(dirname "$0")" && pwd)/never-audit.py"
 cd "$ROOT" || exit 1
 
+export LC_ALL=C   # byte-order sorts: GNU and BSD sort collate differently under a UTF-8 locale
 IDX=$(mktemp); trap 'rm -f "$IDX"' EXIT
-find src/main/java -name '*.java' -printf '%f\t%p\n' | sed 's/\.java\t/\t/' | sort > "$IDX"
+# "<Class>\t<path>". Not find -printf + sed '\t' -- both GNU-only (BSD sed reads \t as a literal t).
+find src/main/java -name '*.java' | awk -F/ '{ f = $NF; sub(/\.java$/, "", f); print f "\t" $0 }' | sort > "$IDX"
 
 grep -rl "never()" src/test/java | sort | while read -r T; do
   CAND=$(basename "$T" .java | sed -E 's/(UnitTest|Test)$//')

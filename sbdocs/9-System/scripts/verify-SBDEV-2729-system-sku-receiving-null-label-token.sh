@@ -71,6 +71,10 @@ skip() {
 
 file_contains()     { grep -qE "$1" "$2"; }
 file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
+# Whole-file multi-line regex via perl, not grep -Pz (BSD grep has no -P). The file guard is load-bearing:
+# perl -0777 exits 0 on a file it cannot open, which would pass a positive row and a negated one alike.
+file_contains_ml()  { [ -f "$2" ] || return 1; PAT="$1" perl -0777 -ne 'BEGIN { $p = $ENV{PAT} } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"; }
+file_lacks_ml()     { [ -f "$2" ] || return 1; ! file_contains_ml "$1" "$2"; }
 
 file_contains_n_times() {
     local pattern=$1 file=$2 n=$3 count
@@ -170,7 +174,7 @@ check_A_zpl_required() {
     # Must prove the ZPL TEMPLATE is the wrapped value. The old first branch was
     # `requireConfig\(\s*$`, which matched ANY line ending in `requireConfig(` and
     # therefore proved nothing. Match across the wrapped call instead.
-    grep -Pzoq 'requireConfig\(\s*\n?\s*syspropService\.getSysvalue\(\s*WmsConstants\.SYSTEM_PROPERTY_PRINTING_ZPL_CASE_LABEL_KEY' "$SHARED" \
+    file_contains_ml 'requireConfig\(\s*\n?\s*syspropService\.getSysvalue\(\s*WmsConstants\.SYSTEM_PROPERTY_PRINTING_ZPL_CASE_LABEL_KEY' "$SHARED" \
         || file_contains 'requireConfig\(\s*syspropService\.getSysvalue\(WmsConstants\.SYSTEM_PROPERTY_PRINTING_ZPL_CASE_LABEL_KEY' "$SHARED"
 }
 check_A_warehouse_required() {
@@ -194,7 +198,7 @@ check_A_boxtype_unguarded_orelsethrow_gone() {
     # wrapped form:  findById(id)\n  .map(Boxtype::getName)\n  .orElse(""). Dropped —
     # a formatting spec, not a semantic one. The -Pzoq clause carries the real weight
     # and is newline-tolerant.
-    ! grep -Pzoq 'boxtypeRepository\.findById\(unitload\.getBoxtypeId\(\)\)[\s\S]{0,80}?\.orElseThrow' "$SHARED"
+    file_lacks_ml 'boxtypeRepository\.findById\(unitload\.getBoxtypeId\(\)\)[\s\S]{0,80}?\.orElseThrow' "$SHARED"
 }
 
 # MEDIUM-12 / N14 — the warehouseName check must be HOISTED to ReceivingService:429,
@@ -202,7 +206,7 @@ check_A_boxtype_unguarded_orelsethrow_gone() {
 # then rolls back, which is not "fail fast" in any useful sense.
 RECVSVC=src/main/java/net/aim_ai/wms/service/ReceivingService.java
 check_A_warehouse_hoisted_to_caller() {
-    grep -Pzoq 'requireConfig\([\s\S]{0,300}?SYSTEM_PROPERTY_WAREHOUSE_NAME_KEY' "$RECVSVC"
+    file_contains_ml 'requireConfig\([\s\S]{0,300}?SYSTEM_PROPERTY_WAREHOUSE_NAME_KEY' "$RECVSVC"
 }
 
 # Signature propagates the checked exception.
@@ -215,8 +219,8 @@ check_A_signature_throws() {
 # Accept BOTH the ternary and the if-form: pinning the exact ternary text made this
 # a FORMATTING spec, so a correct `if (value == null) { return ""; }` would fail.
 check_A_blank_not_na() {
-    grep -Pzoq 'String nullToEmpty\(String[^)]*\)\s*\{[^}]*""[^}]*\}' "$SHARED" \
-        && ! grep -Pzoq 'String nullToEmpty\(String[^)]*\)\s*\{[^}]*"N/A"' "$SHARED"
+    file_contains_ml 'String nullToEmpty\(String[^)]*\)\s*\{[^}]*""[^}]*\}' "$SHARED" \
+        && file_lacks_ml 'String nullToEmpty\(String[^)]*\)\s*\{[^}]*"N/A"' "$SHARED"
 }
 
 # === Fix B — StockunitService label builders ==================================
@@ -295,7 +299,7 @@ check_C_carrier_code_value_guarded() {
     # the same half-guard defect this plan names at SharedService:78.
     # NEWLINE-TOLERANT: the line-based form false-failed a wrapped ternary, which is how
     # the plan's own After-sample was written. Same trap as A18/B3/A0b.
-    grep -Pzoq 'replace\("\{carrier_code\}",[\s\S]{0,120}?shipperID != null && shipperID\.getExternalid\(\) != null' "$ORDERMV"
+    file_contains_ml 'replace\("\{carrier_code\}",[\s\S]{0,120}?shipperID != null && shipperID\.getExternalid\(\) != null' "$ORDERMV"
 }
 check_C_carrier_code_halfguard_gone() {
     file_not_contains 'replace\("\{carrier_code\}",\s*shipperID != null \? shipperID\.getExternalid\(\) : "N/A"\)' "$ORDERMV"
@@ -347,7 +351,7 @@ check_D_receive_logs_business_context() {
     # `grep -A8 'catch (RuntimeException'` false-passes on the pre-existing
     # `getMessageResponse(advicePositionId.toString(), "RECEIVED")` a few lines
     # below the catch block.
-    grep -zoE 'LOG\.error\("Unexpected error during receive:[^;]*advicePositionId[^;]*;' "$RECVCTRL" \
+    file_contains_ml 'LOG\.error\("Unexpected error during receive:[^;]*advicePositionId[^;]*;' "$RECVCTRL" \
         >/dev/null 2>&1
 }
 check_D_all_six_runtime_catches_still_present() {
@@ -422,13 +426,13 @@ check_sweep_no_bare_variable_in_replace() {
 # receiveGoods, where advice and itemdata are already loaded.
 check_D7_service_context_log() {
     file_contains 'receiveGoods failed' "$RECVSVC" \
-    && grep -Pzoq 'receiveGoods failed[\s\S]{0,700}?getDeliverynotenumber\(\)' "$RECVSVC" \
-    && grep -Pzoq 'receiveGoods failed[\s\S]{0,700}?getItemNr\(\)' "$RECVSVC"
+    && file_contains_ml 'receiveGoods failed[\s\S]{0,700}?getDeliverynotenumber\(\)' "$RECVSVC" \
+    && file_contains_ml 'receiveGoods failed[\s\S]{0,700}?getItemNr\(\)' "$RECVSVC"
 }
 check_D7_rethrows_unchanged() {
     # Must rethrow the SAME exception object — wrapping it would change rollback
     # semantics, which §12 row 4 depends on.
-    grep -Pzoq 'receiveGoods failed[\s\S]{0,900}?throw e;' "$RECVSVC"
+    file_contains_ml 'receiveGoods failed[\s\S]{0,900}?throw e;' "$RECVSVC"
 }
 
 # === M7 — cached null must not defeat the fail-fast recovery path =============
@@ -437,7 +441,7 @@ check_M7_getsysvalue_not_caching_null() {
     # NO [^)]* fencing: the @Cacheable key SpEL already contains ')' characters
     # (T(...TenantContext).getCurrentTenant()?.getFacilityCode()), so a fenced regex can
     # never span the annotation. Revision 3's version false-failed in BOTH attribute orders.
-    grep -Pzoq 'unless\s*=\s*"#result == null"[\s\S]{0,400}?public String getSysvalue' "$SYSPROPSVC"
+    file_contains_ml 'unless\s*=\s*"#result == null"[\s\S]{0,400}?public String getSysvalue' "$SYSPROPSVC"
 }
 
 # === Repo-wide sweep: no unguarded token replace left anywhere ===============

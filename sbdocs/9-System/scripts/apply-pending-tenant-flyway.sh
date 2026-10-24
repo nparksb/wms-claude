@@ -275,7 +275,7 @@ fi
 # Lexical sort (NOT sort -V) so this list and the SQL-side list are ordered
 # identically for comm(1). Versions are zero-padded (2.2.00..2.2.99), so lexical
 # and version order agree; consistency between the two sides is what matters.
-FILE_VERSIONS="$(find "$MIGRATION_DIR" -maxdepth 1 -name 'V*.sql' -printf '%f\n' \
+FILE_VERSIONS="$(find "$MIGRATION_DIR" -maxdepth 1 -name 'V*.sql' | sed 's#.*/##' \
             | sed -E 's/^V([0-9.]+)__.*/\1/' | sort -u)"
 HIGHEST="$(printf '%s\n' "$FILE_VERSIONS" | sort -V | tail -1)"
 ok "migration set: $(printf '%s\n' "$FILE_VERSIONS" | wc -l) scripts, highest = $HIGHEST"

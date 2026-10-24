@@ -82,17 +82,18 @@ ok "repo $(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?') @
 # ---------------------------------------------------------------- guard 1 ---
 # Schema must already be at the baseline watermark: V2.1.x markers all present.
 log "Guard 1/3 — confirm schema is at the $BASELINE watermark"
-declare -A PRESENT=(
-  [V2.1.01_uq_unitload_labelid]="select count(*) from pg_constraint where conname='uq_unitload_labelid'"
-  [V2.1.03_order_monitor_view]="select count(*) from pg_views where viewname='order_monitor_view'"
-  [V2.1.10_rest_idempotency]="select count(*) from pg_tables where tablename='rest_idempotency'"
-  [V2.1.11_outbox_message]="select count(*) from pg_tables where tablename='outbox_message'"
-  [V2.1.12_cancellation_log]="select count(*) from pg_tables where tablename='customerorder_cancellation_log'"
-  [V2.1.15_api_timestamp_fmt]="select count(*) from los_sysprop where syskey='API_TIMESTAMP_FORMAT'"
+# "<marker>|<sql>" pairs, not declare -A (bash 4): runs on macOS bash 3.2. No sql contains "|".
+PRESENT=(
+  "V2.1.01_uq_unitload_labelid|select count(*) from pg_constraint where conname='uq_unitload_labelid'"
+  "V2.1.03_order_monitor_view|select count(*) from pg_views where viewname='order_monitor_view'"
+  "V2.1.10_rest_idempotency|select count(*) from pg_tables where tablename='rest_idempotency'"
+  "V2.1.11_outbox_message|select count(*) from pg_tables where tablename='outbox_message'"
+  "V2.1.12_cancellation_log|select count(*) from pg_tables where tablename='customerorder_cancellation_log'"
+  "V2.1.15_api_timestamp_fmt|select count(*) from los_sysprop where syskey='API_TIMESTAMP_FORMAT'"
 )
 MISSING=0
-for k in "${!PRESENT[@]}"; do
-  v="$(q "${PRESENT[$k]}")"
+for e in "${PRESENT[@]}"; do
+  k="${e%%|*}"; v="$(q "${e#*|}")"
   if [[ "$v" == "0" ]]; then warn "MISSING $k"; MISSING=$((MISSING+1)); fi
 done
 UFR="$(q "select case when pg_get_viewdef('public.replenishment_monitor_view'::regclass,true) like '%useforreplenish%' then 1 else 0 end")"
@@ -104,15 +105,16 @@ ok "all baseline markers present (V2.1.01..V2.1.16)"
 # Nothing ABOVE the baseline may already be applied, or migrate will re-run a
 # non-idempotent script (V2.2.03) and fail.
 log "Guard 2/3 — confirm no post-$BASELINE delta is already applied"
-declare -A ABSENT=(
-  [V2.2.01_section_name_ro_id]="select count(*) from pg_attribute where attrelid='public.replenishment_monitor_view'::regclass and attname in ('section_name','ro_id') and attnum>0 and not attisdropped"
-  [V2.2.02_lock_overview_all_view]="select count(*) from pg_views where viewname='lock_overview_all_view'"
-  [V2.2.03_moved_columns]="select count(*) from information_schema.columns where table_name='replenishorder' and column_name like 'moved\\_%'"
-  [V2.2.04_lane_sysprops]="select count(*) from los_sysprop where syskey in ('TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED','REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED')"
+# "<marker>|<sql>" pairs, not declare -A (bash 4): runs on macOS bash 3.2. No sql contains "|".
+ABSENT=(
+  "V2.2.01_section_name_ro_id|select count(*) from pg_attribute where attrelid='public.replenishment_monitor_view'::regclass and attname in ('section_name','ro_id') and attnum>0 and not attisdropped"
+  "V2.2.02_lock_overview_all_view|select count(*) from pg_views where viewname='lock_overview_all_view'"
+  "V2.2.03_moved_columns|select count(*) from information_schema.columns where table_name='replenishorder' and column_name like 'moved\\_%'"
+  "V2.2.04_lane_sysprops|select count(*) from los_sysprop where syskey in ('TRANSFER_LANE_PARTIAL_DEPLETION_ACTIVATED','REPLENISH_EXCLUDE_STAGING_TRANSFER_LANES_ACTIVATED')"
 )
 FOUND=0
-for k in "${!ABSENT[@]}"; do
-  v="$(q "${ABSENT[$k]}")"
+for e in "${ABSENT[@]}"; do
+  k="${e%%|*}"; v="$(q "${e#*|}")"
   if [[ "$v" != "0" ]]; then warn "ALREADY PRESENT ($v): $k"; FOUND=$((FOUND+1)); fi
 done
 [[ "$FOUND" == "0" ]] || die "$FOUND post-baseline delta(s) already applied — re-baselining at $BASELINE would make Flyway re-run them. V2.2.03 is NOT idempotent. Stop."
