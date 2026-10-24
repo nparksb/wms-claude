@@ -267,3 +267,4 @@
 - [RETURN advices allow over-delivery](wms2-return-advices-allow-overdelivery.md) — all PRD; guard never fires
 - [SBDEV-1581 job ships OFF](sbdev-1581-empty-pallet-cleanup-activation-pending.md) — flip ACTIVATED per tenant
 - [Repo IT base is H2: order ties + FKs invisible](wms2-base-repository-it-is-h2-order-ties-and-fks-invisible.md) — pin SQL on PG lane
+- [Scripts must run on Mac AND Linux](owl-tooling-scripts-break-on-macos-bsd-userland.md) — run .claude/scripts/portability-check.sh after any script edit
