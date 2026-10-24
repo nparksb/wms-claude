@@ -33,10 +33,18 @@ skip() {
 
 file_contains()        { grep -qE "$1" "$2" 2>/dev/null; }
 file_not_contains()    { ! grep -qE "$1" "$2" 2>/dev/null; }
-file_contains_ml()     {
-    [ -f "$2" ] || return 1 PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null; }
-# negative multi-line: fails (returns 1) if the pattern IS present across lines
-file_not_contains_ml() { test -f "$2" && ! ( PATTERN="$1" perl -0777 -ne 'exit 0 if /$ENV{PATTERN}/m; exit 1' "$2" 2>/dev/null ); }
+# Multi-line regex via perl, three-valued: 0 = match, 1 = clean no-match, 2 = could not decide (empty
+# pattern, missing/unreadable file, invalid regex; no perl -> 127). A "does not contain" check passes ONLY
+# on a clean 1 -- a bare `! perl` turned every perl error into a PASS. The pattern travels in the
+# environment, so a '/' in it needs no escaping. $3 = inline flags (s, m) replacing the old /…/s or /m.
+_ml_rc() {
+  [ -n "$1" ] && [ -f "$2" ] && [ -r "$2" ] || return 2
+  PAT="$1" FLAGS="${3:-}" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; $p = "(?$ENV{FLAGS})$p" if length $ENV{FLAGS}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"
+}
+# Was `[ -f "$2" ] || return 1 PATTERN=... perl`: with no `;`, perl was an ARGUMENT to return and never
+# ran, so every positive multi-line row passed whenever the file existed (2026-10-24 review N2).
+file_contains_ml()     { _ml_rc "$1" "$2" m; }
+file_not_contains_ml() { _ml_rc "$1" "$2" m; [ $? -eq 1 ]; }
 
 SVC=src/main/java/net/aim_ai/wms/service
 CTRL=src/main/java/net/aim_ai/wms/controller

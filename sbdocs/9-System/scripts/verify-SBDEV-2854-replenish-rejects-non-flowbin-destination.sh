@@ -75,21 +75,19 @@ file_contains_n_times() {
 # Multi-line regex match across a whole file (for branch shapes that span lines).
 # The -f guard matters: `perl -0777 -ne` on a nonexistent file never enters the
 # implicit loop and therefore exits 0, which would report a false PASS.
-file_contains_ml() {
-    [ -f "$2" ] || return 1
-    local pattern=$1 file=$2
-    [ -f "$file" ] || return 1
-    perl -0777 -ne "exit 1 unless /$pattern/s" "$file"
-}
+file_contains_ml() { _ml_rc "$1" "$2" s; }   # was spliced into perl code, where an @name in the pattern was interpolated
 
 # Negation of the above, with the same -f guard. Kept as its own helper so the
 # polarity is stated once instead of re-derived at each call-site.
-file_not_contains_ml() {
-    [ -f "$2" ] || return 1
-    local pattern=$1 file=$2
-    [ -f "$file" ] || return 1
-    ! perl -0777 -ne "exit 1 unless /$pattern/s" "$file"
+# Multi-line regex via perl, three-valued: 0 = match, 1 = clean no-match, 2 = could not decide (empty
+# pattern, missing/unreadable file, invalid regex; no perl -> 127). A "does not contain" check passes ONLY
+# on a clean 1 -- a bare `! perl` turned every perl error into a PASS. The pattern travels in the
+# environment, so a '/' in it needs no escaping. $3 = inline flags (s, m) replacing the old /…/s or /m.
+_ml_rc() {
+  [ -n "$1" ] && [ -f "$2" ] && [ -r "$2" ] || return 2
+  PAT="$1" FLAGS="${3:-}" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; $p = "(?$ENV{FLAGS})$p" if length $ENV{FLAGS}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"
 }
+file_not_contains_ml() { _ml_rc "$1" "$2" s; [ $? -eq 1 ]; }
 
 # Strip comments before grepping. REQUIRED for every negative check on a Java file:
 # the fix deliberately leaves comments explaining what the old broken construct was

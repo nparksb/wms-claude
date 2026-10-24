@@ -74,7 +74,7 @@ file_not_contains() { [ -f "$2" ] || return 1; ! grep -qE "$1" "$2"; }
 # Whole-file multi-line regex via perl, not grep -Pz (BSD grep has no -P). Three-valued: 0 = match,
 # 1 = clean no-match, 2 = could not decide (missing/unreadable file, invalid regex, no perl -> 127).
 # file_lacks_ml passes ONLY on a clean 1: a bare `!` turned every perl error into a PASS.
-file_contains_ml()  { [ -f "$2" ] && [ -r "$2" ] || return 2; PAT="$1" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"; }
+file_contains_ml()  { [ -n "$1" ] && [ -f "$2" ] && [ -r "$2" ] || return 2; PAT="$1" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"; }
 file_lacks_ml()     { file_contains_ml "$1" "$2"; [ $? -eq 1 ]; }
 
 file_contains_n_times() {

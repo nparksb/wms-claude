@@ -42,8 +42,17 @@ skip() {
 # --- assertion helpers ---
 file_contains()      { grep -qE "$1" "$2"; }
 file_not_contains()  { ! grep -qE "$1" "$2"; }
-file_contains_ml()   {
-    [ -f "$2" ] || return 1 local p=$1; perl -0777 -e 'my $p=shift; my $f=do{local $/;<STDIN>}; exit($f=~/$p/s ? 0 : 1)' "$p" < "$2"; }  # multi-line via Perl slurp
+# Multi-line regex via perl, three-valued: 0 = match, 1 = clean no-match, 2 = could not decide (empty
+# pattern, missing/unreadable file, invalid regex; no perl -> 127). A "does not contain" check passes ONLY
+# on a clean 1 -- a bare `! perl` turned every perl error into a PASS. The pattern travels in the
+# environment, so a '/' in it needs no escaping. $3 = inline flags (s, m) replacing the old /…/s or /m.
+_ml_rc() {
+  [ -n "$1" ] && [ -f "$2" ] && [ -r "$2" ] || return 2
+  PAT="$1" FLAGS="${3:-}" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; $p = "(?$ENV{FLAGS})$p" if length $ENV{FLAGS}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"
+}
+# Was `[ -f "$2" ] || return 1 local p=$1; perl ...`: perl never ran for an existing file, so every
+# multi-line row passed regardless of the code (2026-10-24 review N2).
+file_contains_ml()   { _ml_rc "$1" "$2" s; }
 
 mvn_test_passes() {
     local test_class=$1

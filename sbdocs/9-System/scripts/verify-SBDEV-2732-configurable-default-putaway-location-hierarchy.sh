@@ -245,17 +245,19 @@ file_contains_exactly_n() {
 # known-correct synthetic implementation. Either escape it as '\/' or use file_contains (grep -E),
 # which has no delimiter. This joins the documented family: fail-open on missing files, vacuous
 # negatives, and rows naming an undefined function.
-file_contains_multiline() {
-    [ -f "$2" ] || return 1
-    perl -0777 -ne 'exit(/'"$1"'/s ? 0 : 1)' "$2"
+# Multi-line regex via perl, three-valued: 0 = match, 1 = clean no-match, 2 = could not decide (empty
+# pattern, missing/unreadable file, invalid regex; no perl -> 127). A "does not contain" check passes ONLY
+# on a clean 1 -- a bare `! perl` turned every perl error into a PASS. The pattern travels in the
+# environment, so a '/' in it needs no escaping. $3 = inline flags (s, m) replacing the old /…/s or /m.
+_ml_rc() {
+  [ -n "$1" ] && [ -f "$2" ] && [ -r "$2" ] || return 2
+  PAT="$1" FLAGS="${3:-}" perl -0777 -ne 'BEGIN { $p = $ENV{PAT}; $p = "(?$ENV{FLAGS})$p" if length $ENV{FLAGS}; eval { qr/$p/ } or exit 2 } $m = 1 if /$p/; END { exit($m ? 0 : 1) }' -- "$2"
 }
+file_contains_multiline() { _ml_rc "$1" "$2" s; }
 
 # file_not_contains_multiline <perl-regex> <file>
 # Same guard, inverted verdict. A missing file is a FAIL, never a pass.
-file_not_contains_multiline() {
-    [ -f "$2" ] || return 1
-    ! perl -0777 -ne 'exit(/'"$1"'/s ? 0 : 1)' "$2"
-}
+file_not_contains_multiline() { _ml_rc "$1" "$2" s; [ $? -eq 1 ]; }
 
 # method_body <sed-BRE-matching-the-signature-line> <file>
 # Prints from the signature line to the first line that is exactly four-space `}` — a method close at

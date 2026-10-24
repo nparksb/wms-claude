@@ -88,7 +88,7 @@ $MONO/.claude/worktrees/<repo-dir-name>/<TICKET>   (MONO = owl's main checkout, 
 **Create it:** (Each Bash tool call is its own shell, so `exit 1` ends only that block. Pasting into an interactive terminal? Wrap the block in `( … )` first, or `exit` closes the terminal.)
 
 ```bash
-MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
+MONO=$(CDPATH= cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
 [ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; exit 1; }
 REPO=v2/wms2-api                                     # the target sub-repo, relative to $MONO
 TICKET=SBDEV-####
@@ -160,6 +160,8 @@ VPR="$VROOT$SFX"
 # Refuse what cannot be graded rather than guessing "monorepo" (plan-state.sh applies the same rule):
 grep -q 'PROJECT_ROOT' "$VS" || { echo "$VS never reads PROJECT_ROOT: set its own *ROOT var by hand" >&2; exit 1; }
 grep -qE '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" || { echo "$VS has no PROJECT_ROOT default: read its header for the shape, set VPR by hand" >&2; exit 1; }
+[ -n "$SFX" ] || grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" | grep -qE '/\.\./\.\./\.\."( >/dev/null)? && pwd\)\}"([[:space:]].*)?$' \
+  || { echo "$VS: unrecognised PROJECT_ROOT default (neither /v1|v2/<repo> nor the plain owl root): set VPR by hand" >&2; exit 1; }
 [ -d "$VPR" ] || { echo "shape $SFX is not in the shadow root ($VPR)" >&2; exit 1; }
 PROJECT_ROOT="$VPR" bash "$VS"
 ```
@@ -225,6 +227,8 @@ VPR="$VROOT$SFX"
 # Refuse what cannot be graded rather than guessing "monorepo" (plan-state.sh applies the same rule):
 grep -q 'PROJECT_ROOT' "$VS" || { echo "$VS never reads PROJECT_ROOT: set its own *ROOT var by hand" >&2; exit 1; }
 grep -qE '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" || { echo "$VS has no PROJECT_ROOT default: read its header for the shape, set VPR by hand" >&2; exit 1; }
+[ -n "$SFX" ] || grep -m1 -E '^[[:space:]]*PROJECT_ROOT="\$\{PROJECT_ROOT:-' "$VS" | grep -qE '/\.\./\.\./\.\."( >/dev/null)? && pwd\)\}"([[:space:]].*)?$' \
+  || { echo "$VS: unrecognised PROJECT_ROOT default (neither /v1|v2/<repo> nor the plain owl root): set VPR by hand" >&2; exit 1; }
 [ -d "$VPR" ] || { echo "shape $SFX is not in the shadow root ($VPR)" >&2; exit 1; }
 PROJECT_ROOT="$VPR" bash "$VS"            # SAME shape as the Baselines run, or the two are not comparable
 ```

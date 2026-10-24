@@ -124,8 +124,8 @@ fi
 [ $DO_FETCH = 0 ] && dim "  (base staleness is measured against the LAST FETCH; pass --fetch for a live answer)"
 
 # ── 3. verify script, both roots ────────────────────────────────────────────────────────────────
-# ⚠ Verify scripts DO NOT share a PROJECT_ROOT convention. Measured 2026-08-20 across the 44 scripts
-# that define one: 37 expect the SUB-REPO root (…/v2/wms2-api) and 7 expect the MONOREPO root. Pass
+# ⚠ Verify scripts DO NOT share a PROJECT_ROOT convention: most expect the SUB-REPO root (…/v2/wms2-api),
+# some the MONOREPO root, a few declare none (counts drift; the classifier below derives them). Pass
 # the wrong shape and every path assertion fails, which prints as a plausible wall of honest-looking
 # reds — the first version of this probe did exactly that for SBDEV-3011 and reported 3 pass / 51 fail
 # against a plan whose real score is 54 / 0. So the convention is DETECTED from the script, per script.
@@ -172,7 +172,7 @@ else
     if [ -z "$PR_LINE" ] && grep -q 'PROJECT_ROOT' "$VS"; then
       warn "  ⚠ shape undeclared: the script has no PROJECT_ROOT default (it must be passed explicitly). Read its header for the shape; not graded here."
     elif [ -z "$PR_LINE" ]; then
-      warn "  ⚠ the script never reads PROJECT_ROOT — no root can point it at the worktree. Its own root vars: $(grep -oE '^[A-Z_]*ROOT=' "$VS" | tr -d '=' | tr '\n' ' ')— set those by hand. Not graded here."
+      warn "  ⚠ the script never reads PROJECT_ROOT — no root can point it at the worktree. Its own root vars: $(grep -oE '^[[:space:]]*(export[[:space:]]+)?[A-Z_]*ROOT=("?\$\{[A-Z_]*ROOT:-)?' "$VS" | sed -E 's/^[[:space:]]*(export[[:space:]]+)?//; s/=("?\$\{[A-Z_]*ROOT:-)$/ (overridable)/; s/=$/ (NOT overridable: copy the script and edit it)/' | tr '\n' ';')  Not graded here."
     else
       warn "  ⚠ unrecognised PROJECT_ROOT default — not graded here: ${PR_LINE:0:160}"
     fi
@@ -226,6 +226,8 @@ else
   # for a MERGED plan the worktree is stale and the shadow root reads as "nothing implemented".
   work_in_wt=0
   for i in ${WT_REPOS[@]+"${!WT_REPOS[@]}"}; do repo="${WT_REPOS[$i]}"
+    # repo-rooted: only the graded repo's worktree decides; another repo's state is not this script's.
+    [ "$ROOTKIND" = repo ] && [ "$repo" != "$TARGET_REPO" ] && continue
     # A failed rev-list (no origin/develop in that worktree) is "cannot tell", not "nothing ahead".
     a="$(git -C "${WT_PATHS[$i]}" rev-list --count origin/develop..HEAD 2>/dev/null)" || a=""
     d="$(git -C "${WT_PATHS[$i]}" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
@@ -268,8 +270,12 @@ else
       # JDK by MAJOR version, found on either machine: sdkman (Linux and Mac), else macOS java_home.
       # Never "whatever java is current": JDK 25 makes PIT report a silent 0% (memory: mutation-harness-traps).
       MAJ=21; grep -q '<java.version>\(1\.\)\{0,1\}8<' "$wt/pom.xml" 2>/dev/null && MAJ=8
-      JH=""; for d in "$HOME"/.sdkman/candidates/java/"$MAJ".* "$HOME"/.sdkman/candidates/java/"$MAJ"-*; do [ -d "$d" ] && { JH=$d; break; }; done
-      [ -n "$JH" ] || JH=$(/usr/libexec/java_home -v "$( [ $MAJ = 8 ] && echo 1.8 || echo $MAJ )" 2>/dev/null) || JH=""
+      # Newest sdkman match by version sort, not glob order (21.0.11 sorts before 21.0.2 as text).
+      JH=$(ls -d "$HOME"/.sdkman/candidates/java/"$MAJ".* "$HOME"/.sdkman/candidates/java/"$MAJ"-* 2>/dev/null | LC_ALL=C sort -V | tail -1)
+      # -F: without it java_home returns the DEFAULT JDK with rc 0 when the major is absent.
+      [ -n "$JH" ] || JH=$(/usr/libexec/java_home -F -v "$( [ $MAJ = 8 ] && echo 1.8 || echo $MAJ )" 2>/dev/null) || JH=""
+      # Trust nothing: the chosen JDK must report the major we asked for ("21.x" or "1.8.x").
+      if [ -n "$JH" ] && ! "$JH/bin/java" -version 2>&1 | head -1 | grep -qE "\"($MAJ|1\.$MAJ)[.\"]"; then JH=""; fi
       MVN=$(dirname "$(command -v mvn 2>/dev/null || echo "$HOME/.sdkman/candidates/maven/current/bin/mvn")")
       if [ -z "$JH" ] || [ ! -x "$MVN/mvn" ]; then echo "    <not run: no JDK $MAJ or no mvn found — set JAVA_HOME / PATH>"; continue; fi
       out="$(CDPATH= cd "$wt" && JAVA_HOME="$JH" PATH="$MVN:$JH/bin:$PATH" \
@@ -299,7 +305,7 @@ if [ -n "$PLAN" ]; then
   # Rows read `| **P1** | … | **YES** |`; a closed one is struck through as `~~**P3**~~` or marked Done.
   found=0
   while IFS= read -r line; do
-    id="$(sed -n 's/^| *\**\(P[0-9]\+\)\**.*/\1/p' <<<"$line")"
+    id="$(sed -nE 's/^\| *\**(P[0-9]+)\**.*/\1/p' <<<"$line")"   # -E: BSD sed reads BRE \+ as a literal "+"
     [ -z "$id" ] && continue
     case "$line" in *'~~'*) continue ;; esac
     case "$line" in *'| Done |'*|*'Done |'*) continue ;; esac

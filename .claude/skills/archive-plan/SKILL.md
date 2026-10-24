@@ -115,7 +115,7 @@ In dry-run mode, stop here. Otherwise, prompt: "Proceed with these operations?" 
    **Discover, don't assume.** (Each Bash tool call is its own shell, so `exit 1` ends only that block. Pasting into an interactive terminal? Wrap the block in `( … )` first, or `exit` closes the terminal.) The plan may have no worktree at all (docs-only plans, investigation-derived plans, plans implemented before the worktree convention). Enumerate rather than deriving paths:
 
    ```bash
-   MONO=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
+   MONO=$(CDPATH= cd "$(git rev-parse --git-common-dir)/.." && pwd -P)   # owl's MAIN checkout -- run from owl's root (or an owl worktree), NOT from a sub-repo or its ticket worktree
    [ -x "$MONO/.claude/scripts/ticket-lease.sh" ] || { echo "MONO=$MONO is not the owl repo: cd to owl's root first" >&2; exit 1; }   # a REFUSED guard is NOT "no worktree found": stop
    TICKET=SBDEV-####                       # bare ticket id, or the plan-id date-slug for untracked plans
    for REPO in v1/wms-api v1/wms-web-ui v1/wms-mobile-ui v2/wms2-api v2/wms2-web-ui v2/wms2-mobile-ui; do

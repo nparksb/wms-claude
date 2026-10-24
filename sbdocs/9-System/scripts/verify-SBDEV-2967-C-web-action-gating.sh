@@ -209,7 +209,7 @@ run T5 "seed unit test covers the ACTION grants" bash -c "
 # The single most likely way this slice ships a vacuous suite (plan 4.2).
 run T6 "no class-wide lenient() permissive stub in StockUnitControllerUnitTest" bash -c "
     f='$TST/unit/controller/StockUnitControllerUnitTest.java'; [ -f \"\$f\" ] || exit 0
-    ! perl -0777 -ne 'exit 1 unless /void\s+setUp\s*\([^)]*\)\s*\{[^}]*lenient\(\)/s' \"\$f\""
+    perl -0777 -ne 'exit 1 unless /void\s+setUp\s*\([^)]*\)\s*\{[^}]*lenient\(\)/s' \"\$f\"; [ \$? -eq 1 ]"
 
 # --------------------------------------------------------------------------
 echo; echo "Anti-regression"
@@ -224,7 +224,7 @@ run R1 "transferStock keeps its 2968 MOBILE ANY-of annotation" bash -c "
 run R2 "getStorageLocationsForStockMovement keeps its 2968 annotation" bash -c "
     perl -0777 -ne 'exit 1 unless /\@RequiresFunction\([^)]*MOBILE_UI_VIEW_STOCK_TRANSFER[^)]*\)[^{}]*?\bgetStorageLocationsForStockMovement\s*\(/s' '$SUC'"
 run R3 "no WEB_UI_ACTION_* gate lands on the two shared methods" bash -c "
-    ! perl -0777 -ne 'exit 1 unless /\@RequiresFunction\([^)]*WEB_UI_ACTION[^)]*\)[^{}]*?\b(transferStock|getStorageLocationsForStockMovement)\s*\(/s' '$SUC'"
+    perl -0777 -ne 'exit 1 unless /\@RequiresFunction\([^)]*WEB_UI_ACTION[^)]*\)[^{}]*?\b(transferStock|getStorageLocationsForStockMovement)\s*\(/s' '$SUC'; [ \$? -eq 1 ]"
 # Path is service/mobile/, NOT service/. Getting this wrong is a permanent red.
 run R4 "mobile services keep their damaged-lock checks" bash -c "
     grep -q 'WEB_UI_ACTION_ADJUST_LOCK_DAMAGED' '$SRC/service/mobile/MobileMoveStockService.java' &&
