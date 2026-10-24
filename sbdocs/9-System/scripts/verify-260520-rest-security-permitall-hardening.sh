@@ -21,9 +21,9 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
-DOCS_ROOT="${DOCS_ROOT:-/home/nampark/dev/wms-claude/sbdocs}"
-MVN="${MVN:-/home/nampark/.sdkman/candidates/maven/3.9.15/bin/mvn}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+DOCS_ROOT="${DOCS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sbdocs}"
+MVN="${MVN:-$(command -v mvn || echo mvn)}"   # from PATH: was a Linux-only sdkman path
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 

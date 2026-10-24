@@ -5,7 +5,7 @@
 # Machine-checkable acceptance for:
 #   sbdocs/1-Projects/wms2/plan/SBDEV-2947-sku-putaway-picker-storage-tier-default.md
 #
-#   WEB_UI_ROOT=/home/nampark/dev/wms-claude/v2/wms2-web-ui \
+#   WEB_UI_ROOT=<owl>/v2/wms2-web-ui \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2947-sku-putaway-picker-storage-tier-default.sh
 #
 # ONE root: this plan touches only v2/wms2-web-ui. When verifying implementation work, point
@@ -108,7 +108,7 @@
 
 set -u
 
-WEB_UI_ROOT="${WEB_UI_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-web-ui}"
+WEB_UI_ROOT="${WEB_UI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
 [ -d "$WEB_UI_ROOT" ] || { echo "FATAL: WEB_UI_ROOT=$WEB_UI_ROOT not found"; exit 2; }
 
 PASS=0

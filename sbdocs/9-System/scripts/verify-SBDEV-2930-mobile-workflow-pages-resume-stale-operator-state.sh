@@ -6,7 +6,7 @@
 #
 # Target repo: v2/wms2-mobile-ui  (Nuxt 2 / Vue 2)
 #
-#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-mobile-ui \
+#   PROJECT_ROOT=<owl>/v2/wms2-mobile-ui \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2930-...-state.sh
 #
 # Exit 0 only when every check passes.
@@ -35,7 +35,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-mobile-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-mobile-ui}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0

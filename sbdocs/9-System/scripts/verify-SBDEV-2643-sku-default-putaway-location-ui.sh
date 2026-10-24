@@ -79,8 +79,8 @@
 # "DONE" without it actually being in the code. Every deliverable in the plan is
 # encoded here as a grep assertion. Run after every implementation pass:
 #
-#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-api \
-#   WEB_UI_ROOT=/home/nampark/dev/wms-claude/v2/wms2-web-ui \
+#   PROJECT_ROOT=<owl>/v2/wms2-api \
+#   WEB_UI_ROOT=<owl>/v2/wms2-web-ui \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2643-sku-default-putaway-location-ui.sh
 #
 # Two roots, because SBDEV-2643 spans TWO repos. When verifying a per-ticket
@@ -189,8 +189,8 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
-WEB_UI_ROOT="${WEB_UI_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-web-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+WEB_UI_ROOT="${WEB_UI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
 
 [ -d "$PROJECT_ROOT" ] || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 [ -d "$WEB_UI_ROOT" ]  || { echo "FATAL: WEB_UI_ROOT=$WEB_UI_ROOT not found";  exit 2; }

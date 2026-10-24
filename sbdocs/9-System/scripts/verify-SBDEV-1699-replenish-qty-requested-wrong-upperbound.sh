@@ -17,8 +17,8 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v1/wms-api}"
-MOBILE_ROOT="${MOBILE_ROOT:-/home/nampark/dev/wms-claude/v1/wms-mobile-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+MOBILE_ROOT="${MOBILE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v1/wms-mobile-ui}"
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 

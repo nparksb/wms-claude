@@ -16,7 +16,7 @@
 #         A green run here is necessary, not sufficient.
 #
 # Usage:
-#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-api \
+#   PROJECT_ROOT=<owl>/v2/wms2-api \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2952-transfer-club-source-by-usefortransfer-flag.sh
 #
 # When grading an implementation worktree, point PROJECT_ROOT at the worktree (or
@@ -30,7 +30,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0

@@ -23,7 +23,7 @@
 
 set -uo pipefail
 
-WMS_ROOT="${WMS_ROOT:-/home/nampark/dev/wms-claude}"
+WMS_ROOT="${WMS_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 PLAN_DIR="$WMS_ROOT/sbdocs/1-Projects/wms2/plan"
 SCRIPT_DIR="$WMS_ROOT/sbdocs/9-System/scripts"
 API="$WMS_ROOT/v2/wms2-api"

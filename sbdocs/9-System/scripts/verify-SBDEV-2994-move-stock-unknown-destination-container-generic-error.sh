@@ -44,9 +44,9 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
-MOBILE_ROOT="${MOBILE_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-mobile-ui}"
-WEB_ROOT="${WEB_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-web-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+MOBILE_ROOT="${MOBILE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-mobile-ui}"
+WEB_ROOT="${WEB_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 [ -d "$MOBILE_ROOT" ] || { echo "FATAL: MOBILE_ROOT=$MOBILE_ROOT not found"; exit 2; }

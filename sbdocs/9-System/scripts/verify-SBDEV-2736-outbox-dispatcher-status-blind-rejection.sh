@@ -37,8 +37,8 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
-SBDOCS="${SBDOCS:-/home/nampark/dev/wms-claude/sbdocs}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+SBDOCS="${SBDOCS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sbdocs}"
 RUN_TESTS="${RUN_TESTS:-0}"
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }

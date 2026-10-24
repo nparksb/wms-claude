@@ -45,7 +45,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 BASE_SHA="${BASE_SHA:-60aef02}"
@@ -297,7 +297,7 @@ UCTRL=src/main/java/net/aim_ai/wms/controller/UserController.java
 # .claude/worktrees. The X rows then failed CLOSED on a missing file — the right direction, but
 # indistinguishable from unrecorded work, which is precisely the trap those rows exist to avoid.
 # sbdocs/ is outside every sub-repo worktree, so it can never be reached relative to PROJECT_ROOT.
-PLAN="${PLAN:-/home/nampark/dev/wms-claude/sbdocs/1-Projects/wms2/plan/SBDEV-3011-delete-role-join-table-cascade.md}"
+PLAN="${PLAN:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sbdocs/1-Projects/wms2/plan/SBDEV-3011-delete-role-join-table-cascade.md}"
 
 echo
 echo "verify-SBDEV-3011 — delete-role join-table cascade + atomicity"

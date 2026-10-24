@@ -11,7 +11,7 @@
 #      echoes the raw NPE text to the operator.
 #
 # Usage:
-#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-api \
+#   PROJECT_ROOT=<owl>/v2/wms2-api \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2729-system-sku-receiving-null-label-token.sh
 #
 # Exit code 0 only when every check passes. Paste the final "Result:" line into
@@ -25,7 +25,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 # mvn / java are installed via SDKMAN on this machine and are NOT on a default

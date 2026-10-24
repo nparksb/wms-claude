@@ -95,7 +95,7 @@
 # TWO TEMPLATE DEFECTS ARE FIXED HERE — do not "simplify" them back
 # ============================================================================
 # 1. PROJECT_ROOT: verify-plan-template.sh ships a stale macOS v1 path
-#    (/home/nampark/dev/wms-claude/v1/wms-api). This plan targets v2/wms2-api on
+#    (<owl>/v1/wms-api). This plan targets v2/wms2-api on
 #    this machine, so the default is corrected below.
 #
 # 2. file_not_contains FAILS OPEN on a missing file: `grep` exits 2 when it
@@ -114,8 +114,8 @@ set -u
 # skimming) must treat a MISSING Result line as FAILURE. This trap makes that unmissable.
 trap 'rc=$?; [ "${VERIFY_COMPLETED:-0}" = "1" ] || { echo; echo "*** ABORTED before completion (exit $rc) — checks after this point DID NOT RUN. Do NOT read this as a pass. ***"; }' EXIT
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
-UI_ROOT="${UI_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-web-ui}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
+UI_ROOT="${UI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-web-ui}"
 RUN_MVN="${RUN_MVN:-0}"
 
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }

@@ -4,7 +4,7 @@
 # Machine-checkable acceptance for SBDEV-2777 — stock_history() is client_id-blind.
 # Plan: sbdocs/1-Projects/wms2/plan/SBDEV-2777-stock-history-client-id-blind-mis-aggregation.md
 #
-#   PROJECT_ROOT=/home/nampark/dev/wms-claude/v2/wms2-api \
+#   PROJECT_ROOT=<owl>/v2/wms2-api \
 #     bash sbdocs/9-System/scripts/verify-SBDEV-2777-stock-history-client-id-blind-mis-aggregation.sh
 #
 # Exit 0 ONLY on "N pass, 0 fail, 0 skip". Paste that line in the end-of-task report.
@@ -54,7 +54,7 @@
 
 set -u
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/nampark/dev/wms-claude/v2/wms2-api}"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/v2/wms2-api}"   # owl root from this file (sbdocs/9-System/scripts): same on Mac and Linux
 cd "$PROJECT_ROOT" || { echo "FATAL: PROJECT_ROOT=$PROJECT_ROOT not found"; exit 2; }
 
 PASS=0; FAIL=0; SKIP=0
