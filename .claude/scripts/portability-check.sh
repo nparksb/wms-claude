@@ -80,7 +80,7 @@ n=0; for f in "${FILES[@]}"; do case "$f" in "$TMP"/fence/*) continue;; esac   #
 # line in the positive control below, so a regression in the scanner reds the run instead of greening it.
 # portability-check: off   (the rule table and the controls below ARE the idioms)
 W='([[:space:]]+('\''[^'\'']*'\''|"[^"]*"|[^|;&()[:space:]]+))*'   # any words, quoted ones too
-B='(^|[^[:alnum:]_./${-])'                                        # command boundary ($md5var is not md5)
+B='(^|[^[:alnum:]_./${-])((/[[:alnum:]_.-]+)*/)?'                # command boundary, optional /usr/bin/ path ($md5var is not md5)
 : > "$TMP/rules"
 rule() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}" >> "$TMP/rules"; }
 DATE_D=${B}'date'${W}'[[:space:]]+(-[[:alpha:]]*d([[:space:]]|$|["'\''@$])|--date)'
@@ -105,25 +105,25 @@ rule B5  '|& or &>> (bash 4)'                                         '(\|&|&>>)
 rule B6  '${a[-1]} negative index (bash 4.3)'                          '\$\{[[:alnum:]_]+\[-[0-9]+\]\}'
 rule B7  '-v VAR test (bash 4.2)'                                     '(\[\[?|test)[^]]*[[:space:]]-v[[:space:]]'
 rule B8  '$EPOCHSECONDS / $EPOCHREALTIME / $BASHPID (bash 4-5)'       '(EPOCH(SECONDS|REALTIME)|BASHPID)'
-rule B9  'wait -n / coproc / ;;& / shopt globstar|lastpipe (bash 4+)' '(wait[[:space:]]+-n|(^|[;&|][[:space:]]*)coproc[[:space:]]|;;&|shopt[[:space:]]+-s[[:space:]]+(globstar|lastpipe))'
+rule B9  'wait -n / coproc / ;;& / shopt globstar|lastpipe (bash 4+)' '(wait[[:space:]]+-n|(^[[:space:]]*|[;&|][[:space:]]*|(then|do|else)[[:space:]]+)coproc[[:space:]]|;;&|shopt[[:space:]]+-s[[:space:]]+(globstar|lastpipe))'
 rule B10 '`cd` inside $(…) or backticks without CDPATH= (an exported CDPATH makes cd PRINT the dir)' '(\$\(|`)[[:space:]]*((builtin|command)[[:space:]]+)?cd[[:space:]]'
 rule B11 '${x@Q} transformations / printf %(…)T (bash 4.2-4.4)'      '(@[QEPAaUuLK]\}|%\([^)]*\)T)'
 rule U1  'readlink -f / -e / -m (GNU; older macOS lacks it)'          ${B}'readlink'${W}'[[:space:]]+-[[:alpha:]]*[fem]'
 rule U2  'sed -i with no suffix, --in-place, or -r (GNU forms) -- use -i.bak and -E' ${B}'sed'${W}'[[:space:]]+(-i([[:space:]]+([^'\''"[:space:]-]|'\''[^'\'']|"[^"])|[[:space:]]+-|'\'''\''([[:space:]]|$)|$)|--in-place|--regexp-extended|-[[:alpha:]]*r([[:space:]]|$))'
 rule U3  "sed -i '' (BSD form; GNU reads '' as the script) -- use -i.bak" ${B}'sed'${W}'[[:space:]]+-i[[:space:]]+('\'''\''|"")([[:space:]]|$)'
-rule U4  'timeout (GNU coreutils; absent on macOS)'                   '(^|[;&|(][[:space:]]*)timeout[[:space:]]+([0-9]|-|"|\$)'
+rule U4  'timeout (GNU coreutils; absent on macOS)'                   '(^[[:space:]]*|[;&|(][[:space:]]*|(if|then|do|else|elif|while|until|exec|time|!)[[:space:]]+)((/[[:alnum:]_.-]+)*/)?timeout[[:space:]]+([0-9]|-|"|\$)'
 rule U5  'xargs -r / -d (GNU-only)'                                   ${B}'xargs'${W}'[[:space:]]+-[[:alpha:]]*[rd]'
 rule U6  'find -printf / -regextype (GNU-only)'                       ${B}'find[[:space:]].*-(f?printf|regextype)'
 rule U7  'find -E (BSD-only)'                                         ${B}'find[[:space:]]+-E'
 rule U8  'head -n -N (GNU-only)'                                      ${B}'head'${W}'[[:space:]]+-n[[:space:]]*-[0-9]'
-rule U9  'tac / nproc / shuf (GNU-only)'                              '(^|[|;&(][[:space:]]*)(tac|nproc|shuf)([[:space:]]|$|\))'
+rule U9  'tac / nproc / shuf (GNU-only)'                              '(^[[:space:]]*|[;&|(][[:space:]]*|(if|then|do|else|elif|while|until|exec|time|!)[[:space:]]+)((/[[:alnum:]_.-]+)*/)?(tac|nproc|shuf)([[:space:]]|$|\))'
 rule U10 'base64 -w (GNU) / -D (BSD)'                                 ${B}'base64'${W}'[[:space:]]+-[[:alpha:]]*[wD]'
 rule U11 'md5sum / sha*sum (GNU) or md5 (BSD) -- use shasum -a 256'   ${B}'(md5sum|sha[0-9]+sum|md5)([[:space:]]|$)'
 rule U12 'gawk-only awk feature (macOS awk and Debian mawk lack it)'  '(gensub|asorti?|strftime|systime)\(|BEGINFILE|ENDFILE'
 rule U13 'machine-specific absolute path (derive it)'                 '/home/nampark|/Users/np1076'
 rule U14 'sed BRE \+ \? \| without -E (BSD sed reads them literally: the match silently fails)' ${B}'sed'${W}'[[:space:]]+('\''[^'\'']*\\[+?|][^'\'']*'\''|"[^"]*\\[+?|][^"]*"|[^|;&[:space:]]*\\[+?|])' ${B}'sed'${W}'[[:space:]]+-[[:alpha:]]*[Er]'
 rule U15 'sed first~step address (GNU-only)'                          ${B}'sed'${W}'[[:space:]]+[^|;&]*[0-9]~[0-9]'
-rule R1  'return N <word> -- a missing ; makes the next command an ARGUMENT, so it never runs' '(^|[;&|{][[:space:]]*)return[[:space:]]+[0-9]+[[:space:]]+[A-Za-z_"'\''$]'
+rule R1  'return N <word> -- a missing ; makes the next command an ARGUMENT, so it never runs' '(^[[:space:]]*|[;&|{][[:space:]]*|(then|do|else)[[:space:]]+)return[[:space:]]+[0-9]+[[:space:]]+[A-Za-z_"'\''$]'
 rule R2  '! perl -- a perl error (bad regex, no perl) becomes a PASS; use a three-valued helper' '![[:space:]]*\(?[[:space:]]*([A-Z_]+=[^[:space:]]+[[:space:]]+)*perl[[:space:]]'
 rule X1  'CRLF line ending (bash fails at RUN time; bash -n does not notice)' "$(printf '\r')"'$'
 # portability-check: on
@@ -235,6 +235,16 @@ U3|sed -i '' 's/a/b/' f
 U4|timeout 10 cmd
 U4|x=$(timeout 5s cmd)
 U4|timeout -s KILL 5 cmd
+U4|    timeout 10 curl -s x
+U4|if timeout 5 cmd; then :; fi
+U4|exec timeout 5 cmd
+U9|  n=$(nproc)
+U9|for f in a; do shuf -n1 f; done
+U9|    tac f
+U14|/usr/bin/sed 's/a\+/b/' f
+G1|/usr/bin/grep -P x f
+R1|    [ -f "$2" ] || return 1 local x
+B9|  coproc cmd
 U5|ls | xargs -r rm
 U5|ls | xargs -0 -r rm
 U5|ls | xargs -d '\n' rm
@@ -310,6 +320,8 @@ r=$(readlink "$l"); xargs rm < f; head -n 2 f; base64 f; shasum -a 256 f
 [ -n "${a[0]}" ]; declare -a ok; local -r r=1; wait "$pid"; [ -n "$v" ]
 [ -f "$2" ] || return 1
   [ -f "$2" ] || return 2  # a trailing comment is fine
+  if [ -n "$x" ]; then return 1; fi
+  x=$(/usr/bin/sed -n 1p f); y=$(/usr/local/bin/grep -E 'a|b' f)
 _ml_rc "$1" "$2" s; [ $? -eq 1 ]
 CLEAN
 # portability-check: on
