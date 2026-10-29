@@ -6,6 +6,9 @@
 #     exits 0: read the body, or test it (`| grep -q '"errors"'`) before chaining.
 # The token is passed as a header FILE (curl -H @file), the body on stdin: neither appears in argv.
 # /api/public/* is called without a token (the dev API answers 401 to a token there).
+# WMS_DEV_OUT=<file>: write the body to that file instead of stdout; only "HTTP <code>" is printed.
+#   Use it for any binary response (Excel exports): stdout is captured in a shell variable below, and
+#   bash drops NUL bytes there, which corrupts an .xlsx (SBDEV-3591, 2026-10-29).
 set +x; set -uo pipefail
 . "$(dirname "$0")/env.sh" || exit 2
 M=${1:?usage: api.sh METHOD PATH [JSON]}; P=${2:?usage}; B=${3-}
@@ -15,12 +18,13 @@ call() {
   # ${auth[@]+...}: bash < 4.4 treats an empty "${auth[@]}" as unbound under set -u, which killed
   # every /api/public/* call on macOS's bash 3.2.
   local auth=(); [ $PUBLIC -eq 1 ] || auth=(-H "@$HDR_FILE")
+  local out=(); [ -z "${WMS_DEV_OUT:-}" ] || out=(-o "$WMS_DEV_OUT")
   if [ -n "$B" ]; then
     printf '%s' "$B" | curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
-      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" -H 'Content-Type: application/json' --data-binary @-
+      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" -H 'Content-Type: application/json' --data-binary @- ${out[@]+"${out[@]}"}
   else
     curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
-      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY"
+      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" ${out[@]+"${out[@]}"}
   fi
 }
 if [ $PUBLIC -eq 0 ] && [ ! -s "$HDR_FILE" ]; then "$(dirname "$0")/token.sh" >/dev/null || exit 2; fi
