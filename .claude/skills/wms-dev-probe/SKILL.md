@@ -34,7 +34,7 @@ Never write a password into a file, a command or a message yourself. If the file
 | Script | Does |
 |---|---|
 | `token.sh` | Fetches a token for the configured user. The realm and client come from `/api/public/authConfig`. The Keycloak URL must be `https://*.dev.sbo.li`. The password goes over stdin. The token is cached per user, mode 600, in `$XDG_RUNTIME_DIR` |
-| `api.sh METHOD PATH [JSON]` | Calls dev with tenant headers. The token goes as a header **file** and the body on stdin, so neither is in argv. `/api/public/*` is sent without a token. **Exit 0 only for 2xx**, 1 for any other status, 2 for transport failure |
+| `api.sh METHOD PATH [JSON]` | Calls dev with tenant headers. The token goes as a header **file** and the body on stdin, so neither is in argv. `/api/public/*` is sent without a token. **Exit 0 only for 2xx**, 1 for any other status, 2 for transport failure. **Binary responses (Excel exports): set `WMS_DEV_OUT=<file>`**, or the body loses its NUL bytes and the .xlsx is corrupt; only `HTTP <code>` is then printed |
 | `q.sh "<SQL>"` | psql against **`dev_wh01_om1` only**: host localhost, port 25060, DB on the allow-list, no URI query params. The password goes through `PGPASSWORD`. It can write |
 | `snapshot.sh save\|diff <name> ["SELECT"]` | The restore proof. Rows are stored as sorted `to_jsonb` lines, so NULL and `''` differ. Refuses an empty snapshot (`--allow-empty`) and overwriting one (`--force`). Snapshots persist in `~/.cache/wms-dev-probe/snap` |
 
