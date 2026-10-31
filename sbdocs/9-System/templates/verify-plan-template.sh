@@ -47,6 +47,9 @@
 #   section (see wms-plan-template.md).
 # - Run from the v1/wms-api project root by default; override with
 #   PROJECT_ROOT=... for v2/wms2-api or other targets.
+# - Maven rows inherit the caller's environment: JAVA_HOME and PATH must reach the
+#   repo's JDK (21 for wms2-api, 8 for v1) and `mvn`, or every maven row FAILs for
+#   a reason unrelated to the code. Check `mvn -v` before trusting a red maven row.
 
 set -u
 
@@ -139,14 +142,79 @@ class_has_method() {
 # `Skipped: 0` is additionally required so a @Disabled class cannot certify itself green, and
 # `-DfailIfNoTests=false` means a typo'd class name would otherwise pass silently — hence the
 # explicit check that a surefire summary was actually produced.
+#
+# SBDEV-3014 closed more holes. Surefire prints one summary line per class AND one aggregate, so:
+#   * ANY summary line reporting a failure, error, skip or flake fails the row — one clean line must
+#     not outvote a @Disabled sibling, and maven can exit 0 with failures under
+#     maven.test.failure.ignore (MAVEN_OPTS / settings.xml).
+#   * The largest clean count must reach the minimum ($2, default 1, must be >= 1). The OUTER class of
+#     @Nested tests prints `Tests run: 0, ...`, which alone used to pass with every nested class deleted.
+#   * Pass ONE exact class name. With a pattern or a comma list, the minimum can be met by another
+#     class's line or by the aggregate.
+# `-B` (batch mode) keeps ANSI colour out of the numbers being grepped.
+#
+# usage: mvn_test_passes <TestClass> [min-test-count]   (exit 2 = usage error, not a test failure)
 mvn_test_passes() {
-    local test_class=$1 out rc
-    out=$(mvn test -Dtest="$test_class" -DfailIfNoTests=false 2>&1); rc=$?
+    local test_class=$1 min=${2:-1} out rc summary count
+    # `[ -ge ]` also rejects a non-integer (it errors), so this one test covers 0, -5 and 'abc'
+    [ "$min" -ge 1 ] 2>/dev/null || { echo "mvn_test_passes: min must be an integer >= 1, got '$min'" >&2; return 2; }
+    archunit_store_snapshot
+    out=$(mvn -B test -Dtest="$test_class" -DfailIfNoTests=false 2>&1); rc=$?
     [ "$rc" -eq 0 ] || return 1
-    # a real summary must exist, or nothing ran
-    printf '%s' "$out" | grep -qE "Tests run: [0-9]+, Failures: 0, Errors: 0, Skipped: 0" || return 1
+    summary=$(printf '%s\n' "$out" | grep -E "Tests run: [0-9]+, Failures: [0-9]+, Errors: [0-9]+, Skipped: [0-9]+")
+    printf '%s\n' "$summary" | grep -qE "(Failures|Errors|Skipped|Flakes): [1-9]" && return 1
+    count=$(printf '%s\n' "$summary" | grep -oE "Tests run: [0-9]+" | grep -oE "[0-9]+" | sort -rn | head -1)
+    [ -n "$count" ] && [ "$count" -ge "$min" ]
+}
+
+# `mvn test` rewrites the tracked ArchUnit freeze store (wms2-api), and with allowStoreCreation=true can
+# add untracked files to it, so a clean-tree check after a verify run shows spurious changes. Snapshot
+# before the first maven row; restore at exit ONLY if the store was clean then (untracked files count) —
+# a deliberate uncommitted store change in the tree under test must survive. A store that did not exist
+# is removed again if maven created it. Outside a git repo both are no-ops. The path is recorded
+# absolutely at snapshot time, so a later `cd` cannot aim the restore at the wrong tree; a snapshot
+# taken inside a subshell is lost, which is why the driver below also snapshots at top level.
+ARCHUNIT_STORE=src/test/resources/archunit_store
+archunit_store_snapshot() {
+    [ -n "${ARCHUNIT_WAS_CLEAN:-}" ] && return 0
+    ARCHUNIT_STORE_PARENT="$(pwd)/$(dirname "$ARCHUNIT_STORE")"
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        ARCHUNIT_WAS_CLEAN=no
+    elif [ ! -e "$ARCHUNIT_STORE" ]; then
+        # deleted-but-tracked is the re-freeze workflow, not "absent": leave maven's output to the user.
+        # Check HEAD as well as the index — `git rm` empties the index but HEAD still has the store.
+        if [ -z "$(git ls-files -- "$ARCHUNIT_STORE" 2>/dev/null)" ] \
+            && [ -z "$(git ls-tree -r --name-only HEAD -- "$ARCHUNIT_STORE" 2>/dev/null)" ]; then
+            ARCHUNIT_WAS_CLEAN=absent
+        else
+            ARCHUNIT_WAS_CLEAN=no
+        fi
+    # --untracked-files=all: status.showUntrackedFiles=no would otherwise hide a user's file, read as
+    # "clean", and let the restore's `git clean` delete something git never had a copy of
+    elif [ -z "$(git status --porcelain --untracked-files=all -- "$ARCHUNIT_STORE" 2>/dev/null)" ]; then
+        ARCHUNIT_WAS_CLEAN=yes
+    else
+        ARCHUNIT_WAS_CLEAN=no
+    fi
+}
+archunit_store_restore() {
+    local base
+    base=$(basename "$ARCHUNIT_STORE")
+    # The snapshot is taken once, so a store edit made DURING a long maven run is reverted too — every
+    # removal is named on stderr (`git clean -n`) so nothing disappears silently.
+    case "${ARCHUNIT_WAS_CLEAN:-}" in
+        yes)    git -C "$ARCHUNIT_STORE_PARENT" checkout HEAD -- "$base" 2>/dev/null
+                git -C "$ARCHUNIT_STORE_PARENT" clean -nd -- "$base" >&2 2>/dev/null
+                git -C "$ARCHUNIT_STORE_PARENT" clean -fdq -- "$base" 2>/dev/null ;;
+        absent) [ -e "$ARCHUNIT_STORE_PARENT/$base" ] || return 0
+                git -C "$ARCHUNIT_STORE_PARENT" clean -nd -- "$base" >&2 2>/dev/null
+                git -C "$ARCHUNIT_STORE_PARENT" clean -fdq -- "$base" 2>/dev/null ;;
+    esac
     return 0
 }
+# Never trust snapshot state exported by a parent shell.
+ARCHUNIT_WAS_CLEAN=
+ARCHUNIT_STORE_PARENT=
 
 # === Per-rollout-item checks ==================================================
 # Replace the examples below with one check function per rollout item in your
@@ -172,6 +240,17 @@ mvn_test_passes() {
 echo
 echo "verify-<plan-id> — running acceptance checks"
 echo "  PROJECT_ROOT=$PROJECT_ROOT"
+
+# Snapshot at top level (a snapshot inside a subshell is lost) and restore on ANY exit — an early
+# `exit`, an unbound variable under `set -u`, or Ctrl-C would otherwise leave the store rewritten.
+#
+# ⚠ Bash keeps ONE EXIT trap per shell. Need your own exit cleanup? ADD it to verify_on_exit — never
+# call `trap ... EXIT` again, or the store restore (or your cleanup) is silently dropped.
+verify_on_exit() {
+    archunit_store_restore
+}
+archunit_store_snapshot
+trap verify_on_exit EXIT
 echo
 
 # run S1  "S1 — cancelBatch helper invoked"          check_S1_helper_invoked
@@ -183,7 +262,7 @@ echo
 # A code-shape grep proves the call exists. A targeted test proves it works.
 # Both are cheap and complementary.
 #
-#   run S3-test "S3 unit test passes" mvn_test_passes BillofladingServiceUnitTest
+#   run S3-test "S3 unit test passes" mvn_test_passes BillofladingServiceUnitTest 4
 
 echo
 echo "Result: $PASS pass, $FAIL fail, $SKIP skip"
