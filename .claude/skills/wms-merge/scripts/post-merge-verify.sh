@@ -17,7 +17,7 @@
 #      https://wms-api.dev.sbo.li/api/public/version until the served SHA CONTAINS the merge commit. A
 #      later merge deploying is fine; an exact-SHA match would false-red. Other repos have no deploy
 #      probe; asking for one there is a FAIL, not a silent skip.
-# Exit: 0 = all proven; 1 = a check failed; 3 = runs still in progress; 2 = usage/fetch error.
+# Exit: 0 = all proven; 1 = a check failed; 3 = runs still in progress; 2 = usage/fetch/setup error.
 set -uo pipefail
 # Strict UTC 'YYYY-MM-DDTHH:MM:SSZ' (every GitHub timestamp these scripts read) -> epoch seconds.
 # GNU date takes -d; BSD/macOS needs -j -f. Anything else -- trailing junk, an offset, fractional
@@ -52,6 +52,12 @@ fi
 cd "$REPO" || exit 2
 git fetch -q origin || { echo "git fetch failed" >&2; exit 2; }
 NAME=$(gh repo view --json name -q .name 2>/dev/null)
+# A transient gh failure left NAME empty on 2026-10-31 (#591), and the deploy check then reported
+# "no deploy probe exists for ''" for wms2-api. Fall back to the origin remote; refuse if both fail
+# (a URL with a trailing slash parses to empty, so it refuses rather than guessing).
+[ -n "$NAME" ] || { echo "note: gh repo view failed; taking the repo name from the origin remote" >&2
+  NAME=$(git remote get-url origin 2>/dev/null); NAME=${NAME%.git}; NAME=${NAME##*[/:]}; }
+[ -n "$NAME" ] || { echo "cannot resolve the repo name (gh repo view and the origin remote both failed)" >&2; exit 2; }
 FAIL=0; PEND=0
 J=$(gh pr view "$PR" --json state,baseRefName,headRefOid,mergeCommit,mergedAt) || exit 2
 STATE=$(jq -r .state <<<"$J"); BASE=$(jq -r .baseRefName <<<"$J")
