@@ -89,6 +89,16 @@ drops, which it did mid-session on 2026-10-15, and for writes.
   exits 0. Check the body.
 - **State changes that can't be undone** (finishing a real replen, moving stock to Damaged) need the user's
   explicit go-ahead, even inside an approved test run.
+- **A "refused, so nothing written" control is only safe once you have read the guard's BODY, not its `if`
+  line.** Before relying on a refusal, read each guard from the endpoint down to the first write, and confirm
+  each one `throw`s. On 2026-11-02 (SBDEV-3984), `bulkTransferToDamaged` with amount `999` was meant to be
+  refused as "more than the stock". But `setLockDamaged`'s `if (stockUnit.getAmount().compareTo(amount) < 0)`
+  **clamps** the amount to the whole stock unit (`amount = stockUnit.getAmount();`) and carries on. Both stock
+  units went to Damaged, and two `STOCK_UPDATE`s reached OMS dev. Reversing it (`removeLock`, then
+  `transferStock` back) sent two more, retired the original containers to Nirwana and left new labels behind.
+  Never point a control at a damage, ship, finish or delete endpoint. Safe controls used that day: `adjustAmount`
+  with the stock unit's own amount (returns before any write), `transferStock` with `0` (controller `<= 0`
+  check), and GRP adjust on a row whose amount already mismatches its stock unit (throws at the mismatch check).
 - **Never run these scripts under `bash -x`.** They `set +x` themselves, but a caller's trace of the call line
   could still show arguments.
 
