@@ -19,12 +19,17 @@ call() {
   # every /api/public/* call on macOS's bash 3.2.
   local auth=(); [ $PUBLIC -eq 1 ] || auth=(-H "@$HDR_FILE")
   local out=(); [ -z "${WMS_DEV_OUT:-}" ] || out=(-o "$WMS_DEV_OUT")
+  # WMS_DEV_IF_MATCH=<etag>: send If-Match (SDR optimistic lock, as the web-ui does on sysprop saves).
+  # WMS_DEV_HDR_OUT=<file>: dump the RESPONSE headers there (e.g. to read an ETag); stdout is unchanged.
+  local xtra=()
+  [ -z "${WMS_DEV_IF_MATCH:-}" ] || xtra+=(-H "If-Match: $WMS_DEV_IF_MATCH")
+  [ -z "${WMS_DEV_HDR_OUT:-}" ] || xtra+=(-D "$WMS_DEV_HDR_OUT")
   if [ -n "$B" ]; then
     printf '%s' "$B" | curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
-      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" -H 'Content-Type: application/json' --data-binary @- ${out[@]+"${out[@]}"}
+      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" -H 'Content-Type: application/json' --data-binary @- ${out[@]+"${out[@]}"} ${xtra[@]+"${xtra[@]}"}
   else
     curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
-      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" ${out[@]+"${out[@]}"}
+      -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" ${out[@]+"${out[@]}"} ${xtra[@]+"${xtra[@]}"}
   fi
 }
 if [ $PUBLIC -eq 0 ] && [ ! -s "$HDR_FILE" ]; then "$(dirname "$0")/token.sh" >/dev/null || exit 2; fi
