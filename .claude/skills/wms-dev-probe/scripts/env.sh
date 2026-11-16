@@ -31,9 +31,11 @@ SNAPDIR=$HOME/.cache/wms-dev-probe/snap
 mkdir_secure "$HOME/.cache/wms-dev-probe" && mkdir_secure "$STATE" && mkdir_secure "$SNAPDIR" || { return 2 2>/dev/null || exit 2; }
 
 WMS_DEV_USER=""; WMS_DEV_PASSWORD=""; WMS_DEV_KEY=wsl-wineco; WMS_DEV_TENANT=wineco; WMS_DEV_FACILITY=wsl
-# WMS_PROBE_NO_DEV_CREDS=1: a caller that needs only the helpers (uat-sdr-metrics.sh) skips the DEV credentials
-# entirely, so a broken DEV file cannot block it and the DEV password is never loaded into its shell.
-if [ "${WMS_PROBE_NO_DEV_CREDS:-0}" != 1 ] && [ -e "$CRED" ]; then
+# uat-sdr-metrics.sh needs only the helpers: it skips the DEV credentials entirely, so a broken DEV file cannot
+# block it and the DEV password is never loaded into its shell. Keyed on the caller's NAME, not an env flag, so an
+# exported variable can never switch the DEV scripts' credentials off.
+_skip_dev_creds=0; case "${0##*/}" in uat-sdr-metrics.sh) _skip_dev_creds=1;; esac
+if [ $_skip_dev_creds -eq 0 ] && [ -e "$CRED" ]; then
   if [ ! -f "$CRED" ] || [ -L "$CRED" ] || [ ! -O "$CRED" ] || [ "$(mode_of "$CRED")" != 600 ]; then
     echo "refusing: $CRED must be a regular file you own, mode 600 (fix: chmod 600 '$CRED')" >&2; return 2 2>/dev/null || exit 2
   fi
@@ -42,9 +44,7 @@ if [ "${WMS_PROBE_NO_DEV_CREDS:-0}" != 1 ] && [ -e "$CRED" ]; then
     k=${line%%=*}; v=${line#*=}
     case "$k" in
       WMS_DEV_USER|WMS_DEV_PASSWORD|WMS_DEV_KEY|WMS_DEV_TENANT|WMS_DEV_FACILITY) printf -v "$k" '%s' "$v";;
-      *) # never echo the line itself: a line without '=' may be a bare password
-         if [ "$k" != "$line" ] && [[ "$k" =~ ^[A-Z_]{1,40}$ ]]; then echo "warning: ignoring unknown key '$k' in $CRED" >&2
-         else echo "warning: ignoring a malformed line in $CRED" >&2; fi;;
+      *) echo "warning: ignoring an unrecognised line in $CRED (content not shown: it may hold a password)" >&2;;
     esac
   done < "$CRED"
 fi
