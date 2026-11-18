@@ -17,3 +17,5 @@ On 2026-10-02 I filed SBDEV-3632 (web/job cancel releases requested, not held sh
 - a ClickUp search for the method/class name in open + `pr submitted` tickets.
 
 Also run `ListAgents`, since a busy peer session may own the branch. Related: [[consolidate-tickets-dont-file-one-per-finding]], [[derive-cross-repo-claims-from-origin-develop]], [[check-peer-sessions-before-resuming-a-ticket]].
+
+**Same rule for PRs (2026-11-04):** opened wms2-api #617 (collision script, local branches) ~15 min after a peer session (owl-76) opened #616 for the same defect; #616 was broader and #617 was closed. **How to apply:** before branching a tooling/product fix, run `gh pr list --state open --search "<file or keyword>"` and `ListAgents` (ask peers on the same repo) — a defect one session hits, the peer that caused it is often already fixing.

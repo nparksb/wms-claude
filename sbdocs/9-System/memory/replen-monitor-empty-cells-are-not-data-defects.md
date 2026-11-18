@@ -20,3 +20,5 @@ Filed three times by WineCo (SBDEV-1404, SBDEV-2577, SBDEV-3587). Verified on Wi
 **How to apply:** for the next monitor-accuracy report, first check whether PR wms2-web-ui #151 (which shows the reasons in the cells) is deployed. Then bucket the live monitor rows by RO/FLA/upperbound/replenishable stock before reading any code.
 
 Related: [[wms-mcp-tools-not-surfaced-use-psql-direct]] (the node pg fallback worked for wsl-wineco-prd when its MCP timed out).
+
+**4th report, 2026-10-23 (email, AW23PNDE @ 53-B06, "not falling off, drops a case or two every few minutes"). Also not a defect.** The 78 orders were 4-SKU packs. Release is all-or-nothing per order, and sibling **AW23PNCOG**'s pick face 52-B05 had 10 bottles for 60 orders. Releases trickled until a 96-bottle replen at 12:59:51 PT, and 49 orders released at 13:00. AW23PNDE was also genuinely 16 short (253 demand vs 237 on face). Diagnose with `stockrecord` CREATE_PICK_POSITION bursts per SKU per minute. The monitor names the waiting SKU, never the blocking one. A "held by" column was proposed, not filed.

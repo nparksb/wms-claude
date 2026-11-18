@@ -57,3 +57,9 @@ Add the cron-gate check to the v1→v2 cutover checklist. Related:
   WineCo the other. The reportable fact was "the SAME CLIENT's two warehouses now disagree", not "C1WH
   is wrong".
 
+
+**Status 2026-10-26:** SBDEV-3288 CLOSED (gate still `true`, ticket orders at 700). The
+`post-v1-to-v2-sysprops.sql` the ticket says was "written and tested" was **never committed and is lost**
+(not on origin/develop, not under owl/) — rebuild it, don't search for it. Follow-ups proposed as a new
+ticket, not filed. A big block of old RAW orders on a tenant whose gate is on is often an
+**unactivated CLUB batch** (activated by hand in the UI, never by the release job) — check `cob.type` before calling it a stall.

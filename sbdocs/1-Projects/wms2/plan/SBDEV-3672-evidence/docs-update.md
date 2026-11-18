@@ -9,7 +9,7 @@ author: SBDEV-3672 docs lane
 
 # SBDEV-3672: sbdocs update change log
 
-Source of truth: wms2-api worktree `.claude/worktrees/wms2-api/SBDEV-3672` at `1866ab66`, and wms2-web-ui worktree `.claude/worktrees/wms2-web-ui/SBDEV-3672` at `63b0a89`. All cites were read from those commits with `git show <sha>:<path>`. Every added sentence about behaviour not yet on `develop` carries `⏳ pending-merge(SBDEV-3672)`.
+Source of truth: wms2-api worktree `.claude/worktrees/wms2-api/SBDEV-3672` at `1866ab66`, and wms2-web-ui worktree `.claude/worktrees/wms2-web-ui/SBDEV-3672` at `63b0a89`. All cites were read from those commits with `git show <sha>:<path>`. Every added sentence about behaviour not yet on `develop` carries `✓ merged(SBDEV-3672: wms2-api#526 f85789d4 + wms2-web-ui#176 98accaf9, 2026-10-22)`.
 
 **`last_verified` was not bumped on any doc.** Each touched doc covers far more than this change. The house convention (sysprop catalog, workflow doc) records a scoped check in `verified_by` and leaves `last_verified` alone. I followed that convention: a scoped `verified_by` note where the doc has the field, plus a verification-log row.
 
@@ -114,7 +114,7 @@ These fix the "Docs lane review" findings in `conformance-verifier.md`. All of t
 | L3 (`.vue:118`) | Button `:118`, its `v-if="omsStatus.failed > 0"` at `:109` |
 | L4 (`BolOmsNotificationService.java:115`) | Now `:126`, the `findBolNotificationRows` call. The fence itself stays cited at `OutboxMessageRepository.java:109-120` |
 
-**Marker count in the workflow doc:** 26 → 49, all spelled exactly `⏳ pending-merge(SBDEV-3672)`. The other four docs are unchanged.
+**Marker count in the workflow doc:** 26 → 49, all spelled exactly `✓ merged(SBDEV-3672: wms2-api#526 f85789d4 + wms2-web-ui#176 98accaf9, 2026-10-22)`. The other four docs are unchanged.
 
 ## 11. Re-cite at 057d0e3b (2026-10-16)
 

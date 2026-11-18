@@ -12,4 +12,4 @@ Hub for **Running each repo's tests locally**. Moved out of MEMORY.md on 2026-10
 - [[run-wms2-mobile-ui-jest-tests]]: Run wms2-mobile-ui Jest
 - [[wms2-running-one-integration-test-locally]]: Run ONE wms2 IT locally
 - [[oms-laravel-api-has-no-runnable-test-env]]: Running oms-laravel-api tests
-- [[wms2-web-ui-develop-preexisting-suite-failures]]: wms2-web-ui develop is green; reds = stale node_modules
+- [[wms2-web-ui-develop-preexisting-suite-failures]]: wms2-web-ui develop is green bar load-flaky returnsAudit; reds = stale node_modules; Mac nvm default Node 8

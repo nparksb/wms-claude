@@ -30,6 +30,7 @@ This is the **authoritative** version. The per-doc "How to debug" sections are s
 | Data from the wrong tenant is showing up | 📘 [tenant-routing §10 item 2](3-Resources/architecture/wms2-tenant-routing-datasource-topology.md) + [transaction §5 Rule 1](3-Resources/architecture/wms2-transaction-osiv-boundary-map.md) — bare `@Transactional` landlord fallback |
 | Token refresh stops mid-session | 📘 [end-to-end-request-journey §6](3-Resources/architecture/wms2-end-to-end-request-journey.md) (`onAuthRefreshError`, cleared interval) |
 | New tenant added but not routable yet | 📘 [tenant-routing §7](3-Resources/architecture/wms2-tenant-routing-datasource-topology.md) (5-min config refresh) |
+| New warehouse: sign-in 404 (`authConfig`) or intermittent `401 no matching key(s) found` after onboarding; "Set up WMS warehouse" fails with 502/503/409 | 🛠 [runbook: tenant/warehouse onboarding §3.3 + §6 V4/V10](2-Areas/runbooks/wms2-tenant-warehouse-onboarding.md) |
 | Mobile UI loops re-initialising Keycloak | 📘 [end-to-end-request-journey §3.2](3-Resources/architecture/wms2-end-to-end-request-journey.md) |
 | User can't see a web/mobile page | 📘 [keycloak-role-matrix §9](3-Resources/architecture/wms2-keycloak-role-matrix.md) |
 | User can hit an API endpoint they shouldn't | 📘 [keycloak-role-matrix §8 item 1](3-Resources/architecture/wms2-keycloak-role-matrix.md) — mobile gating is UI-only |
@@ -110,7 +111,7 @@ This is the **authoritative** version. The per-doc "How to debug" sections are s
 | Mobile putaway refuses scanned location | 📕 [receiving-putaway-workflow §5.3](3-Resources/workflows/wms2-receiving-putaway-workflow.md) — `FixLocationAssignment` mismatch |
 | Two operators ended up with the same pallet on putaway | 📕 [receiving-putaway-workflow §9 item 2](3-Resources/workflows/wms2-receiving-putaway-workflow.md) — SBDEV-2102 guard |
 | Label didn't print after receive | 📕 [receiving-putaway-workflow §9 item 10](3-Resources/workflows/wms2-receiving-putaway-workflow.md) — post-commit, no retry |
-| `/rest/advice/reopen` throws `RuntimeException` | 📕 [receiving-putaway-workflow §9 item 3](3-Resources/workflows/wms2-receiving-putaway-workflow.md) — intentional stub |
+| `/rest/advice/reopen` throws `RuntimeException` | 📕 [receiving-putaway-workflow §9 item 3](3-Resources/workflows/wms2-receiving-putaway-workflow.md) — stub, removed by SBDEV-4115 (404 after merge) ✓ merged(SBDEV-4115: #664 938c9fe2, 2026-11-11) |
 
 ---
 

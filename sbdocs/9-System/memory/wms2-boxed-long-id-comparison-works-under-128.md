@@ -56,3 +56,10 @@ but every same-pallet fixture used ids `9L`/`42L`/`1L` — all inside the cache 
 still reported the conditional killed, because PIT negates the branch rather than swapping the operator.
 A code-review lane caught it. Fixture ids moved above 66,000 and the mutant then died with an attributable
 message. **So: mutation-checking a boxed-`Long` comparison is vacuous unless the fixture ids exceed 127.**
+
+**2026-10-26, SBDEV-2924 triage — the StockunitService flowbin row above IS that ticket's cause, fixed by 3091.**
+UAT+PRD: 42-C01's FLA points at PNTD24 (itemdata 23886849), and it is the only item with that name, so the
+"Flow bin has different SKU 2024 Thunderdome…" error compared equal ids. Correction to the mask analysis:
+the Caffeine same-instance mask holds only under the default `!redis` profile. `CacheConfig` has a `redis`
+profile (`RedisCacheManager` + Jackson), and with it every cache hit deserializes a NEW Itemdata, so the
+mask is gone and the bug fires every time. The profile is set at deploy time, outside the repo.

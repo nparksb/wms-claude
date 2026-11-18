@@ -36,7 +36,7 @@ review discipline — the more mutation rounds and full suites a ticket gets, th
   the assertion message before debugging anything: it names the cause and the remedy itself. Do not
   hunt it in your diff.
 - The remedy is `docker rm -f` the container (or unset `testcontainers.reuse.enable`), then re-run.
-- ⚠ **Check `pgrep -fl maven` first.** The container is shared across worktrees AND sessions;
+- ⚠ **Check for other Maven runs first** (cwd only, never args: [[never-print-process-command-lines]]). The container is shared across worktrees AND sessions;
   removing it mid-build hands a peer a wall of `Connection to localhost:PORT refused` that reads
   exactly like their own defect. That is the same hazard as
   [[concurrent-maven-one-worktree-false-reds]], from the causing end rather than the receiving end.

@@ -126,7 +126,7 @@ The residual hazard is **sharing**, not nullity — every tenant-less caller lan
 | `SyspropService` | `@CacheEvict` | `createSystemProperty(client, workstation, key, ...)` | `<tenant>:<key>` | Creating a sysprop evicts the old value for that key |
 | `SyspropService` | `@CacheEvict` | `setSysvalue(key, value)` | `<tenant>:<key>` | Direct value write. *Was missing from this table before SBDEV-3135* |
 | `SyspropService` | **programmatic** | `getStringDefault(...)` → `evictSyspropKey(key)` | `<tenant>:<key>` | A READ that SEEDS a missing row. Its intra-bean call to `createSystemProperty` bypasses that method's own annotation, so the evict is explicit (SBDEV-3135) |
-| `SyspropService` | `@Cacheable` | `getByKey(String key)` | `<tenant>:<key>` | Cache-on-read. ⚠ **No `unless`** — caches nulls. **Zero callers in `src/main`** (tests only) |
+| `SyspropService` | `@Cacheable` | ~~`getByKey(String key)`~~ | `<tenant>:<key>` | **Deleted by SBDEV-4134** ✓ merged(SBDEV-4134: #676 9f041590 + oms #993 51a9bab2, 2026-11-13). Was cache-on-read with no `unless` (cached nulls, and `Sysprop` entities under the same keys as `getSysvalue`'s Strings), with zero callers in `src/main`. The uncached 3-arg `getByKey(client, workstation, key)` remains |
 | `SyspropService` | `@Cacheable` | `getSysvalue(String key)` | `<tenant>:<key>` | Cache-on-read. Carries `unless = "#result == null"`, so it never stores a miss. The only live reader |
 | `SystemPropertyController` | `@CacheEvict` | `updateValue(reqMap, principal)` | `<tenant>:<reqMap['key']>` | `POST /v3/systemProperty/updateValue` |
 | `SystemPropertyController` | `@CacheEvict` | `createSystemProperty(reqMap, principal)` | `allEntries = true` | `POST /v3/systemProperty/create` (added SBDEV-3135) |
@@ -137,14 +137,14 @@ The residual hazard is **sharing**, not nullity — every tenant-less caller lan
 `<tenant>:` prefix, so it matched nothing and evicted nothing — caught in review. It was harmless
 only because the resolver deliberately bypasses `SyspropService` (it reads the row with
 `findBySyskeyAndClientIdAndWorkstation`, per landmines A3/A4), so nothing cached that key. **The moment
-any reader goes through `SyspropService.getByKey` for it, both a stale read and a cross-tenant key
+any reader goes through a cached `SyspropService` reader (today only `getSysvalue`; the cached `getByKey(String)` was deleted by SBDEV-4134 ✓ merged(SBDEV-4134: #676 9f041590 + oms #993 51a9bab2, 2026-11-13)) for it, both a stale read and a cross-tenant key
 collision go live.** The prefix is not decoration; it is the tenant isolation boundary described in §3.
 
 **Corrected 2026-08-31 (SBDEV-3135) — this paragraph was false.** It claimed `SystemPropertyController.createSystemProperty` "delegates to `SyspropService.createSystemProperty` which carries `@CacheEvict`" and that "the eviction fires correctly on create". It does neither: the handler builds the `Sysprop` inline and calls **`syspropRepository.save(sysProp)` directly**, with no eviction anywhere on the path. That was the same create-has-none / update-has-one asymmetry as `SkuRestController.delete`, sitting in a class whose own `updateValue` has always evicted.
 
-**Closed by SBDEV-3135:** `createSystemProperty` and `updateClient` both now carry `@CacheEvict(value = "sysprops", allEntries = true)`. `allEntries` rather than a key-scoped evict because the syskey arrives inside a `Map` body, and `updateClient` **re-points the row's `client_id`** — both cached readers resolve a sysprop *through* `client_id` while the cache key carries only the syskey, so moving the row changes what an unchanged key should resolve to, which no key expression can express.
+**Closed by SBDEV-3135:** `createSystemProperty` and `updateClient` both now carry `@CacheEvict(value = "sysprops", allEntries = true)`. `allEntries` rather than a key-scoped evict because the syskey arrives inside a `Map` body, and `updateClient` **re-points the row's `client_id`** — the cached reader resolves a sysprop through a query that can pick a different row once `client_id` moves (`findSysvalueBySyskey`, lowest `client_id` wins; the second cached reader was deleted by SBDEV-4134 ✓ merged(SBDEV-4134: #676 9f041590 + oms #993 51a9bab2, 2026-11-13)) while the cache key carries only the syskey, so moving the row changes what an unchanged key should resolve to, which no key expression can express.
 
-⚠ Two readers on this cache have **opposite** null semantics: `getSysvalue` carries `unless = "#result == null"`, `getByKey(String)` does not and returns `null` for an absent key — so the negative *is* cached for `getByKey`. Still open; see §7.
+**Closed by SBDEV-4134** ✓ merged(SBDEV-4134: #676 9f041590 + oms #993 51a9bab2, 2026-11-13): the cache had two readers with opposite null semantics (`getSysvalue` with `unless = "#result == null"`, and `getByKey(String)` without it, which cached misses). `getByKey(String)` had no callers in `src/main` and was deleted, so `getSysvalue` is the only reader and nothing caches a miss.
 
 A sysprop written by a Flyway migration or a direct DB insert still evicts nothing — unchanged, and unfixable from inside the app.
 

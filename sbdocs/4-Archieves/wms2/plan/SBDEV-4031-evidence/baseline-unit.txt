@@ -1,0 +1,1 @@
+baseline develop 8507785d (2026-11-06): surefire tests=9740 failures=0 errors=0 skipped=1 (aggregated from target/surefire-reports XML; mvn -q)

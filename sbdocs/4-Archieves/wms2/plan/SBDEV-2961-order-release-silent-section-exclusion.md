@@ -4,14 +4,14 @@ ticket: "SBDEV-2961"
 ticket_url: "https://app.clickup.com/t/868krfj4n"
 type: bugfix
 priority: medium
-status: implemented
+status: archived
 gate_waiver: "ralplan Critic sign-off was NEVER run — skipped twice on explicit user instruction (2026-08-14). Two independent lanes (oh-my-claudecode:critic, :architect) reviewed r1 and r2 instead; critic returned APPROVE WITH CHANGES on r2 and all findings were applied in r3. r3 itself is unreviewed. wms-plan-executor Phase 0 gate 1 was waived by the user, not satisfied."
 project: [wms2]
 version: v2
 requester: nam.park@siteboss.net
 reviewers: "architect-2961 (design, A–G), critic-2961 (plan, 10 claims)"
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-11-11
 db_verified: true
 revision: "r3 — implemented 2026-08-14 (api 4f578ac, web-ui 1bc8018), local commits, not pushed. Second review round applied. r1 wrote from inside a readOnly tx (silent no-op); r2's Fix E rationale was false and its CAS window too wide."
 related:
@@ -1047,3 +1047,24 @@ could not execute**) was correctly re-opened after I first claimed it fixed.
 4. **Two concurrent `mvn` runs on one worktree** produce a false failure: the second's `clean` deletes `target/` under the first. All three Maven rows red at once is a collision signature. Script now uses `-o`; run suites serially.
 5. **A review lane's `git checkout --` on an unstaged file discarded Fix B entirely** (restored byte-identical). Shared worktrees and shell-capable review lanes do not mix; check `mtime` before concluding work was lost.
 6. **Five false greens in this ticket's own verify script**, every one found by running or ablating it, two of them introduced by my own comment edits. The last: `B3_guard_returns` matched the short-circuit `return` instead of the guard-exit one. Fixed by anchoring on a two-anchor **code-only** block and requiring ≥2 returns. Positional assertions drift whenever the surrounding code moves.
+
+---
+
+## Archive note (2026-11-11)
+
+> **Shipped.** api `4f578ac7` via wms2-api PR #159 and web-ui `1bc8018` via wms2-web-ui PR #63 are both on `origin/develop` (verified 2026-11-11). ClickUp SBDEV-2961 is Closed. The frontmatter `revision:` line ("local commits, not pushed") predates the PRs and is kept as history.
+>
+> Acceptance script retired to `sbdocs/4-Archieves/scripts/verify-SBDEV-2961-order-release-silent-section-exclusion.sh`. No implementation worktree existed at archival.
+>
+> **Finding dispositions (archive gate):**
+>
+> | Finding | Disposition |
+> |---|---|
+> | `OrderReleaseSectionQueryIT` `@Disabled` — Fix A / Fix E have no automated proof | **On a ticket:** SBDEV-2217 |
+> | Dead list query `getOrderReleaseInfo` still a public HAL endpoint (§3.2 A2) | **Proposed:** P88 in `sbdocs/2-Areas/proposals-register.md` |
+> | `OrderMonitorViewRepository` section filter matches section-less orders under every section (§3.5) | **Proposed:** P89 |
+> | §6.4 manual plan (7 Hydra UAT rows) never run | **Dropped:** the ticket was closed after merge on Nam's call (2026-11-11), so the rows are no longer owed |
+> | `/v3/orderMonitorView` divergence | **Dropped:** accepted by decision (§3.5) |
+> | v1 identical defect | **Dropped:** v1 is reference-only; no client on v1 since 2026-10-02 |
+>
+> Related config work: SBDEV-2963 (Hydra UAT section backfill, closed 2026-11-10) and SBDEV-4093 (PRD backfill, open).

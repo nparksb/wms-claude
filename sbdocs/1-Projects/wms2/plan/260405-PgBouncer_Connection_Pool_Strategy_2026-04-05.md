@@ -290,6 +290,21 @@ Flyway migrations may not work correctly through PgBouncer in transaction mode b
 - Running migrations with a direct PostgreSQL URL (bypassing PgBouncer)
 - Using a separate PgBouncer config with `pool_mode = session` for migration connections
 
+### ⚠ PREREQUISITE — job advisory locks are session-level (added 2026-11-11, [SBDEV-4112](https://app.clickup.com/t/868mv916b))
+
+Do not put **landlord** behind `pool_mode = transaction` until this is resolved. Tenant DBs are unaffected (see the last bullet).
+
+- Every cross-pod job guard goes through `AdvisoryLockService`, which takes a **session-level** `pg_try_advisory_lock` on a raw `landlordDataSource` connection, keeps that connection pinned in a ThreadLocal for the whole job, and releases it with `pg_advisory_unlock` on the same connection (`service/AdvisoryLockService.java:79,125,187,231`; `SchedulingConfiguration.java:1688`).
+- Today this only works because `landlord.datasource.auto-commit=false` (`application.properties:87`): the lock query opens a transaction that stays open, idle, until the unlock. Under transaction pooling, PgBouncer keeps the server connection assigned to the client while a transaction is open, so the lock appears to survive — **by accident**, and it pins one PgBouncer server connection per running job.
+- It breaks if either of these changes:
+  - auto-commit is turned on, or the lock query commits: the server connection goes back to PgBouncer **still holding the session lock**. Another client inherits it, the job's `pg_advisory_unlock` runs on a different server connection and returns false (the existing WARN "lock was not held by this connection"), and the job is blocked fleet-wide until that server connection is recycled;
+  - `idle_in_transaction_session_timeout` is set on landlord (or PgBouncer's `idle_transaction_timeout`): the job's lock is dropped mid-run and a second pod double-processes. Both are `0` today: landlord dev and PRD read `idle_in_transaction_session_timeout = 0`, and PRD has no role/db overrides (`pg_db_role_setting` empty), checked 2026-11-11.
+- **Options before landlord goes through PgBouncer:**
+  1. keep landlord out of PgBouncer (direct connection), which is the simplest;
+  2. give the lock connections their own `pool_mode = session` PgBouncer database entry;
+  3. replace the session locks with a lease row (`UPDATE … SET owner, expires_at WHERE expires_at < now()`), the same shape as the club-run job claim.
+- **Already safe under transaction pooling (checked 2026-11-11):** the tenant-side `pg_advisory_xact_lock` in `ManualEntryOverrideRepository` / `ManualEntryOverrideAuditService` lasts only for the transaction, and so does `SET LOCAL lock_timeout` from `LockTimeoutHibernateJpaDialect`.
+
 ### Long-running transactions
 
 `runClubLine` holds a transaction for an entire batch. In PgBouncer transaction mode, the server connection is held for the full transaction duration. This is expected and correct — PgBouncer only multiplexes between transactions, not within them. Monitor `sv_active` during batch processing.

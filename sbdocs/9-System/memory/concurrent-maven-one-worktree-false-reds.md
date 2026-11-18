@@ -2,7 +2,10 @@
 name: concurrent-maven-one-worktree-false-reds
 description: Two Maven runs in one worktree produce a wall of credible reds; one clean run of the same tree is 0/0
 metadata:
+  node_type: memory
   type: reference
+  originSessionId: 31d6bf5b-4743-4082-92c0-bd0709d52faa
+  modified: 2026-10-24T23:26:10.838Z
 ---
 
 **Never run two Maven invocations in the same worktree at once, and never grade a suite that shared
@@ -72,9 +75,14 @@ they mislead you:
 not scoped to its own worktree. So "I removed the stale container to get a clean run" is not a fix;
 either party can do it to the other at any moment.
 
-**Detection, before debugging anything:** `pgrep -fl "maven|surefire|failsafe"`. The full command line
-shows the peer's worktree path. ⚠ `pgrep -f SBDEV-3418` substring-matches `SBDEV-3418-run` and
+**Detection, before debugging anything:** `for p in $(pgrep -f 'surefire|failsafe|plexus-classworlds'); do lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'; done | sort | uniq -c` — each process's cwd (the peer's worktree path), never
+its command line: `pgrep -fl`/`ps` print full args, which can carry credentials ([[never-print-process-command-lines]]). ⚠ `pgrep -f SBDEV-3418` substring-matches `SBDEV-3418-run` and
 `-verify` too, so read the paths rather than trusting a count.
+⚠ **A `while pgrep -f '<pattern>'` wait loop matches ITS OWN shell.** The pattern text sits in the loop's
+command line. On 2026-10-24 (SBDEV-3862) this hung a wait loop for over an hour, twice: once in the
+main session and once in a subagent. Killing that shell then orphaned the mvn it had started (ppid 1).
+Use the bracket form, which cannot match itself: `pgrep -f '[j]ava.*plexus-classworlds'`. Then read
+`multiModuleProjectDirectory=` from `ps -o args=` to see WHICH worktree each JVM belongs to.
 
 **What to do:** queue rather than race —
 `while kill -0 <peer-pid> 2>/dev/null; do sleep 30; done` then start, and let it settle ~60s so the

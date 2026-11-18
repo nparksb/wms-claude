@@ -342,6 +342,14 @@ extra connection: it runs in `afterCommit`, where Hibernate has already released
 connection in `LogicalConnectionManagedImpl.afterTransaction()` (inside `EntityTransaction.commit()`,
 before `triggerAfterCommit`).
 
+> ⚠ **Corrected 2026-11-11 (SBDEV-4108 B): the release claim above is FALSE in this app, as measured.**
+> With Spring's `DELAYED_ACQUISITION_AND_HOLD` (no `hibernate.connection.handling_mode` override),
+> `afterTransaction()` does not release the connection. It stays checked out through `afterCommit` until
+> `cleanupAfterCompletion` closes the EntityManager. `TenantConnectionReleasedBeforeAfterCommitIT` observed
+> `afterCommit[closed=false alive=true]`; see boundary map §6. The conclusion that this fix adds no extra
+> connection still holds, because the callback reuses the connection the transaction already held. But that
+> connection is pinned for the callback's whole duration, so a slow callback is NOT free.
+
 So: per the memory rule, slots are what ran out, not milliseconds — and this change adds one slot on
 one path. **It does not move the `replicas × tenants × maxPoolSize` number in any way that matters,
 and SBDEV-3198's accepted pool-cap risk is not re-raised by it.**

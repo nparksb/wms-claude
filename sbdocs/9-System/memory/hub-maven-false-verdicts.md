@@ -16,3 +16,7 @@ Hub for **Maven/surefire/failsafe false verdicts**. Moved out of MEMORY.md on 20
 - [[surefire-xml-tally-must-subtract-skipped]]: XML tally must subtract skipped
 - [[selected-test-classes-is-not-the-suite]]: Selected -Dtest run ≠ the suite
 - [[mvn-test-cannot-see-the-integration-lane]]: mvn test can't see integration lane
+- [Full suite must follow the LAST edit](full-suite-must-follow-the-last-test-edit.md) — a test added after the clean run is graded only by its class; repo-wide arch rails miss it and CI reds
+- [[test-only-commits-still-need-the-archunit-rails]]: ArchUnit rails scan test code; re-run *ArchTest after test-only commits
+- [[standalone-surefire-test-reads-stale-reports]]: `mvn -q surefire:test` in a loop read the previous report — delete reports per run, known-red control first
+- [[signature-change-leaves-test-classes-stale]]: main signature change → incremental test-compile exits 0 on stale tests; clean first

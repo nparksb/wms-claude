@@ -6,9 +6,9 @@ version: v2
 scope: cancel-cascade
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-10-16
-last_verified: 2026-05-08
-verified_by: code read of v2/wms2-api src/main + state-machine architecture doc
+updated: 2026-11-11
+last_verified: 2026-11-11
+verified_by: code read of v2/wms2-api origin/develop @ df30fa62 (2026-11-11 re-verification, cancel path + OrderRestController + batch rollup)
 related:
   - ../architecture/wms2-state-machine-catalog.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -29,7 +29,7 @@ tags:
 # WMS v2 — Cancel Cascade Workflow
 
 **Scope:** Every code path that cancels a customer order or batch in `v2/wms2-api`, plus the entities it cascades through · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-05-08
+**Owner:** Nam Park · **Last verified:** 2026-11-11
 
 ---
 
@@ -46,16 +46,16 @@ Two things to hold in mind before touching this flow:
 
 ## 2. Cancellation Entry Points
 
-The service-layer methods below own the cancel paths worth knowing. **Treat this as a reading list, not a closed set** — the table has always carried more rows than the count in this sentence claimed, and `cancelBatch` sat in it for months as an entry point with no entry. *Deriving method:* `git grep -n 'setState(WmsConstants.State.CANCELED)' -- 'src/main/**/*.java'` returns **20 lines across 7 files** on the SBDEV-3354 branch, and **26 across 8** on `origin/develop` before that deletion merges (both measured 2026-09-14). That grep's blind spots — ternaries, local variables, `@Modifying` bulk updates, `setMarkedforcancellation`, native SQL — are enumerated in the javadoc on `PickingorderBusinessServiceUnitTest.ConfirmPickCancellationGuard`. Do not read either number as an inventory.
+The service-layer methods below own the cancel paths worth knowing. **Treat this as a reading list, not a closed set** — the table has always carried more rows than the count in this sentence claimed, and `cancelBatch` sat in it for months as an entry point with no entry. *Deriving method:* `git grep -n 'setState(WmsConstants.State.CANCELED)' -- 'src/main/**/*.java'` returns **19 lines across 6 files** on `origin/develop` @ df30fa62 (measured 2026-11-11; it was 26 across 8 on 2026-09-14, before the SBDEV-3354 deletion merged). That grep's blind spots — ternaries, local variables, `@Modifying` bulk updates, `setMarkedforcancellation`, native SQL — are enumerated in the javadoc on `PickingorderBusinessServiceUnitTest.ConfirmPickCancellationGuard`. Do not read either number as an inventory.
 
 | Entry point | File:Line | Scope | Trigger |
 |---|---|---|---|
-| `CustomerorderService.cancelOrder(...)` | `service/CustomerorderService.java:588` (method) — `customerOrder.setState(CANCELED)` at line 675 | Single order | REST admin + OMS-initiated |
-| `CustomerorderService.forceCancelOrder(...)` | `service/CustomerorderService.java:323` (method) — `customerOrder.setState(CANCELED)` at line 351 | Single order (force path) | Admin bypass when normal cancel is blocked |
-| Rapid-pick recovery branch (inside `cancelOrder`) | guard at `service/CustomerorderService.java:639`, `pickingOrder.setState(PROCESSABLE)` at line 645 | Side-effect of `cancelOrder` on rapid-pick orders | Invoked internally when `historytote != null` and section is `RAPID_PICKING` |
-| `CustomerorderBatchService.finalizeBatchIfComplete(...)` | `service/CustomerorderBatchService.java:346` | Roll up to `CANCELED` if all child orders cancelled | Called post-order-cancel |
-| `PickingOrderMergeService.cancelOrderIfMergeFails(...)` | `service/PickingOrderMergeService.java:127` | Picking order only | Called when merge pass fails |
-| `ReplenishorderService.cancelReplenishment(...)` / `ReplenishmentOrderMaintenanceService.cancelOrder(...)` | various | Replenish order only | Background cron path |
+| `CustomerorderService.cancelOrder(...)` | `service/CustomerorderService.java:899` (method) — `customerOrder.setState(CANCELED)` at line 1132 | Single order | OMS-initiated via `OrderRestController.cancelPositions` (`:647`, `cancellationFromWithinWMS=false`); also `UtilRestController.resetOrdersInReleasedStatus` (`:1111`, `false`, skips orders that throw). No caller passes `true` |
+| `CustomerorderService.forceCancelOrder(...)` | `service/CustomerorderService.java:462` (method, **package-private**) — `customerOrder.setState(CANCELED)` at `:502` (`< PACKED` arm, dead) and `:561` (PACKED/PALLETIZED arm, the reachable one) | Single order (force path) | **Not an admin entry point.** Only caller is `cancelOrder` (`:931`), for a PACKED/PALLETIZED order when `cancellationFromWithinWMS` or `isOmsPreQaPackedCancellationAllowed` (CLUB batch) holds. In practice: OMS cancel of a packed pre-QA CLUB order |
+| Rapid-pick recovery branch (inside `cancelOrder`) | guard at `service/CustomerorderService.java:984` (+ `pickingOrder.getState() == STARTED` at `:1031`), `pickingOrder.setState(PROCESSABLE)` at line 1032 | Side-effect of `cancelOrder` on rapid-pick orders | Invoked internally when the client's section is `RAPID_PICKING`, order state is `ASSIGNED`, `historytote != null`, and the first position's picking order is `STARTED` |
+| `CustomerorderBatchService.finalizeBatchIfComplete(...)` | `service/CustomerorderBatchService.java:383` (`batch.setState(allCanceled ? CANCELED : FINISHED)` at `:395`) | Roll up to `CANCELED` if all child orders cancelled | Called post-order-cancel |
+| `PickingOrderMergeService.mergePickingOrders(...)` | `service/PickingOrderMergeService.java:127` (`pickingOrder.setState(CANCELED)`) | Picking order only | Source picking orders are cancelled as their positions are re-packed into merged orders. ⚠ The method this row used to name, `cancelOrderIfMergeFails`, does not exist in `src/main` |
+| `ReplenishorderService.cancelReplenishmentOrder(...)` (`:397`) / `cancelReplenishmentOrderById(...)` (`:380`) / `ReplenishmentOrderMaintenanceService.cancelOrder(...)` (private, `:938`; delegates at `:945` to `markCancelled` `:959`, which does `setState(CANCELED)` at `:960`) | various | Replenish order only | Background cron path + supervisor cancel by id |
 
 Cancel on Advice and Billoflading (String states) goes through entity-specific methods — covered in the receiving-and-putaway and BOL workflows respectively.
 
@@ -66,35 +66,53 @@ Cancel on Advice and Billoflading (String states) goes through entity-specific m
 When a single customer order is cancelled, the cascade touches **4 entities** in one transaction:
 
 ```
-cancelOrder(customerorderId)                            [CustomerorderService.java:588]
+cancelOrder(customerOrder, cancellationFromWithinWMS)        [CustomerorderService.java:899]
   │
-  ├── Customerorder.state = CANCELED                                (line 675)
+  ├── already CANCELED → return (idempotent)                         [isAlreadyCancelled]
+  ├── CLUB batch mid-run / pre-run-with-package → BusinessException  [clubRunCancellationBlockingState :810]
+  ├── state ≥ FINISHED (≠ CANCELED) or parcel SHIPPED → BusinessException
+  │                                                  [isShippedOrPastCancellationBoundary :769]
+  ├── PACKED / PALLETIZED [:928] → forceCancelOrder(order) (§9) if cancellationFromWithinWMS
+  │     OR pre-QA CLUB order; else BusinessException; return
+  ├── any position PACKED ≤ state < CANCELED → BusinessException      [:941]
   │
-  ├── for each CustomerorderPosition of this order:
-  │     CustomerorderPosition.state = CANCELED                       [CustomerorderPositionService.java:133]
+  ├── guard loop: skip CANCELED positions; canOrderPositionBeCancelled(position) for the rest
   │
-  ├── for each Pickingorder of this order:
+  ├── IF every position cancellable:
   │     │
-  │     ├── IF historytote != null AND rapid-pick section            [guard line 639]
-  │     │     Pickingorder.state = PROCESSABLE                       [CustomerorderService.java:645]  ← SIDE-DOOR
-  │     │     (tote's contents are now available for other orders)
+  │     ├── IF client section is RAPID_PICKING AND order ASSIGNED AND historytote != null  [:984]
+  │     │     (inspects coPositions.get(0)'s picking order; only acts if it is STARTED)
+  │     │     Pickingorder.state = PROCESSABLE                       [:1032]  ← SIDE-DOOR
+  │     │     PickingorderUnitload.state = CANCELED for its positions [:1037]
+  │     │     pick-pack orders: sendToNirvana(tote) if pickingtote_id set
   │     │
-  │     └── ELSE (forceCancel path or in-flight pick)
-  │           Pickingorder.state = CANCELED                          [forceCancelOrder line 300]
+  │     ├── for each non-CANCELED CustomerorderPosition:
+  │     │     CustomerorderPositionService.cancelOrderPosition       [CustomerorderPositionService.java:127]
+  │     │       → PickingorderPosition.state = CANCELED + reservation release + cancellation-log row
+  │     │       → Pickingorder → CANCELED (all lines CANCELED) or FINISHED (mixed), ONLY when every
+  │     │         line of that picking order is terminal (allTerminal)  [:205-208]
+  │     │       → CustomerorderPosition.state = CANCELED              [:217]
+  │     │
+  │     ├── picking-tote teardown (only if pickingtote_id set)        [:1091-1130]
+  │     │     sendToClearing → release stock locks except PICKED_FOR_GOODSOUT →
+  │     │     resolveAssignments(...).state = CANCELED (PickingorderUnitload) [:1113]
+  │     │     any Exception → ToteTeardownException (order rolls back whole)
+  │     │
+  │     ├── Customerorder.state = CANCELED; markedforcancellation = false  [:1132, :1142]
+  │     ├── transferlaneId = null (guarded)                          [:1148]
+  │     ├── save, then CustomerorderBatchService.finalizeBatchIfComplete(batchId)  [:1153; roll-up below]
+  │     └── enqueueCancellationSignal(...)  → outbox ORDER_BATCH_CANCELLED_FROM_WMS (post-commit POST) [:1157]
   │
-  ├── for each PickingorderUnitload of those picking orders:
-  │     PickingorderUnitload.state = CANCELED                        (forceCancelOrder line 305 / cancelOrder line 650)
-  │
-  ├── OMS callback: WEBSERVICE_ORDER_BATCH_CANCELLED                 (post-commit)
-  │
-  └── CustomerorderBatch state check:
-        if all sibling orders in the batch are now CANCELED →
-          CustomerorderBatch.state = CANCELED                        [CustomerorderBatchService, finalizeBatchIfComplete:
-                                                                      `batch.setState(allCanceled ? ... CANCELED : ... FINISHED)`]
-        (finalizeBatchIfComplete called from the order-cancel path)
+  └── ELSE (some position not cancellable):
+        pickingconfirmationsent ? cleanUpCancelledOrder(order)       [PickingorderBusinessService.java:758]
+                                : markedforcancellation = true + save  (deferred cancel; no OMS signal yet)
+
+finalizeBatchIfComplete(batchId)                                     [CustomerorderBatchService.java:383]
+  if all sibling orders state ≥ FINISHED →
+    batch.setState(allCanceled ? CANCELED : FINISHED)                [:394-395]
 ```
 
-**Transfer-lane release (fix `260629-transfer-lane-leak-on-cancel`, 2026-06-29).** For a *transfer* order, `cancelOrder` (and `forceCancelOrder`, §9) now also clears `transferlaneId` — a guarded direct `setTransferlaneId(null)` before the save, freeing the held transfer lane at the cancel transition. This is **defense-in-depth in addition to** the existing `finalizeBatchIfComplete` release (which only fires when every sibling order in the batch is terminal, `state ≥ FINISHED`). Both run on the same managed entity inside the one tenant TX, so the second clear is an idempotent no-op (the `if (getTransferlaneId() != null)` guard in `finalizeBatchIfComplete` short-circuits) — single flush, single `@Version` bump. The cancel paths use a **direct** clear, never `TransferOrderService.unlinkTransferLaneFromTransferOrder` (that helper resets state to `505` and would un-cancel the order). Note: because `CANCELED(800) ≥ FINISHED(700)`, a cancelled order never blocks lane availability anyway — the real lane leak is *abandonment* of orders stuck at 505/510, covered in [wms2-transfer-order-workflow.md §8](./wms2-transfer-order-workflow.md).
+**Transfer-lane release (fix `260629-transfer-lane-leak-on-cancel`, 2026-06-29).** For a *transfer* order, `cancelOrder` (and `forceCancelOrder`, §9) now also clears `transferlaneId` — a guarded direct `setTransferlaneId(null)` before the save (`:1148`; force path `:594`), freeing the held transfer lane at the cancel transition. This is **defense-in-depth in addition to** the existing `finalizeBatchIfComplete` release (which only fires when every sibling order in the batch is terminal, `state ≥ FINISHED`, `finalizeBatchIfComplete` loop at `:399`). Both run on the same managed entity inside the one tenant TX, so the second clear is an idempotent no-op (the `if (getTransferlaneId() != null)` guard in `finalizeBatchIfComplete` short-circuits) — single flush, single `@Version` bump. The cancel paths use a **direct** clear, never `TransferOrderService.unlinkTransferLaneFromTransferOrder` (that helper resets state to `505` and would un-cancel the order). Note: because `CANCELED(800) ≥ FINISHED(700)`, a cancelled order never blocks lane availability anyway — the real lane leak is *abandonment* of orders stuck at 505/510, covered in [wms2-transfer-order-workflow.md §8](./wms2-transfer-order-workflow.md).
 
 See [wms2-state-machine-catalog.md](../architecture/wms2-state-machine-catalog.md) §5.1 for the full cascade map, and [wms2-picking-workflow.md](./wms2-picking-workflow.md) §6 for the side-door.
 
@@ -106,13 +124,14 @@ The decision whether to `CANCEL` vs `forceCancel` vs refuse is controlled by sta
 
 | Guard | Location | Allows |
 |---|---|---|
-| `state != FINISHED && state != CANCELED` | `OrderRestController:180` | Normal cancel |
-| `state != PICKED` | `CustomerorderService:471` | Pack — not a cancel guard, but co-located |
-| `state == PACKED OR state == PALLETIZED` | `CustomerorderService:382,554` | Blocks normal `cancelOrder` — requires `forceCancelOrder` |
-| `state == CANCELED` (positive) | `CustomerorderService:550`; `CustomerorderBatchService`, `finalizeBatchIfComplete`: `boolean allCanceled = orders.stream().allMatch(o -> o.getState() == WmsConstants.State.CANCELED)` | Idempotency check / rollup condition |
-| `state == ASSIGNED && historytote != null` | `CustomerorderService:639` | Rapid-pick cancel path — triggers §3 side-door |
+| `state >= FINISHED && state != CANCELED` → refuse ("already shipped or past cancellation boundary"), plus parcel/stock-unit lock `SHIPPED` → refuse | `CustomerorderService.isShippedOrPastCancellationBoundary:769` | Normal cancel. ⚠ The `OrderRestController:180` guard this row used to cite no longer exists; `OrderRestController` has no state guard of its own on this path |
+| *(row removed 2026-11-11)* the former `state != PICKED` pack guard at `CustomerorderService:471` is no longer in this file region; it was never a cancel guard | — | — |
+| `isPackedOrPalletized` (state 650 or 670) | `CustomerorderService:928` (in `cancelOrder`), `:555` (`forceCancelOrder`'s reachable arm) | Blocks normal `cancelOrder` — routed to `forceCancelOrder` only if `cancellationFromWithinWMS` or `isOmsPreQaPackedCancellationAllowed` (CLUB batch), else `BusinessException` "order is beyond status PACKED and not a pre-QA club order" |
+| `state == CANCELED` (positive) | `CustomerorderService.isAlreadyCancelled` (`:760`, used at `:905`); `CustomerorderBatchService`, `finalizeBatchIfComplete`: `boolean allCanceled = orders.stream().allMatch(o -> o.getState() == WmsConstants.State.CANCELED)` | Idempotency check / rollup condition |
+| section `RAPID_PICKING` && `state == ASSIGNED && historytote != null` (then picking order `STARTED`) | `CustomerorderService:984`, `:1031` | Rapid-pick cancel path — triggers §3 side-door |
+| CLUB batch `ORDER_BATCH_CLUB_RUN_IN_PROGRESS`, or pre-run (`ACTIVATED`/`STAGING_LANE_ASSIGNED`) with `parcelId` set → refuse | `CustomerorderService.clubRunCancellationBlockingState:810` (called at the top of `cancelOrder`) | Blocks cancel while a club run is mid-flight; HTTP 400 `WRONG_STATE` |
 
-**`Cancel_Club_Parcels_Packed_State_Fix`** fixed a bug where the `PACKED/PALLETIZED` guard at line 382 was missing, producing double-state application during club-order cancel. Don't remove that guard.
+**`Cancel_Club_Parcels_Packed_State_Fix`** fixed a bug where the `PACKED/PALLETIZED` guard (now `isPackedOrPalletized`, `:928`) was missing, producing double-state application during club-order cancel. Don't remove that guard.
 
 ### 4.1 `CANCELED` is not "beyond PACKED" (SBDEV-3363, 2026-09-15)
 
@@ -162,14 +181,14 @@ only its own declaration; *positive control:* the same grep over `src/test` retu
 across 4 classes, so the search worked. The **caller-side** sweep that mattered is the OMS, not the
 UIs — a routeless `@Service` method is structurally unreachable from a browser, so five zero UI repos
 were close to uninformative. `v2/oms-laravel-api@origin/develop` has **zero** `cancelBatch` and 25
-`cancelPositions` hits, including `config/wms.php` →
+`cancelPositions` hits (⚠ unverified 2026-11-11: OMS repo not in scope), including `config/wms.php` →
 `'order_cancel_positions' => env('WMS_ORDER_CANCEL_POSITIONS_ENDPOINT', 'rest/order/cancelPositions')`.
 That is both the stronger negative and independent corroboration of the real path below.
 *Runtime corroboration:*
 `cancelBatch` was the only `src/main` writer of the outbox pair
 `aggregate_type='CUSTOMER_ORDER_BATCH'` + `process_type='ORDER_BATCH_CANCELLED_FROM_WMS'` — the other
 two writers of that process type use `aggregate_type='CUSTOMER_ORDER'`. Hydra PRD holds **zero** rows
-of that pair; *positive control:* the same table holds 3 rows of the same process type under
+of that pair (⚠ unverified 2026-11-11: runtime row counts and the 1854-commit / 282-ref pickaxe figures were not re-measured in this code-only pass); *positive control:* the same table holds 3 rows of the same process type under
 `CUSTOMER_ORDER`, and 84 outbox rows overall. Hydra is the only tenant the prd landlord routes, so
 "PRD" means that one tenant.
 
@@ -185,7 +204,7 @@ dynamically, but that is an argument from absence.
 ### What actually cancels a batch
 
 `OrderRestController.cancelPositions` — `POST /rest/order/cancelPositions`
-(`controller/rest/OrderRestController.java`, `@PostMapping(value = "/cancelPositions"`). It is
+(`controller/rest/OrderRestController.java:605`, `@PostMapping(value = "/cancelPositions"`; loop calls `cancelOrder(customerOrder, false)` at `:647`). It is
 OMS-driven and **loops the single-order path**; there is no batch-scoped transaction:
 
 ```
@@ -199,6 +218,9 @@ POST /rest/order/cancelPositions   [List<OrderBatchDto>]
           │
           ├── ToteTeardownException  → log, record in `errors`, CONTINUE with the rest of the batch
           │                            (SBDEV-3339; that order rolls back whole, not half-cancelled)
+          ├── ConcurrencyFailureException / OptimisticLockException / PessimisticLockException /
+          │   LockTimeoutException → log, record a fixed-text entry in `errors`, CONTINUE (SBDEV-3729;
+          │                            that order's cancel rolled back whole; a re-send retries it)
           ├── BusinessException      → abort the whole call, 400 WRONG_STATE
           ├── FacadeException        → abort the whole call, GENERIC_ERROR
           ├── Exception (any other)  → abort the whole call, GENERIC_ERROR
@@ -212,8 +234,8 @@ will get wrong:
 
 - **One transaction per order, not one per batch.** A batch cancel is not atomic across orders. Open-in-view
   is false, so each `cancelOrder` gets its own persistence context.
-- **Partial success is a real outcome.** A tote-teardown failure on one order leaves that order
-  uncancelled while its siblings cancel; the response carries the per-order `errors` map.
+- **Partial success is a real outcome.** A tote-teardown failure **or a lost concurrency race (SBDEV-3729)** on one order leaves that order
+  uncancelled while its siblings cancel. The response is an **HTTP 200** body `{"status":"failure","message":"N order(s) named in 'errors' were NOT cancelled; re-sending the batch retries only them","errors":{<externalnumber>: <reason>}}` (`OrderRestController:703-710`); the service-log row for process `ORDER_BATCH_CANCELLED_FROM_PSD` is written `FAILED`/`400` in that case, `RECEIVED`/`200` otherwise.
 - **The OMS callback is per order** (`aggregate_type='CUSTOMER_ORDER'`), not one batch-level POST — see §6.
 - **The batch row reaches `CANCELED` by rollup**, via `finalizeBatchIfComplete`, not by direct write.
 
@@ -232,9 +254,9 @@ Cancellations fire exactly one outbound callback per atomic cancel operation —
 | Batch (via `cancelPositions`) | **N per-order enqueues — there is no batch-level POST.** The batch-scoped variant (`aggregate_type='CUSTOMER_ORDER_BATCH'`) died with `cancelBatch`, SBDEV-3354 | same URL key | same |
 | Deferred cancel (via `PickingorderBusinessService`) | per-order enqueue, `aggregate_type='CUSTOMER_ORDER'` | same URL key | same |
 
-⚠ **`ORDER_BATCH_CANCELLED_FROM_WMS` has two producers, and `process_type` alone does not tell them apart** — both write the same value, so the discriminator is `aggregate_type`, and both surviving producers write `'CUSTOMER_ORDER'`. There was a third: `cancelBatch`, the only writer of `aggregate_type='CUSTOMER_ORDER_BATCH'` with this process type, deleted under SBDEV-3354. *Deriving method:* `git grep -n "ORDER_BATCH_CANCELLED_FROM_WMS" -- 'src/main/**'` on the SBDEV-3354 branch, discounting the `WmsConstants` declaration (2026-09-14); the same grep on `origin/develop` returns three.
+⚠ **`ORDER_BATCH_CANCELLED_FROM_WMS` has two producers, and `process_type` alone does not tell them apart** — both write the same value, so the discriminator is `aggregate_type`, and both surviving producers write `'CUSTOMER_ORDER'`. There was a third: `cancelBatch`, the only writer of `aggregate_type='CUSTOMER_ORDER_BATCH'` with this process type, deleted under SBDEV-3354. *Deriving method:* `git grep -n "ORDER_BATCH_CANCELLED_FROM_WMS" -- 'src/main/**'` on `origin/develop` @ df30fa62 (2026-11-11), discounting the `WmsConstants` declaration and comments, finds exactly two writers: `CustomerorderService.enqueueCancellationSignal` (`:876`) and `PickingorderBusinessService.cleanUpCancelledOrder` (`:903`).
 
-Both producers write an `outbox_message` row **inside** the cancel transaction (`OutboxService.enqueue` is `@Transactional(propagation = Propagation.MANDATORY)`, ending in `repo.save(msg)`); `OutboxDispatchService` POSTs it afterwards. If the cancel rolls back, the row rolls back with it and OMS is never told — the same guarantee the older `TransactionSynchronizationManager.registerSynchronization` callbacks gave, now enforced by the transaction rather than by a callback. Neither `CustomerorderService` nor `PickingorderBusinessService` still calls `registerSynchronization` or `sendAfterCommit` on this path; *positive control:* 7 other `src/main` services do use `registerSynchronization`, so the grep works. `Club_Order_Cancellation_OMS_Fix` is the archived bug from the pre-outbox era, where a callback fired *before* commit and made OMS reflect a cancel WMS later did not persist.
+Both producers write an `outbox_message` row **inside** the cancel transaction (`OutboxService.enqueue` is `@Transactional(propagation = Propagation.MANDATORY)`, ending in `repo.save(msg)`); `OutboxDispatchService` POSTs it afterwards. If the cancel rolls back, the row rolls back with it and OMS is never told — the same guarantee the older `TransactionSynchronizationManager.registerSynchronization` callbacks gave, now enforced by the transaction rather than by a callback. Neither `CustomerorderService` nor `PickingorderBusinessService` still calls `registerSynchronization` or `sendAfterCommit` on this path; *positive control:* 9 other `src/main` files do use `registerSynchronization` (`ParcelMonitorViewService`, `ReplenishmentMaintenanceTrigger`, `BolOmsNotificationService`, `ClubRunJobService`, `MobileTruckLoadingService`, `OmsNotificationService`, `ReceivingService`, `BillofladingService`, `MobilePickingService`; re-counted 2026-11-11), so the grep works. `OutboxService.enqueue` is `Propagation.MANDATORY` (`OutboxService.java:38`), and SENT rows are purged by `OutboxMessageRepository:86` after `app.outbox.dispatcher.retention-days=7` (`application.properties:270`). `Club_Order_Cancellation_OMS_Fix` is the archived bug from the pre-outbox era, where a callback fired *before* commit and made OMS reflect a cancel WMS later did not persist.
 
 ---
 
@@ -243,15 +265,19 @@ Both producers write an `outbox_message` row **inside** the cancel transaction (
 The branch that keeps tripping up new code:
 
 ```java
-// CustomerorderService.cancelOrder, approximate shape
-if (order.getState() == WmsConstants.State.ASSIGNED && order.getHistorytote() != null) {
-    handleRapidPickingForCancelledOrder(order);  // Pickingorder → PROCESSABLE
-} else {
-    // normal cascade — Pickingorder → CANCELED
+// CustomerorderService.cancelOrder, shape (:984-1031) — there is no handleRapidPickingForCancelledOrder method
+if (section != null && section.getSectionpickingtype().equals(RAPID_PICKING)
+        && order.getState() == ASSIGNED && order.getHistorytote() != null) {
+    // inspects coPositions.get(0)'s picking order; only if it is STARTED:
+    //   Pickingorder → PROCESSABLE, its PickingorderUnitloads → CANCELED
 }
+// then, for ALL orders (side-door or not): cancelOrderPosition per open position —
+// the Pickingorder is settled to CANCELED/FINISHED there only when all its lines are terminal
 ```
 
 Why? In wine-club / club-order flows using `RAPID_PICKING` sections, an operator may already have partial items on a tote (`historytote` is set) when OMS asks to cancel. Cancelling the `Pickingorder` would orphan the physical picks; bouncing back to `PROCESSABLE` lets another order claim the tote's contents without a re-pick.
+
+⚠ **Reachability (verified 2026-11-11):** the arm is gated on a `RAPID_PICKING` section, and `CustomerorderService`'s own comments record that it is dead estate-wide (both RAPID_PICKING sections carry zero orders; production has no such section) — but `sectionpickingtype` is data, so one row edit re-arms it. The `pickingPositions.isEmpty()` guard was added by SBDEV-3363 and must stay.
 
 **Don't simplify this.** `Cancel_Order_Null_SectionId_And_Early_Return_Fix` in the archive is the post-mortem for an attempt to do exactly that.
 
@@ -259,7 +285,7 @@ Why? In wine-club / club-order flows using `RAPID_PICKING` sections, an operator
 
 ## 8. Transaction Boundaries
 
-All cancel *service* methods are `@Transactional(value="tenantTransactionManager", rollbackFor={BusinessException, FacadeException})` — one order's cascade succeeds atomically or rolls back. **The transaction boundary is the order, not the batch.** `OrderRestController.cancelPositions` carries no `@Transactional` of its own; it loops `cancelOrder`, so an N-order batch is N independent transactions (§5).
+`cancelOrder` (`:898`) and `finalizeBatchIfComplete` (`:382`) are `@Transactional(value="tenantTransactionManager", rollbackFor={BusinessException, FacadeException})`; `forceCancelOrder` is package-private with no annotation of its own and runs inside `cancelOrder`'s transaction — one order's cascade succeeds atomically or rolls back. **The transaction boundary is the order, not the batch.** `OrderRestController.cancelPositions` carries no `@Transactional` of its own; it loops `cancelOrder`, so an N-order batch is N independent transactions (§5).
 
 No `REQUIRES_NEW` is used in the cancel path (contrast with `OrderReleaseJob` / `ReplenishOrderJob` — see [wms2-scheduled-jobs-catalog.md](../architecture/wms2-scheduled-jobs-catalog.md) §4). An exception mid-cascade rolls back **that order's** cancel whole, so no single order is ever left half-cancelled. It does **not** roll back the batch: since SBDEV-3339 a `ToteTeardownException` is contained to its own order and the loop continues, so a partially-cancelled batch is an expected outcome rather than corruption — the uncancelled orders are simply still cancellable. See §5 and §10 item 4.
 
@@ -269,17 +295,17 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 
 ## 9. Guardrails for `forceCancelOrder`
 
-`forceCancelOrder` at `CustomerorderService:323` (method declaration; `customerOrder.setState(CANCELED)` write at line 351; `pickingOrder.setState(PICKED)` at line 356) is the escape hatch for orders that normal cancel refuses (because they're `PACKED`, `PALLETIZED`, or already have physical work downstream). Rules for use:
+`forceCancelOrder` (`CustomerorderService.java:462`, package-private; `setState(CANCELED)` at `:502` in the `< PACKED` arm and at `:561` in the PACKED/PALLETIZED arm; `pickingOrder.setState(PICKED)` at `:519`, `< PACKED` arm only) handles orders that normal cancel refuses because they are `PACKED` or `PALLETIZED`. Its only caller is `cancelOrder` (`:931`), which delegates when `cancellationFromWithinWMS` is true (no caller passes true today) or `isOmsPreQaPackedCancellationAllowed` holds (order is PACKED/PALLETIZED in a CLUB batch). The `customerOrder.getState() < PACKED` arm is therefore **dead** (its own comment says so, `:504`). Rules, as of 2026-11-11:
 
-1. Admin-only — never expose to operators.
-2. Always writes `Customerorder.state = CANCELED` regardless of prior state.
-3. Writes `Pickingorder.state = PICKED` (line 356) — a deliberately unusual choice: the physical work is done, the order is cancelled, but the pick itself stays terminal-success so downstream repack / restock flows see consistent state.
-4. Does **not** unwind the `PickingorderUnitload` cascade the way `cancelOrder` does — the force path trusts the caller has reviewed child state.
-5. **Releases the transfer lane** (fix `260629`, 2026-06-29): a guarded `setTransferlaneId(null)` before the final save, so a force-cancelled transfer order frees its lane. Direct clear only — never `unlinkTransferLaneFromTransferOrder` (which would reset state to `505`).
-6. **Clears `markedforcancellation`** (SBDEV-3332, 2026-09-15): `customerOrder.setMarkedforcancellation(false)` beside each `setState(CANCELED)`. Before this, `forceCancelOrder` was a live producer of orders that are cancelled *and* still flagged — residue that reads as "a cancel is pending" forever. Both branches carry the line, the dead `< PACKED` one included, so the invariant holds by construction rather than by which arm runs.
-7. **Notifies OMS — since SBDEV-3362 (2026-09-26).** After the save and `finalizeBatchIfComplete`, and only if the order is now `CANCELED`, `forceCancelOrder` calls `enqueueCancellationSignal` — the helper extracted from `cancelOrder`'s direct branch, so both write the same payload, `ORDER_BATCH_CANCELLED_FROM_WMS` and key `CO-CANCELLED-<id>`. *History:* before that it notified OMS of nothing (pre-existing since v1's initial check-in), so a force-cancelled order's signal count was zero and OMS kept its allocation (`LegacyPositionCancelService.cancelOrderItemParcel` is what releases it). *Accepted trade (Nam, 2026-09-26):* two concurrent cancels of one PACKED CLUB order now make the second roll back on `uk_outbox_message_idempotency_key` (500) instead of silently succeeding — the same trade `WmsConstants.CANCELLED_IDEMPOTENCY_KEY_PREFIX` records for the other emitters.
+1. **Not an admin endpoint.** There is no controller route to it; it is reachable only through `cancelOrder` for packed/palletized orders (in practice, OMS cancelling a packed pre-QA CLUB order). The former "admin-only, never expose to operators" framing has no code behind it.
+2. Sets `Customerorder.state = CANCELED` in the two arms above (`state < PACKED`, or `PACKED`/`PALLETIZED`); for any other state it writes nothing, and the OMS signal (item 7) is gated on the order actually being `CANCELED`. Positions are set to `CANCELED` directly in the reachable arm (`:556-559`).
+3. Writes `Pickingorder.state = PICKED` (`:519`) **only in the dead `< PACKED` arm**. The reachable PACKED/PALLETIZED arm does not touch the `Pickingorder` at all; it instead unlocks the parcel (`entityLock` → `NOT_LOCKED`), clears every stock-unit lock including `PICKED_FOR_GOODSOUT` (deliberate: that arm writes no cancellation-log row, SBDEV-3547 P1) and calls `sendToClearing(parcel, ...)` (`:576-588`). ⚠ `// TODO check for BOL position for parcel` is still in the code (`:590`).
+4. Does **not** unwind the `PickingorderUnitload` cascade the way `cancelOrder` does — neither arm touches `PickingorderUnitload` rows (the dead arm only releases the picking tote's stock via `CancelLockRelease.releaseUnlessGoodsOut`).
+5. **Releases the transfer lane** (fix `260629`, 2026-06-29): a guarded `setTransferlaneId(null)` before the final save (`:593-595`), so a force-cancelled transfer order frees its lane. Direct clear only — never `unlinkTransferLaneFromTransferOrder` (which would reset state to `505`).
+6. **Clears `markedforcancellation`** (SBDEV-3332, 2026-09-15): `customerOrder.setMarkedforcancellation(false)` beside each `setState(CANCELED)` (`:514`, `:573`). Before this, `forceCancelOrder` was a live producer of orders that are cancelled *and* still flagged — residue that reads as "a cancel is pending" forever. Both branches carry the line, the dead `< PACKED` one included, so the invariant holds by construction rather than by which arm runs.
+7. **Notifies OMS — since SBDEV-3362 (2026-09-26).** After the save and `finalizeBatchIfComplete` (`:602`), and only if the order is now `CANCELED`, `forceCancelOrder` calls `enqueueCancellationSignal` (`:611`) — the helper extracted from `cancelOrder`'s direct branch, so both write the same payload, `ORDER_BATCH_CANCELLED_FROM_WMS` and key `CO-CANCELLED-<id>`. *History:* before that it notified OMS of nothing (pre-existing since v1's initial check-in), so a force-cancelled order's signal count was zero and OMS kept its allocation (`LegacyPositionCancelService.cancelOrderItemParcel` is what releases it). *Accepted trade (Nam, 2026-09-26):* two concurrent cancels of one PACKED CLUB order now make the second roll back on `uk_outbox_message_idempotency_key` (500) instead of silently succeeding — the same trade `WmsConstants.CANCELLED_IDEMPOTENCY_KEY_PREFIX` records for the other emitters.
 
-⚠ The `CustomerorderService:323 / 351 / 356` citations above have **drifted** — the method now declares at `:408` and the two writes sit in the two `else if` arms. Grep the method name, not the line.
+Line anchors in this section were re-derived 2026-11-11 against `origin/develop` @ df30fa62 (the earlier `:323 / 351 / 356` and `:408` citations were stale). Grep the method name, not the line.
 
 ---
 
@@ -287,14 +313,14 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 
 1. **`CANCELED` vs `CANCELLED` spelling.** Integer state is `CANCELED` (one L). String state is `CANCELLED` (two). A guard `.equals("CANCELED")` on an advice always returns false. See [wms2-state-machine-catalog.md](../architecture/wms2-state-machine-catalog.md) §2.2.
 2. **Rapid-pick side-door** (§7). Don't remove without reviewing `Cancel_Order_Null_SectionId_And_Early_Return_Fix`.
-3. **`PACKED`/`PALLETIZED` early-return guard** (`CustomerorderService:382,554`). Blocks normal cancel so downstream physical state stays consistent. `Cancel_Club_Parcels_Packed_State_Fix` restored this after it was accidentally removed.
+3. **`PACKED`/`PALLETIZED` guard** (`CustomerorderService.isPackedOrPalletized`, used at `:928`). Blocks normal cancel so downstream physical state stays consistent. `Cancel_Club_Parcels_Packed_State_Fix` restored this after it was accidentally removed.
 4. **A batch cancel is NOT atomic across its orders.** `cancelPositions` opens one transaction *per order*, so a batch can end up partially cancelled — by design since SBDEV-3339, which contains a tote-teardown failure to the one order that hit it. Do not carry over the old assumption that a batch cancel is all-or-nothing; that came from `cancelBatch`, which was deleted under SBDEV-3354 and, on a whole-history caller search, never ran at all. See §5.
 5. **`finalizeBatchIfComplete` is a *consequence*, not a trigger.** Don't call it directly as if it were a cancel entry point.
-6. **~~OMS callback activation is OFF by default~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` has exactly two references in `src/main` — its own declaration in `WmsConstants` and a **commented-out** seed line in `UtilRestController` — so no code reads it. v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (v1 does read it; do not carry the v1 behaviour across.)
-7. **`forceCancelOrder` sets `Pickingorder=PICKED`, not `CANCELED`** (§9 item 3). Queries that filter `Pickingorder.state=CANCELED` will miss force-cancelled orders.
+6. **~~OMS callback activation is OFF by default~~ — WITHDRAWN 2026-09-15 (SBDEV-3332).** ⚠ **This sysprop gates NOTHING in v2** (verified 2026-09-15, SBDEV-3332): `SYSTEM_PROPERTY_WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED_KEY` had exactly two references in `src/main` when this was written; **as of 2026-11-11 it has zero** — SBDEV-3373 deleted the constant and, via `V2.2.37__delete_dead_cancellation_sysprops.sql`, the `los_sysprop` row itself (a DB whose Flyway history was backfilled past V2.2.37 without executing it keeps the row, still inert). v2 enqueues `ORDER_BATCH_CANCELLED_FROM_WMS` **unconditionally**. Cancels are NOT silent by default, and flipping this to `true` changes nothing. (v1 does read it; do not carry the v1 behaviour across.)
+7. **`forceCancelOrder` does not cancel the `Pickingorder`** (§9 item 3). In the reachable PACKED/PALLETIZED arm it leaves the picking order alone; only the dead `< PACKED` arm writes `PICKED`. A force-cancelled order's `Pickingorder` keeps whatever state it had (already `FINISHED`/terminal for a packed order), so queries filtering `Pickingorder.state=CANCELED` will miss it.
 8. ~~**`forceCancelOrder` sends OMS no cancellation at all**~~ — **fixed by SBDEV-3362** (§9 item 7). ⚠ Orders force-cancelled *before* that deploy still have no signal and will not get one retroactively; a reconciliation will find them missing, and the cause is not a lost message — none was produced. Signature: `state = 800 AND parcel_id IS NOT NULL` (inferential; 0 on Hydra PRD, 4 on wsl-wineco UAT as of 2026-09-15).
 9. **`ORDER_BATCH_CANCELLED_FROM_WMS` is deduplicated per order, for 7 days — but only for SENT rows** (SBDEV-3332). Both real emitters key it `CO-CANCELLED-<customerorderId>` and `outbox_message.idempotency_key` is UNIQUE, so a second row is refused — but the purge is `WHERE status = 'SENT'`, so the key is freed after 7 days only for a cancel that SUCCEEDED — a row left `FAILED_TERMINAL` (never auto-deleted) or stalled in `PENDING`/`FAILED_RETRY` holds the key until an operator clears it, and every later cancel of that order then rolls back on the constraint. Do not read the key as a permanent ledger of "was this order's cancel ever sent".
-10. **Optimistic-lock retry is NOT automatic.** Cancel transactions that race with concurrent picks simply fail and bubble up — the caller is responsible for retry. See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.3.
+10. **Optimistic-lock retry is NOT automatic.** (Via `cancelPositions` a lost race on one order is now *contained* to that order, SBDEV-3729 — §5.) Cancel transactions that race with concurrent picks simply fail and bubble up — the caller is responsible for retry. See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.3.
 
 ---
 
@@ -306,9 +332,9 @@ Optimistic locking (`AbstractBaseEntity.version`) guards every entity save; ther
 | "OMS never received the cancel" | §6 + `outbox_message` rows keyed `CO-CANCELLED-<id>` + §10 items 6/8/9. ⚠ Do NOT chase the `WEBSERVICE_ORDER_BATCH_CANCELLED_ACTIVATED` sysprop — it is inert in v2. If the order was force-cancelled, no message was ever produced (§9 item 7). |
 | "Can't cancel — 'order in PACKED state'" | §4 guard + §9 forceCancelOrder path |
 | "Batch partially cancelled, some orders still active" | §5 + §10 item 4 — **expected since SBDEV-3339, not corruption.** The response's per-order `errors` map and the `cancelPositions: tote teardown failed for order=...` ERROR log name the orders that did not cancel; re-issue `cancelPositions` for those. §8 is the right section only if a *single order* is internally inconsistent. |
-| "forceCancel left Pickingorder=PICKED" | §10 item 7 (expected) |
+| "forceCancel left Pickingorder untouched / PICKED" | §10 item 7 (expected) |
 | "Reversal pending forever — Complete refuses 'manual intervention required'" | §11a — a manager **waives** it; check `toteState` in the refusal message |
-| "Optimistic lock during cancel" | §10 item 8 — conflict surfaces at commit → HTTP 409 (`RestExceptionHandler`); caller retries. (Retry is never applicable inside a transaction — the exception fires at the outer commit, outside any retry loop. The `OptimisticLockRetry` utility this row used to name was deleted by SBDEV-3398.) |
+| "Optimistic lock during cancel" | §10 item 10 (via `cancelPositions`: contained per order, §5) — outside that path the conflict surfaces at commit → HTTP 409 (`RestExceptionHandler.handleOptimisticLock`, `:384`); caller retries. (Retry is never applicable inside a transaction — the exception fires at the outer commit, outside any retry loop. The `OptimisticLockRetry` utility this row used to name was deleted by SBDEV-3398.) |
 
 ---
 
@@ -324,6 +350,8 @@ A cancel of picked stock writes `customerorder_cancellation_log` rows with `reve
 - the nightly `PendingReversalReconciliationJob`.
 
 There are two ways to close a row.
+
+> ⚠ **Not covered here (re-verification 2026-11-11):** since this section was written, `POST /v3/cancellation/{coId}/complete` gained an optional `destinationLocationName` (SBDEV-3741, `V2.2.38`; a non-default destination is gated in the service by `MOBILE_UI_ACTION_RTS_CHOOSE_DESTINATION`, with no method-level `@RequiresFunction` on the controller — `OrderCancellationController:62-70`), and the Pending Reversals API gained tote labels / completed-total counts / `currentLocationName` (SBDEV-3805) and `pickingorderPositionId` on the log DTO (SBDEV-3987). None of that is described below; the table's refusal set was not re-derived line by line.
 
 | | `POST /v3/cancellation/{coId}/complete` | `POST /v3/cancellation/{coId}/waive` |
 |---|---|---|
@@ -364,6 +392,7 @@ There are two ways to close a row.
 
 | Date | By | Scope | Result |
 |---|---|---|---|
+| 2026-11-11 | Re-verification sweep (full) | Whole doc re-audited against `origin/develop` @ df30fa62: §2 table, §3 cascade (rewritten around `cancelOrder`'s real step order), §4 guards, §5 (SBDEV-3729 concurrency arm + 200 `failure` body), §6, §7, §8, §9 (forceCancelOrder is package-private, only reachable via `cancelOrder`; Pickingorder=PICKED only in dead arm), §10 (sysprop constant now deleted, SBDEV-3373), §11. **§11a was NOT re-derived line by line** — only flagged for SBDEV-3741/3805/3987 additions. `last_verified` advanced to 2026-11-11. Unverified items are marked inline with `⚠ unverified 2026-11-11`. *Method:* Code read on the detached worktree; every file:line anchor re-derived by grep. Details in the verification report | Doc re-verification |
 | 2026-10-16 | SBDEV-3804 | §11a: added the "Pending Reversals status" paragraph. **Scope: that paragraph only.** The refusal set in the §11a table is unchanged by the diff (complete's messages and order are preserved), so `last_verified` stays unchanged. | Code read of `feature/SBDEV-3804-rts-status` @ 66b0c835; agreement IT 23 cases / 0 failures (nested `CancellationReversalLockClearIntegrationTest.RtsStatusAgreement`), preview unit test 7/0; 30 hand mutants killed; full suite 8432/0 unit, 912/0 IT | SBDEV-3804 implementation |
 | 2026-09-27 | SBDEV-3381 | New §11a (waive endpoint, four-state tote check, shared OMS enqueue with whole-order suppression, waive-aware residue restore) and a §11 debug row. **Scope: §11a only.** No other section was re-audited, so `last_verified` stays unchanged. | Code read of `feature/SBDEV-3381-waive` @ 723e1ba0; conformance verifier PASS; targeted unit 197/0 and IT 26/0; full suite at 373a31c0 unit 7228/0 and IT 539/0 | SBDEV-3381 implementation |
 | 2026-09-26 | SBDEV-3362 | `forceCancelOrder` OMS signal | §6 intro + table row, §9 item 7, §10 item 8 rewritten: force-cancel now enqueues through the shared `enqueueCancellationSignal`. **Scope: those claims only**; line-number drift still unaudited, `last_verified` unchanged. | Unit tests `cancelOrder_forceCancel_*` (CustomerorderServiceUnitTest) + code read on the branch | SBDEV-3362 implementation |
@@ -378,4 +407,4 @@ There are two ways to close a row.
 | 2026-09-14 | **SBDEV-3354.** `CustomerorderBatchService.cancelBatch` deleted as unreachable dead code, so §2's entry-point row, §5 in full, §6's batch-callback row and §10 item 4 are rewritten rather than re-corrected. §2's "six methods" count replaced with a derivation rule — the table had seven rows the whole time. **Scope: the `cancelBatch` claims and the §6 producer discriminator only.** The line-number drift flagged in the 2026-06-29 row is still unaudited, so `last_verified` stays at 2026-05-08. ⚠ Note this change is **itself** a new drift source for one file: deleting 134 lines at `:398` shifts every `CustomerorderBatchService` citation below it by −134. §3's and §4's two references to that file were re-derived here and converted to quoted snippets so they relocate themselves; no other file is affected. | `git grep` on `origin/develop` (1 `src/main` occurrence → 0; 54 `src/test` → 0) plus a runtime check: Hydra PRD `outbox_message` holds 0 rows of `aggregate_type='CUSTOMER_ORDER_BATCH'` + `process_type='ORDER_BATCH_CANCELLED_FROM_WMS'`, the pair only `cancelBatch` wrote; positive control 3 rows of the same process type under `CUSTOMER_ORDER`, 84 rows in the table. Blind spot: that table only reaches back to 2026-07-13. | SBDEV-3354 implementation |
 | 2026-06-29 | Fix `260629-transfer-lane-leak-on-cancel`: `cancelOrder` and `forceCancelOrder` now clear `transferlaneId` for transfer orders (guarded direct `setTransferlaneId(null)` before save) — documented in §3 and §9. **Scope: transfer-lane behavior only** — the pre-existing line-number drift in this doc (cancelOrder now at 651, `setState(CANCELED)` at 750, save at 754; forceCancelOrder at 349, save at 438) was observed but NOT fully re-audited, so the frontmatter `last_verified` is left at 2026-05-08. Interaction with `finalizeBatchIfComplete` verified safe (same managed entity, one tenant TX, idempotent second clear → single flush). | Transfer-lane release confirmed by 143-test green run + code review (SHIP); full doc re-sweep still pending. | Fix `260629` implementation + code review |
 
-**Re-verify every 60 days.** Next due: **2026-07-07** — cancel is a high-traffic fix surface; any new landed plan touching `CustomerorderService` or `CustomerorderBatchService` should trigger a re-sweep.
+**Re-verify every 60 days.** Next due: **2027-01-10** — cancel is a high-traffic fix surface; any new landed plan touching `CustomerorderService` or `CustomerorderBatchService` should trigger a re-sweep.

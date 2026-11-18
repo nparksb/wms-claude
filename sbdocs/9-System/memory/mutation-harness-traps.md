@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: 6cb9776e-0d51-4b37-8a7e-cab8197878f9
-  modified: 2026-09-27T02:46:50.269Z
+  modified: 2026-11-03T15:49:03.826Z
 ---
 
 Supersedes and merges four earlier memories — old slugs kept here so stale links stay traceable:
@@ -57,6 +57,13 @@ the new test, and moved the board from **110 to 111 killed**.
   nearly did both.
 - **Tell for a stale run:** the killed-count does not move *at all* between two PIT runs where you
   changed a test. Real edits move it, even by one.
+- **The same trap on MAIN code, after a hand mutant (SBDEV-3492, 2026-11-04).** A hand mutation of
+  `MobileMoveUnitloadService` was compiled by its `mvn test` run, then restored with `cp` (byte-identical,
+  `cmp` passed). Nothing recompiled before the next `mutationCoverage`, so `target/classes` still held the
+  MUTANT. PIT aborted: "1 tests did not pass without mutation", naming exactly the pin that kills that
+  mutant, while the last surefire run had been 289/289 green. If PIT's green-suite check fails right after
+  hand mutants, suspect leftover mutant bytecode before the test: run `test-compile` (or any `mvn test`)
+  after every restore and before PIT, and before trusting any earlier green.
 - **How to apply:** the recipe in `.claude/skills/wms-triage/SKILL.md` already has the compile step —
   `mvn -o test-compile -q` then `mvn -o org.pitest:pitest-maven:mutationCoverage`. Keep them in **one
   script, one call**, so the compile cannot be dropped while iterating. Same reason the

@@ -65,6 +65,8 @@ tags:
 
 > **Archived 2026-10-13** (batch archival after `/refresh-moc`). Shipped: wms2-api#367, oms-laravel-api#567 (ticket Closed). Undisposed OQ-1–7, FU-1–4 and Phase-2 coverage → carried on the umbrella follow-up ticket https://app.clickup.com/t/868mgt4nr. Phase 3/4 boxes: Dropped (out of scope, v2 QA UI lacks defects A/C). SBDEV-3366 and SBDEV-3382: On their own tickets.
 > Every finding left open in this plan is carried on umbrella follow-up ticket https://app.clickup.com/t/868mgt4nr (or the ticket named above), so nothing recorded here is load-bearing after archival.
+>
+> **2026-11-01 — the SBDEV-3366 gate is satisfied.** Netting on the incremental path shipped as **SBDEV-3897** (oms-laravel-api `6d479f35`, on prod; also nets post-clamp applied deltas). SBDEV-3366 / PR #655 closed as superseded. Every "unsafe at ShipItEZ cutover without SBDEV-3366" below now reads as met.
 
 # SBDEV-1512 — WMS/QA: Receive Damaged from Returns
 

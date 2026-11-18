@@ -1962,7 +1962,7 @@ diffed as a set). Do not read a row count here as the split; that is what broke 
 | 4 | `AdminController:154` `ssoUpdateUser` | `/user/updateUser` | **Identity WRITE — §9.14** |
 | 5 | `AdminController:175` `resetUserPassword` | `/user/resetPassword` | **Identity WRITE — §9.14** |
 | 6 | `ReplenishmentReconciliationController:37` | `POST /v3/reconcile-stranded-reservations` | SBDEV-2610 operator repair tool, idempotent, no UI caller |
-| 7 | `AdminController:79` `findUsers` | `/user/findUsers` | **§9.15 decision 1** — `usersResource.list(0, 1000)`, the whole Keycloak realm. ⚠ its `sb_admin` branch is DEAD in production and the live `else` branch NPEs on a nullable `getEmail()`; staying narrows who reaches that, it does not fix it |
+| 7 | `AdminController#findUsers` | `/user/findUsers` | **§9.15 decision 1** — `usersResource.list(0, 1000)`, the whole Keycloak realm. ⚠ its `sb_admin` branch is DEAD in production and the live `else` branch NPEs on a nullable `getEmail()`; staying narrows who reaches that, it does not fix it. **Resolved by SBDEV-2871** (dead branch, filter and NPE removed; returns the whole directory) ✓ merged(SBDEV-2871: #647 e9443c0b, 2026-11-08) |
 | 8 | `AdminController:247` `findGroupByName` | `/groups/findGroup` | **§9.15 decision 2** — exposes Keycloak **group** topology, the axis the carve-out rationale depends on being unreachable |
 | 9 | `AdminController:107` `findUserByUsername` | `/user/findUserByUsername` | **§9.18** — arbitrary-username existence oracle, no caller in either UI (SBDEV-3071 class) |
 | 10 | `AdminController:133` `findUserGroupsByUsername` | `/user/findUserGroupsByUsername` | **§9.18** — returns WHICH GROUPS a named user belongs to: reconnaissance on the privilege model these carve-outs protect, and a *more targeted* oracle than `findUsers`' bulk dump |
@@ -3238,8 +3238,8 @@ person meets it rather than having to remember it.
 - **§2.3, §2.4 and §2.5 are stale for this slice** — no new constants, no `V2.2.22`, and the six "deletions"
   are gates now and belong to the §1 slice (§9.17). **AC-8 is unachievable as written.**
 - **§1's ~97 ungated-endpoint rows are a separate slice** (§9.17), carrying R1's two unaccounted constants.
-- **`findUsers`' live NPE** (dead `sb_admin` branch; `else` branch derefs a nullable `getEmail()`) needs its
-  own ticket — §9.15 decision 1 narrowed who reaches it, and did not fix it.
+- **`findUsers`' live NPE** (dead `sb_admin` branch; `else` branch dereffed a nullable `getEmail()`) was left
+  open here, since §9.15 decision 1 only narrowed who reaches it. **Resolved by SBDEV-2871** ✓ merged(SBDEV-2871: #647 e9443c0b, 2026-11-08).
 
 ---
 

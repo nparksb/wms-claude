@@ -1,0 +1,1170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan Spike Harness</title>
+<!--
+  SBDEV-3132 P0 — throwaway device spike harness (v5.1). NOT production code; merges nowhere.
+  Open in Enterprise Browser on a WineCo Honeywell (file:// copy, or an https:// static host).
+  It records keyboard/input events for scans vs typed entries and exports JSON for the P0 report:
+  sbdocs/3-Resources/reports/261028-sbdev-3132-p0-honeywell-scan-spike.md
+  No network calls, no external scripts. Results stay on the page until you copy or download them.
+  By default the export holds lengths and character CLASSES only (digit/letter/punctuation), not the values;
+  control characters keep their code. "Include full character codes" makes every value recoverable.
+  ES5 only (no arrow functions, let/const, template strings, optional chaining): old Android WebViews.
+-->
+<style>
+  :root { --bg:#fff; --fg:#111; --muted:#666; --line:#ccc; --accent:#0b5; --warn:#c50; --box:#f4f4f4; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#111; --fg:#eee; --muted:#aaa; --line:#444; --accent:#3d8; --warn:#f83; --box:#1c1c1c; } }
+  :root[data-theme="dark"] { --bg:#111; --fg:#eee; --muted:#aaa; --line:#444; --accent:#3d8; --warn:#f83; --box:#1c1c1c; }
+  body { background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; margin:0; padding:12px 16px 48px; }
+  h1 { font-size:18px; margin:0 0 4px; } h2 { font-size:16px; margin:20px 0 6px; }
+  p, li { color:var(--fg); } .muted { color:var(--muted); font-size:14px; }
+  input[type=text] { font-size:20px; width:100%; box-sizing:border-box; padding:10px; border:2px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  input:focus { border-color:var(--accent); outline:none; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  button { font-size:16px; padding:10px 14px; border-radius:6px; border:1px solid var(--line); background:var(--box); color:var(--fg); }
+  button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.armed { background:var(--warn); color:#fff; border-color:var(--warn); }
+  .box { background:var(--box); border:1px solid var(--line); border-radius:6px; padding:10px; }
+  .alert { border:2px solid var(--warn); border-radius:6px; padding:8px 10px; margin:8px 0; }
+  pre { white-space:pre-wrap; word-break:break-all; font-size:13px; margin:0; max-height:40vh; overflow:auto; }
+  textarea { width:100%; box-sizing:border-box; height:30vh; font-size:12px; background:var(--bg); color:var(--fg); border:1px solid var(--line); }
+  label { display:block; margin:4px 0; }
+  .count { font-weight:600; } .warn { color:var(--warn); }
+  table { border-collapse:collapse; width:100%; font-size:14px; } td, th { border:1px solid var(--line); padding:4px 6px; text-align:left; }
+</style>
+</head>
+<body>
+<h1>Scan Spike Harness (SBDEV-3132 P0)</h1>
+<div class="alert">
+  <b class="warn">Test values only.</b> Never scan or type a password, a person's name or any personal data.
+  The export keeps only lengths and character classes (digit / letter / punctuation) unless you tick
+  "include full character codes" in section 7, which makes every value recoverable.
+  The on-screen keyboard may learn what you type here, so type test labels, not real ones you would not share.
+</div>
+
+<h2>1. Scans vs typing</h2>
+<p class="muted">Pick a mode, tap the field, then scan or type. <b>Scanning: do not press Enter</b>, and leave <b>at least 2 s</b> between scans. If nothing ends a scan within 0.3 s of its last character, the page closes it ("closed by silence"); if more characters or the suffix then arrive within about 1.5 s, the page re-joins them to that scan and records the stall. <b>Prefix test:</b> first scan at least 5 labels (10 is better) with the scanner's prefix switched OFF using "SCANNING, no prefix set (baseline)", then switch the prefix on and scan with "I am SCANNING". A lead that shows up in both runs comes from the trigger or the wedge, not from the prefix. <b>Typing: press Enter</b> after each value. Aim for <b>100 scans</b> (30 at the very least) and <b>30+ typed</b> entries per typing method, realistic label shapes (location, pallet, SKU, tote).</p>
+<div class="row">
+  <button id="modeScan" class="on" type="button">I am SCANNING</button>
+  <button id="modeScanBase" type="button">SCANNING, no prefix set (baseline)</button>
+  <button id="modeTypeKeys" type="button">TYPING on keypad</button>
+  <button id="modeTypeSoft" type="button">TYPING on screen keyboard</button>
+</div>
+<input id="cap" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="tap here, then scan or type">
+<p>Scans: <span id="nScan" class="count">0</span> (baseline <span id="nBase" class="count">0</span>) · Typed: <span id="nType" class="count">0</span> · <span id="open" class="muted">no entry open</span></p>
+<p class="muted" id="last"></p>
+<div class="row"><button id="discardLast" type="button">Discard last entry</button></div>
+
+<h2>2. Read-only field (criterion 5)</h2>
+<p class="muted">Tap this read-only field and scan once. Does anything register?</p>
+<input id="ro" type="text" readonly placeholder="read-only: tap, then scan">
+<p>Read-only events seen: <span id="nRo" class="count">0</span> · value now: <span id="roVal" class="muted">(empty)</span></p>
+
+<h2>3. Paste and clipboard (criterion 6)</h2>
+<p class="muted">Long-press this field and try to paste anything. Then press the button to try a programmatic clipboard read. The clipboard API exists only on https:// or file:// pages; on plain http:// "absent" says nothing about the WMS.</p>
+<input id="pasteBox" type="text" placeholder="long-press → paste">
+<div class="row"><button id="clipRead" type="button">Try clipboard read</button></div>
+<p>Paste events: <span id="nPaste" class="count">0</span> · clipboard read: <span id="clipRes" class="muted">not tried</span> · <span id="secure" class="muted"></span></p>
+
+<h2>4. Soft keyboard (criterion 6)</h2>
+<p class="muted">Focus the field in section 1 and <b>look</b>: does the on-screen keyboard appear, on focus and during a scan? Write it in section 6. The page also records viewport changes, but rotation and zoom change the viewport too.</p>
+<p>Viewport resizes: <span id="nVv" class="count">0</span> · <span id="vvNow" class="muted"></span></p>
+
+<h2>5. Browser / scan APIs (criterion 2)</h2>
+<p class="muted">Probed at start, at page load, 2 s after load, and when you press the button. A vendor API may need the vendor's own activation step first; "nothing found" here is not proof that none exists.</p>
+<div class="row"><button id="reprobe" type="button">Re-probe APIs</button></div>
+<div class="box"><pre id="apis">probing…</pre></div>
+
+<h2>6. Device questions (criteria 3, 6, 7)</h2>
+<p class="muted">Answer from the device's Enterprise Browser / scanner settings or MDM. These answers are exported as typed.</p>
+<table>
+  <tr><th>Question</th><th>Answer</th></tr>
+  <tr><td>Device model and Android version</td><td><input id="q_device" type="text"></td></tr>
+  <tr><td>Enterprise Browser product and version</td><td><input id="q_eb" type="text"></td></tr>
+  <tr><td>Scanner wedge mode (keystrokes / text intent / other)</td><td><input id="q_wedge" type="text"></td></tr>
+  <tr><td>Suffix configured on the scanner (none / Enter / Tab / other)</td><td><input id="q_suffix" type="text"> <span id="p_suffix" class="muted">read as: (blank)</span></td></tr>
+  <tr><td>Can a prefix/suffix be set per app profile? Which characters are allowed (e.g. STX 0x02, F-keys)? What prefix is set for this run (write <b>none</b> if none)?</td><td><input id="q_prefix" type="text"> <span id="p_prefix" class="muted">read as: (blank)</span></td></tr>
+  <tr><td>When a scan fails, do pickers type on the keypad, the screen keyboard, or both?</td><td><input id="q_typing" type="text"></td></tr>
+  <tr><td>Does EB need a vendor script, meta tag or config to enable its scan API? Was it tried?</td><td><input id="q_api" type="text"></td></tr>
+  <tr><td>Clipboard and soft keyboard: can EB/MDM disable them for the WMS app?</td><td><input id="q_lock" type="text"></td></tr>
+  <tr><td>Did the on-screen keyboard appear on focus? during a scan?</td><td><input id="q_sip" type="text"></td></tr>
+  <tr><td>Do any desktop stations share these scanners (same prefix would reach the web UI)?</td><td><input id="q_desktop" type="text"></td></tr>
+  <tr><td>Who measured, date, site</td><td><input id="q_who" type="text"></td></tr>
+</table>
+
+<h2>7. Results</h2>
+<label><input id="optRaw" type="checkbox"> include raw events (larger file)</label>
+<label><input id="optFull" type="checkbox"> <span class="warn">include full character codes — every scanned/typed value becomes recoverable; only with approval</span></label>
+<div class="row">
+  <button id="summarize" type="button">Summarize</button>
+  <button id="copy" type="button">Copy JSON</button>
+  <button id="download" type="button">Download JSON</button>
+  <button id="show" type="button">Show JSON (select all)</button>
+  <button id="openWin" type="button">Open JSON in new window</button>
+  <button id="reset" type="button">Reset</button>
+</div>
+<p class="muted">Export size: <span id="size">—</span> · <span id="exportMsg"></span></p>
+<div class="box"><pre id="summary">Press Summarize after collecting entries.</pre></div>
+<p class="muted">If copy and download both fail, photograph the summary box above: it holds every number the report needs.</p>
+<textarea id="json" readonly style="display:none"></textarea>
+
+<script>
+(function () {
+  'use strict';
+  var HARNESS = 'SBDEV-3132 P0 scan spike v5.1';
+  var IDLE_MS = { scan: 300, type: 3000 };   // fallback terminator: silence after the last event
+  // After an entry is closed by silence, the next entry that starts within this window (after the close) and ends
+  // on a real terminator is the SAME entry, split by a stall: it is re-joined and the stall counts as a gap.
+  // A terminator alone in this window is that entry's late suffix, not a stray.
+  var REJOIN_MS = 1200;
+  var MIN_HEADROOM_MS = 20;   // threshold must sit >= this far from both populations (Android batches input to ~16.7 ms frames)
+  // Test-only seam: the headless suite installs window.__spikeTestClock before the page loads, so that idle
+  // timeouts and handler times follow a clock the test advances (deterministic, no wall-clock races). It does not
+  // exist on a device: there the page uses performance.now() and setTimeout(). Do not copy into production code.
+  var CLK = window.__spikeTestClock || null;
+  function nowMs() { return CLK ? CLK.now() : performance.now(); }
+  function later(fn, ms) { return CLK ? CLK.setTimeout(fn, ms) : setTimeout(fn, ms); }
+  function cancelLater(h) { if (CLK) CLK.clearTimeout(h); else clearTimeout(h); }
+  var t0 = nowMs();
+  var epochBase = (performance.timing && performance.timing.navigationStart) || 0;
+  var mode = 'scan', typeMethod = null, scanPhase = 'configured';   // scanPhase: 'baseline' = prefix switched off
+  var entries = [];          // finished entries
+  var current = null;        // entry being captured
+  var idleTimer = null;
+  var prevValue = '';        // #cap value after the last processed input (engines without beforeinput)
+  var pendingSplit = null;   // a non-cancelable beforeinput carrying line breaks, applied at its input event
+  var stray = { terminators: 0, events: {} };
+  var discarded = { empty: 0, emptyWithKeystrokes: 0, modeSwitch: 0, manual: 0 };
+  var lastSilent = null;     // { entry, closedAt } — the last entry closed by silence, while a re-join is still possible
+  var roEvents = [], pasteEvents = [], vvEvents = [], focusEvents = [], elsewhere = {};
+  var clipboardRead = { state: 'not tried' };
+  var apiProbes = [];
+
+  function $(id) { return document.getElementById(id); }
+  function r1(x) { return Math.round(x * 10) / 10; }
+  function rel(ts) { return r1(ts - t0); }
+  // Prefer the event's own timestamp (set when the event was created) over handler time.
+  function evTime(e) {
+    var ts = e && e.timeStamp;
+    if (typeof ts !== 'number' || !(ts > 0)) return { t: rel(nowMs()), src: 'handler' };
+    if (ts > 1e11) {                                    // old engines: epoch milliseconds
+      if (!epochBase) return { t: rel(nowMs()), src: 'handler' };
+      return { t: rel(ts - epochBase), src: 'event-epoch' };
+    }
+    return { t: rel(ts), src: 'event' };
+  }
+  function hex(c, n) { var h = c.toString(16).toUpperCase(); while (h.length < n) h = '0' + h; return h; }
+  function isCtl(c) { return c < 32 || c === 127 || (c >= 128 && c < 160); }
+  // Character class: the default export. Not reversible for digits/letters/punctuation; controls keep their code.
+  function cls(c) {
+    if (isCtl(c)) return '<' + hex(c, 2) + '>';
+    if (c >= 48 && c <= 57) return 'd';
+    if (c >= 65 && c <= 90) return 'A';
+    if (c >= 97 && c <= 122) return 'a';
+    if (c === 32) return 's';
+    if (c < 127) return 'p';
+    return 'u';
+  }
+  function classes(s) { var o = ''; for (var i = 0; i < (s || '').length; i++) o += cls(s.charCodeAt(i)); return o; }
+  function codes(s) { var a = []; for (var i = 0; i < (s || '').length; i++) a.push(s.charCodeAt(i)); return a; }
+  function inc(o, k) { o[k] = (o[k] || 0) + 1; }
+
+  var MODIFIER_KEYS = { Shift: 1, Control: 1, Alt: 1, AltGraph: 1, Meta: 1, OS: 1, CapsLock: 1, Fn: 1, FnLock: 1, Hyper: 1, Super: 1, NumLock: 1 };
+  function termOfKey(key, keyCode) {
+    if (key === 'Enter' || keyCode === 13) return 'enter';
+    if (key === 'Tab' || keyCode === 9) return 'tab';
+    return null;
+  }
+  function isUnidentified(x) { return x.key === 'Unidentified' || x.key === 'Process' || x.keyCode === 229; }
+  // Named keys a person at the keypad or screen keyboard presses while entering a value. Any OTHER named key at the
+  // start of an entry (Escape, Home, Insert, ContextMenu, F-keys, …) counts as a non-typeable lead.
+  var TYPEABLE_NAMED = { Backspace: 1, Delete: 1, ArrowLeft: 1, ArrowRight: 1, ArrowUp: 1, ArrowDown: 1, Dead: 1, Clear: 1 };
+  // Engines without KeyboardEvent.key (Chromium < 51): derive a key name from keyCode so labels stay readable.
+  var KEYCODE_NAMES = { 8: 'Backspace', 9: 'Tab', 12: 'Clear', 13: 'Enter', 16: 'Shift', 17: 'Control', 18: 'Alt', 20: 'CapsLock', 27: 'Escape',
+    32: ' ', 33: 'PageUp', 34: 'PageDown', 35: 'End', 36: 'Home', 37: 'ArrowLeft', 38: 'ArrowUp', 39: 'ArrowRight', 40: 'ArrowDown',
+    45: 'Insert', 46: 'Delete', 91: 'Meta', 93: 'ContextMenu', 144: 'NumLock', 229: 'Unidentified' };
+  function keyOf(e) {
+    if (typeof e.key === 'string' && e.key !== '') return { key: e.key, derived: false };
+    var c = e.keyCode;
+    if (typeof c !== 'number' || c === 0) return { key: null, derived: false };
+    if (KEYCODE_NAMES[c]) return { key: KEYCODE_NAMES[c], derived: true };
+    if (c >= 112 && c <= 135) return { key: 'F' + (c - 111), derived: true };
+    if ((c >= 48 && c <= 57) || (c >= 65 && c <= 90)) return { key: String.fromCharCode(c), derived: true };
+    if (c >= 96 && c <= 105) return { key: String.fromCharCode(c - 48), derived: true };
+    return { key: 'keyCode' + c, derived: true };
+  }
+
+  // In memory the event keeps the raw key/data (needed for on-device analysis); exportEvent() redacts it.
+  function ev(e) {
+    var tm = evTime(e), kk = (e.type === 'keydown' || e.type === 'keyup' || e.type === 'keypress') ? keyOf(e) : { key: null, derived: false };
+    return {
+      t: tm.t, tSrc: tm.src, th: rel(nowMs()), type: e.type,
+      key: kk.key, keyDerived: kk.derived,
+      keyCode: typeof e.keyCode === 'number' ? e.keyCode : null,
+      code: typeof e.code === 'string' ? e.code : null,
+      location: typeof e.location === 'number' ? e.location : null,
+      ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey,
+      inputType: typeof e.inputType === 'string' ? e.inputType : null,
+      data: typeof e.data === 'string' ? e.data : null,
+      isComposing: e.isComposing === undefined ? null : e.isComposing,
+      repeat: e.repeat === undefined ? null : e.repeat,
+      trusted: e.isTrusted
+    };
+  }
+
+  // ---------- Section 1: segmentation ----------
+  var cap = $('cap');
+  function setMode(m, method) {
+    if (current) { discarded.modeSwitch++; current = null; }
+    clearIdle(); cap.value = ''; prevValue = ''; pendingSplit = null; lastSilent = null;
+    mode = m; typeMethod = m === 'type' ? (method || null) : null;
+    if (m === 'scan') scanPhase = method === 'baseline' ? 'baseline' : 'configured';
+    $('modeScan').className = (m === 'scan' && scanPhase === 'configured') ? 'on' : '';
+    $('modeScanBase').className = (m === 'scan' && scanPhase === 'baseline') ? 'on' : '';
+    $('modeTypeKeys').className = (m === 'type' && method === 'keys') ? 'on' : '';
+    $('modeTypeSoft').className = (m === 'type' && method === 'soft') ? 'on' : '';
+    updateCounts();
+    cap.focus();
+  }
+  $('modeScan').addEventListener('click', function () { setMode('scan'); });
+  $('modeScanBase').addEventListener('click', function () { setMode('scan', 'baseline'); });
+  $('modeTypeKeys').addEventListener('click', function () { setMode('type', 'keys'); });
+  $('modeTypeSoft').addEventListener('click', function () { setMode('type', 'soft'); });
+
+  function openEntry(e) {
+    if (!current) current = { mode: mode, typeMethod: typeMethod, phase: mode === 'scan' ? scanPhase : null, startedAt: evTime(e).t, events: [] };
+  }
+  function clearIdle() { if (idleTimer) { cancelLater(idleTimer); idleTimer = null; } }
+  function armIdle() {
+    clearIdle();
+    if (!current) return;
+    idleTimer = later(function () { idleTimer = null; if (current) finishEntry('idle', null); }, IDLE_MS[current.mode]);
+  }
+  // A silence-closed entry can still be re-joined (or receive its late suffix) until REJOIN_MS after it was closed.
+  function silentCandidate(t, m) {
+    var s = lastSilent;
+    if (!s || s.entry.mode !== m || entries[entries.length - 1] !== s.entry) return null;
+    return (t - s.closedAt) <= REJOIN_MS ? s : null;
+  }
+  // A terminator that arrives with no entry open: the late suffix of a silence-closed entry, or a stray.
+  function strayTerminator(term, t) {
+    var s = silentCandidate(t, mode);
+    if (s) {
+      s.entry.finishedBy = term + '-late'; s.entry.unterminated = false; s.entry.lateSuffixMs = r1(t - s.entry.lastEventT);
+      lastSilent = null;
+    } else stray.terminators++;
+    updateCounts();
+  }
+
+  // Split text carrying line breaks/tabs into [{text, term}], the last piece with term null.
+  function splitPieces(data) {
+    var re = /\r\n|[\r\n\t]/g, out = [], last = 0, m;
+    while ((m = re.exec(data)) !== null) {
+      out.push({ text: data.slice(last, m.index), term: m[0] === '\t' ? 'tab-in-text' : 'linebreak-in-text' });
+      last = m.index + m[0].length;
+    }
+    out.push({ text: data.slice(last), term: null });
+    return out;
+  }
+  function applySplit(prior, pieces, x) {
+    var parts = 0, i;
+    for (i = 0; i < pieces.length; i++) if (pieces[i].term && (i === 0 || pieces[i].text !== '')) parts++;
+    var part = 0;
+    for (i = 0; i < pieces.length; i++) {
+      var p = pieces[i];
+      if (i > 0 && p.term && p.text === '') { stray.terminators++; continue; }   // "\n\n": no phantom entry
+      // Later pieces get a marker, not the shared event object (its data/counts belong to the first piece only).
+      if (i > 0) current = { mode: mode, typeMethod: typeMethod, phase: mode === 'scan' ? scanPhase : null, startedAt: x.t, splitTail: true,
+        events: [{ t: x.t, tSrc: x.tSrc, th: x.th, type: 'split-part', key: null, keyCode: null, code: null, location: null,
+          ctrl: false, alt: false, shift: false, meta: false, inputType: x.inputType, data: null, isComposing: null, repeat: null, trusted: x.trusted }] };
+      if (p.term) {
+        part++;
+        finishEntry(p.term, null, (i === 0 ? prior : '') + p.text, { part: part, of: parts }, x.t);
+      } else if (p.text) {
+        cap.value = (i === 0 ? prior : '') + p.text; prevValue = cap.value; armIdle();
+      } else {
+        current = null;
+      }
+    }
+    updateCounts();
+  }
+
+  function onCap(e) {
+    var type = e.type;
+    if (type === 'keydown') {
+      var term = termOfKey(e.key, e.keyCode);
+      if (term) {
+        e.preventDefault();                       // Tab: focus stays in #cap, nothing spills into other fields
+        if (current) { current.events.push(ev(e)); finishEntry(term, e); } else strayTerminator(term, evTime(e).t);
+        return;
+      }
+    }
+    if (type === 'beforeinput' && (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph')) {
+      e.preventDefault();
+      if (current) { current.events.push(ev(e)); finishEntry('linebreak', e); } else strayTerminator('linebreak', evTime(e).t);
+      return;
+    }
+    if (!current && (type === 'keyup' || type === 'keypress')) {
+      if (!termOfKey(e.key, e.keyCode)) inc(stray.events, type + ':' + (e.key && e.key.length === 1 ? 'char' : e.key));
+      return;
+    }
+    openEntry(e);
+    var x = ev(e);
+    current.events.push(x);
+    if (type === 'beforeinput' && x.data !== null && /[\r\n\t]/.test(x.data)) {
+      // Chromium rewrites line breaks in a single-line field (to spaces), so split BEFORE insertion.
+      if (e.cancelable) { e.preventDefault(); applySplit(cap.value, splitPieces(x.data), x); }
+      else pendingSplit = { prior: cap.value, pieces: splitPieces(x.data) };
+      return;
+    }
+    if (type === 'input') {
+      if (pendingSplit) { var ps = pendingSplit; pendingSplit = null; applySplit(ps.prior, ps.pieces, x); return; }
+      if (x.data !== null && /[\r\n\t]/.test(x.data)) { applySplit(prevValue, splitPieces(x.data), x); return; }
+      prevValue = cap.value;
+    }
+    armIdle();
+    updateOpen();
+  }
+  ['keydown', 'keypress', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionupdate', 'compositionend', 'paste', 'drop'].forEach(function (type) {
+    cap.addEventListener(type, onCap);
+  });
+  cap.addEventListener('focus', function (e) { focusEvents.push({ t: evTime(e).t, type: 'focus' }); });
+  cap.addEventListener('blur', function (e) { focusEvents.push({ t: evTime(e).t, type: 'blur' }); });
+
+  function hasKeystrokeContent(events) {
+    for (var i = 0; i < events.length; i++) {
+      var x = events[i];
+      if (x.type === 'keydown' && !termOfKey(x.key, x.keyCode) && !MODIFIER_KEYS[x.key]) return true;
+      if ((x.type === 'input' || x.type === 'beforeinput') && x.data) return true;
+      if (/^(composition|paste|drop)/.test(x.type)) return true;
+    }
+    return false;
+  }
+
+  function firstCharT(c) {
+    for (var i = 0; i < c.events.length; i++) {
+      var x = c.events[i];
+      if ((x.type === 'keydown' && x.key && x.key.length === 1 && !(x.ctrl || x.alt || x.meta)) || ((x.type === 'input' || x.type === 'beforeinput') && x.data)
+        || x.type === 'split-part' || /^composition/.test(x.type)) return x.t;
+    }
+    return c.startedAt;
+  }
+  function showLast(c, note) {
+    $('last').textContent = 'last: ' + c.mode + (c.typeMethod ? '/' + c.typeMethod : '') + ', ' + c.a.length + ' chars, ended by '
+      + (c.finishedBy === 'idle' ? 'silence' : c.finishedBy) + (note ? ' (' + note + ')' : '')
+      + ', ' + c.a.delivery + ', ' + (c.a.gapSource ? 'max gap ' + c.a.maxGap + ' ms' : 'timing not measurable: ' + c.a.timingReason)
+      + (c.a.lead.length ? ', non-typeable lead ' + c.a.lead.join(' ') : '');
+  }
+
+  function finishEntry(by, e, valueOverride, split, endT) {
+    if (!current) return;
+    clearIdle(); pendingSplit = null;             // a break that never reached an input must not split a later entry
+    var c = current; current = null;
+    var value = valueOverride !== undefined ? valueOverride : cap.value;
+    cap.value = ''; prevValue = '';
+    var lastT = c.events.length ? c.events[c.events.length - 1].t : c.startedAt;
+    var endAt = endT !== undefined ? endT : (e ? evTime(e).t : lastT);
+    if (value === '') {                           // no phantom entries from double terminators
+      if (by !== 'idle' && (split || !hasKeystrokeContent(c.events))) strayTerminator(by, endAt);
+      else if (hasKeystrokeContent(c.events)) discarded.emptyWithKeystrokes++;
+      else discarded.empty++;
+      updateCounts();
+      return;
+    }
+    c.finishedBy = by;
+    c.unterminated = by === 'idle';
+    c.endedAt = endAt;
+    c.lastEventT = lastT;
+    c.value = value;                              // memory only; never exported as text
+    c.split = split || null;
+    var s = silentCandidate(c.startedAt, c.mode);
+    // Scans only: typing has no wedge stall; a typist who forgot Enter must not get two values merged (L4).
+    if (s && by !== 'idle' && c.mode === 'scan' && s.entry.phase === c.phase) {
+      // Closed by silence, then more characters and a real terminator: one entry split by a stall. Re-join it, so
+      // the stall is a gap of that entry and cannot hide behind two fast-looking fragments.
+      // Stall = last event of the first part to the first CHARACTER event of the second (a leading modifier or
+      // trigger keydown would understate it, L6).
+      var p = s.entry, stall = r1(firstCharT(c) - p.lastEventT), firstLen = p.value.length;
+      p.events = p.events.concat(c.events); p.value += value; p.finishedBy = by; p.unterminated = false;
+      p.endedAt = c.endedAt; p.lastEventT = lastT; p.split = c.split;
+      p.rejoined = { stallMs: stall, closedBySilenceAfterMs: IDLE_MS[p.mode], firstPartLength: firstLen, joinedLength: p.value.length };
+      p.a = analyze(p); lastSilent = null;
+      updateCounts(); showLast(p, 're-joined after a ' + stall + ' ms stall');
+      return;
+    }
+    if (by === 'idle') {
+      if (s) c.afterSilentMs = r1(c.startedAt - s.entry.lastEventT);   // two silence-closed entries close together
+      lastSilent = { entry: c, closedAt: lastT + IDLE_MS[c.mode] };
+    } else lastSilent = null;
+    c.a = analyze(c);
+    entries.push(c);
+    updateCounts();
+    showLast(c);
+  }
+
+  function updateOpen() {
+    $('open').textContent = current ? 'entry OPEN (' + current.events.length + ' events)' : 'no entry open';
+    $('open').className = current ? 'warn' : 'muted';
+  }
+  function updateCounts() {
+    $('nScan').textContent = entries.filter(function (x) { return x.mode === 'scan'; }).length;
+    $('nBase').textContent = entries.filter(function (x) { return x.mode === 'scan' && x.phase === 'baseline'; }).length;
+    $('nType').textContent = entries.filter(function (x) { return x.mode === 'type'; }).length;
+    updateOpen();
+  }
+
+  // ---------- Per-entry analysis ----------
+  function modLabel(x) {
+    return (x.ctrl ? 'Ctrl+' : '') + (x.alt ? 'Alt+' : '') + (x.meta ? 'Meta+' : '') + (x.shift ? 'Shift+' : '')
+      + (x.key === null ? '(no key)' : (x.key.length === 1 ? x.key.toUpperCase() : x.key));
+  }
+  function ctlLabel(c) { return 'U+' + hex(c, 4); }
+
+  // Leading non-typeable sequence: control chars (as keystrokes or text), Ctrl/Alt/Meta combos, named keys a person
+  // does not press while entering a value (Escape, F-keys, Home, …), and Unidentified/229 keydowns that produced no
+  // text. Stops at the first character a person can type. Unidentified/229 keydowns are the soft-keyboard and IME
+  // pattern: they are held until we know whether text followed (input, beforeinput or composition = typed text, not a
+  // lead); only a following real keydown or the end of the entry proves they produced nothing.
+  function leadOf(entry) {
+    var lead = [], skipNextInput = false, pendingUnid = 0, i, j;
+    function flushUnid() { while (pendingUnid > 0) { lead.push('Unidentified(no text)'); pendingUnid--; } }
+    for (i = 0; i < entry.events.length; i++) {
+      var x = entry.events[i];
+      if (x.type === 'keydown') {
+        if (termOfKey(x.key, x.keyCode)) break;
+        if (MODIFIER_KEYS[x.key]) continue;
+        if (isUnidentified(x)) { pendingUnid++; continue; }
+        flushUnid();
+        if (x.key && x.key.length === 1) {
+          var kc = x.key.charCodeAt(0);
+          if (x.ctrl || x.alt || x.meta) { lead.push(modLabel(x)); skipNextInput = true; continue; }
+          if (isCtl(kc)) { lead.push(ctlLabel(kc)); skipNextInput = true; continue; }
+          break;
+        }
+        if (x.key && TYPEABLE_NAMED[x.key] && !(x.ctrl || x.alt || x.meta)) break;   // Backspace, arrows: a person presses those
+        lead.push(modLabel(x));                   // Escape, F5, Home, Insert, Ctrl+Home, …
+      } else if (x.type === 'input') {
+        // Any inserting input means the pending 229 keydowns produced text (old engines send input without data).
+        if (!/^delete/.test(x.inputType || '')) pendingUnid = 0;
+        if (skipNextInput) { skipNextInput = false; continue; }
+        if (!x.data) continue;
+        var stop = false;
+        for (j = 0; j < x.data.length; j++) {
+          var dc = x.data.charCodeAt(j);
+          if (isCtl(dc)) lead.push(ctlLabel(dc)); else { stop = true; break; }
+        }
+        if (stop) break;
+      } else if (/^(composition|paste|drop)/.test(x.type)) {
+        pendingUnid = 0;                          // the 229 keydown(s) started this composition: typed text
+        break;
+      }
+    }
+    flushUnid();
+    if (!lead.length) {                           // engines without input.data: fall back to the value
+      for (j = 0; j < entry.value.length && isCtl(entry.value.charCodeAt(j)); j++) lead.push(ctlLabel(entry.value.charCodeAt(j)));
+    }
+    return lead;
+  }
+
+  function firstKeydownSig(entry) {
+    for (var i = 0; i < entry.events.length; i++) {
+      var x = entry.events[i];
+      if (x.type !== 'keydown' || MODIFIER_KEYS[x.key]) continue;   // Control alone is half of Ctrl+B
+      var k = x.key === null ? '(no key)' : (x.key.length === 1 ? (isCtl(x.key.charCodeAt(0)) ? ctlLabel(x.key.charCodeAt(0)) : 'char') : x.key);
+      return (x.ctrl ? 'Ctrl+' : '') + (x.alt ? 'Alt+' : '') + (x.meta ? 'Meta+' : '') + (x.shift ? 'Shift+' : '') + k
+        + (x.keyCode === 229 ? '(229)' : '');
+    }
+    return '(no keydown)';
+  }
+
+  function analyze(entry) {
+    var k = { keydownChar: 0, keydownModifiedChar: 0, keydownUnidentified: 0, keydownNamed: 0, keydownModifierOnly: 0,
+      keydownDelete: 0, input: 0, inputData1: 0, inputDataMulti: 0, inputNoData: 0, maxDataLen: 0, composition: 0, paste: 0, untrusted: 0 };
+    var kdTimes = [], inTimes = [], kdTh = [], inTh = [];
+    entry.events.forEach(function (x) {
+      if (x.trusted === false) k.untrusted++;
+      if (x.type === 'keydown') {
+        if (termOfKey(x.key, x.keyCode)) return;
+        if (MODIFIER_KEYS[x.key]) k.keydownModifierOnly++;
+        else if (x.key && x.key.length === 1) {
+          if (x.ctrl || x.alt || x.meta) k.keydownModifiedChar++;
+          else { k.keydownChar++; kdTimes.push(x.t); kdTh.push(x.th); }
+        } else if (isUnidentified(x)) k.keydownUnidentified++;
+        else { k.keydownNamed++; if (x.key === 'Backspace' || x.key === 'Delete') k.keydownDelete++; }
+      } else if (x.type === 'input') {
+        k.input++;
+        if (x.inputType === 'insertFromPaste' || x.inputType === 'insertFromDrop') k.paste++;
+        if (x.data === null) { if (x.inputType === null || /^insert/.test(x.inputType)) { k.inputNoData++; inTimes.push(x.t); inTh.push(x.th); } }
+        else {
+          if (x.data.length > k.maxDataLen) k.maxDataLen = x.data.length;
+          if (x.data.length === 1) { k.inputData1++; inTimes.push(x.t); inTh.push(x.th); }
+          else if (x.data.length > 1) k.inputDataMulti++;
+        }
+      } else if (/^composition/.test(x.type)) k.composition++;
+      else if (x.type === 'paste' || x.type === 'drop') k.paste++;
+    });
+    var len = entry.value.length, delivery;
+    if (k.composition > 0) delivery = 'composition (IME)';
+    else if (k.paste > 0) delivery = 'paste';
+    else if (k.inputDataMulti > 0 || entry.split || entry.splitTail || (k.input === 1 && len > 1 && k.keydownChar === 0)) delivery = 'text-commit';
+    else if (k.keydownChar > 0 && k.keydownChar >= k.inputData1) delivery = 'per-key keydown';
+    else if (k.keydownChar === 0 && (k.inputData1 + k.inputNoData) > 0)
+      delivery = k.keydownUnidentified > 0 ? 'per-char input (keydown Unidentified/229)' : 'per-char input (no keydown)';
+    else delivery = 'mixed';
+
+    var times = null, ths = null, gapSource = null, reason = null;
+    if (delivery === 'text-commit') reason = 'text-commit';
+    else if (delivery === 'composition (IME)') reason = 'composition';
+    else if (delivery === 'paste') reason = 'paste';
+    else if (k.keydownChar >= 2) { times = kdTimes; ths = kdTh; gapSource = 'keydown'; }
+    else if (inTimes.length >= 2) { times = inTimes; ths = inTh; gapSource = 'input'; }
+    else reason = 'fewer than 2 per-char events';
+    var gaps = [], hgaps = [];
+    if (times) for (var i = 1; i < times.length; i++) { gaps.push(r1(times[i] - times[i - 1])); hgaps.push(r1(ths[i] - ths[i - 1])); }
+    return {
+      length: len, delivery: delivery, counts: k,
+      gapSource: gapSource, timingReason: reason, gaps: gaps,
+      maxGap: gaps.length ? Math.max.apply(null, gaps) : null,
+      minGap: gaps.length ? Math.min.apply(null, gaps) : null,
+      maxGapHandler: hgaps.length ? Math.max.apply(null, hgaps) : null,   // handler time: independent of the event's own stamp
+      lead: leadOf(entry), firstKeydown: firstKeydownSig(entry),
+      // a corrected keystroke was inserted, then deleted: it is not "sent but not inserted"
+      charsSentNotInserted: Math.max(0, k.keydownChar + k.keydownModifiedChar - len - k.keydownDelete)
+    };
+  }
+
+  // ---------- Statistics ----------
+  function sorted(a) { return a.slice().sort(function (x, y) { return x - y; }); }
+  function pct(arr, p) {                         // nearest rank
+    if (!arr.length) return null;
+    var s = sorted(arr);
+    return s[Math.min(s.length - 1, Math.max(0, Math.ceil(p / 100 * s.length) - 1))];
+  }
+  function dist(a) {
+    return a.length ? { n: a.length, min: pct(a, 0), p1: pct(a, 1), p50: pct(a, 50), p99: pct(a, 99), max: pct(a, 100) } : { n: 0 };
+  }
+  function maxOf(a) { return a.length ? Math.max.apply(null, a) : null; }
+  function stats(list) {
+    var delivery = {}, finishedBy = {}, unmeasurable = {}, gapSources = {}, maxes = [], maxesH = [], mins = [], allGaps = [];
+    var leadSigs = {}, withLead = 0, firstKey = {}, swallowed = 0, untrusted = 0, byMethod = {};
+    var stalls = [], late = [], backToBack = [], clockDiffs = [], minsH = [];
+    list.forEach(function (en) {
+      var a = en.a;
+      inc(delivery, a.delivery); inc(finishedBy, en.finishedBy); inc(firstKey, a.firstKeydown);
+      if (en.typeMethod) inc(byMethod, en.typeMethod);
+      if (a.gapSource) {
+        inc(gapSources, a.gapSource); maxes.push(a.maxGap); mins.push(a.minGap); allGaps = allGaps.concat(a.gaps);
+        if (a.maxGapHandler !== null) { maxesH.push(a.maxGapHandler); clockDiffs.push(r1(a.maxGapHandler - a.maxGap)); }
+      } else inc(unmeasurable, a.timingReason);
+      if (a.lead.length) { withLead++; inc(leadSigs, a.lead.join(' ')); }
+      if (a.charsSentNotInserted > 0) swallowed++;
+      untrusted += a.counts.untrusted;
+      if (en.rejoined) stalls.push(en.rejoined.stallMs);
+      if (en.lateSuffixMs !== undefined) late.push(en.lateSuffixMs);
+      if (en.afterSilentMs !== undefined) backToBack.push(en.afterSilentMs);
+    });
+    var dom = null, domN = 0;
+    Object.keys(leadSigs).forEach(function (s) { if (leadSigs[s] > domN) { dom = s; domN = leadSigs[s]; } });
+    return {
+      entries: list.length, typeMethod: byMethod, finishedBy: finishedBy, delivery: delivery,
+      silence: { closedBySilence: finishedBy.idle || 0,
+        rejoinedAfterStall: stalls.length, maxStallMs: maxOf(stalls),
+        lateSuffix: late.length, maxLateSuffixMs: maxOf(late),
+        silenceClosedBackToBack: backToBack.length, minBackToBackGapMs: backToBack.length ? Math.min.apply(null, backToBack) : null },
+      timing: { measurable: maxes.length, unmeasurable: unmeasurable, gapSource: gapSources,
+        perEntryMaxGapMs: dist(maxes), perEntryMinGapMs: dist(mins), perGapMs: dist(allGaps), perEntryMaxGapHandlerMs: dist(maxesH),
+        // handler-time max gap minus event-time max gap, per entry (M2): how far the page's clock disagrees
+        clockDiffMs: dist(clockDiffs) },
+      prefix: { entriesWithNonTypeableLead: withLead, sameLeadCount: domN, sameLead: dom, leadSignatures: leadSigs,
+        firstKeydown: firstKey, entriesWithKeystrokesNotInserted: swallowed },
+      untrustedEvents: untrusted,
+      _maxes: maxes, _maxesH: maxesH, _gaps: allGaps
+    };
+  }
+
+  // Exact one-sided 95% upper bound (Clopper-Pearson) on a rate after k events in n trials. k = 0 gives 1 - 0.05^(1/n).
+  function binomCdf(k, n, p) {
+    var sum = 0, logC = 0;
+    for (var i = 0; i <= k; i++) {
+      if (i > 0) logC += Math.log((n - i + 1) / i);
+      sum += Math.exp(logC + i * Math.log(p) + (n - i) * Math.log(1 - p));
+    }
+    return sum;
+  }
+  function upper95(k, n) {
+    if (!n) return null;
+    if (k >= n) return 1;
+    if (k === 0) return Math.round((1 - Math.pow(0.05, 1 / n)) * 1000) / 1000;
+    var lo = k / n, hi = 1;
+    for (var it = 0; it < 60; it++) { var mid = (lo + hi) / 2; if (binomCdf(k, n, mid) > 0.05) lo = mid; else hi = mid; }
+    return Math.round(hi * 1000) / 1000;
+  }
+  function recommend(fr, k1, n1, fa, k2, n2) {
+    var r = [];
+    if (fr !== null && fr > 0.05) r.push('record more scans: ' + k1 + ' false rejects in ' + n1 + ' bounds the rate only below ' + pc(fr)
+      + '; with none, 59 scans bound it at 5% and 99 scans at 3%');
+    if (fa !== null && fa > 0.05) r.push('record more typed entries: ' + k2 + ' false accepts in ' + n2 + ' bounds the rate only below ' + pc(fa)
+      + '; with none, 59 entries bound it at 5% and 99 at 3%');
+    return r.length ? r.join('; ') : null;
+  }
+  function pc(x) { return x === null ? 'n/a' : r1(x * 100) + '%'; }
+
+  // Detector modelled: "scan iff the entry's LARGEST per-char gap < X". A scan is falsely rejected if its max
+  // gap >= X; a typed entry is falsely accepted if its max gap < X. So both sides use the per-entry max gap.
+  // margin = typed floor (smallest typed per-entry max) / scan ceiling (largest scan per-entry max).
+  // silenceProblem: non-null when silence-closed scans may hide a stall (N1); the verdict then cannot be 'separable'.
+  function separation(s, t, silenceProblem) {
+    if (!t.entries) return { measurable: false, verdict: 'no-data', separates: false, reason: 'no typed entries with this method' };
+    if (!s._maxes.length || !t._maxes.length) {
+      var why = [];
+      if (!s._maxes.length) why.push('scan: ' + (s.entries ? JSON.stringify(s.timing.unmeasurable) : 'no entries'));
+      if (!t._maxes.length) why.push('typed: ' + JSON.stringify(t.timing.unmeasurable));
+      return { measurable: false, verdict: 'not-measurable', separates: false,
+        reason: 'timing not measurable — no per-char signal (' + why.join('; ') + ')' };
+    }
+    var ceil = Math.max.apply(null, s._maxes), floor = Math.min.apply(null, t._maxes), hceil = maxOf(s._maxesH);
+    // Event stamps say the scan was (near-)instant while the page's own clock saw real spacing: the wedge stamps
+    // events of one scan together, so event-time gaps are not evidence.
+    var stampsSuspect = ceil === 0 || (ceil < 1 && hceil !== null && hceil >= 5);
+    var tfloorH = t._maxesH.length ? Math.min.apply(null, t._maxesH) : null;
+    function errorsAt(X) {
+      return { falseReject: s._maxes.filter(function (g) { return g >= X; }).length,
+        falseAccept: t._maxes.filter(function (g) { return g < X; }).length };
+    }
+    var clean = ceil < floor, X, best, rule;
+    if (clean) {
+      // Midpoint: equal headroom in ms on both sides. (A geometric mean sits ~ceiling*3 when the ceiling is tiny:
+      // 1 ms vs 90 ms gave 9.5 ms, inside WebView jitter.)
+      X = r1((ceil + floor) / 2);
+      rule = 'midpoint of scan ceiling and typed floor (equal headroom on both sides)';
+    } else {
+      var cands = s._maxes.concat(t._maxes, [ceil + 0.1]);
+      cands.forEach(function (c) {
+        var er = errorsAt(c), tot = er.falseReject + er.falseAccept;
+        if (!best || tot < best.tot || (tot === best.tot && er.falseReject < best.er.falseReject)) best = { X: c, er: er, tot: tot };
+      });
+      X = best.X;
+      rule = 'populations overlap: the value with the fewest misclassifications (ties: fewest false rejects)';
+    }
+    var er = errorsAt(X);
+    var margin = ceil > 0 ? r1(floor / ceil) : null;
+    var headroom = clean ? r1((floor - ceil) / 2) : 0;
+    var enough = s._maxes.length >= 30 && t._maxes.length >= 30;
+    var sGapMax = Math.max.apply(null, s._gaps), tGapMin = Math.min.apply(null, t._gaps);
+    var verdict = !clean ? 'not-separable'
+      : stampsSuspect ? 'timestamps-suspect'
+      : (hceil !== null && hceil >= X) ? 'separable-but-handler-time-differs'   // a handler-time detector would reject these scans
+      : margin < 2 ? 'separable-but-margin-under-2x'
+      : headroom < MIN_HEADROOM_MS ? 'separable-but-headroom-under-' + MIN_HEADROOM_MS + 'ms'
+      : silenceProblem ? 'separable-but-silence-closed-scans'
+      : enough ? 'separable' : 'insufficient-data';
+    var fr = upper95(er.falseReject, s._maxes.length), fa = upper95(er.falseAccept, t._maxes.length);
+    return {
+      measurable: true, verdict: verdict, separates: verdict === 'separable',
+      detector: 'scan iff largest per-char gap in the entry < thresholdMs',
+      nScan: s._maxes.length, nTyped: t._maxes.length,
+      scanCeilingMs: ceil, scanMaxGapP99Ms: pct(s._maxes, 99), scanCeilingHandlerMs: hceil,
+      typedFloorMs: floor, typedMaxGapP1Ms: pct(t._maxes, 1), typedFloorHandlerMs: tfloorH,
+      clock: 'event time (e.timeStamp); the handler-time ceiling must stay below the threshold, else P2 timing measured in its own handler would reject scans',
+      margin: margin, marginDefinition: 'typedFloorMs / scanCeilingMs; required >= 2' + (margin === null ? '; null because the scan ceiling is 0 ms (every scan event carried the same timestamp: see scanCeilingHandlerMs)' : ''),
+      thresholdMs: X, thresholdRule: rule, headroomMs: headroom, minHeadroomMs: MIN_HEADROOM_MS,
+      falseRejectScans: er.falseReject, falseAcceptTyped: er.falseAccept,
+      confidence: { method: 'exact binomial (Clopper-Pearson), one-sided 95% upper bound on the rate',
+        falseRejectRateUpper95: fr, falseAcceptRateUpper95: fa,
+        recommendation: recommend(fr, er.falseReject, s._maxes.length, fa, er.falseAccept, t._maxes.length),
+        note: 'the typed floor is the fastest typist in the sample; a faster picker is not in it' },
+      silenceProblem: silenceProblem,
+      perGap: { scanMaxGapMs: sGapMax, typedMinGapMs: tGapMin, separable: sGapMax < tGapMin,
+        note: 'stricter: needed only if a decision is made from a single gap before the entry ends' }
+    };
+  }
+
+  function answers() {
+    var a = {};
+    ['q_device', 'q_eb', 'q_wedge', 'q_suffix', 'q_prefix', 'q_typing', 'q_api', 'q_lock', 'q_sip', 'q_desktop', 'q_who'].forEach(function (id) { a[id.slice(2)] = $(id).value; });
+    return a;
+  }
+  // Free-text setting answer -> 'none' | 'set' | 'blank' | 'unclear'. Shown back next to the field.
+  function parseSetting(v) {
+    var raw = String(v || '');
+    // Tokens: "n/a" kept as one word, then split on / + , and whitespace ("CR/LF", "Enter/Tab", "CR+LF", "Ctrl+B").
+    var t = raw.toLowerCase().replace(/n\/a/g, 'na').replace(/[^a-z0-9]+/g, ' ').replace(/^ | $/g, '');
+    var notation = /\^[a-z@\[]|\\[rnt]|\\x[0-9a-f]{2}/i.test(raw);          // ^B, \r, \x02
+    if (!t && !notation) return raw.replace(/\s+/g, '') ? 'unclear' : 'blank';   // symbols only, e.g. a tilde
+    var none = /(^| )(none|no|nothing|na|off|disabled|no suffix|no prefix|not set)( |$)/.test(t);
+    var set = notation || /(^| )(enter|tab|cr|lf|crlf|return|stx|etx|esc|escape|ctrl|control|alt|f\d+|0x[0-9a-f]+)( |$)/.test(t);
+    return none && !set ? 'none' : set && !none ? 'set' : 'unclear';
+  }
+  function showParsed(q, p) { $(p).textContent = 'read as: ' + parseSetting($(q).value); }
+  ['q_suffix', 'q_prefix'].forEach(function (q) { $(q).addEventListener('input', function () { showParsed(q, 'p_' + q.slice(2)); }); });
+  function strip(s) { var o = {}; Object.keys(s).forEach(function (k) { if (k.charAt(0) !== '_') o[k] = s[k]; }); return o; }
+
+  // Longest common start of every scan value, after any leading control characters. Memory only: analysis()
+  // exports its length and classes; the codes only with the full-codes opt-in.
+  function noLeadCtl(v) { var i = 0; while (i < v.length && isCtl(v.charCodeAt(i))) i++; return v.slice(i); }
+  function scanCommonStart(scans) {
+    if (scans.length < 2) return '';
+    var p = noLeadCtl(scans[0].value);
+    scans.forEach(function (en) { var v = noLeadCtl(en.value), i = 0; while (i < p.length && i < v.length && p.charAt(i) === v.charAt(i)) i++; p = p.slice(0, i); });
+    return p;
+  }
+
+  function median(a) { if (!a.length) return null; var x = sorted(a), m = Math.floor(x.length / 2); return x.length % 2 ? x[m] : (x[m - 1] + x[m]) / 2; }
+  // Re-joins and silence closes that may be wrong, checked against the typical scan length (M1, L1, L5).
+  function silenceReviewOf(scans, ans) {
+    var plain = scans.filter(function (en) { return !en.rejoined; }).map(function (en) { return en.value.length; });
+    var med = median(plain), rj = [], twoScans = 0, pairs = 0, late = 0;
+    scans.forEach(function (en) {
+      if (en.rejoined) {
+        var two = med !== null && en.value.length > 1.5 * med;
+        if (two) twoScans++;
+        rj.push({ joinedLength: en.value.length, firstPartLength: en.rejoined.firstPartLength, stallMs: en.rejoined.stallMs, mayBeTwoScans: two });
+      }
+      if (en.lateSuffixMs !== undefined) late++;
+    });
+    // No-suffix scanner, stall longer than the re-join window: two short silence-closed neighbours that add up to a scan.
+    for (var i = 1; i < scans.length; i++) {
+      var a = scans[i - 1], b = scans[i];
+      if (med === null || a.finishedBy !== 'idle' || b.finishedBy !== 'idle' || a.phase !== b.phase) continue;
+      var la = a.value.length, lb = b.value.length;
+      if (la < med * 2 / 3 && lb < med * 2 / 3 && Math.abs(la + lb - med) <= med / 4) pairs++;
+    }
+    var suffix = parseSetting(ans.suffix);
+    return { medianScanLength: med, rejoined: rj, rejoinedMayBeTwoScans: twoScans, possibleSplitPairs: pairs,
+      lateSuffixWhileAnswerNone: suffix === 'none' ? late : 0, suffixAnswerReadAs: suffix };
+  }
+
+  // Why silence-closed or re-joined scans make the timing verdict unsafe, or null (N1, M1).
+  function silenceProblemOf(s, ans, rv) {
+    var sl = s.silence, terminated = s.entries - sl.closedBySilence;
+    if (rv.possibleSplitPairs) return rv.possibleSplitPairs + ' pairs of short silence-closed scans add up to about one scan: possibly one scan stalled longer than '
+      + (IDLE_MS.scan + REJOIN_MS) + ' ms with no suffix; their timing cannot be trusted';
+    if (rv.rejoinedMayBeTwoScans) return rv.rejoinedMayBeTwoScans + ' re-joined scans are over 1.5x the median scan length (' + rv.medianScanLength
+      + '): probably two scans, the first with a lost suffix, not one stalled scan';
+    if (sl.silenceClosedBackToBack) return sl.silenceClosedBackToBack + ' silence-closed scans began within ' + (IDLE_MS.scan + REJOIN_MS)
+      + ' ms of the previous silence-closed scan (closest ' + sl.minBackToBackGapMs + ' ms): they may be one scan split by a stall';
+    if (sl.closedBySilence && (terminated > 0 || rv.suffixAnswerReadAs === 'set'))
+      return sl.closedBySilence + ' scans closed by silence although the scanner sends a suffix'
+        + (terminated > 0 ? ' (' + terminated + ' other scans ended on one)' : ' (answer "suffix" read as set: ' + ans.suffix + ')')
+        + ': a stall longer than ' + (IDLE_MS.scan + REJOIN_MS) + ' ms or a lost suffix; their timing cannot be trusted';
+    return null;
+  }
+
+  // Prefix signal (H1, M3). A lead is a PREFIX only if it is on (almost) every scan of the configured run, (almost)
+  // no typed entry, and NOT on the baseline run (prefix switched off): a lead in both runs comes from the trigger or
+  // the wedge. Tolerance: up to 5% of configured scans may miss it, 5% of baseline scans may carry it, and up to
+  // max(1, 5%) typed entries may carry it; every such stray is counted and printed.
+  function tol(n) { return Math.floor(n * 0.05); }   // 0 below 20, 1 for 20-39: never looser than 5%
+  // No prefix verdict (other than insufficient-data) below these counts (round 4, M1).
+  var PREFIX_FLOOR = { configured: 30, typed: 30, baseline: 5 };
+  function prefixSignalOf(scans, typed, ans) {
+    var conf = scans.filter(function (en) { return en.phase !== 'baseline'; }), base = scans.filter(function (en) { return en.phase === 'baseline'; });
+    var sigs = {}, lead = null, n = 0;
+    conf.forEach(function (en) { if (en.a.lead.length) inc(sigs, en.a.lead.join(' ')); });
+    Object.keys(sigs).forEach(function (k) { if (sigs[k] > n) { lead = k; n = sigs[k]; } });
+    function withLead(list) { return list.filter(function (en) { return lead !== null && en.a.lead.join(' ') === lead; }).length; }
+    var typedWith = withLead(typed), baseWith = withLead(base);
+    var baseSigs = {}; base.forEach(function (en) { if (en.a.lead.length) inc(baseSigs, en.a.lead.join(' ')); });
+    var cs = scanCommonStart(conf), typedShare = 0, baseShare = 0;
+    if (cs) {
+      typed.forEach(function (en) { if (noLeadCtl(en.value).indexOf(cs) === 0) typedShare++; });
+      base.forEach(function (en) { if (noLeadCtl(en.value).indexOf(cs) === 0) baseShare++; });
+    }
+    var answer = parseSetting(ans.prefix), typedTol = Math.max(1, tol(typed.length));
+    var leadOk = lead !== null && conf.length - n <= tol(conf.length) && typedWith <= typedTol;
+    var startOk = cs !== '' && typedShare <= typedTol;
+    var needs = [];
+    if (conf.length < PREFIX_FLOOR.configured) needs.push('configured scans ' + conf.length + ' of ' + PREFIX_FLOOR.configured);
+    if (typed.length < PREFIX_FLOOR.typed) needs.push('typed entries ' + typed.length + ' of ' + PREFIX_FLOOR.typed);
+    if (base.length < PREFIX_FLOOR.baseline) needs.push('baseline scans ' + base.length + ' of ' + PREFIX_FLOOR.baseline);
+    var v = needs.length ? 'insufficient-data'
+      : (answer === 'none' || answer === 'blank') ? 'unconfigured'
+      : leadOk ? (baseWith > tol(base.length) ? 'trigger-or-wedge-artefact' : 'non-typeable-prefix')
+      : startOk ? (baseShare > tol(base.length) ? 'no-prefix-signal' : 'typeable-prefix-needs-timing')
+      : 'no-prefix-signal';
+    return { verdict: v, prefixAnswerReadAs: answer, prefixNeeds: needs, sampleFloor: PREFIX_FLOOR,
+      rule: 'prefix only if: answer "prefix" is not blank or none; >= 95% of configured scans share the lead; at most max(1, 5%) typed entries and at most 5% of baseline scans carry it',
+      nonTypeableLead: { sameLead: lead, configuredScans: conf.length, configuredWithLead: n, configuredMissingLead: conf.length - n,
+        typedEntries: typed.length, typedWithLead: typedWith, baselineScans: base.length, baselineWithLead: baseWith, baselineLeads: baseSigs },
+      typeableCommonStart: { length: cs.length, classes: classes(cs), typedEntriesStartingWithIt: typedShare, baselineScansStartingWithIt: baseShare,
+        note: 'every configured scan starts with these characters; a configured typeable prefix, or labels of one kind (e.g. all locations)' } };
+  }
+
+  function analysis() {
+    var scans = entries.filter(function (x) { return x.mode === 'scan'; });
+    var typed = entries.filter(function (x) { return x.mode === 'type'; });
+    var keys = typed.filter(function (x) { return x.typeMethod === 'keys'; });
+    var soft = typed.filter(function (x) { return x.typeMethod === 'soft'; });
+    var s = stats(scans), t = stats(typed), tk = stats(keys), tsft = stats(soft);
+    var ans = answers(), review = silenceReviewOf(scans, ans), silenceProblem = silenceProblemOf(s, ans, review);
+    var sd = Object.keys(s.delivery), td = Object.keys(t.delivery);
+    var shared = sd.filter(function (d) { return td.indexOf(d) >= 0; });
+    var sp = s.prefix, scanOnly = Object.keys(sp.firstKeydown).filter(function (k) { return !t.prefix.firstKeydown[k]; });
+    var prefix = prefixSignalOf(scans, typed, ans);
+    var afterFocus = 0;
+    focusEvents.forEach(function (f) {
+      if (f.type !== 'focus') return;
+      for (var i = 0; i < vvEvents.length; i++) if (vvEvents[i].t >= f.t && vvEvents[i].t - f.t <= 1500) { afterFocus++; break; }
+    });
+    var last = apiProbes.length ? apiProbes[apiProbes.length - 1] : {};
+    var ever = {};
+    apiProbes.forEach(function (p) { (p.extraGlobals || []).concat((p.navigatorExtras || []).map(function (n) { return 'navigator.' + n; })).forEach(function (k) { if (!ever[k]) ever[k] = p.trigger; }); });
+    return {
+      enoughData: scans.length >= 30 && (keys.length >= 30 || soft.length >= 30),
+      openEntry: current ? { mode: current.mode, events: current.events.length } : null,
+      segmentation: { strayTerminators: stray.terminators, strayEvents: stray.events, discarded: discarded, idleMs: IDLE_MS, rejoinWindowMs: REJOIN_MS },
+      scan: strip(s), typed: strip(t), typedByMethod: { keys: strip(tk), soft: strip(tsft) },
+      deliveryAloneSeparates: sd.length > 0 && td.length > 0 && shared.length === 0,
+      silenceReview: review,
+      prefixSignal: (function () { prefix.scanOnlyFirstKeydown = scanOnly; return prefix; })(),
+      // One block per typing method: keypad and screen keyboard are different populations and are never pooled.
+      timingSeparation: { keys: separation(s, tk, silenceProblem), soft: separation(s, tsft, silenceProblem) },
+      readonly: { eventsSeen: roEvents.length, keydowns: roEvents.filter(function (e) { return e.type === 'keydown'; }).length,
+        inputs: roEvents.filter(function (e) { return e.type === 'input'; }).length,
+        beforeinputs: roEvents.filter(function (e) { return e.type === 'beforeinput'; }).length,
+        valueChanged: $('ro').value !== '', activeElements: roEvents.reduce(function (o, e) { inc(o, e.active || '?'); return o; }, {}) },
+      eventsInOtherFields: elsewhere,
+      paste: { events: pasteEvents.length, clipboardRead: clipboardRead },
+      softKeyboard: { capFocuses: focusEvents.filter(function (f) { return f.type === 'focus'; }).length, focusesFollowedByResizeWithin1500ms: afterFocus,
+        viewportResizes: vvEvents.length, viewport: vvEvents.slice(-30), focusLog: focusEvents.slice(-30) },
+      apis: { probes: apiProbes.length, everSeen: ever, latest: last },
+      answers: ans
+    };
+  }
+
+  function j(o) { return JSON.stringify(o); }
+  function fmt(v) { return v === null || v === undefined || (typeof v === 'number' && isNaN(v)) ? 'n/a' : v; }
+  function silenceLines(L, label, st) {
+    var sl = st.silence;
+    if (!sl.closedBySilence && !sl.rejoinedAfterStall && !sl.lateSuffix && !sl.silenceClosedBackToBack) return;
+    L.push('  Silence (' + label + '): ' + sl.closedBySilence + ' closed by silence (no terminator within ' + IDLE_MS[label === 'scan' ? 'scan' : 'type']
+      + ' ms); ' + sl.rejoinedAfterStall + ' re-joined after a mid-entry stall (max ' + fmt(sl.maxStallMs) + ' ms, counted as a gap); '
+      + sl.lateSuffix + ' late suffix (max ' + fmt(sl.maxLateSuffixMs) + ' ms after the last character); '
+      + sl.silenceClosedBackToBack + ' silence-closed right after another');
+  }
+  function timingLines(L, label, ts) {
+    if (!ts.measurable) { L.push('4 Timing vs ' + label + ': ' + ts.verdict.toUpperCase() + ' — ' + ts.reason); return; }
+    L.push('4 Timing vs ' + label + ': ' + ts.verdict.toUpperCase() + '. Per-entry max gap: scan ceiling ' + ts.scanCeilingMs + ' ms (p99 ' + fmt(ts.scanMaxGapP99Ms)
+      + ', n=' + ts.nScan + ', handler-time ceiling ' + fmt(ts.scanCeilingHandlerMs) + ') vs typed floor ' + ts.typedFloorMs + ' ms (p1 ' + fmt(ts.typedMaxGapP1Ms) + ', n=' + ts.nTyped + ', handler-time floor ' + fmt(ts.typedFloorHandlerMs) + '). Clock: event time; P2 must use e.timeStamp');
+    L.push('  margin (typed floor / scan ceiling) = ' + (ts.margin === null ? 'n/a (scan ceiling 0 ms: identical timestamps)' : ts.margin + 'x') + ' (need >= 2x); threshold '
+      + ts.thresholdMs + ' ms = ' + ts.thresholdRule + ', headroom ' + ts.headroomMs + ' ms (need >= ' + ts.minHeadroomMs + ') -> false rejects '
+      + ts.falseRejectScans + '/' + ts.nScan + ' scans, false accepts ' + ts.falseAcceptTyped + '/' + ts.nTyped + ' typed');
+    L.push('  95% upper bound: false-reject rate ' + pc(ts.confidence.falseRejectRateUpper95) + ', false-accept rate ' + pc(ts.confidence.falseAcceptRateUpper95)
+      + (ts.confidence.recommendation ? '. ' + ts.confidence.recommendation.toUpperCase() : ''));
+    if (ts.silenceProblem) L.push('  NOT SEPARABLE YET: ' + ts.silenceProblem);
+    L.push('  per-gap: scan max ' + ts.perGap.scanMaxGapMs + ' vs typed min ' + ts.perGap.typedMinGapMs + ' -> ' + (ts.perGap.separable ? 'separable' : 'overlap'));
+  }
+  function summaryLines(A) {
+    var L = [], sp = A.scan.prefix, tp = A.typed.prefix, ps = A.prefixSignal;
+    L.push('Entries: ' + A.scan.entries + ' scans, ' + A.typed.entries + ' typed ' + j(A.typed.typeMethod) + (A.enoughData ? '' : '  (NEED 30+ SCANS AND 30+ OF ONE TYPING METHOD)'));
+    if (A.openEntry) L.push('  WARNING: 1 entry still open (' + A.openEntry.events + ' events), not counted');
+    L.push('  Ended by (scan): ' + j(A.scan.finishedBy) + '  (typed): ' + j(A.typed.finishedBy) + '  ("idle" = closed by silence; "-late" = suffix after the silence close)');
+    if (A.scan.silence.closedBySilence) L.push('  FINDING: ' + A.scan.silence.closedBySilence + ' scans closed by silence: no terminator within ' + IDLE_MS.scan
+      + ' ms of the last character. Either the scanner sends no suffix, or the suffix or the rest of the scan came later than that (see the silence line).');
+    silenceLines(L, 'scan', A.scan);
+    var rv = A.silenceReview;
+    rv.rejoined.forEach(function (r) {
+      L.push('  WARNING re-joined scan: ' + r.firstPartLength + ' + ' + (r.joinedLength - r.firstPartLength) + ' = ' + r.joinedLength + ' chars after a ' + r.stallMs
+        + ' ms stall (median scan ' + fmt(rv.medianScanLength) + ' chars)' + (r.mayBeTwoScans ? ': PROBABLY TWO SCANS, the first with a lost suffix' : ''));
+    });
+    if (rv.possibleSplitPairs) L.push('  AMBIGUOUS: ' + rv.possibleSplitPairs + ' pairs of short silence-closed scans add up to about one scan: one scan stalled longer than '
+      + (IDLE_MS.scan + REJOIN_MS) + ' ms, or two short labels');
+    if (rv.lateSuffixWhileAnswerNone) L.push('  WARNING: ' + rv.lateSuffixWhileAnswerNone + ' late suffixes although answer "suffix" reads as none: probably Enter pressed by habit; those scans really ended by silence');
+    L.push('  Answer "suffix" read as: ' + rv.suffixAnswerReadAs + '; answer "prefix" read as: ' + ps.prefixAnswerReadAs);
+    silenceLines(L, 'typed', A.typed);
+    L.push('  Stray terminators: ' + A.segmentation.strayTerminators + '; discarded ' + j(A.segmentation.discarded) + '; stray events ' + j(A.segmentation.strayEvents));
+    L.push('1 Delivery (scan): ' + j(A.scan.delivery));
+    L.push('  Delivery (typed): ' + j(A.typed.delivery) + '; delivery shape alone separates: ' + A.deliveryAloneSeparates);
+    L.push('2 API probes: ' + A.apis.probes + '; extra globals ever seen: ' + j(Object.keys(A.apis.everSeen))
+      + '; named: ' + j(Object.keys((A.apis.latest && A.apis.latest.namedGlobals) || {}))
+      + '; secure context: ' + (A.apis.latest && A.apis.latest.env ? A.apis.latest.env.isSecureContext + ' (' + A.apis.latest.env.protocol + ')' : '?'));
+    var nl = ps.nonTypeableLead, tc = ps.typeableCommonStart;
+    L.push('3 Prefix: ' + ps.verdict.toUpperCase() + (ps.verdict === 'unconfigured' ? ' (answer "prefix" read as ' + ps.prefixAnswerReadAs + ': no prefix to test; a lead below is NOT a prefix)'
+      : ps.verdict === 'insufficient-data' ? ' (need ' + ps.prefixNeeds.join(', ') + ')'
+      : ps.verdict === 'trigger-or-wedge-artefact' ? ' (the lead is also on baseline scans: it comes from the trigger or wedge)' : '') + '.');
+    L.push('  Lead ' + (nl.sameLead ? '"' + nl.sameLead + '"' : '(none)') + ': configured run ' + nl.configuredWithLead + ' of ' + nl.configuredScans
+      + ' (missing ' + nl.configuredMissingLead + '); baseline run ' + nl.baselineWithLead + ' of ' + nl.baselineScans + '; typed ' + nl.typedWithLead + ' of ' + nl.typedEntries
+      + '; leads seen in baseline ' + j(nl.baselineLeads) + '; all scans with any lead ' + sp.entriesWithNonTypeableLead + ', typed with any ' + tp.entriesWithNonTypeableLead
+      + '; scans with keystrokes that inserted nothing: ' + sp.entriesWithKeystrokesNotInserted);
+    L.push('  Typeable common start of configured scans: ' + tc.length + ' chars "' + tc.classes + '", in ' + tc.typedEntriesStartingWithIt + ' of ' + nl.typedEntries
+      + ' typed and ' + tc.baselineScansStartingWithIt + ' of ' + nl.baselineScans + ' baseline');
+    L.push('  First keydown (scan): ' + j(sp.firstKeydown) + '  (typed): ' + j(tp.firstKeydown) + '  scan-only: ' + j(ps.scanOnlyFirstKeydown));
+    timingLines(L, 'keypad typing', A.timingSeparation.keys);
+    timingLines(L, 'screen-keyboard typing', A.timingSeparation.soft);
+    L.push('  unmeasurable entries: scan ' + j(A.scan.timing.unmeasurable) + ' typed ' + j(A.typed.timing.unmeasurable));
+    L.push('5 Read-only: ' + A.readonly.eventsSeen + ' events, ' + A.readonly.keydowns + ' keydowns, ' + A.readonly.inputs + ' input, ' + A.readonly.beforeinputs + ' beforeinput, value changed: ' + A.readonly.valueChanged);
+    L.push('6 Paste events: ' + A.paste.events + '; clipboard read: ' + A.paste.clipboardRead.state + '; field focuses followed by a viewport resize: '
+      + A.softKeyboard.focusesFollowedByResizeWithin1500ms + ' of ' + A.softKeyboard.capFocuses + '; keyboard seen: ' + (A.answers.sip || '(unanswered)'));
+    L.push('7 Desktop stations share scanners: ' + (A.answers.desktop || '(unanswered)') + '; pickers type on: ' + (A.answers.typing || '(unanswered)'));
+    L.push('Untrusted (script-made) events: scan ' + A.scan.untrustedEvents + ', typed ' + A.typed.untrustedEvents + '; events in other fields: ' + j(A.eventsInOtherFields));
+    return L;
+  }
+
+  // ---------- Export (privacy: classes by default) ----------
+  // `code` names the physical key; on a punctuation key under an IME (key "Process") it reveals the character, so the
+  // default export keeps only codes of keys that carry no value.
+  var SAFE_CODE = /^(Enter|NumpadEnter|Tab|Escape|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Arrow(Up|Down|Left|Right)|F\d+|(Shift|Control|Alt|Meta|OS)(Left|Right)?|CapsLock|NumLock|ScrollLock|Fn|FnLock|ContextMenu|Pause|PrintScreen)$/;
+  function printableKeyCode(c) { return c === 32 || (c >= 48 && c <= 90) || (c >= 96 && c <= 111) || (c >= 186 && c <= 222); }
+  function exportEvent(x, full) {
+    var o = { t: x.t, ty: x.type };
+    if (x.tSrc !== 'event') o.tSrc = x.tSrc;
+    var charKey = x.key !== null && x.key.length === 1;
+    if (x.key !== null) o.key = charKey ? (full ? ctlLabel(x.key.charCodeAt(0)) : cls(x.key.charCodeAt(0))) : x.key;
+    if (x.keyCode !== null) o.keyCode = (!full && (charKey || printableKeyCode(x.keyCode)) && x.keyCode !== 229) ? 'redacted' : x.keyCode;
+    if (x.code !== null && x.code !== '') o.code = (!full && !SAFE_CODE.test(x.code)) ? 'redacted' : x.code;
+    if (x.keyDerived) o.keyFromKeyCode = 1;
+    if (x.ctrl) o.ctrl = 1; if (x.alt) o.alt = 1; if (x.shift) o.shift = 1; if (x.meta) o.meta = 1;
+    if (x.location) o.loc = x.location;
+    if (x.inputType !== null) o.inputType = x.inputType;
+    if (x.data !== null) { o.dataLen = x.data.length; o.data = full ? codes(x.data) : classes(x.data); }
+    if (x.isComposing) o.composing = 1;
+    if (x.repeat) o.repeat = 1;
+    if (x.trusted === false) o.untrusted = 1;
+    return o;
+  }
+  function exportEntry(en, i, opts) {
+    var a = en.a, o = { n: i + 1, mode: en.mode, typeMethod: en.typeMethod, finishedBy: en.finishedBy, unterminated: en.unterminated,
+      split: en.split, startedAt: en.startedAt, endedAt: en.endedAt, length: a.length,
+      classes: classes(en.value), delivery: a.delivery, counts: a.counts, gapSource: a.gapSource, timingReason: a.timingReason,
+      gapsMs: a.gaps, maxGapMs: a.maxGap, minGapMs: a.minGap, maxGapHandlerMs: a.maxGapHandler, lead: a.lead, firstKeydown: a.firstKeydown,
+      charsSentNotInserted: a.charsSentNotInserted };
+    if (en.splitTail) o.splitTail = true;
+    if (en.rejoined) o.rejoined = en.rejoined;
+    if (en.lateSuffixMs !== undefined) o.lateSuffixMs = en.lateSuffixMs;
+    if (en.afterSilentMs !== undefined) o.afterSilentMs = en.afterSilentMs;
+    if (opts.full) o.valueCodes = codes(en.value);
+    if (opts.raw) o.events = en.events.map(function (x) { return exportEvent(x, opts.full); });
+    return o;
+  }
+  function exportObject(opts) {
+    opts = opts || { raw: $('optRaw').checked, full: $('optFull').checked };
+    var A = analysis();
+    var out = { harness: HARNESS, capturedAt: new Date().toISOString(),
+      privacy: { valueContent: opts.full ? 'FULL CHARACTER CODES (values recoverable)' : 'character classes only (d digit, A upper, a lower, s space, p punctuation, u other, <XX> control code)',
+        rawEvents: !!opts.raw },
+      summary: summaryLines(A) };
+    Object.keys(A).forEach(function (k) { out[k] = A[k]; });
+    out.entries = entries.map(function (en, i) { return exportEntry(en, i, opts); });
+    if (opts.full) out.prefixSignal.typeableCommonStart.codes = codes(scanCommonStart(entries.filter(function (x) { return x.mode === 'scan' && x.phase !== 'baseline'; })));
+    if (opts.raw) out.readonly.events = roEvents.map(function (x) { return exportEvent(x, opts.full); });
+    return out;
+  }
+  function exportText() { return JSON.stringify(exportObject(), null, 1); }
+  function kb(n) { return (n / 1024).toFixed(1) + ' KB'; }
+  function msg(s) { $('exportMsg').textContent = s; }
+
+  $('summarize').addEventListener('click', function () {
+    var text = exportText();
+    $('summary').textContent = exportObject().summary.join('\n');
+    $('size').textContent = kb(text.length) + ($('optRaw').checked ? ' (with raw events)' : '') + ($('optFull').checked ? ' (FULL CODES)' : '');
+  });
+  function showJson(text) {
+    var ta = $('json'); ta.style.display = ''; ta.value = text; ta.focus(); ta.select();
+    try { ta.setSelectionRange(0, text.length); } catch (e) { /* old engines */ }
+  }
+  $('show').addEventListener('click', function () { var text = exportText(); showJson(text); msg('JSON shown below and selected (' + kb(text.length) + '): long-press → Copy.'); });
+  $('copy').addEventListener('click', function () {
+    var text = exportText();
+    var after = ' It is now on the device clipboard: copy something else afterwards to clear it.';
+    function fallback(why) {
+      showJson(text);
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      msg(ok ? 'Copied ' + kb(text.length) + ' via fallback (' + why + ').' + after : 'Copy failed (' + why + '): JSON shown below, long-press → Copy, or use Download.');
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { msg('Copied ' + kb(text.length) + '.' + after); },
+        function (err) { fallback((err && err.name) || 'blocked'); });
+    } else fallback('clipboard API absent' + (window.isSecureContext === false ? ', page is not a secure context' : ''));
+  });
+  $('download').addEventListener('click', function () {
+    var text = exportText(), name = 'sbdev-3132-p0-scan-spike-' + Date.now() + '.json';
+    try {
+      var a = document.createElement('a');
+      var href = (window.Blob && window.URL && URL.createObjectURL) ? URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+        : 'data:application/json;charset=utf-8,' + encodeURIComponent(text);
+      a.href = href; a.download = name; document.body.appendChild(a); a.click();
+      setTimeout(function () { if (/^blob:/.test(href)) URL.revokeObjectURL(href); if (a.parentNode) a.parentNode.removeChild(a); }, 60000);
+      msg('Download triggered (' + name + ', ' + kb(text.length) + ') at ' + new Date().toTimeString().slice(0, 8)
+        + '. The browser may silently ignore it: check Downloads now; if no file is there, use Show JSON or Open in new window.');
+    } catch (e) { msg('Download failed: ' + e + '. Use Show JSON or Open in new window.'); }
+  });
+  $('openWin').addEventListener('click', function () {
+    var text = exportText(), w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    if (!w) { showJson(text); msg('New window blocked: JSON shown below instead.'); return; }
+    try {
+      w.document.open();
+      w.document.write('<!doctype html><meta charset="utf-8"><title>spike JSON</title><pre style="white-space:pre-wrap;word-break:break-all"></pre>');
+      w.document.close();
+      w.document.getElementsByTagName('pre')[0].textContent = text;
+      msg('Opened in a new window (' + kb(text.length) + ').');
+    } catch (e) { showJson(text); msg('New window not writable (' + e + '): JSON shown below instead.'); }
+  });
+  $('discardLast').addEventListener('click', function () {
+    lastSilent = null; pendingSplit = null;
+    if (current) { current = null; clearIdle(); cap.value = ''; prevValue = ''; discarded.manual++; $('last').textContent = 'discarded the open entry'; }
+    else if (entries.length) { var d = entries.pop(); discarded.manual++; $('last').textContent = 'discarded last entry (' + d.mode + ', ' + d.a.length + ' chars)'; }
+    else $('last').textContent = 'nothing to discard';
+    updateCounts();
+  });
+  // Two-step reset: confirm() returns false silently on WebViews without a JS dialog handler.
+  var resetArmed = null;
+  $('reset').addEventListener('click', function () {
+    var btn = $('reset');
+    if (!resetArmed) {
+      btn.textContent = 'Tap again to discard everything'; btn.className = 'armed';
+      resetArmed = later(function () { resetArmed = null; btn.textContent = 'Reset'; btn.className = ''; }, 4000);
+      return;
+    }
+    cancelLater(resetArmed); resetArmed = null; btn.textContent = 'Reset'; btn.className = '';
+    entries = []; roEvents = []; pasteEvents = []; vvEvents = []; focusEvents = []; elsewhere = {};
+    current = null; clearIdle(); pendingSplit = null; lastSilent = null; cap.value = ''; prevValue = ''; $('ro').value = '';
+    stray = { terminators: 0, events: {} }; discarded = { empty: 0, emptyWithKeystrokes: 0, modeSwitch: 0, manual: 0 };
+    ['nScan', 'nBase', 'nType', 'nRo', 'nPaste', 'nVv'].forEach(function (id) { $(id).textContent = '0'; });
+    $('summary').textContent = 'Reset.'; $('json').value = ''; $('json').style.display = 'none'; $('last').textContent = ''; msg(''); updateOpen();
+  });
+
+  // ---------- Sections 2-4 ----------
+  var ro = $('ro'); ro.value = '';
+  ['focus', 'keydown', 'keypress', 'keyup', 'beforeinput', 'input'].forEach(function (type) {
+    ro.addEventListener(type, function (e) {
+      var x = ev(e); x.active = document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : null;
+      roEvents.push(x);
+      $('nRo').textContent = roEvents.length;
+      $('roVal').textContent = ro.value ? ro.value.length + ' chars' : '(empty)';
+    });
+  });
+  // A scan that lands in some other element is visible here (criterion 5 must not be confused with a focus problem).
+  ['keydown', 'input'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      var tg = e.target;
+      if (tg === cap || tg === ro || tg === $('pasteBox')) return;
+      inc(elsewhere, (tg && (tg.id || tg.tagName)) + ':' + type);
+    }, true);
+  });
+
+  var pb = $('pasteBox');
+  ['paste', 'beforeinput', 'drop'].forEach(function (type) {
+    pb.addEventListener(type, function (e) {
+      if (type === 'beforeinput' && !/^insertFrom/.test(e.inputType || '')) return;
+      pasteEvents.push({ t: evTime(e).t, type: e.type, inputType: e.inputType || null });
+      $('nPaste').textContent = pasteEvents.length;
+    });
+  });
+  $('secure').textContent = 'secure context: ' + window.isSecureContext + ' (' + location.protocol + ')';
+  $('clipRead').addEventListener('click', function () {
+    clipboardRead = { state: 'trying', isSecureContext: window.isSecureContext, protocol: location.protocol };
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      clipboardRead.state = 'API absent' + (window.isSecureContext === false ? ' (not a secure context: inconclusive)' : '');
+      $('clipRes').textContent = clipboardRead.state; return;
+    }
+    navigator.clipboard.readText().then(function (s) { clipboardRead.state = 'allowed (' + s.length + ' chars)'; $('clipRes').textContent = clipboardRead.state; },
+      function (err) {
+        clipboardRead.state = 'denied: ' + (err && err.name); clipboardRead.message = err && String(err.message).slice(0, 200);
+        $('clipRes').textContent = clipboardRead.state + (err && err.name === 'NotAllowedError' ? ' (a permission outcome, not necessarily an MDM block)' : '');
+      });
+  });
+
+  function vvSample(e, kind) {
+    var v = window.visualViewport;
+    vvEvents.push({ t: evTime(e).t, kind: kind, vvH: v ? Math.round(v.height) : null, vvTop: v ? Math.round(v.offsetTop) : null,
+      scale: v ? r1(v.scale) : null, innerH: window.innerHeight, innerW: window.innerWidth });
+    $('nVv').textContent = vvEvents.length;
+    $('vvNow').textContent = 'height ' + (v ? Math.round(v.height) : window.innerHeight) + 'px';
+  }
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', function (e) { vvSample(e, 'visualViewport'); });
+  else $('vvNow').textContent = 'visualViewport not supported; using window resize';
+  window.addEventListener('resize', function (e) { if (!window.visualViewport) vvSample(e, 'window'); });
+
+  // ---------- Section 5: API probe ----------
+  function describe(v) {
+    var d = { type: typeof v };
+    try { d.tag = Object.prototype.toString.call(v); } catch (e) { d.tag = 'error ' + e.name; }
+    if (v && (typeof v === 'object' || typeof v === 'function')) {
+      var m = [];
+      try {
+        for (var k in v) {                       // JavascriptInterface methods show up here, not in Object.keys
+          if (m.length >= 40) { m.push('…'); break; }
+          var ty; try { ty = typeof v[k]; } catch (e2) { ty = 'error'; }
+          m.push(k + ':' + ty);
+        }
+      } catch (e) { d.membersError = e.name + ': ' + e.message; }
+      d.members = m;
+      try { d.ownNames = Object.getOwnPropertyNames(v).slice(0, 40); } catch (e) { d.ownNamesError = e.name; }
+    }
+    try { var s = String(v); d.str = s.length > 80 ? s.slice(0, 80) + '…' : s; } catch (e) { d.strError = e.name; }
+    return d;
+  }
+  var MINE = { __spike: 1, __spikeTestClock: 1 };
+  var NAMED = ['EB', 'Honeywell', 'honeywell', 'hwl', 'HWL', 'sip', 'Scanner', 'scanner', 'ScanAPI', 'DataWedge', 'Android', 'android', 'barcode', 'Barcode', 'webkit'];
+  var SCANNERISH = /scan|barcode|decod|wedge|honeywell|hwl|symbol|zebra|datawedge|intent|^eb|enterprise|sip|bridge/i;
+  var nativeFn = /\{\s*\[native code\]\s*\}\s*$/;
+  function probeApis(trigger) {
+    var p = { trigger: trigger, t: rel(nowMs()) };
+    try {
+      var known = null, knownNav = null, f = null;
+      try {
+        f = document.createElement('iframe'); f.style.display = 'none'; document.body.appendChild(f);
+        var kw = {}; Object.getOwnPropertyNames(f.contentWindow).forEach(function (k) { kw[k] = 1; });
+        var kn = {}; for (var nk in f.contentWindow.navigator) kn[nk] = 1;
+        known = kw; knownNav = kn;
+      } catch (e) { p.iframeError = String(e).slice(0, 200); }
+      try { if (f && f.parentNode) f.parentNode.removeChild(f); } catch (e) { /* ignore */ }
+      p.instrumentA = known ? 'iframe diff' : 'UNAVAILABLE (iframe failed): only instrument B used, so a vendor global present in every frame AND non-enumerable would be missed';
+      var extra = known ? Object.getOwnPropertyNames(window).filter(function (k) { return !known[k] && !MINE[k]; }) : [];
+      // Instrument B: enumerable writable data properties that are not native functions (a global injected
+      // into every frame hides from the iframe diff). A bound function prints as native, so keep "bound ...".
+      Object.keys(window).forEach(function (k) {
+        try {
+          if (MINE[k] || extra.indexOf(k) >= 0) return;
+          var d = Object.getOwnPropertyDescriptor(window, k);
+          if (!d || !('value' in d) || !d.writable || d.value === window) return;
+          if (typeof d.value === 'function') {
+            var src = null; try { src = Function.prototype.toString.call(d.value); } catch (e) { src = null; }
+            if (src !== null && nativeFn.test(src) && !/^bound /.test(d.value.name || '')) return;
+          }
+          extra.push(k);
+        } catch (e) { extra.push(k + ' (error ' + e.name + ')'); }
+      });
+      extra.sort();
+      p.extraGlobalsTotal = extra.length;
+      // Names that look like a scanner API are listed and described wherever they sort; the rest fill up to the caps.
+      var hot = extra.filter(function (k) { return SCANNERISH.test(k); });
+      var rest = extra.filter(function (k) { return !SCANNERISH.test(k); });
+      p.extraGlobals = hot.concat(rest).slice(0, 200);
+      p.details = {};
+      hot.concat(rest.slice(0, 30)).slice(0, 60).forEach(function (k) { try { p.details[k] = describe(window[k]); } catch (e) { p.details[k] = 'error ' + e.name; } });
+      p.namedGlobals = {};
+      NAMED.forEach(function (k) { try { if (window[k] !== undefined) p.namedGlobals[k] = describe(window[k]); } catch (e) { p.namedGlobals[k] = 'error ' + e.name; } });
+      var navExtra = [];
+      try { Object.keys(navigator).forEach(function (k) { navExtra.push(k); }); } catch (e) { p.navigatorError = e.name; }
+      if (knownNav) { try { for (var k2 in navigator) if (!knownNav[k2] && navExtra.indexOf(k2) < 0) navExtra.push(k2); } catch (e) { p.navigatorError = e.name; } }
+      p.navigatorExtras = navExtra.sort().slice(0, 50);
+      p.navigatorDetails = {};
+      p.navigatorExtras.slice(0, 20).forEach(function (k) { try { p.navigatorDetails[k] = describe(navigator[k]); } catch (e) { p.navigatorDetails[k] = 'error ' + e.name; } });
+      try { p.documentExtras = Object.keys(document).filter(function (k) { return k !== 'location'; }).slice(0, 50); } catch (e) { p.documentError = e.name; }
+      var uad = null;
+      try { if (navigator.userAgentData) uad = { brands: navigator.userAgentData.brands, mobile: navigator.userAgentData.mobile, platform: navigator.userAgentData.platform }; } catch (e) { uad = 'error'; }
+      p.env = { userAgent: navigator.userAgent, userAgentData: uad, platform: navigator.platform, isSecureContext: window.isSecureContext,
+        protocol: location.protocol, topIsSelf: window.top === window, devicePixelRatio: window.devicePixelRatio,
+        maxTouchPoints: navigator.maxTouchPoints, screen: screen.width + 'x' + screen.height };
+    } catch (e) { p.error = String(e).slice(0, 200); }
+    apiProbes.push(p);
+    if (apiProbes.length > 12) apiProbes.splice(1, 1);   // keep the first probe and the latest ones
+    $('apis').textContent = 'probe #' + apiProbes.length + ' (' + trigger + ')\n' + JSON.stringify(p, null, 1);
+    return p;
+  }
+  $('reprobe').addEventListener('click', function () { probeApis('button'); });
+  window.addEventListener('load', function () { probeApis('load'); setTimeout(function () { probeApis('load+2s'); }, 2000); });
+
+  probeApis('initial');
+  // Exposed only for the harness's own headless self-test. Do not copy into production code.
+  window.__spike = { analysis: analysis, exportObject: exportObject, summaryLines: summaryLines, probeApis: probeApis,
+    result: function () { return exportObject({ raw: false, full: false }); } };
+})();
+</script>
+</body>
+</html>

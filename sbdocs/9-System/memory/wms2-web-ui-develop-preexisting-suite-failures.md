@@ -1,8 +1,11 @@
 ---
 name: wms2-web-ui-develop-preexisting-suite-failures
-description: wms2-web-ui develop is FULLY green (768/768, 64/64 suites) — the "2 always-red suites" was a STALE node_modules, not a repo condition
+description: "wms2-web-ui develop is FULLY green (768/768, 64/64 suites) — the \"2 always-red suites\" was a STALE node_modules, not a repo condition"
 metadata:
+  node_type: memory
   type: project
+  originSessionId: 73044a3b-94bc-4eac-81f7-0e33353ba62c
+  modified: 2026-10-29T02:30:42.264Z
 ---
 
 **CORRECTED 2026-08-27.** Earlier notes recorded "2 always-red Jest suites, 0 failing tests" on
@@ -37,6 +40,30 @@ npm install --no-save --no-audit --no-fund exceljs@^4.4.0 zpl-renderer-js@^4.0.0
 `yarn` is NOT on PATH; use an nvm node plus `node_modules/.bin/jest`. Prefer `--coverage=false` for
 targeted runs — see [[wms2-web-ui-coverage-instrumentation-disarms-render-source-pins]].
 
+**Update 2026-10-29 (SBDEV-3591, on the Mac):** the gap has grown to **4 packages and 5 suites**. The
+missing packages are `exceljs`, `zpl-renderer-js`, `@openobserve/browser-rum` and `@openobserve/browser-logs`.
+The 5 suites that fail to load are `labelCsvUpload`, `zplPreview`, `telemetry`, `keycloak-ready` and
+`keycloak-logout-clears-state`. `telemetry.js` imports browser-logs too, so installing only browser-rum is not
+enough. With all 4 present, develop+branch went 143/143 suites, 2533/2533 tests. BSD `cp` has no `-s`, so on the
+Mac, build the farm and keep npm away from the shared tree:
+
+```bash
+X=<scratchpad>/webui-missing-deps; mkdir -p $X && cd $X && echo '{"name":"overlay","private":true}' > package.json
+npm install --no-audit --no-fund --ignore-scripts exceljs@^4.4.0 zpl-renderer-js@^4.0.0 @openobserve/browser-rum@0.4.1 @openobserve/browser-logs@0.4.1
+cd <worktree>; M=<main checkout>/node_modules; rm node_modules; mkdir node_modules
+for e in "$M"/* "$M"/.[!.]*; do [ -e "$e" ] && ln -s "$e" "node_modules/$(basename "$e")"; done
+ln -s $X/node_modules/exceljs $X/node_modules/zpl-renderer-js $X/node_modules/@openobserve node_modules/
+```
+
+⚠ **wms2-web-ui CI runs NO Jest** (its "Docker Image CI" only builds). A suite that does not load locally is graded
+by nobody. Never write "CI will catch it" in a web-ui PR. SBDEV-3591 did that and had to correct it.
+
 **Treat any red suite here as a real signal now.** See also
 [[run-wms2-mobile-ui-jest-tests]] (mobile has 19 suites / 226 tests, all green) and
 [[wms2-develop-preexisting-test-failures]] for the Java side.
+
+**Update 2026-10-29 (SBDEV-3949, Mac):** with the 4-package overlay, develop is green EXCEPT one load-flaky test:
+`test/store/reports/returnsAudit.spec.js` › *SBDEV-3769 export — pages through until totalElements…* failed in 3 of 6
+full runs (develop and branch alike) and passes 3/3 alone. Rerun before reading it as a regression. Also:
+the Mac's nvm default is **Node 8.12** (Jest 27 cannot run on it) — use `~/.nvm/versions/node/v18.20.5/bin`.
+macOS has no `timeout` command, so `timeout N jest …` exits 127, not a hang.

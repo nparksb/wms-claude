@@ -27,3 +27,5 @@ Fixed in owl commits `074c81f` through `768abe3`. 768abe3 adds `.claude/scripts/
 - Lows: an unclosed `portability-check: off` silences the rest of a file; a NEW copy of a helper is exempt and never compared; false positives possible on `xargs rm -rf` / `go test -v`; JAVA_TOOL_OPTIONS breaks plan-state's JDK version check; 0-byte files pass negative checks; fences spelled `shell`/`~~~` are not scanned; U14's -E exemption is line-wide; stale helper comments in 2732/2854; 2967-C T6 passes when its test file is missing.
 
 Related: [[grep-is-ugrep-skips-binary-without-dash-a]], [[a-zero-scan-needs-a-positive-control]].
+
+**"bash 5" on this Mac is a false claim (2026-11-04, PR #617).** `bash` on PATH here is `/bin/bash` 3.2.57 too — running a harness under `/bin/bash` and `bash` tests 3.2 twice. I reported "green on bash 3.2 and bash 5" and Nam's "were the changes reviewed?" exposed it. **How to apply:** for a real Linux/GNU run use `docker run --rm -v "$PWD":/w:ro -w /w debian:bookworm-slim bash -c 'apt-get update -qq && apt-get install -y -qq git >/dev/null; bash <harness> <script>'` and check `bash --version` in the output before claiming it.

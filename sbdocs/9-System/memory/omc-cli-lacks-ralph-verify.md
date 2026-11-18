@@ -1,24 +1,27 @@
 ---
 name: omc-cli-lacks-ralph-verify
-description: "Installed omc CLI 4.14.6 has no `ralph` subcommand, but the ralph skill (plugin 5.7.1) hard-requires `omc ralph verify` — ralph cannot start"
+description: "Old 4.x global omc copies shadowed the plugin CLI (no ralph); removed 2026-10-24 and replaced by ~/.local/bin/omc shim → plugin CLI, so ralph now works"
 metadata:
   node_type: memory
   type: project
   originSessionId: aefd6ebc-347a-42e3-978c-8dcf5a2e52fc
-  modified: 2026-10-13T21:12:36.573Z
+  modified: 2026-10-24T13:41:08.709Z
 ---
 
-On 2026-10-13 (SBDEV-3755 Fix 1), `wms-plan-executor` Phase 1 invoked the ralph skill, whose
-NON-NEGOTIABLE precondition is `omc ralph verify --write-baseline --session <id>`. The globally
-installed CLI (`~/.nvm/.../bin/omc`, version 4.14.6) has no `ralph` subcommand at all; the loaded
-ralph skill comes from the oh-my-claudecode plugin cache 5.7.1. The skill says STOP if the command
-is unavailable, so ralph cannot run until the CLI is updated (`omc update`, a global npm change —
-ask Nam first).
+**Corrected 2026-10-24.** The 2026-10-13 version of this memory said "ralph cannot start because the installed CLI lacks `ralph`". The real cause is that a **stale `omc` shadows the plugin's CLI on PATH**.
 
-**Why:** the skill and CLI versions drifted; the skill forbids a hand-rolled fallback.
+On 2026-10-24, Nam is on plugin **5.7.11**: `~/.claude/plugins/installed_plugins.json` points at `cache/omc/oh-my-claudecode/5.7.11`. That plugin's own CLI has ralph: `node ~/.claude/plugins/cache/omc/oh-my-claudecode/5.7.11/bridge/cli.cjs ralph --help` works and reports 5.7.11. But `which -a omc` resolves to three old global installs of `oh-my-claude-sisyphus`, and none of them has `ralph`:
 
-**How to apply:** at T3 Phase 1, check `omc --version` before invoking ralph. If it is still 4.x,
-ask Nam: he chose (2026-10-13) "opus executor, no ralph" — one executor running the plan's stories
-in order with the same contract (gate tests are the DoD, no weakening, stop on design problems,
-commit per story, no push), with the floor (PIT, full -Pci suite vs baseline, verifier + review
-lanes) still run by the main session. See [[wms-fix-effort-tiers-and-the-floor]].
+- `~/.bun/bin/omc`: 4.7.10. This one is **first on PATH**.
+- `~/.nvm/.../v22.16.0/bin/omc`: 4.14.6.
+- `/usr/local/bin/omc`: 4.13.5.
+
+A session started before a plugin update also loads skill text from the older cache dir. This session showed 5.7.4.
+
+**Why:** the ralph skill hard-requires `omc ralph verify`. Bare `omc` hits the bun 4.7.10 copy, so ralph looks unavailable even though the plugin supports it.
+
+**2026-10-24, later:** at Nam's request, all three old global copies were REMOVED (bun, nvm npm, /usr/local npm). Then a shim was added at `~/.local/bin/omc` (first on PATH). It reads `installPath` from `installed_plugins.json` on every call and execs `bin/oh-my-claudecode.js`. Verified: `omc --version` reports 5.7.11 and `omc ralph --help` works. **Ralph is usable from now on**, in sessions started after this point; an older session may still hold the 5.7.4 skill text.
+
+**How to apply:**
+- At T3 Phase 1, run `omc --version`. If it is 4.x, either call the plugin CLI by its full path or ask Nam to fix PATH. Fixing PATH means removing or upgrading the global copies, which is a global install change, so ask first.
+- The fallback Nam approved on 2026-10-13 still stands: an opus executor with the same contract, with the floor and review lanes run by the main session. See [[wms-fix-effort-tiers-and-the-floor]].

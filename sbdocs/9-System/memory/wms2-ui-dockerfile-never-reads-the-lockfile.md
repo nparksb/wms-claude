@@ -1,6 +1,6 @@
 ---
 name: wms2-ui-dockerfile-never-reads-the-lockfile
-description: "Both v2 UI Dockerfiles resolved deps fresh per build — `COPY package*.json` doesn't glob yarn.lock, so every tracked lockfile pinned nothing that shipped"
+description: "RESOLVED (mobile ce42662; web-ui SBDEV-4079, 2026-11-09): both v2 UI images now build from a tracked yarn.lock with --frozen-lockfile. History: COPY package*.json never globbed yarn.lock"
 metadata: 
   node_type: memory
   type: reference
@@ -33,6 +33,16 @@ Fixes applied on the RUM branches: mobile got `COPY package.json yarn.lock ./` +
 exits 0 against the tracked lockfile); web-ui got exact `0.4.1` pins in `package.json`
 for the new deps, since it has no lockfile to copy.
 
-**When adding a dependency to a v2 UI, check which repo you are in** — web-ui still has
-no lockfile, so only an exact version in `package.json` pins anything there. Related:
+**RESOLVED for both repos.** mobile-ui `ce42662` (2026-08-27); **web-ui SBDEV-4079, #207
+`7a53f5c6` (2026-11-09)**: yarn.lock tracked (fresh resolve, not `yarn import` — the old
+package-lock.json was stale vs what shipped by ~199 packages), package-lock.json deleted and
+gitignored, Dockerfile + CI `test` job use `--frozen-lockfile`. Dev test proved the served bundle
+carries the yarn.lock versions (keycloak-js 26.2.5 tokens present). **Now: a dependency change
+in either v2 UI must commit the regenerated yarn.lock, or the build fails.** Related:
 [[wms2-ui-develop-tag-race-deploys-older-code]], [[wms2-ui-openobserve-rum-rollout]].
+
+**Addendum 2026-10-30 (SBDEV-3949, PR #188).** Seen again as a *registry race*: the develop build
+(run 40914357549) failed at `yarn install` with `Couldn't find any versions for "@babel/parser" that
+matches "^7.29.12"`. That version was published 16:43:44Z, the build resolved at 16:43:48Z, and a sibling
+Babel package released at the same moment already depended on it. Diagnose with the registry's `time`
+map (`curl -s https://registry.npmjs.org/<pkg>`), then `gh run rerun <id> --failed`; the rerun passed.

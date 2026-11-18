@@ -6,9 +6,9 @@ version: v2
 scope: multi-tenancy
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-07-26
-last_verified: 2026-07-26
-verified_by: SBDEV-2727 `active` column added to §2 (tenant_discovery + tenant_db_configuration) + §7.8 split-brain landmine — code read of landlord/model + service 2026-07-26; entity enumeration carries forward the 2026-07-15 verification
+updated: 2026-11-11
+last_verified: 2026-11-11
+verified_by: full re-verification vs wms2-api origin/develop df30fa62 on 2026-11-11 (entity/repository/table enumeration, landlord Flyway, transaction-manager wiring); see §9
 related:
   - ../architecture/wms2-tenant-routing-datasource-topology.md
   - ../architecture/wms2-transaction-osiv-boundary-map.md
@@ -25,7 +25,7 @@ tags:
 # WMS v2 — Landlord vs Tenant Entity Map
 
 **Scope:** Which JPA entity lives in which physical DB in `v2/wms2-api` · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-04-19
+**Owner:** Nam Park · **Last verified:** 2026-11-11 (wms2-api `df30fa62`)
 
 ---
 
@@ -36,12 +36,12 @@ tags:
 | Side | Entities | Repositories | Package |
 |---|---|---|---|
 | Landlord | 4 | 4 | `net.aim_ai.wms.landlord.model` / `...landlord.jpa` |
-| Tenant | 63 | 62 | `net.aim_ai.wms.model` / `...repo.jpa` |
+| Tenant | 69 | 69 | `net.aim_ai.wms.model` / `...repo.jpa` |
 
 One reference table to scan whenever you're about to:
 
 - Add a new `@Transactional` — to pick the right manager qualifier (`landlordTransactionManager` for landlord entities, `tenantTransactionManager` for tenant entities).
-- Plan a schema migration — landlord schema is one SQL file; tenant schema is N copies (one per tenant-facility).
+- Plan a schema migration — landlord schema is one Flyway line (`db/landlord-migration/`); tenant schema is N copies of `db/migration/` (one per tenant-facility).
 - Debug a "not found" or "wrong schema" error — the entity name tells you which DB was queried.
 - Audit PgBouncer routing rules — every landlord entity must route to the landlord connection string.
 
@@ -57,7 +57,7 @@ Four tables only. All of them describe *which* tenant exists and *how* to connec
 
 | Class | Table | Purpose |
 |---|---|---|
-| `Tenant` | `tenant` | Tenant record (name, facility codes list, active flag) |
+| `Tenant` | `tenant` | Tenant record (`name`, `description`, audit timestamps; no facility-code list and no `active` flag on the entity). The table also has `is_demo boolean NOT NULL DEFAULT false` (V2.1.02, SBDEV-3868) — **native-SQL only, deliberately not mapped on the entity**; demo-reset refuses any tenant without it. |
 | `TenantDbConfiguration` | `tenant_db_configuration` | JDBC URL / user / password / HikariCP overrides per tenant-facility. **`active boolean NOT NULL DEFAULT true`** (SBDEV-2727) gates the request-path routing surface — `getAllDbConfigurations` filters `findByActiveTrue`. |
 | `TenantAuthConfiguration` | `tenant_auth_configuration` | Keycloak server / realm / client ID per tenant |
 | `TenantDiscovery` | `tenant_discovery` | Subdomain / facility-code → tenant resolution metadata. **`active boolean NOT NULL DEFAULT true`** (SBDEV-2727) gates the login/discovery surface — `getTenantDiscoveryByKey` filters `findByKeyAndActiveTrue`; no `tenant_id` FK, so it can't be driven off `Tenant.active`. |
@@ -71,7 +71,9 @@ Repositories (1:1):
 | `TenantAuthConfigurationRepository` | `TenantAuthConfiguration` |
 | `TenantDiscoveryRepository` | `TenantDiscovery` |
 
-**Landlord write paths:** very few. Mostly read-only at runtime; writes happen at tenant onboarding. `TenantConfigLoader` refreshes the two config-cache-backing tables every 5 minutes but doesn't write.
+**Landlord write paths:** very few. Mostly read-only at runtime. Writes come from `TenantWarehouseProvisioningService` (SBDEV-3868 warehouse provisioning / demo reset), which uses native `JdbcTemplate` `INSERT`/`UPDATE` on `tenant`, `tenant_db_configuration`, `tenant_auth_configuration` and `tenant_discovery` rather than the JPA repositories. `TenantConfigLoader` refreshes the two config-cache-backing tables every 5 minutes (`wms.tenant.config.refresh-interval-ms`, default 300000) but doesn't write.
+
+**Schema management:** the landlord schema **is** Flyway-managed — `StartupFlywayMigrator` applies `classpath:db/landlord-migration` (`V2.1.00` baseline, `V2.1.01`, `V2.1.02`) to the landlord DB on every boot, before the tenant DBs. The landlord persistence unit still runs `ddl-auto=none`. See `db/landlord-migration/README.md`.
 
 ---
 
@@ -82,17 +84,19 @@ Repositories (1:1):
 **Multi-tenancy strategy:** `hibernate.multiTenancy=DATABASE` via `TenantIdentifierResolver` → `TenantDynamicRoutingDataSource`
 **Config:** `landlord/config/TenantDatabaseConfig.java`
 
-All 64 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-packages). Grouped below by domain.
+All 69 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-packages). Grouped below by domain. Entity-by-entity `equals()`/`hashCode()` status is in [wms2-entity-enumeration-report.md](../architecture/wms2-entity-enumeration-report.md).
 
-### 3.1 Order management (5)
+### 3.1 Order management (7)
 
 | Class | Table | Notes |
 |---|---|---|
-| `Customerorder` | `customerorder` | 38 fields, Integer `state` — primary business entity |
+| `Customerorder` | `customerorder` | Integer `state` — primary business entity |
 | `CustomerorderPosition` | `customerorder_position` | Order line |
 | `CustomerorderBatch` | `customerorder_batch` | Batch / pick wave |
 | `Billoflading` | `billoflading` | BOL header, String `state` |
 | `BillofladingPosition` | `billoflading_position` | BOL line |
+| `CustomerorderCancellationLog` | `customerorder_cancellation_log` | Order-cancellation / pending-reversal log. Standalone (`IDENTITY` id, not `AbstractBaseEntity`); declares its own `@Version Integer version` |
+| `ClubRunJob` | `club_run_job` | Submitted club run (SBDEV-4007, V2.2.47). `@Immutable`, standalone, read-only via JPA; all writes are native SQL in `ClubRunJobRepository`. Polled by `ClubRunJobPollerJob` |
 
 ### 3.2 Picking (3)
 
@@ -121,9 +125,9 @@ All 64 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-
 
 | Class | Table | Notes |
 |---|---|---|
-| `Stockrecord` | `stockrecord` | 26 fields, stock ledger |
+| `Stockrecord` | `stockrecord` | Stock ledger |
 | `Stockunit` | `stockunit` | Current stock level snapshot (no state field — see state-machine catalog §4.11) |
-| `InventoryRecord` | `inventory_record` | Written by `StockSummaryExportJob` |
+| `InventoryRecord` | `inventory_record` | Written by `StockSummaryExportJob`; a run OMS did not fully receive (POST threw, or the producer failed) deletes the rows it committed, so a retry never stacks a second snapshot on a partial one ✓ merged(SBDEV-4110: #667 736b6f4b, 2026-11-12) |
 
 ### 3.6 Unit loads / pallets (3)
 
@@ -143,7 +147,7 @@ All 64 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-
 | `LocationRack` | `location_rack` | Rack |
 | `LocationRackRow` | `location_rack_row` | Rack row |
 | `LocationConstraint` | `location_constraint` | Business rules on a location |
-| `FixLocationAssignment` | `fix_location_assignment` | Item → fixed location binding (heavily read by `ReplenishOrderJob`) |
+| `FixLocationAssignment` | `fix_location_assignment` | Item → fixed location binding (heavily read by `ReplenishOrderJob`). ✓ merged(SBDEV-3128: #601 4643acf5, 2026-11-02): V2.2.45 adds an unmapped `bounds_inherited` column (native SQL only); `location` likewise gains unmapped `default_lowerbound/_middlebound/_upperbound` |
 
 ### 3.8 Cycle count (2)
 
@@ -174,14 +178,14 @@ All 64 tenant entities live in `net/aim_ai/wms/model/` (flat package — no sub-
 | `Sysprop` | `los_sysprop` | Per-tenant sysprops (see [wms2-sysprop-catalog.md](./wms2-sysprop-catalog.md)) |
 | `Section` | `section` | Warehouse section — drives picking type (TOTES_ON_CART, RAPID_PICKING) |
 | `Client` | `client` | Tenant's customer / client reference |
-| `Itemdata` | `itemdata` | SKU master, 33 fields |
+| `Itemdata` | `itemdata` | SKU master |
 | `Itemunit` | `itemunit` | Unit-of-measure conversions |
 | `Boxtype` | `boxtype` | Box dimension definitions |
 | `LosSequencenumber` | `los_sequencenumber` | Global sequence counters (hot pessimistic-lock site) |
 | `Printer` | `printer` | Printer registry |
 | `Queryrepository` | `queryrepository` | Saved query / report definitions |
 
-### 3.12 User / security (9)
+### 3.12 User / security (8)
 
 All per-tenant — there is no shared user directory. Tables are prefixed `mywms_` (legacy naming).
 
@@ -195,15 +199,17 @@ All per-tenant — there is no shared user directory. Tables are prefixed `mywms
 | `UserRoleUserFunction` | `mywms_role_mywms_function` | M:M join |
 | `UserGroupUser` | `mywms_group_mywms_user` | M:M join |
 | `UserGroupUserRole` | `mywms_group_mywms_role` | M:M join |
-| `UserRepresentationWithTempPw` | `userrepresentationwithtemppw` | DTO for password provisioning flows |
 
-### 3.13 Integration / infrastructure (1)
+### 3.13 Integration / infrastructure / audit (4)
 
 | Class | Table | Notes |
 |---|---|---|
 | `RestIdempotency` | `rest_idempotency` | Dedup table for inbound `/rest/**` POST/PUT requests (SBDEV-2222). Natural PK `idempotency_key VARCHAR(64)`. Does NOT extend `AbstractBaseEntity` — uses `LocalDateTime createdAt/updatedAt` directly. Cleaned up nightly by `RestIdempotencyCleanupJob` (7-day retention). |
+| `OutboxMessage` | `outbox_message` | Transactional outbox (SBDEV-2221); polled by `OutboxDispatcherJob`. Own `@Version Long version`. |
+| `PutawayConfigAudit` | `putaway_config_audit` | One row per putaway-destination change (SBDEV-2732). Standalone (`IDENTITY` id); own `@Version`. |
+| `ManualEntryOverride` | `mobile_manual_entry_override` | Manual-entry override attempts + throttle state (SBDEV-3132). Standalone (`IDENTITY` id); own `@Version`. |
 
-### 3.14 Report views / DTO entities (11)
+### 3.14 Report views / DTO entities (13)
 
 All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `save()` any of these.
 
@@ -218,6 +224,7 @@ All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `sa
 | `ReceivedDtoView` | `received_dto_view` | Received summary |
 | `CyclecountDtoView` | `cyclecount_dto_view` | Cycle count dashboard |
 | `StockView` | `stock_view` | Stock overview |
+| `StockrecordView` | `stockrecord_view` | Stock Unit Record report projection (SBDEV-3410) |
 | `ViewWarehouseLocationReport` | `view_warehouse_location_report` | Location report |
 | `LockOverviewDtoView` | `lock_overview_dto_view` | Locked-pick visibility (default; excludes Shipped=405 — SBDEV-2474) |
 | `LockOverviewAllDtoView` | `lock_overview_all_view` | Locked-pick visibility incl. Shipped ("Include Shipped Locks" toggle — SBDEV-2474) |
@@ -228,15 +235,9 @@ All backed by SQL views in the tenant DB. Used by monitor dashboards; do not `sa
 
 Landlord: 4 repos for 4 entities — 1:1. All under `net/aim_ai/wms/landlord/jpa/`.
 
-Tenant: 63 repos for 64 entities — one of the view entities has no explicit repository. All under `net/aim_ai/wms/repo/jpa/`. Full 1:1 list is noisy; the rule is **repo name = entity name + `Repository`** with these confirmed exceptions:
+Tenant: 69 repos for 69 entities — strictly 1:1, including every view entity. All under `net/aim_ai/wms/repo/jpa/`. The rule is **repo name = entity name + `Repository`** with **no exceptions** (checked for all 73 entities: `Billoflading` → `BillofladingRepository`, `CustomerorderPosition` → `CustomerorderPositionRepository`, `ShippingmethodShipperid` → `ShippingmethodShipperidRepository`, every `*View` → `*ViewRepository`, …).
 
-- `Billoflading` → `BillofladingRepository` (confusingly named, but correct)
-- `BillofladingPosition` → `BillofladingPositionRepository` (with Position suffix)
-- `CustomerorderPosition` → `CustomerorderPositionRepository`
-- `ShippingmethodShipperid` → `ShippingmethodShipperidRepository`
-- All `*View` classes use `*Repository` (view-backed).
-
-If you need a specific entity's repo, see `net/aim_ai/wms/repo/jpa/` — naming is deterministic.
+If you need a specific entity's repo, see `net/aim_ai/wms/repo/jpa/` — naming is deterministic. Spring Data projections live separately in `repo/projection/` (60 interfaces) and are not entities.
 
 ---
 
@@ -249,7 +250,7 @@ No entity class name is used on both sides. Intentional boundaries:
 | `Tenant`, `TenantDbConfiguration`, `TenantAuthConfiguration`, `TenantDiscovery` | (no `Tenant*` entities — tenancy is context, not data) |
 | — | `User`, `UserRole`, `UserGroup`, `UserFunction` (per-tenant user directory) |
 
-Note the runtime-only `TenantContext` / `TenantProfile` / `TenantKeyBuilder` are infrastructure classes in `landlord/config/` — **they are not entities** and do not correspond to DB rows. See [wms2-tenant-routing-datasource-topology.md](../architecture/wms2-tenant-routing-datasource-topology.md) for their role.
+Note the runtime-only `TenantContext` / `TenantKeyBuilder` (`landlord/config/`) and `TenantProfile` (`landlord/json/`) are infrastructure classes — **they are not entities** and do not correspond to DB rows. See [wms2-tenant-routing-datasource-topology.md](../architecture/wms2-tenant-routing-datasource-topology.md) for their role.
 
 ---
 
@@ -268,12 +269,12 @@ Consequence: there are no cross-DB foreign keys, no distributed joins, no `Chain
 
 1. **Bare `@Transactional` routes to landlord.** See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §5 Rule 1. An unqualified `@Transactional` on a tenant service method uses the landlord manager — which either commits to the wrong DB or throws "entity not managed" depending on the entity's persistence unit. This is the single most common mistake when adding new service methods. Use `@Transactional("tenantTransactionManager")` or the `@TenantTransactional` meta-annotation.
 2. **`Sysprop` table is tenant-scoped.** The sysprop catalog feels like system configuration, but each tenant has its own row set. Debugging a "config value not found" often traces back to a tenant-specific row being missing — the landlord has no say.
-3. **Views use `*Repository` but you can't `save()` them.** All 12 view entities (§3.13) are read-only. A `.save(...)` call on one will fail with a database-level permission or non-insertable-target error. Guard against this in code review.
+3. **Views use `*Repository` but you can't `save()` them.** All 13 view entities (§3.14) are read-only. A `.save(...)` call on one will fail with a database-level permission or non-insertable-target error. Guard against this in code review.
 4. **`mywms_*` table names ≠ class names.** User / role / group tables use the legacy `mywms_` prefix. When reading raw SQL logs, map `mywms_user` → class `User` etc. Don't grep the codebase for `mywms_user` expecting to find Java usages.
 5. **`los_sysprop` and `los_sequencenumber` likewise.** The `los_` prefix is a legacy naming convention. Only these two tenant tables carry it.
 6. **Schema drift per tenant is possible.** Each tenant DB runs migrations independently. If a migration fails on tenant A but succeeds on tenant B, you have heterogeneous schema state and must reconcile manually — there's no central tracker.
-7. **`LosSequencenumber` is the only entity that both declares its own `@Version` and carries a pessimistic-write lock.** See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.2 — treat this as a hot row; do not add optimistic-only callers.
-8. **Tenant deactivation lives on TWO `active` flags — flip both (SBDEV-2727).** `tenant_discovery.active` gates login/discovery and `tenant_db_configuration.active` gates API routing; there is **no** single `Tenant.active` that drives them (`TenantDiscovery` has no `tenant_id` FK). Setting only one leaves a split-brain (new logins blocked but existing sessions route, or vice-versa). Use the atomic both-table `UPDATE` in `db/landlord/L001__add_active_flag.sql`. The landlord schema is not Flyway-managed (`ddl-auto=none`) — apply L001 to every landlord DB before the JAR ships. See [wms2-tenant-routing-datasource-topology.md](../architecture/wms2-tenant-routing-datasource-topology.md) §10.13 for the routing/eviction detail.
+7. **`LosSequencenumber` is the hot pessimistic-lock row.** It declares its own `@Version` (it does not extend `AbstractBaseEntity`) *and* is read under `PESSIMISTIC_WRITE` (`LosSequencenumberRepository.java:25`). It is **no longer the only** entity with its own `@Version`: `CustomerorderCancellationLog`, `OutboxMessage`, `PutawayConfigAudit` and `ManualEntryOverride` do too, and `CustomerorderCancellationLogRepository` also has a `PESSIMISTIC_WRITE` query (multi-row lock on pending reversals). See [wms2-transaction-osiv-boundary-map.md](../architecture/wms2-transaction-osiv-boundary-map.md) §8.2 — treat the sequence row as a hot row; do not add optimistic-only callers.
+8. **Tenant deactivation lives on TWO `active` flags — flip both (SBDEV-2727).** `tenant_discovery.active` gates login/discovery and `tenant_db_configuration.active` gates API routing; there is **no** single `Tenant.active` that drives them (`TenantDiscovery` has no `tenant_id` FK). Setting only one leaves a split-brain (new logins blocked but existing sessions route, or vice-versa). Use the atomic both-table `UPDATE` documented (commented out) in `db/landlord/L001__add_active_flag.sql`. The `active` columns themselves are now created by the Flyway landlord baseline (`db/landlord-migration/V2.1.00__base_v2_schema.sql`, lines 76 and 98), which supersedes the manual L001 apply — the landlord DB **is** Flyway-managed (`StartupFlywayMigrator`, `db/landlord-migration`) even though the landlord persistence unit uses `ddl-auto=none`. ⚠ L001's header comment ("The landlord schema is NOT Flyway-managed") and the `TenantConfigLoader` startup error text ("apply L001") are stale. See [wms2-tenant-routing-datasource-topology.md](../architecture/wms2-tenant-routing-datasource-topology.md) §10.13 for the routing/eviction detail.
 
 ---
 
@@ -286,7 +287,7 @@ Consequence: there are no cross-DB foreign keys, no distributed joins, no `Chain
 | Auditing PgBouncer routing | §2 (landlord connection string) vs §3 (per-tenant connection strings via `TenantDbConfiguration`) |
 | Debugging "entity not managed for persistence unit X" | §2 vs §3 — does the entity's package match the EMF's scan? |
 | Naming a new entity | §3.x (pick the right domain bucket) + §5 (avoid collision) |
-| Adding a new report | §3.13 (view entity pattern) + §7 item 3 (read-only) |
+| Adding a new report | §3.14 (view entity pattern) + §7 item 3 (read-only) |
 
 ---
 
@@ -296,5 +297,6 @@ Consequence: there are no cross-DB foreign keys, no distributed joins, no `Chain
 |---|---|---|---|
 | 2026-04-19 | All classes in `landlord/model/` (4) and `model/` (62) enumerated; repos in `landlord/jpa/` and `repo/jpa/` counted; FK fields spot-checked for cross-DB references | All counts confirmed against `src/main/java` | Code read (grep + package listing) |
 | 2026-07-26 | **§2 `active` column + §7.8 split-brain landmine (SBDEV-2727, wms2-api PR #95)** — confirmed `TenantDiscovery.active` / `TenantDbConfiguration.active` (`@Column nullable=false`, `= Boolean.TRUE`), `findByKeyAndActiveTrue` / `findByActiveTrue`, and that `TenantDiscovery` has no `tenant_id` FK. Only these additions re-verified this pass. | Confirmed against `landlord/model` + `landlord/service` | Code read (SBDEV-2727) |
+| 2026-11-11 | Full re-verification vs wms2-api `origin/develop` @ `df30fa62`: `@Entity` enumeration per package (4 landlord in `landlord/model`, 69 tenant in `model`; `^@Entity\b`), EMF `.packages(...)` and `@EnableJpaRepositories` bindings in `LandlordDatabaseConfig` / `TenantDatabaseConfig`, repo→entity 1:1 map (73 repos, zero naming exceptions), table names (`@Table` + naming strategy) reconciled against `db/migration` and `db/landlord-migration` `CREATE TABLE/VIEW`, view entities, `@Version` declarers, landlord write paths, landlord Flyway. Corrected: counts 63/64 → 69 entities / 69 repos; `Tenant` columns; landlord schema is Flyway-managed; removed non-entity `UserRepresentationWithTempPw`; added 6 missing entities (`CustomerorderCancellationLog`, `ClubRunJob`, `OutboxMessage`, `PutawayConfigAudit`, `ManualEntryOverride`, `StockrecordView`); view count 11/12 → 13; §4 "exceptions" list removed (none exist); §7.7 "only entity with own `@Version`" no longer true; dropped unreproducible per-entity field counts. | Counts and tables confirmed; 10 corrections | Claude (re-verify pass) |
 
-**Re-verify every 90 days.** Next due: **2026-07-18** — entity count grows slowly but monitor-view additions are frequent enough to warrant a periodic sweep.
+**Re-verify every 90 days.** Next due: **2027-02-09** — entity count grows slowly but monitor-view additions are frequent enough to warrant a periodic sweep.

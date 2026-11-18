@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 8697cde7-bbc9-40aa-8186-f1423187edab
-  modified: 2026-08-21T01:38:57.525Z
+  modified: 2026-11-01T11:26:25.740Z
 ---
 
 Nam, 2026-08-20: subagents launched for review/analysis work **repeatedly end idle without producing their
@@ -27,6 +27,12 @@ would have shipped an unreviewed authorization change. A previous instance of th
 3. **Require a coverage list** ("what I actively ruled out") so a thin pass is visible as thin.
 4. **Make "blocked" a first-class answer** — "blocked on X is a useful answer; silence is not."
 5. **Name the 3–5 questions that decide the outcome.** Vague briefs correlate with silent exits.
+
+**When the harness refuses the subagent's Write (seen 2026-11-01, SBDEV-3128):** an Opus `executor` lane
+got "Subagents should return findings as text, not write report files" on its `.md` report. It correctly
+did not route around it via shell and returned the full report as text. So every brief needs a fallback line:
+*"if the Write is refused, return the full deliverable verbatim in your final message"*. The main session
+then saves it to the intended path. The file is still the record; only who writes it changes.
 
 **When one goes idle anyway:** chase it by name with SendMessage — names still resolve after the agent
 terminates and a send resumes it from its transcript. Check `ListAgents` first; if no in-process agents are

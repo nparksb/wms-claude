@@ -188,7 +188,7 @@ Every `file:line` cite resolves at `1866ab66` / `63b0a89` and says what the doc 
 - **`OutboxDispatcherJob`**: `:62-86` and `:136` (unchanged vs develop).
 - **Other**: lock ids 100008/100009 (`AdvisoryLockService:262,269`) · `application.properties:249` `=29` · the V2.2.40 seed (`client_id=0`, `WHERE NOT EXISTS`) · `OutboxMessage.java` with no `last_message_id` field.
 
-### 2. Marker check (`⏳ pending-merge(SBDEV-3672)`)
+### 2. Marker check (`✓ merged(SBDEV-3672: wms2-api#526 f85789d4 + wms2-web-ui#176 98accaf9, 2026-10-22)`)
 
 - **Spelling.** Every marker in all 5 docs uses the exact form: workflow 26, integration map 3, sysprop 6, jobs 4, entity 2. There are no variants.
 - **Coverage.** Merged behaviour is correctly left unmarked: the outbox enqueue inside the close tx and the dispatch after commit (SBDEV-2221, workflow `:44` first sentence, `:115`, `:384`), and the DEFAULT/CLUB lanes (jobs `:408` first sentence).
@@ -271,7 +271,7 @@ It matches the code (`:289-298`, host lookup `:302-310`):
 
 ### 4. Markers
 
-§6.5 carries 50 markers, all spelled exactly `⏳ pending-merge(SBDEV-3672)`. The doc has 29 marked lines. Every claim sentence about unmerged behaviour is marked. Correctly unmarked:
+§6.5 carries 50 markers, all spelled exactly `✓ merged(SBDEV-3672: wms2-api#526 f85789d4 + wms2-web-ui#176 98accaf9, 2026-10-22)`. The doc has 29 marked lines. Every claim sentence about unmerged behaviour is marked. Correctly unmarked:
 - the SBDEV-2221/2737 sentences in `:315`;
 - the context sentence in `:319` ("OMS costs about 0.19 s…");
 - the "(`:246-255`.)" cite fragment at `:349`.

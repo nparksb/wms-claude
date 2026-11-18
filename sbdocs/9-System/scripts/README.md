@@ -59,6 +59,15 @@ python3 -I sbdocs/9-System/scripts/plan-inventory.py --check    # exit 1 if stal
 
 Called by `archive-plan` (step 5c), the plan-writing skills, and `refresh-moc` (`--check`).
 
+### `smoke-wms2-keycloak-role-mapping.sh`
+
+This is a per-realm check of the Keycloak group → bare client-role mapping (SBDEV-3116). Every `@PreAuthorize(IS_SB_ADMIN)` gate and `/actuator/**` depends on it, and nothing in wms2-api can test it. It does a password grant (password on stdin) and decodes the token. For each group `G` it asserts two things. **member**: the subject is in the group, so it can actually test that mapping. **authority**: bare `G` is in the set `JwtAccessTokenCustomizer.extractRoles` builds, which is the union of every client's `resource_access` roles plus the `groups` entries. That bare string is what the gates match. Optional `RA` is the tenant's `client_id` from landlord `tenant_auth_configuration` (`om1-api`, or `wms-user-admin` for meridiandemo). It only WARNs when the role arrived under a different client. Run the script after any Keycloak realm change and on every deploy, once per environment × realm. Limit: a token cannot tell a group mapping from a role assigned directly to the user, so pick a subject that holds `G` only through the group.
+
+```bash
+printf '%s' "$PW" | KC=https://kc2.dev.sbo.li REALM=wineco RA=om1-api SUBJECT=<sb_admin user> \
+  ./sbdocs/9-System/scripts/smoke-wms2-keycloak-role-mapping.sh
+```
+
 ### `verify-*.sh` (plan verification scripts)
 
 Per-plan verification harnesses (`verify-SBDEV-####-*.sh`, `verify-YYMMDD-*-*.sh`). These are generated alongside their plans by the `wms-bugfix-plan`, `wms-feature-plan`, and `wms-v2-migrate` skills, and are owned by the plan they ship with — not stable enough to enumerate here. To find the harness for a plan, match the filename stem (e.g. `verify-SBDEV-2216-*.sh` ↔ `SBDEV-2216-*.md`).

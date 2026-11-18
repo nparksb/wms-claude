@@ -69,7 +69,7 @@ The filter skips itself (via `shouldNotFilter()`) for:
 - All `GET` requests — including on the `/v3` allow-list
 - Any URI not starting with `/rest/` **and not on the `/v3` allow-list** (SBDEV-3003 Slice 2: `V3_ALLOW_LIST`, currently the single entry `/v3/stockUnit/transferStock`)
 - `/rest/stockcount/**`
-- `/rest/transactionreport/**`
+- `/rest/transactionreport/**` — matched nothing (the reports are at `/rest/report`); SBDEV-4114 replaces it with `/rest/report/**`. ✓ merged(SBDEV-4114: #662 494d2216, 2026-11-11)
 
 ### `/v3` allow-list — three rules that do NOT apply to `/rest/**` (SBDEV-3003 Slice 2)
 

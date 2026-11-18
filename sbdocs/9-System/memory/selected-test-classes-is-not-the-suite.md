@@ -27,3 +27,5 @@ never "the suite is green". Capture maven's exit status directly (`MVN_EXIT=$?` 
 command, never after a pipe into grep/tail — that reports the pipe's status and reads as success).
 Related: [[mvn-without-clean-runs-deleted-tests]], [[concurrent-maven-one-worktree-false-reds]],
 [[green-tests-that-prove-nothing]].
+
+**Recurrence 2026-11-06 (SBDEV-3441):** a *review-fix* commit (2a254a86) added one `Optional.get()` in a service. Every targeted run was green; the full `clean verify -Pci` failed `OptionalSafetyArchTest`. I had planned to skip the full suite for the following "Lows only" commit. Don't: a fix commit that touches `src/main` gets the full suite too, however small it looks.

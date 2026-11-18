@@ -45,7 +45,7 @@ ingestion. All the WMS sites are correct and match v1's Zend OMS unchanged.
 The real defect is `oms-laravel-api` commit **`dd17b84f` (2026-07-31, SBDEV-2671)**, which changed
 `if (array_key_exists('quantity_on_hand', $quantities))` to
 `if (!$addToExisting && array_key_exists(...))` — disabling netting on the incremental path, which
-is the one the WMS uses. Filed as **SBDEV-3366** (Urgent). Fix is one condition in one PHP file.
+is the one the WMS uses. Filed as **SBDEV-3366**; **fixed instead by SBDEV-3897** (`6d479f35`, on prod 2026-10; nets post-clamp applied deltas). 3366 + PR #655 closed as superseded 2026-11-01.
 
 Measured on live v1 prod `wh01_shipitez`, `message` table: **173** rows of `normal:0, damaged:+N`,
 **0** of `normal:-N, damaged:+N`, 2022-07-31 -> 2026-09-15. Positive control: the same matcher finds
@@ -64,7 +64,7 @@ change that introduced the regression. See [[verify-a-contract-against-the-wire-
 - ShipItEZ runs **v1 in production**; their v2 DBs are provisioned and schema-current **ahead of**
   cutover (both at `V2.2.30`, 0 failed). Client traffic not cut over != v2 schema not provisioned —
   see [[review-lanes-under-audit-prerequisite-tables]].
-- **SBDEV-3366 is a correctness gate at ShipItEZ cutover, not at merge.** SBDEV-1512 is safe to ship
+- **The ShipItEZ-cutover correctness gate (netting) is MET** — SBDEV-3897 on prod (3366 superseded). Historically: SBDEV-1512 was safe to ship
   to dev/UAT/Hydra (Hydra has 1 RETURN advice ever); ShipItEZ brings ~250 returns/year.
 - Open, all needing an OMS/QA MySQL MCP that does not exist: true damaged-quantity exposure;
   whether ShipItEZ's `ship_return_management` is set to restock (Defect A bites **only** where the

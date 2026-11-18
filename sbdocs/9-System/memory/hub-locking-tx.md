@@ -13,3 +13,5 @@ Hub for **Locking / transaction traps**. Moved out of MEMORY.md on 2026-10-15 to
 - [[findbyidforupdate-throws-at-the-lock-read-not-at-flush]]: findByIdForUpdate throws at lock read
 - [[for-update-on-a-missing-row-takes-no-lock]]: FOR UPDATE on missing row: no lock
 - [[pool-exhaustion-counts-slots-not-milliseconds]]: pool exhaustion counts slots
+- [[optional-row-lock-use-id-only-skip-locked-probe]]: fallback exists → id-only NO KEY UPDATE SKIP LOCKED probe before LockReads
+- [[wms2-aftercommit-still-holds-tenant-connection]]: MEASURED: afterCommit still holds the tenant connection (locks freed, slot not); P90

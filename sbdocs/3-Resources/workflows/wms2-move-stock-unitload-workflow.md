@@ -76,13 +76,30 @@ Operator scans destination (location OR pallet label)
   ▼
 MobileMoveUnitloadService.scanDestination()        [line 205]  @Transactional(tenantTransactionManager)
   │
-  ├── Resolve the source with findByLabelidForUpdate (SBDEV-3442): the transaction's first row lock,
-  │   taken before any guard, so every guard below judges committed state. Rejections now also wait
-  │   for this lock. Lock-order residuals N1–N3 are recorded at the call site
+  ├── SBDEV-4047 ✓ merged(SBDEV-4047: #639 0b9704dd, 2026-11-07): refuse a carrier self-reference (no same-named
+  │   Location, !moveStock, dest == source) before any unit-load read; plain-read the destination
+  │   (skipped when dest == source, so the source is still first-touched by its lock) and classify
+  │   it once. On CARRIER_WHOLE with a type whose unitloadallowed=true, lock the DESTINATION pallet
+  │   first (lockCarrierDestinationIfJoin), so the gate guard and Damaged rule read committed state
+  │
+  ├── Resolve the source with findByLabelidForUpdate (SBDEV-3442): the first row lock on every arm
+  │   except CARRIER_WHOLE, where it is second (destination pallet, then source). Taken before any
+  │   guard, so every guard below judges committed state. Lock-order residuals N1–N3 at the call site
   │
   ├── SOURCE guards, ahead of every branch (SBDEV-3490 — repeated from scanUnitLoad because this
   │   endpoint can be called without selectSource): not the Nirvana sentinel / not on the Nirwana
   │   location / not on Shipped / not ON_HOLD / no fixed-location assignment / reserved-stock rules
+  │
+  ├── Effective destination location, resolved ONCE before any branch ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25):
+  │     the scanned Location, else the destination unit load's storagelocation (plain findByLabelid,
+  │     never ForUpdate), and for a flow bin the location of its existing fixed assignment's unit
+  │     load. One `DestArm` value drives both the rules below and the branch fork. Before
+  │     SBDEV-3862 every destination rule keyed on findByName(label) only, which is null for a
+  │     unit-load label, so Damaged/Shipped/Nirvana were silently skipped for pallets (since e1b93713).
+  │     Order: Nirvana/Shipped → stock-arm onto Damaged REFUSED for everyone ("Moving stock onto a unit
+  │     load on Damaged is not allowed! Move the whole unit load to Damaged instead!") → permission
+  │     WEB_UI_ACTION_ADJUST_LOCK_DAMAGED once if either end is Damaged → set/remove damaged lock
+  │     (whole-UL arms; Damaged→Damaged keeps it) → fork.
   │
   ├── Destination = location?
   │     Guards (DESTINATION): not locked / not Nirvana / not Shipped / stock compatibility / flowbin rules
@@ -93,18 +110,25 @@ MobileMoveUnitloadService.scanDestination()        [line 205]  @Transactional(te
   │             · else delete its non-CLOSED BOL positions (pallet row + carrierId chain)
   │
   ├── Destination = unitload label (pallet)?
-  │     Guards: not circular / not same UL
+  │     Guards: not circular / not same UL; Damaged/Shipped/Nirvana judged on the pallet's own
+  │     location ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25). Stock arms (moveStock, flow bin, fixed-assignment UL)
+  │     re-check the destination under its row lock after transferStockToUnitLoad and refuse if it
+  │     was moved onto Damaged mid-move. The carrier arm takes no destination lock: a concurrent
+  │     whole move of the pallet is an accepted residual window (detected by stock QUALITY_FAULT
+  │     off Damaged / stock on Damaged not QUALITY_FAULT queries).
   │     → unitloadBusinessService.transferUnitLoadToCarrier(source, parentPallet, CODE_TRANSFER, ...)
   │     (no BOL cleanup on this branch)
   │
-  └── Commit — UL row updated, unitload_record appended, stock_record for child stockunits
+  └── Commit — UL row updated, unitload_record appended; on the two whole-UL arms, one STOCK_RELOCATED stockrecord
+      per non-zero stock unit on the UL and its child ULs (skipped, with a WARN, if the pallet has no location) ✓ merged(SBDEV-2907: #571 c9c8b521, 2026-10-27). Before SBDEV-2907 these arms wrote
+      NO stockrecord (WineCo PRD, 30 days: 3 of 1,072 such moves had one), so the move was invisible in the Stock Unit Record
 ```
 
 ### Core API: `UnitloadBusinessService`
 
 | Method | Line | What changes |
 |---|---|---|
-| `transferUnitLoadToLocation(Unitload, Location, ignoreLock, code, ref, null)` | 108 | `unitload.storagelocationId = destination.id`; clears `carrierunitloadId` if was nested; recursively transfers children; writes `unitload_record`. ⚠️ `ignoreLock` gates **only the destination location's** lock — there is deliberately **no** source guard (not the unit load's own lock, not the source location's, not the carried stock's), because truck loading relocates pallets of `PICKED_FOR_GOODSOUT` stock at `ignoreLock=false`. SBDEV-3341; see the method javadoc. |
+| `transferUnitLoadToLocation(Unitload, Location, ignoreLock, code, ref, null)` | 108 | `unitload.storagelocationId = destination.id`; clears `carrierunitloadId` if was nested; recursively transfers children; writes `unitload_record`. ⚠️ `ignoreLock` gates **only the destination location's** lock — there is deliberately **no** source guard (not the unit load's own lock, not the source location's, not the carried stock's), because truck loading relocates pallets of `PICKED_FOR_GOODSOUT` stock at `ignoreLock=false`. SBDEV-3341; see the method javadoc. ⚠️ **One source-side refusal exists since SBDEV-3999** ✓ merged(SBDEV-3999: #611 da09d9ed, 2026-11-03): the move is refused (`"Cannot move fixed assigned unit load <label> off its fixed location"`) when the unit load is a `FixLocationAssignment`'s container **and** sits on that FLA's bin **and** the destination differs, unless the code is `MOVE_FIX_ASSIGNMENT` or `DELETE_FIX_ASSIGNMENT`. It is keyed on the container *and* its bin, so a foreign unit load still leaves an FLA bin and a container already stranded off its bin stays retirable (BOL build-truck). This is not a lock guard; the no-lock-guard statement above still holds. Deletes never reach it: all three delete endpoints first call `UnitloadService.deleteUnitLoadRecursivePreRun`, which refuses any FLA container ("Fix assignment exists"; its `findByAssignedlocationIdIn` is misnamed and matches `assignedunitload_id`), and bulk delete now runs that check for every id before the first delete. |
 | `transferUnitLoadToCarrier(Unitload source, Unitload destination, code, ref, null)` | 179 | `source.carrierunitloadId = destination.id`; validates no circular parent chain |
 
 **Optimistic-lock retry** wraps the carrier-clear step at line 161–166 via `optimisticLockRetry.executeWithRetry(...)`.
@@ -287,13 +311,15 @@ Never invent a new code at a call site — add a constant to `WmsConstants` firs
 | UL has fixed assignment | `"Cannot move fixed assigned"` | 161 — also repeated in `scanDestination` (SBDEV-3490) |
 | Reserved stock held by an in-progress pick (state<600) | `"Stock is reserved by in-progress pick <PICK#>; complete or cancel it before moving..."` | 230 |
 | Reserved stock, no active replen, no active pick (stranded) | **allowed** — warn + proceed (SBDEV-2610 B1; the old `"Reserved stock! can not move"` dead-end throw was removed) | 233 |
-| Destination = Nirvana | `"Can not move to nirvana"` | 246 |
-| Destination = Shipped | `"Can not move to shipped"` | 251 |
+| Destination = Nirvana | `"Can not move unit load to nirvana location: <id>"` — judged on the **effective** destination location (Location, pallet's location, or flow bin's assigned UL's location) ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25) | `scanDestination`, "Nirvana/Shipped on effDestLocId" (line pins retired) |
+| Destination = Shipped | `"Can not move unit load to shipped location:<id>"` — same effective location ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25) | same |
+| Stock-arm move onto Damaged (moveStock, flow bin, fixed-assignment UL) | `"Moving stock onto a unit load on Damaged is not allowed! Move the whole unit load to Damaged instead!"` — for everyone, before the permission check ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25) | `scanDestination` |
+| Stock-arm destination moved onto Damaged mid-move | `"Destination unit load <label> was moved onto Damaged during this move! Scan the destination again!"` — post-lock re-check in `transferStock` ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25) | `transferStock`, after `transferStockToUnitLoad` |
 | Target pallet not empty (empty-pallet destination) | `"Pallet not empty!"` | 271 |
 | Non-flowbin stock split disallowed | `"Moving stock to location ... not allowed!"` | 262 |
 | Flowbin with multiple stocks and no assignment | `"Multiple stock not allowed on flow bin"` | 290 |
 | Stock already assigned elsewhere | `"SKU already assigned to flow bin ..."` | 297 |
-| Damaged-stock permission | checks `FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED` | 232–238 |
+| Damaged-stock permission | checks `FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED` once when the effective source OR destination location is Damaged — including a pallet standing on Damaged ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25); before that fix a pallet destination skipped it | `scanDestination` (line pin retired) |
 
 ### Move Stock
 
@@ -413,7 +439,7 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 
 ## 10. Known Landmines
 
-1. **Two distinct flows, same backend audit.** Move Unitload writes both `unitload_record` and (via children) `stockrecord`. Move Stock writes only `stockrecord` for the split. If a user report says "audit row is missing for a UL move," check the unit_load_record side first.
+1. **Two distinct flows, same backend audit.** Move Unitload writes `unitload_record`, and on its whole-UL arms a `STOCK_RELOCATED` `stockrecord` per non-zero stock unit (including child ULs' stock) ✓ merged(SBDEV-2907: #571 c9c8b521, 2026-10-27). Until SBDEV-2907 it wrote no `stockrecord` at all on those arms, despite this line saying otherwise. Move Stock writes only `stockrecord` for the split. If a user report says "audit row is missing for a UL move," check the unit_load_record side first.
 2. **Pessimistic lock in split path.** High-contention flowbins under concurrent split attempts will serialize and may time out. No timeout hint set on `StockunitRepository.findByIdForUpdate` — it waits on the session default. Document this before scaling up replicas.
 3. **BOL cleanup only fires when the SOURCE label matches the outbound-pallet pattern**, and only on the move-to-location branch. A UL that was erroneously placed on a BOL gate without its own label matching the regex will orphan its `BillofladingPosition` when moved. Symptom: BOL close fails with "unit load not at gate."
 4. **`handleTruckOffLoading` is destructive** (deletes `BillofladingPosition` rows). Recoverable only by replaying the truck-loading flow. Don't run this on production during a tenant migration without pausing truck-loading. **SBDEV-3487:** it now throws `billOfLadingPositionUnxepectedStateFound` (naming the BOL) when the label has a **CLOSED** position, and the four purge statements R3–R6 carry `bp.state IS NULL OR bp.state <> 'CLOSED'`, so a shipped BOL's positions are never deleted. `TRANSFER` positions are still purged (same as `checkPallet`). The scanGate twin `handleTruckOffLoadingNoClear` has the same backstop.
@@ -421,7 +447,7 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 6. **Move Stock to a flowbin without an assignment** creates an implicit fixed-assignment on first scan (line 290 check). This is intentional — it's how flowbins get populated the first time. But an operator who scans the wrong flowbin locks that SKU into that location until an admin removes the assignment.
 7. **`removeUnitLoadIfEmpty=true` default** sends source UL to Nirvana when `amount` hits zero. Desirable for manual splits; unexpected if a caller is iterating splits and expects to reuse the source UL. Audit `transferStockToUnitLoad` call sites before changing this flag. ⚠ For a **`Package`** source this is permanent damage: `relocateEmptiedContainer`'s `default:` retires the parcel (label rewritten to `<label>-X-<id>`, carrier link nulled) while `customerorder.parcel_id` and open BOL positions still reference it, and there is no recovery path. SBDEV-3353 refuses operator moves out of a parcel for exactly this reason. Do not add a new caller that drains a Package without a disposition that is not Nirvana.
 8. **No OMS callback for `CODE_TRANSFER` when stock amount doesn't change.** Pure unit-load relocation (moving a pallet to a different location) is invisible to OMS. If OMS needs location visibility, it has to poll or subscribe to the monitor-view endpoints.
-9. **Damaged-stock permission gate** (`FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`) is checked in both flows — `MobileMoveUnitloadService:303, 308` for Move Unitload, and `StockunitService:265` for Move Stock. ⚠️ Re-measured 2026-08-28: the old "stock lines 240–247" pin referred to `MobileMoveStockService.selectDestination`, retired by SBDEV-2996; the gate on the stock flow is now solely the `StockunitService` one. A Keycloak realm that doesn't grant this role blocks all moves involving damaged stock. Check the role matrix before provisioning a new operator composite role.
+9. **Damaged-stock permission gate** (`FunctionEnum.WEB_UI_ACTION_ADJUST_LOCK_DAMAGED`) is checked in both flows — `MobileMoveUnitloadService.scanDestination` for Move Unitload (on the effective destination location, pallets included ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25); the old `:303, 308` pins are retired), and `StockunitService:265` for Move Stock. ⚠ Known siblings that still skip the Damaged rule, proposed not fixed: Move Stock's existing-container and whole-container arms (P21), and mobile put-away `storePalletOnLocation` (P22) — see `sbdocs/2-Areas/proposals-register.md`. ⚠️ Re-measured 2026-08-28: the old "stock lines 240–247" pin referred to `MobileMoveStockService.selectDestination`, retired by SBDEV-2996; the gate on the stock flow is now solely the `StockunitService` one. A Keycloak realm that doesn't grant this role blocks all moves involving damaged stock. Check the role matrix before provisioning a new operator composite role.
 10. **`CODE_MANUAL_SPLIT` reused for full-move scenarios** in `transferStockToUnitLoad` when the transfer amount equals the source amount. Reports that count "splits" by this code over-count by the number of full moves. Downstream analytics need to check source vs destination unit load IDs to distinguish.
 
 ---
@@ -445,6 +471,8 @@ See [wms2-transaction-osiv-boundary-map.md §8](../architecture/wms2-transaction
 
 | Date | What was checked | Result | Checked by |
 |---|---|---|---|
+| 2026-11-07 | **SBDEV-4047** — §3 flow box: carrier self-reference refusal, hoisted destination classification, destination-first lock on CARRIER_WHOLE ✓ merged(SBDEV-4047: #639 0b9704dd, 2026-11-07) | Updated from the SBDEV-4047 worktree; rest of §3 not re-verified | SBDEV-4047 docs pass |
+| 2026-10-24 | **SBDEV-3862** — §3 flow box (effective destination location, stock-arm refusal, post-lock re-check, carrier window), §6 Nirvana/Shipped/Damaged rows + two new rows, §10 item 9. Marked ✓ merged(SBDEV-3862: #566 ab983389, 2026-10-25). | Code read of branch `bugfix/SBDEV-3862-damaged-pallet-destination` @ 4b9742dd (worktree `.claude/worktrees/wms2-api/SBDEV-3862`). **Scoped check — the rest of the doc was NOT re-verified**, incl. the other §6 line pins. Mobile `isDamagedDestination` (§4.2) still compares the scanned label, so a pallet on Damaged gets no reason prompt — UI follow-up. | Claude (SBDEV-3862) |
 | 2026-08-29 | **New §4.2 — scanned-identifier case resolution** (SBDEV-3134; wms2-api PR #234 + mobile-ui PR #50, both merged 2026-08-29). Documents the exact-first / case-insensitive-fallback / refuse-ambiguity rule, all 7 call sites, the TOTAL probe variant, the mobile `v-autocomplete` half, and the merge-order constraint between the two PRs. | All 7 call sites confirmed line-exact on `origin/develop` at `e5daa8ca`. `findByLabelidIgnoreCase`'s `limit 1` confirmed at `UnitloadRepository:80`; the two new `List`-returning methods at `UnitloadRepository:118` and `LocationRepository:60`. **UNIQUE-but-case-sensitive confirmed by live query on BOTH UAT and PRD hydra** — `uk_sahixf1v7f7xns19cbg12d946` on `location(name)` and `uk_s2ujivixnde5dqb2stih8m2vh` on `unitload(labelid)`, both plain `btree`, not `lower(...)`. `/storageLocationsForStockMovement` confirmed at `StockUnitController:749`. **Scoped check — the rest of the doc was NOT re-verified.** | Code read on `origin/develop` + `pg_index` on `wms2-hydra` (PRD) and `nywh-hydra-uat` |
 | 2026-09-24 | **SBDEV-3442** — §3 flow box: `scanDestination` now locks its source (`findByLabelidForUpdate`) before any guard; `ScannedCodeResolver`'s exact-hit probes are scalar (`existsByLabelid`) so the lock is the row's first touch. | Code read of branch `bugfix/SBDEV-3442-scandestination-row-lock` @ 2f0ceb04, merged to develop as 45433631 (PR #414); pinned by `MoveUnitloadLockOrderProbeIT` | Claude (SBDEV-3442) |
 | 2026-09-24 | **SBDEV-3490** — §3 flow box and §6 nirvana / shipped / fixed-assignment rows: `scanDestination` now repeats `scanUnitLoad`'s three source guards ahead of every branch. | Code read of branch `bugfix/SBDEV-3490-shipped-source-guard` (06503426); merged to develop as `5fa9bef0` (PR #413, 2026-09-24); line numbers in §6 are `scanUnitLoad`'s and were not re-derived. Scoped check only. | Code read |

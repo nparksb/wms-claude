@@ -27,8 +27,12 @@ ever read (`ReleaseOrderJobService:246`, `:581`, plus `getCodeText`). (3) The un
 chosen QA client fails ~86% of the time; tell QA to use a section-having client. Prove it with a differential
 re-run of the production query, removing only the `sec.id is not null` line.
 
-Backfill is tracked as **SBDEV-2963**; it needs a human to say which section each client belongs to (warehouse
-layout, not derivable). Of the 118, only 4 ever had a batch and 1 in 180 days — but **110 have SKUs**, so frame
+**SBDEV-2963 done on Hydra UAT 2026-11-10:** the 109 section-less clients *with SKUs* → `ZoneA` (59250); 9 SKU-less
+left NULL. So on UAT the ~86% figure below is stale — only SKU-less clients remain section-less. **PRD is still
+exposed** (census 2026-11-10, 0 stuck batches): `wh02_shipitez_v2` 123/125 section-less (82 with SKUs),
+`wh01_shipitez_v2` 52 (41), WineCo `wh01_om1_v2` 13 (9), Hydra PRD 11 (9) — filed as **SBDEV-4093** (Nam, 2026-11-10);
+section per client is a warehouse-layout call (not derivable). SBDEV-2961 (merged to develop, PR #159) now marks
+such orders state 45 instead of dropping them silently — but it does not release them. Of the 118, only 4 ever had a batch and 1 in 180 days — but **110 have SKUs**, so frame
 it as 110 armed landmines, not 118 dead rows. Fix path: Admin → **Shippers** → edit → Section
 (`editShipper.vue:38` → `PATCH /client/{id}`), or SQL. **No restart/cache flush needed** — the release query is
 native SQL reading `client` directly, so it lands on the next tick; the `clients` Caffeine cache

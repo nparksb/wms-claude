@@ -30,6 +30,8 @@ Filename convention: `YYMMDD-kebab-description.md` (date-prefixed) or a stable t
 
 | Report | Scope | Created |
 |---|---|---|
+| [WMS v2 transaction audit — propagation, locking, side effects, jobs](261111-wms2-transaction-audit.md) | wms2 | 2026-11-11 |
+| [SBDEV-3132 P0 — Honeywell scan-detection spike (WineCo) — pending device run](261028-sbdev-3132-p0-honeywell-scan-spike.md) | wms2 | 2026-10-28 |
 | [Returns audit linkage — field map (SBDEV-3736)](261013-returns-audit-linkage-field-map.md) | wms2 + oms2 | 2026-10-13 |
 | [WineCo PRD — Cancelled Orders Whose Picked Stock Shipped (SBDEV-3740, SBDEV-3741)](261012-wineco-cancelled-orders-stock-shipped.md) | wms2 | 2026-10-12 |
 | [c1wh Pending Reversals — Why and How to Waive (SBDEV-3313)](261012-c1wh-pending-reversals-waive.md) | wms2 | 2026-10-12 |

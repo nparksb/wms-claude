@@ -4,13 +4,13 @@ ticket: "SBDEV-3672"
 ticket_url: "https://app.clickup.com/t/868med0p1"
 type: "bug"
 priority: "high"
-status: "parked"
+status: "on prod — wms2-api#526 f85789d4, wms2-web-ui#176 98accaf9; PRD v0.0.43"
 project: ["wms2-api", "wms2-web-ui"]
 version: "v2"
 requester: "Nam Park"
 created: "2026-10-13"
-updated: "2026-10-17"
-revision: "PARKED 2026-10-17 (Nam) in favour of SBDEV-3757; PRs now drafts. Was: implemented 2026-10-16 — PRs wms2-api#526 + wms2-web-ui#176 (approved 2026-10-13; D-ii dropped; migration renumbered V2.2.40)"
+updated: "2026-10-28"
+revision: "ON PRD 2026-10-27 (v0.0.43): both PRs merged 2026-10-22 despite the 2026-10-17 parking; see §13. Earlier: PARKED 2026-10-17 (Nam) in favour of SBDEV-3757; PRs drafts. Was: implemented 2026-10-16 — PRs wms2-api#526 + wms2-web-ui#176 (approved 2026-10-13; D-ii dropped; migration renumbered V2.2.40)"
 tier: T3
 db_verified: true
 related:
@@ -532,7 +532,7 @@ All round-2 items are folded into this revision (planner, final synthesis, 2026-
 
 ## §11 Implementation status (2026-10-16)
 
-**PRs:** [wms2-api#526](https://github.com/SiteBossInc/wms2-api/pull/526) (merge first) · [wms2-web-ui#176](https://github.com/SiteBossInc/wms2-web-ui/pull/176). Status: **pr submitted**, ⏳ pending-merge(SBDEV-3672).
+**PRs:** [wms2-api#526](https://github.com/SiteBossInc/wms2-api/pull/526) (merge first) · [wms2-web-ui#176](https://github.com/SiteBossInc/wms2-web-ui/pull/176). Status: **pr submitted**, ✓ merged(SBDEV-3672: wms2-api#526 f85789d4 + wms2-web-ui#176 98accaf9, 2026-10-22).
 
 **How it was built.** The TDD gate was approved by Nam on 2026-10-16. Ralph could not start (omc CLI 4.14.6 has no `ralph` subcommand), so Nam's standing fallback was used: an opus executor per repo, working the stories in order, with the floor and the review lanes run from the lead session.
 
@@ -622,7 +622,35 @@ Fix B/D would also duplicate that ticket's BOL OMS status and "Resend to OMS".
 
 The reusable pieces are listed in the SBDEV-3757 ClickUp comment of 2026-10-17.
 
-**Docs.** The five sbdocs edits keep their `⏳ pending-merge(SBDEV-3672)` markers, which is still accurate: the behaviour is not on develop. If the ticket is abandoned rather than revived, remove those passages. Do not flip them.
+**Docs.** The five sbdocs edits keep their `✓ merged(SBDEV-3672: wms2-api#526 f85789d4 + wms2-web-ui#176 98accaf9, 2026-10-22)` markers, which is still accurate: the behaviour is not on develop. If the ticket is abandoned rather than revived, remove those passages. Do not flip them.
 
 
-**Fix C dropped (2026-10-17, Nam).** Fix C will not be split out as a stopgap. On all four PRD tenant DBs, across all history, exactly one `ORDER_BATCH_SHIPPED` row has ever gone `FAILED_TERMINAL`: outbox 11135. A longer budget would not have saved it, because every attempt timed out on size. No other BOL-shipped row needed 3 or more attempts within the SENT-retention window. The only other terminal rows are 2 Hydra `ADVICE_CLOSE` rows from 2026-07-13. If a long OMS outage ever strands BOL-shipped notices, the retry budget belongs in SBDEV-3757's WMS outbox work.
+**Fix C dropped (2026-10-17, Nam). ⚠ Superseded 2026-10-28: Fix C shipped with #526 and is kept (§13).** Fix C will not be split out as a stopgap. On all four PRD tenant DBs, across all history, exactly one `ORDER_BATCH_SHIPPED` row has ever gone `FAILED_TERMINAL`: outbox 11135. A longer budget would not have saved it, because every attempt timed out on size. No other BOL-shipped row needed 3 or more attempts within the SENT-retention window. The only other terminal rows are 2 Hydra `ADVICE_CLOSE` rows from 2026-07-13. If a long OMS outage ever strands BOL-shipped notices, the retry budget belongs in SBDEV-3757's WMS outbox work.
+
+
+## §13 Shipped despite the parking (state reconciled 2026-10-28)
+
+§12 was overtaken. Both PRs were taken out of draft and merged by `nparksb`:
+- wms2-api#526: merge `f85789d4`, 2026-10-22 02:49 UTC (head `dab2b505` = `ad8ff63e` + a develop merge).
+- wms2-web-ui#176: merge `98accaf9`, 2026-10-22 03:08 UTC.
+
+All of Fix A, B, C and D is in `origin/main`, with no revert, and it shipped in release v2.0.161 (wms2-api **v0.0.43**, PRD 2026-10-27). That includes **Fix C**, which the 2026-10-17 comment recorded as dropped. **Decision 2026-10-28 (Nam): keep Fix C as shipped.** It needs no OMS work. OMS sees the same request, just possibly more retries over a longer window. SBDEV-3757 does not need to build a retry budget.
+
+**PRD evidence, 2026-10-28 (read-only):**
+
+| check | WineCo `wsl-wineco-prd` | ShipItEZ `c1wh-shipitez-prd` |
+|---|---|---|
+| Flyway | 2.2.41 | 2.2.41 |
+| `WMS_BOL_SHIPPED_OMS_CHUNK_SIZE` | `40`, created 2026-10-27 11:53 UTC | `40`, created 2026-10-27 11:53 UTC |
+| `outbox_message.last_message_id` | — | present |
+| BOL-shipped outbox rows since 10-27 | 1, SENT | 13: BOL 122189953 (1 row) + BOL 122232183 as **12 chunk rows**, all SENT, 2 needed one retry |
+| `FAILED_TERMINAL` BOL-shipped | 0 | 1: row 11135, still not closed out (Step 7) |
+
+**Correction to the 2026-10-27 WineCo comment.** The 28 `FAILED` / "Read timed out" `ORDER_BATCH_SHIPPED` message rows (2026-09-28 → 10-21) are **23 distinct payloads, and all 23 were later delivered** with `200 {"Status":"Success","Message":"OK"}` (matched on `md5(message)`). `redeliver_id` is set only by a manual Service Log resend, so it says nothing about outbox retries. The outbox rows "only from 10-20" are most likely the SENT retention purge, not a direct path. No reconciliation is needed for them.
+
+**Still open:**
+- **Async-skip switch** (§12 "if revived"): not built. No `OMS_ASYNC` or `X-OMS-Async` anywhere in wms2-api `origin/develop` `src/main`. Required before SBDEV-3757 enables async for any tenant. Placed on SBDEV-3757's WMS side, since 3672 is shipped.
+- **T0** from the 2026-10-13 triage: `OutboxService.markSent` doesn't clear `last_error`. Cosmetic only: `BolOmsNotificationService` exposes `lastError` for `FAILED_TERMINAL` rows only. Placed on SBDEV-3757 with the switch.
+- Ops (Nam): Step 7 close-out of outbox 11135 on c1wh PRD (runbook statement above; do NOT requeue BOL 121932106). R-1 merchant-callback gate: no record it ran. Manual dev E2E (§8): no record.
+- Ticket §1: the 8 pre-cutover v1 503s still need an OMS-side check.
+- Docs: the 73 `pending-merge(SBDEV-3672)` markers were flipped to `merged` 2026-10-28, and the workflow §6.5 "Parked" callout was replaced with the on-PRD note. The §12 "Docs" paragraph above is superseded.

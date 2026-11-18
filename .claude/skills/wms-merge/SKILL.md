@@ -59,8 +59,8 @@ Review-fix commits get their own scoped re-review.
 | Repo | Base | PR check (`--check`) | What grades a PR | Deploy proof |
 |---|---|---|---|---|
 | `v2/wms2-api` | develop | `test` | the PR check (`mvn clean verify -Pci`) | `post-merge-verify.sh --wait-deploy` |
-| `v2/wms2-mobile-ui` | develop | `layout` only (`--check layout`) | **also** run `yarn test` locally on the merge | none: verify by hand (`:develop` tag race, memory `wms2-ui-develop-tag-race-deploys-older-code`) |
-| `v2/wms2-web-ui` | develop | none | `yarn test` locally on the merge → `merge-one.sh --no-pr-check "<evidence>"` | none: by hand (same race) |
+| `v2/wms2-mobile-ui` | develop | `test` (`--check test`; the Jest gate since SBDEV-4074, 2026-11-09). `layout` also runs but stays advisory | the PR check (`yarn test --ci` on the PR merge ref) | none: verify by hand. The develop run's `build` job must show login, push and Portainer all succeeding (`curl -f`, so a pass means 2xx). There is no sha tag, so record the pushed digest (`:develop` tag race, memory `wms2-ui-develop-tag-race-deploys-older-code`) |
+| `v2/wms2-web-ui` | develop | `test` (`--check test`; the Jest gate since SBDEV-4074, 2026-11-09) | the PR check (`yarn test --ci` on the PR merge ref) | none: by hand (same race). The `build` job pushes `:develop` and `sha-<merge sha>`, and the webhook uses `curl -f` |
 | `v2/oms-laravel-api` | develop | none | `php artisan test` locally on the merge (memory `oms-laravel-api-has-no-runnable-test-env`: if it can't run, say so; review is then the only gate) | none: by hand |
 | `v2/siteboss-frontend` | **main** | `Build all applications` (`--check 'Build all applications'`) | Cypress component specs locally | none. Pass `--base main` to every script |
 

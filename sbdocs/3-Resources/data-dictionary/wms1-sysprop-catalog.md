@@ -243,7 +243,7 @@ These drive `ReplenishOrderJob` and `ReplenishmentOrderMaintenanceService`.
 | `SYSTEM_PROPERTY_CUPS_SERVER_ADDRESS_IP_KEY` | `CUPS_SERVER_ADDRESS_IP` | String (hostname/IP) | `cups-01.advancedinfomanagement.com` | CUPS print server hostname or IP | `service/PrintService.java:95,136` |
 | `SYSTEM_PROPERTY_CUPS_SERVER_ADDRESS_PORT_KEY` | `CUPS_SERVER_ADDRESS_PORT` | Integer | `631` | CUPS server port (IPP standard port) | `service/PrintService.java:96,137` |
 | `SYSTEM_PROPERTY_CUPS_SERVER_ADDRESS_USERNAME_KEY` | `CUPS_SERVER_ADDRESS_USERNAME` | String | `aimprint` | CUPS auth username | `service/PrintService.java:97` |
-| `SYSTEM_PROPERTY_CUPS_SERVER_ADDRESS_PASSWORD_KEY` | `CUPS_SERVER_ADDRESS_PASSWORD` | String | `Csof-ZP00-lY3C` | CUPS auth password. **Stored plain text in WmsConstants default.** Override per environment — never use the default in production. | `service/PrintService.java:98` |
+| `SYSTEM_PROPERTY_CUPS_SERVER_ADDRESS_PASSWORD_KEY` | `CUPS_SERVER_ADDRESS_PASSWORD` | String | *(value redacted 2026-11-12: a committed credential; rotation tracked in SBDEV-4125)* | CUPS auth password. **Stored plain text in WmsConstants default.** Override per environment — never use the default in production. | `service/PrintService.java:98` |
 
 ---
 

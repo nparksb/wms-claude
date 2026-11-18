@@ -12,7 +12,7 @@ metadata:
 `response.resetBuffer()`.**
 
 Verified 2026-08-02 while planning SBDEV-2632 (cycle count bulk export). CORS is wired through
-**Spring Security's** filter — `SecurityConfiguration.java:100` `.cors(cors -> cors.configurationSource(corsConfigurationSource()))`,
+**Spring Security's** filter — `SecurityConfiguration.java:100` `.cors(cors -> cors.configurationSource(corsConfigurationSource()))` (✓ merged(SBDEV-3197: #651 c0bd417b, 2026-11-09): now `corsConfigurationSource` injected as a `@Qualifier`-ed `filterChain` parameter, not a self-call),
 source at `:150-156` — so `CorsFilter` runs **before** the DispatcherServlet and
 `DefaultCorsProcessor.handleInternal` has already physically written `Access-Control-Allow-Origin`
 (and `Access-Control-Expose-Headers`) onto the response by the time the handler executes. It ends in

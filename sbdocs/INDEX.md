@@ -28,6 +28,7 @@ Source of truth is always the file itself. If a query and the filesystem disagre
 - **UTC timezone migration (SOP)** → [2-Areas/wms-utc-timezone-migration/README.md](2-Areas/wms-utc-timezone-migration/README.md) (per-client v1→v2 schema-bridge + UTC `timestamptz` migration)
 - **Runbooks** → [2-Areas/runbooks/README.md](2-Areas/runbooks/README.md) (2 docs — MOC)
 - **Proposals register** → [2-Areas/proposals-register.md](2-Areas/proposals-register.md) (findings proposed but not filed, usually T3, each with evidence and cost; Nam reviews weekly)
+- **Questions for Brent** → [2-Areas/brent-questions/README.md](2-Areas/brent-questions/README.md) (one file per ticket waiting on a product decision; ask first, evidence after, answers filled in on the day)
 
 ### Reference material
 

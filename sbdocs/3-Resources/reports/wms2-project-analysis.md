@@ -280,6 +280,8 @@ public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 }
 ```
 
+> ✓ merged(SBDEV-3197: #651 c0bd417b, 2026-11-09): `filterChain` now receives `JwtAccessTokenCustomizer` and `CorsConfigurationSource` as injected parameters; the self-invocation above is the pre-SBDEV-3197 shape.
+
 ### Authorization Model
 
 ⚠️ **Corrected 2026-08-26.** This section previously showed a **fabricated** sample —

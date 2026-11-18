@@ -106,6 +106,6 @@ A second Claude session (`owl-a7`) picked up the same ticket and worked in the *
 Nothing in the worktree layout stops this: the path is keyed by ticket, not by session.
 
 **How to apply:** before a lane writes into a ticket worktree, check for another live session on the
-ticket (`ListAgents`; `pgrep -fl 'maven|jest'` whose cwd is that worktree). Name research files with
+ticket (`ListAgents`; a Maven/Jest process whose cwd is that worktree, found by cwd only, never by printing args: [[never-print-process-command-lines]]). Name research files with
 a session tag when two sessions might share a ticket. And commit each green step promptly: uncommitted
 work is what a peer's `git checkout` destroys.

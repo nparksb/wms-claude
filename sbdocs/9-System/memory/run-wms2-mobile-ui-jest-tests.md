@@ -32,5 +32,5 @@ Suite size moves with every merge — **measure it, do not quote it**. Two dated
 `f42ac8d` (2026-08-28) = 20 spec files / 233 tests; `ab1e2ae` (2026-09-15) = **32 suites / 395 tests**,
 ~5 s. Specs live across `test/{components,middleware,pages,plugins,store,util}`; there are also 7 Playwright
 `*.spec.ts` files under `tests/e2e/`, which `jest.config.js` deliberately excludes via `roots`.
-A worktree has no `node_modules` — symlink the main checkout's before running.
+A worktree has no `node_modules`. **Do NOT symlink the main checkout's** (corrected 2026-11-08, SBDEV-4070): it is often stale, and on 2026-11-07 it produced 6 "baseline" failures (scanPolicy mutation names, 5x store/home.js) that a fresh install showed were not real — `ee86b0ac`+4070 = 72/72 suites, 992/0. Same trap in wms2-web-ui (missing exceljs/zpl-renderer-js/@openobserve -> 5 suites fail to load). Install in the worktree instead: `yarn install --frozen-lockfile --ignore-scripts --ignore-engines` (`--ignore-engines` because cypress 15 refuses Node 18), then `npx jest`. See [[wms2-web-ui-develop-preexisting-suite-failures]].
 Confirmed working on node v24.15.0 (2026-07-19, SBDEV-2070 helper unit test). Prefer pure helper modules under `util/` for unit-testable UI logic (Vue templates call them via a thin method wrapper).

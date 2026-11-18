@@ -264,7 +264,7 @@ The check is one private method (the B-3 EXEMPT key, §4 A4) written as a loop w
 | B | `scanUnitLoad_toteAt100_notRefused` | GREEN | call the check in `scanUnitLoad` |
 | B | `scanDestination_carrierArm_stillMovesPackageAtPickedForGoodsout` | GREEN | drop `isToteType` (refuse any type) |
 | B | `scanDestination_carrierArm_toteTypeIdNull_failsOpen` (`verify(unitloadTypeRepository, never()).findById(any())`) | GREEN | remove the null check (the mock would then see `findById(null)`) |
-| B | `scanDestination_carrierArm_noTypeLookupWhenNo100` (Case at 0 onto an existing pallet; `never().findById(any())`. That path legitimately reads only `:490`'s `findByName`, and only on the inbound branch) | GREEN | look up the type unconditionally |
+| B | `scanDestination_carrierArm_noTypeLookupWhenNo100` (renamed `…_fenceMakesNoTypeLookupWhenNo100` by SBDEV-3492, which adds one type read of its own and pins `times(1)`) (Case at 0 onto an existing pallet; `never().findById(any())`. That path legitimately reads only `:490`'s `findByName`, and only on the inbound branch) | GREEN | look up the type unconditionally |
 | B | `UnitloadServiceUnitTest.deleteUnitLoad_refusesContainerWithGoodsOutStock_beforeAnyNirvanaSend` (`never().sendStockUnitToNirvana`) | RED | move the check after the loop |
 | B | `deleteUnitLoadRecursivePreRun_refusesWhenChildHolds100` | RED | drop the pre-run check |
 | B | `CancelPreservesGoodsOutFenceIntegrationTest` (below) | RED at step 2 | revert C1 → "step 2: entity_lock expected 100, was 0" |

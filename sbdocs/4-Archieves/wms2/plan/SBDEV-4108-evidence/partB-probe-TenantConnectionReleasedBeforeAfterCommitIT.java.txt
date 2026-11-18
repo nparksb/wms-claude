@@ -1,0 +1,116 @@
+package net.aim_ai.wms.integration;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import net.aim_ai.wms.common.base.BasePostgresIntegrationTest;
+import org.hibernate.Session;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.sql.Connection;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * SBDEV-4108 B: is the tenant JDBC connection still checked out while an {@code afterCommit} callback
+ * runs?
+ *
+ * <p>Every WMS-to-OMS POST sent with {@code OmsNotificationService.sendAfterCommit} runs in such a
+ * callback, as does SBDEV-4108 A's CUPS print. If the connection is still held there, a slow OMS
+ * (5 s connect + 15 s read) pins a tenant pool slot for the whole HTTP call, even though the
+ * transaction has committed. The ticket reasoned that it is held: Spring's {@code JpaTransactionManager}
+ * fires {@code triggerAfterCommit} before {@code doCleanupAfterCompletion} closes the
+ * EntityManager. SBDEV-3674's architect note said the opposite. This test measures it.
+ *
+ * <p>Two instruments, so a single wrong reading cannot decide it:
+ * <ol>
+ *   <li>the {@link Connection} the transaction used, captured with {@code Session.doReturningWork}:
+ *       is it closed inside afterCommit? The IT routing datasource hands out raw
+ *       {@code DriverManager} connections ({@code PostgresTestSupportConfig}), so "returned" means
+ *       "closed" here. In production the Hikari proxy would go back to the pool instead.</li>
+ *   <li>the server side: is the transaction's backend pid still in {@code pg_stat_activity}, looked
+ *       up over a separate connection ({@link JdbcTemplate})?</li>
+ * </ol>
+ * The positive control is the same two readings taken INSIDE the transaction, where the connection
+ * must be open and the pid present. Without that, a broken instrument would read as "released".
+ */
+@DisplayName("SBDEV-4108 B probe: is the tenant connection returned before afterCommit callbacks run?")
+@Transactional(value = "tenantTransactionManager", propagation = Propagation.NOT_SUPPORTED)
+class TenantConnectionReleasedBeforeAfterCommitIT extends BasePostgresIntegrationTest {
+
+    @PersistenceContext(unitName = "tenant")
+    private EntityManager entityManager;
+
+    @Autowired private JdbcTemplate jdbcTemplate;
+
+    @Autowired @Qualifier("tenantTransactionManager")
+    private PlatformTransactionManager tenantTransactionManager;
+
+    private boolean backendAlive(int pid) {
+        Integer n = jdbcTemplate.queryForObject(
+            "SELECT count(*)::int FROM pg_stat_activity WHERE pid = ?", Integer.class, pid);
+        return n != null && n > 0;
+    }
+
+    @Test
+    @DisplayName("inside afterCommit the transaction's JDBC connection is closed and its backend is gone")
+    void afterCommit_shouldRunWithTheTenantConnectionAlreadyReturned() {
+        AtomicReference<Connection> txConnection = new AtomicReference<>();
+        AtomicReference<Integer> txPid = new AtomicReference<>();
+        AtomicReference<Boolean> closedInsideTx = new AtomicReference<>();
+        AtomicReference<Boolean> aliveInsideTx = new AtomicReference<>();
+        AtomicReference<Boolean> closedInAfterCommit = new AtomicReference<>();
+        AtomicReference<Boolean> aliveInAfterCommit = new AtomicReference<>();
+
+        new TransactionTemplate(tenantTransactionManager).executeWithoutResult(status -> {
+            // Touch the DB so the connection is acquired (delayed acquisition), as a real write would.
+            Number pid = (Number) entityManager.createNativeQuery("SELECT pg_backend_pid()").getSingleResult();
+            txPid.set(pid.intValue());
+            txConnection.set(entityManager.unwrap(Session.class).doReturningWork(c -> c));
+            try {
+                closedInsideTx.set(txConnection.get().isClosed());
+            } catch (java.sql.SQLException e) {
+                throw new IllegalStateException(e);
+            }
+            aliveInsideTx.set(backendAlive(txPid.get()));
+
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        closedInAfterCommit.set(txConnection.get().isClosed());
+                    } catch (java.sql.SQLException e) {
+                        throw new IllegalStateException(e);
+                    }
+                    aliveInAfterCommit.set(backendAlive(txPid.get()));
+                }
+            });
+        });
+
+        System.out.printf("SBDEV-4108 B probe: pid=%d insideTx[closed=%s alive=%s] afterCommit[closed=%s alive=%s]%n",
+            txPid.get(), closedInsideTx.get(), aliveInsideTx.get(), closedInAfterCommit.get(), aliveInAfterCommit.get());
+
+        // Positive control: both instruments see the connection while the transaction is open.
+        assertThat(closedInsideTx.get()).as("control: the connection is open inside the transaction").isFalse();
+        assertThat(aliveInsideTx.get()).as("control: the backend is visible inside the transaction").isTrue();
+        assertThat(closedInAfterCommit.get()).as("afterCommit ran").isNotNull();
+
+        assertThat(closedInAfterCommit.get())
+            .as("the tenant JDBC connection is still checked out while afterCommit runs, so an HTTP "
+                + "call there (OMS POST, CUPS print) pins a tenant pool slot")
+            .isTrue();
+        assertThat(aliveInAfterCommit.get())
+            .as("the transaction's backend is still connected while afterCommit runs")
+            .isFalse();
+    }
+}

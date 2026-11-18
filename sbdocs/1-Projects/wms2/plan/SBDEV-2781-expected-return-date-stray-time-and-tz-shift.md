@@ -894,7 +894,7 @@ Gate baseline before implementation was `19 pass, 9 fail, 0 skip`; all 9 flipped
 ### Deliberately not done
 
 - **Fix A** — already merged upstream (`e6ca85a`).
-- **Deleting the dead `getDetailViewByKeyword` + `AdviceDetailView`** — D6; exceeds this plan's scope. Follow-up filed: [868kmmxcq](https://app.clickup.com/t/868kmmxcq) (low; gated on wms2-api #131 merging first).
+- **Deleting the dead `getDetailViewByKeyword` + `AdviceDetailView`** — D6; exceeds this plan's scope. Follow-up filed: [868kmmxcq](https://app.clickup.com/t/868kmmxcq) (low; gated on wms2-api #131 merging first). → SBDEV-2838, **on dev** — wms2-api #619 `950a13ff`, 2026-11-04.
 - **Manual test plan (§7.4) not executed** — requires a running dev environment and a non-UTC tenant. Both PR bodies carry it for the reviewer. **Manual test 1 (curl → 404) is the only check that proves Spring Data REST honours `exported = false` at runtime**; the unit test asserts the annotation, not the endpoint. Do not sign off without it.
 - **Merge and ClickUp `on dev` — DONE** 2026-08-05 (see above).
 - **Manual/dev verification — still outstanding.** The §7.4 matrix is on the ticket for QA. Manual test 1 (`curl` → 404) remains the only runtime proof that Spring Data REST honours `exported = false`.

@@ -76,3 +76,42 @@ loads **`.env.testing`** (host 127.0.0.1) and ignores your `.env`; artisan (migr
 works, so setup looks fine and the suite quietly becomes a no-DB lane (measured 2026-09-26: 1971 errors
 = "Connection refused" instead of ~197). Point `.env.testing` (or `-e` env vars) at the DB, and run one
 DB-bound test first as a positive control. Saved recipe: `sbdocs/1-Projects/wms2/plan/SBDEV-3524-evidence/reset_and_run.sh`.
+
+## Feature tests need reference data the recipe above omits (2026-11-02, SBDEV-3988)
+
+`tenant-baseline.sql` has NO lookup rows, so every Feature test errors on FKs (`FK_rep_countries`,
+`FK_rep_type`, `FK1_product_inventory_facility`) before it runs. After the schema load:
+1. `tenant-seed-data.sql` (same `FOREIGN_KEY_CHECKS=0` + permissive sql_mode prefix);
+2. the `order_status_lut` migrations newer than the snapshot (`git grep -l order_status_lut -- database/migrations/tenant`):
+   older ones via `artisan migrate --database=testing --path=…`, but ones that write through the `tenant`
+   connection fail "No database selected" — run those via `artisan tenants:artisan "migrate --path=… --force"`
+   (needs the `tenants` row in the landlord DB first);
+3. `INSERT IGNORE INTO facility (facility_code) VALUES ('WSL')`.
+Then `LegacyWmsCancelPositionTest` goes green on develop. Full-suite baseline in that env on d28983df:
+**13819 tests, 2482 errors, 996 failures, 74 skipped** — compare per test via `--log-junit`, never totals.
+
+Traps hit:
+- **zsh does not word-split `$ENVS`**: `docker run … $ENVS` passes all `-e` flags as ONE arg and the app
+  silently falls back to 127.0.0.1. Use `${=ENVS}`.
+- **Never grade a live worktree mount in a long run**: PHP autoloads app classes lazily, so edits made
+  mid-suite leak into the run. Grade a detached `git worktree add --detach <sha>` snapshot, mounting the
+  real worktree's `vendor/` at `/app/vendor`.
+- Two suites can run in parallel only on **separate MySQL containers** (no RefreshDatabase isolation).
+- The suite regenerates `storage/api-docs/api-docs.json` (~6,900-line diff on unchanged code). PRs here do
+  commit api-docs.json, so patch only your path's subtree and prove it against `l5-swagger:generate` output.
+- `DB::connection('tenant')->beforeExecuting()` registered in a test does NOT reach the request's
+  connection (tenant switch reconnects). To inject a real driver error, use a MySQL `SIGNAL` trigger.
+- Mocking the `Log` facade breaks Laravel's exception handler; hook `MessageLogged` via `Event::listen` instead.
+
+## Trap: a socket ping hits mysql:8's temporary init server (2026-11-04, SBDEV-3118)
+
+On a **fresh** `mysql:8.0` container, `docker exec <c> mysqladmin ping` succeeds against the entrypoint's
+*temporary* init server (socket only, `port: 0`). That server is then shut down and restarted about 8s
+later. A schema load started in that window gets cut off without any error: the result was a missing
+`om1_landlord_owltest` and 2 of 205 tenant tables. A full suite then ran for 2 hours and reported 9,096
+errors (`Unknown database 'om1_landlord_owltest'`, `Table ... doesn't exist`) that read like a
+regression. Wait on **TCP**: `mysqladmin -h127.0.0.1 --protocol=tcp ping`. After setup, assert the
+table count (>150) and that the landlord DB exists before running anything. Reusable runner:
+`owl/.omc/research/SBDEV-3118/run-suite.sh` (`WT=… MY=… MO=… run-suite.sh full <label>`, junit per test).
+Also: a gate or mutation run on the **same** MySQL container as a running full suite cross-contaminates
+it. Give every concurrent run its own container pair.

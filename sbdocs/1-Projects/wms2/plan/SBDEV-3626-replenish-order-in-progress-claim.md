@@ -199,7 +199,7 @@ Add `RR.sumRequestedAmountForActiveOrders(itemDataId, destinationId, excludedId)
 | MRS:408 `switchSourceToUnitLoad`, :504 `checkDestination`, :667 `finishReplenishmentOrderInternal` | Holder-side, legacy | OK |
 | MRS:1412 `assignDestinationForMultiUnitLoads`, :1512 `applyExplicitSourceToOrder` | Submit tx, ends at 700 | OK |
 
-The JPQL bulk writes (`updatePriorityByIdIn`, `bulkUpdatePriorityForItems*`) set `prio` only and bypass auditing. **Blind spots:** a dirty-checked setter with no `save(` (architect swept one level: none outside the table), native SQL, a future writer. AC-12a pins a full tick.
+The JPQL bulk writes (`updatePriorityByIdIn`, renamed by SBDEV-4111 to the guarded `updatePriorityByIdInAndStateLessThan` / `updateNonManualPriorityByIdInAndStateLessThan`; `bulkUpdatePriorityForItems*`) set `prio` only and bypass auditing. **Blind spots:** a dirty-checked setter with no `save(` (architect swept one level: none outside the table), native SQL, a future writer. AC-12a pins a full tick.
 
 ### Fix H (UI PR): wms2-mobile-ui
 - **`store/replenish.js startOrder({id})`.** Implements the §5.0 start rows, including the "404/405 without `code`" fallback and the empty-body case. Returns a boolean; on success commits `setOrder` + `clearULBatch` like `getOrderById`, **plus** `setClaimTtl(dto.claimTimeoutSeconds)`; the fallback commits `setClaimTtl(null)`. Used **only** by `selectOrder`.

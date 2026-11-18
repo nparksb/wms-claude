@@ -6,9 +6,9 @@ version: v2
 scope: db-provisioning
 owner: Nam Park
 created: 2026-05-31
-updated: 2026-07-19
-last_verified: 2026-07-19
-verified_by: SBDEV-2607 provisioning + client-config tooling (provision-fresh-v2-db.sh, configure-client-sysprops.sh) — 2026-07-19; migration-dir reorg 2026-07-10; original analysis 2026-05-31
+updated: 2026-11-11
+last_verified: 2026-11-11
+verified_by: 2026-11-11 re-verification against wms2-api origin/develop @ df30fa62 (Flyway sections); earlier: SBDEV-2607 provisioning + client-config tooling (provision-fresh-v2-db.sh, configure-client-sysprops.sh) — 2026-07-19; migration-dir reorg 2026-07-10; original analysis 2026-05-31
 related:
   - ./wms-database-migration-guide.md
   - ./wms2-tenant-routing-datasource-topology.md
@@ -37,6 +37,13 @@ How to stand up a **brand-new client's** warehouse database directly on WMS v2, 
 > `db/configure-client-sysprops.sh` performs the per-client `los_sysprop` seed described in §5
 > (rewriting the `CHANGE-ME-FOR-NEW-CLIENT` placeholders baked into the base dump). §4/§5 below
 > are updated to reference these tools.
+>
+> **Update (2026-11-11 re-verification, develop @ df30fa62):** the base dump is still `V2.2.00`, now followed by
+> deltas through **`V2.2.50`** (51 files in `db/migration/`); the landlord has its own Flyway set,
+> `db/landlord-migration/` `V2.1.00`–`V2.1.02`. A third provisioning route now exists: the OMS can call
+> `PUT /landlord/tenants/{tenant}/warehouses/{warehouse}` (SBDEV-3868), which creates the role and database,
+> writes the landlord rows and migrates the schema in-process (see §4). §§2, 3, 7, 8, 9 are the
+> original 2026-05-31 rationale; counts and file names in them are historical.
 
 ---
 
@@ -45,7 +52,7 @@ How to stand up a **brand-new client's** warehouse database directly on WMS v2, 
 | Scenario | Starting point | Correct path |
 |---|---|---|
 | **A — Greenfield new client** | empty DB, no data | **This note** — apply one consolidated v2 baseline + a client-config seed. |
-| **B — v1 client → v2** | a live v1 client DB with data | The [260527 runbook](../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md): §0.6 schema bridge (`V2.1.01–V2.1.13`) then the `V1.2.0x` UTC conversion. |
+| **B — v1 client → v2** | a live v1 client DB with data | The [260527 runbook](../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md): §0.6 schema bridge (`V2.1.01–V2.1.16` per `04-schema-bridge.sh`; the runbook text said `V2.1.13` when written) then the `V1.2.0x` UTC conversion. |
 | **C — existing v2 tenant → UTC** | a live v2 DB on the legacy timestamp model | The [260523 plan](../../1-Projects/wms2/plan/260523-UTC-TIMEZONE-MIGRATION.md) `V1.2.0x` conversion only. |
 
 A greenfield client (A) should **never** go through B or C. It has no data to convert — it should be *born* in the v2 target state.
@@ -54,7 +61,7 @@ A greenfield client (A) should **never** go through B or C. It has no data to co
 
 ## 2. Why the existing scripts are the wrong tool for greenfield
 
-A fresh DB built from the repo replays **all 23 migration scripts** in order — the shared baseline `V1.0.01–V1.1.05` (10) plus the v2-specific `V2.1.01–V2.1.13` (13). That sequence **runs cleanly** on an empty DB (the `V2.1.08/09` sysprop ids 140-143 and `V2.1.02`'s 144/145 are all free on a fresh baseline, so no PK conflicts). But it is the wrong tool for two reasons.
+*(Historical, as of 2026-05-31. `db/v1-to-v2-onboarding/schema/` now holds 32 files, `V1.0.01`–`V2.1.17`, and a fresh DB is built from `db/migration/` instead; see the status note above.)* A fresh DB built from the repo replays **all 23 migration scripts** in order — the shared baseline `V1.0.01–V1.1.05` (10) plus the v2-specific `V2.1.01–V2.1.13` (13). That sequence **runs cleanly** on an empty DB (the `V2.1.08/09` sysprop ids 140-143 and `V2.1.02`'s 144/145 are all free on a fresh baseline, so no PK conflicts). But it is the wrong tool for two reasons.
 
 ### 2.1 It produces the *pre-UTC legacy* state, not the v2 target
 
@@ -137,7 +144,7 @@ pg_dump --schema-only --no-owner --no-privileges \
 # (Append the platform-default los_sysprop / mywms_function / mywms_role seed rows that are
 #  client-independent; EXCLUDE per-client values — see §5.)
 
-# 3. Per new client: create the DB and apply the baseline.
+# 3. Per new client: create the DB and apply the baseline (script applies db/migration/ = V2.2.00 + every delta through V2.2.50).
 #    Realized tool (SBDEV-2607): db/provision-fresh-v2-db.sh does create + privileges + apply + verify.
 db/provision-fresh-v2-db.sh --host <host> --port <port> --dbname <new_client_db> --owner <app_role>
 
@@ -147,6 +154,20 @@ db/configure-client-sysprops.sh --dbname <new_client_db> \
   --oms-tenant-id <id> --warehouse <CODE> --timezone <TZ> \
   --mobile-ui-url <mobile_url> --oms-api-base-url <oms_api_base>
 ```
+
+**Alternative: let the running API do it.** With `rest.security.enabled=true` the OMS-facing endpoint
+`PUT /landlord/tenants/{tenant}/warehouses/{warehouse}` (`TenantProvisioningController`, SBDEV-3868) is idempotent: it creates the
+role and database (`TenantDatabaseCreator`; the landlord role needs `CREATEDB CREATEROLE`), writes the landlord `tenant`,
+`tenant_db_configuration`, `tenant_auth_configuration` and `tenant_discovery` rows, migrates with the boot's own Flyway
+configuration (`StartupFlywayMigrator.tenantConfiguration`: `classpath:db/migration`, `baselineOnMigrate(false)`), fills the
+`CHANGE-ME-FOR-NEW-CLIENT` settings, and reloads the registry. All provisioning operations hold advisory lock
+`TENANT_PROVISIONING` (100012); a concurrent call gets 409. On PostgreSQL 14 the warehouse role cannot run the base dump's
+`COMMENT ON SCHEMA public` statement, so provisioning applies `V2.2.00` without it and records `V2.2.00` as the Flyway baseline
+before migrating the rest.
+
+**Boot behaviour afterwards.** `StartupFlywayMigrator` runs on every boot (`app.flyway.migrate-on-startup=true`,
+`application.properties:279`; out-of-order on, `:285`), landlord first from `classpath:db/landlord-migration`, then every active tenant DB.
+A DB provisioned by hand must therefore carry a `flyway_schema_history` (flyway migrate, or `db/backfill-flyway-history.sh`), or it is skipped on every boot.
 
 > Verify the baseline produces the target state: `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND data_type='timestamp without time zone';` must be **0** (all converted to `timestamp with time zone`).
 
@@ -184,7 +205,7 @@ Still done separately (not by the script):
 | Value | Where | Notes |
 |---|---|---|
 | Tenant / facility identity | tenant DB seed | Client code, facility codes, warehouse config. |
-| `tenant_db_configuration` + `tenant_discovery` | **landlord DB** | Routing entry + `tenant_discovery.timezone` (read by the frontend via `GET /api/public/authConfig`). See [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-datasource-topology.md). |
+| `tenant_db_configuration` + `tenant_discovery` | **landlord DB** | Routing entry (key = `first4(tenant)-facility`, headers `X-Tenant-ID` + `facility_code`) + `tenant_discovery.timezone` (read by the frontend via `GET /api/public/authConfig`, `TenantDiscoveryController`). Written automatically if you use the provisioning endpoint above. See [wms2-tenant-routing-datasource-topology.md](./wms2-tenant-routing-datasource-topology.md). |
 
 Greenfield clients write UTC from the first row (UTC-configured app + `timestamptz` columns), so the `System Time Zone` sysprop is used only for **display/business-date** purposes, never for write-path conversion.
 
@@ -199,7 +220,7 @@ Greenfield clients write UTC from the first row (UTC-configured app + `timestamp
 
 ## 7. Sequencing — prerequisite
 
-This baseline can only be generated **after** the UTC migration ships, because the snapshot must be taken from a DB that is *already in the target state*. As of 2026-05-31 the prerequisites do **not** exist (verified):
+This baseline could only be generated **after** the UTC migration shipped, because the snapshot had to be taken from a DB already in the target state. **All prerequisites are now met** (the base dump `V2.2.00` exists on develop; `V2.2.00` contains 0 `timestamp without time zone` column definitions and 105 `timestamp with time zone` lines, `grep -c` on develop @ df30fa62). The list below is the original 2026-05-31 checklist:
 
 1. ~~`V1.2.01–V1.2.04` + `V1.2.99` UTC SQL authored and committed~~ — **DONE.** The `V1.2.0x` UTC scripts landed and now live in `db/v1-to-v2-onboarding/schema/` (rollback in `db/v1-to-v2-onboarding/rollback/`).
 2. Phase-1/Phase-2 app code merged (`TimezoneService`, `resolveWarehouseTz`/`connectionInitSql`, UTC `application.properties`).
@@ -213,12 +234,20 @@ Generating the baseline before these land would just re-snapshot the legacy `tim
 
 | You are… | Do this |
 |---|---|
-| Onboarding a **brand-new** client | Use §3/§4 once §7 prerequisites are met; otherwise replay the 23 scripts and run `V1.2.0x` on the empty DB as an interim path. |
+| Onboarding a **brand-new** client | Use §4: `db/provision-fresh-v2-db.sh` + `db/configure-client-sysprops.sh`, or the OMS-driven `PUT /landlord/tenants/{tenant}/warehouses/{warehouse}`. The interim 23-script replay is obsolete. |
 | Onboarding an **existing v1** client | Ignore this doc — use the [260527 runbook](../../1-Projects/wms2/plan/260527-hydra-v1-to-v2-migration-runbook.md). |
 | Converting an **existing v2** tenant to UTC | Use the [260523 plan](../../1-Projects/wms2/plan/260523-UTC-TIMEZONE-MIGRATION.md). |
-| Maintaining the baseline | Regenerate `V2.0.00` whenever the schema changes; keep the incremental `V2.1.x`/`V1.2.0x` scripts for scenarios B/C. |
+| Maintaining the baseline | Do **not** regenerate `V2.2.00` for ordinary schema changes: add a `V2.2.x` delta (never edit an applied migration; every tenant's `flyway_schema_history` checksums `V2.2.00`). Keep the incremental `V2.1.x`/`V1.2.0x` scripts for scenarios B/C. |
 
 ## 9. Open decisions
 
-- **Who owns regenerating `V2.0.00`** when schema changes, and how is drift between the baseline and the incremental scripts detected? (Proposal: a CI check that builds a fresh DB both ways and diffs the schema.)
+- **Who owns regenerating the base dump**, and is regeneration still allowed? `V2.2.00` is already applied (and checksummed) on live tenants, so an in-place re-export would fail `validate` there; `db/migration/README.md` and the database setup guide still describe re-export. Decision needed. Drift detection now exists as `db/verify-tenant-schema-conformance.sh` (compares each tenant against a freshly replayed `db/migration` head) and `db/check-tenant-migration-drift.sh` (applied version sets).
 - **`pg_dump` baseline vs template DB** as the canonical mechanism — decide per the deployment topology (cross-server portability vs same-server speed).
+
+---
+
+## Verification log
+
+| Date | Scope | Result |
+|------|-------|--------|
+| 2026-11-11 | Flyway locations, latest versions (tenant `V2.2.50`, landlord `V2.1.02`), provisioning endpoint and advisory lock 100012, `StartupFlywayMigrator` config, script flags (`provision-fresh-v2-db.sh`, `configure-client-sysprops.sh`, `backfill-flyway-history.sh`), sysprop key list, `V2.2.00` placeholder/timestamptz shape, `GET /api/public/authConfig`, routing key. Added the API provisioning route; marked §§2/3/7 as historical; fixed bridge range and §8/§9. | Code read at develop @ df30fa62; live DB not queried. Next due 2027-01-10. |

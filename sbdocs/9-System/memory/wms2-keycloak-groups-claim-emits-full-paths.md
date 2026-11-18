@@ -4,6 +4,8 @@ description: "Nam 2026-08-26 (IMPORTANT): Keycloak group /sb_admin IS the WMS sb
 metadata:
   node_type: memory
   type: reference
+  originSessionId: 94f8c16e-349a-45d3-90df-11bc73132ef5
+  modified: 2026-11-04T08:39:38.060Z
 ---
 
 > ## ⚠ THE RULE — Nam, 2026-08-26. "Remember this, it's very important."
@@ -16,6 +18,7 @@ metadata:
 
 `JwtAccessTokenCustomizer` — wired as the authentication converter at
 **`SecurityConfiguration.java:112`**, `.jwtAuthenticationConverter(jwtAccessTokenCustomizer(...))`.
+> ✓ merged(SBDEV-3197: #651 c0bd417b, 2026-11-09): `filterChain` now takes the customizer as an injected parameter (`.jwtAuthenticationConverter(jwtAccessTokenCustomizer)`) instead of self-invoking the `@Bean` method; `BeanMethodSelfInvocationArchTest` forbids the old shape. Line numbers above are historical.
 Its `extractRoles` builds the authority set from **both** claim sources:
 
 ```java
@@ -32,6 +35,8 @@ jwt.path("groups").elements().forEachRemaining(r -> roles.add(r.asText()));
 |---|---|---|
 | `panderson` (sb_admin) | `/sb_admin`, `/wms_admin`, `/wms_user`, `/warehouse/wsl` | `wms_admin`, **`sb_admin`**, `wms_user` |
 | `sbtest` (customer admin) | `/wms_user`, `/warehouse/develop`, `/warehouse/wsl` | `wms_user` |
+
+⚠ **2026-11-04: `panderson` is NO LONGER `/sb_admin` on dev.** Nam removed the membership deliberately, so `IS_SB_ADMIN` gates now 403 for that account. Probe the mapping with `sbdocs/9-System/scripts/smoke-wms2-keycloak-role-mapping.sh` (SBDEV-3116), using a subject that actually holds the group.
 
 So the authority set holds **both** forms, and `hasAuthority('sb_admin')` matches the **bare** copy that
 came in via `resource_access`. Keycloak emits each group as a client role as well — that is the mapping,

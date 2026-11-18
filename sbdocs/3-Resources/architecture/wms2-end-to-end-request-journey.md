@@ -6,9 +6,9 @@ version: v2
 scope: cross-cutting
 owner: Nam Park
 created: 2026-04-19
-updated: 2026-07-03
-last_verified: 2026-08-21
-verified_by: code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui; §3.1/§3.2 updated for SBDEV-2390 (check-sso + kc-redirect-guard loop-breaker); §4.2 re-confirmed against 260610 Phase B (PR #41)
+updated: 2026-11-11
+last_verified: 2026-11-11
+verified_by: 2026-11-11 re-verification of the backend halves (sections 2 steps 5-10, 4, 8, 9) against wms2-api origin/develop @ df30fa62 - the frontend halves (wms2-web-ui and wms2-mobile-ui, sections 2 steps 1-4, 3, 6 and 7 frontend rows) were NOT re-verified because they are outside the code of record; report scratchpad verify/authz-tenant-journey.md; earlier pass - code read across v2/wms2-api + v2/wms2-web-ui + v2/wms2-mobile-ui; §3.1/§3.2 updated for SBDEV-2390 (check-sso + kc-redirect-guard loop-breaker); §4.2 re-confirmed against 260610 Phase B (PR #41)
 related:
   - ./wms2-tenant-routing-datasource-topology.md
   - ./wms2-transaction-osiv-boundary-map.md
@@ -27,7 +27,7 @@ tags:
 # WMS v2 — End-to-End Request Journey
 
 **Scope:** The full path one browser click takes across `wms2-web-ui` / `wms2-mobile-ui` → `wms2-api` → PostgreSQL and back · **Version:** v2
-**Owner:** Nam Park · **Last verified:** 2026-04-19
+**Owner:** Nam Park · **Last verified:** 2026-11-11 (backend half; frontend half ⚠ last verified 2026-07-03, see the notes under §2, §3 and §6)
 
 ---
 
@@ -43,6 +43,8 @@ Two load-bearing facts to anchor the journey:
 ---
 
 ## 2. The Journey — 10 Steps
+
+> ⚠ **2026-11-11:** steps 1–4 and the retry paragraph below describe `wms2-web-ui` / `wms2-mobile-ui`, which were not re-verified in this pass (⚠ unverified 2026-11-11: outside the code of record; last checked 2026-07-03 for SBDEV-2390). Steps 5–10 were re-read against `wms2-api` develop @ df30fa62; corrections are marked in the diagram.
 
 ```
  ┌──────────────────────────────────────── FRONTEND ─────────────────────────────────────┐
@@ -76,13 +78,14 @@ Two load-bearing facts to anchor the journey:
  │                                                                                        │
  │ 5. TenantFilter.doFilter() — @Order(HIGHEST_PRECEDENCE)                                │
  │    reads X-Tenant-ID + facility_code, lowercases both                                  │
- │    if path starts with /api/public/... → TenantContext=null, skip                      │
+ │    if path starts with /api/public/... → skip; no context set                          │
  │    else → TenantContext.setCurrentTenant(new TenantProfile(t, f))                      │
  │    puts MDC key {tenantPrefix}-{facilityCode} for log correlation                      │
  │                                                                                        │
  │ 6. Spring Security (MultiTenantJwtDecoder) validates JWT                               │
  │    resolves tenant-specific Keycloak realm via TenantAuthConfigCache                   │
- │    jwtDecoders.get(tenantKey, ...) — per-tenant Caffeine decoder cache (24h TTL)              │
+ │    jwtDecoders.get(tenantKey|issuer, ...) — Caffeine, 24h TTL, max 200                 │
+ │    then authorization: see §4.2.2 (wms_user floor + @RequiresFunction guard)           │
  │                                                                                        │
  │ 7. Controller dispatch — no @Transactional here (rule)                                 │
  │                                                                                        │
@@ -90,7 +93,7 @@ Two load-bearing facts to anchor the journey:
  │    Hibernate asks TenantIdentifierResolver for current tenant                          │
  │    returns tenantKey or "BOOTSTRAP" if context null                                    │
  │    TenantDynamicRoutingDataSource.determineTargetDataSource()                          │
- │       tenantPools.computeIfAbsent(key, ...) → per-tenant HikariDataSource              │
+ │       poolHolders.computeIfAbsent(key, ...) → per-tenant HikariDataSource              │
  │       lastAccess.put(key, now)                                                         │
  │                                                                                        │
  │ 9. Query hits per-tenant PostgreSQL; response assembled                                │
@@ -112,6 +115,8 @@ Two load-bearing facts to anchor the journey:
 ## 3. The Five Frontend Plugins — Load Order
 
 Plugin order in `nuxt.config.js` is a **correctness contract**, not a style choice. Wrong order = white screen or infinite redirect loop.
+
+> ⚠ unverified 2026-11-11: this whole section (and §3.1–§3.3) describes the two UI repos, which are outside this pass's code of record; last verified 2026-07-03.
 
 Both `wms2-web-ui` and `wms2-mobile-ui` declare:
 
@@ -192,17 +197,27 @@ At `v2/wms2-api/src/main/java/net/aim_ai/wms/landlord/config/TenantFilter.java`:
 - Builds a `TenantProfile(tenantName, facilityCode)`, calls `TenantContext.setCurrentTenant(profile)`, also pushes `{tenantPrefix}-{facilityCode}` into SLF4J MDC for log correlation.
 - In a `finally` block, calls `TenantContext.clear()` so the scheduler threads never inherit a stale tenant.
 
-Public endpoints (prefix `/api/public/`) are exempt: `TenantContext` is set to `null` and validation is skipped. The authConfig lookup endpoint is the only routine user of this path.
+Public endpoints (prefix `/api/public/`) are exempt: the filter **returns before any context is set** (`TenantFilter.java:34-38`; ⚠ corrected 2026-11-11 — this used to say `TenantContext` "is set to `null`", which only the missing-header branch does, `:43-45`), so the ThreadLocal is empty and routing falls to the landlord DB. The authConfig lookup endpoint is the only routine user of this path. Verified 2026-11-11: header constants `:23-24`, header reads `:40-41`, lowercasing `:47`, `finally { TenantContext.clear() }` `:53-55`, `@Order(Ordered.HIGHEST_PRECEDENCE)` `:19`.
 
 ### 4.2 Spring Security — `MultiTenantJwtDecoder`
 
 Resolves the tenant-specific Keycloak realm via `TenantAuthConfigCache` (populated by `TenantConfigLoader.scheduledRefresh`). Caches per-tenant `JwtDecoder` instances in a bounded Caffeine cache (`expireAfterWrite(24h)`, `maximumSize(200)` — GAP F fix, 260610 Phase B) via `jwtDecoders.get(tenantKey, ...)` to avoid rebuilding JWK sets per request; landlord auth-config changes propagate within the TTL.
 
+✓ merged(SBDEV-4075: #652 ed8d7834, 2026-11-09). **Issuer validation.** Both decoders check `iss` as well as the signature and timestamps (`JwtValidators.createDefaultWithIssuer`):
+- **Per-tenant decoder:** the expected issuer is trimmed `server_url` + `/realms/` + `realm` from `tenant_auth_configuration`. The JWKS is fetched from that issuer plus `/protocol/openid-connect/certs`.
+- **Default decoder:** used when there is no tenant context. It expects trimmed `rest.security.issuer-uri`.
+- **Known tenant with no auth config:** fails closed with `BadJwtException`, a 401 with `error="invalid_token"`. It no longer borrows the default realm. A tenant name that has no DB config gets the same answer.
+  - The 401's message is deliberately generic ("No Keycloak configuration for this tenant"), so it can't be used to list which tenant/facility pairs exist. The tenant appears only in the WARN log.
+  - A missing header never reaches this branch: `TenantFilter` leaves the context null, so that request takes the default decoder.
+- **Config checked on every request:** the auth config is now looked up before the decoder cache, at the cost of two in-memory map reads. The cache key also includes the issuer. So a removed config is rejected at once, and a changed `server_url` or realm builds a new decoder at once, instead of waiting up to 24 h for the TTL.
+- **Rejected token whose `iss` differs from the expected issuer:** logs one WARN line with both values (`Rejected JWT: iss '…' does not match expected issuer '…'`). That WARN is the first thing to check when a caller suddenly gets 401s after this change, for example OMS minting its token through a different Keycloak hostname.
+- **Not covered:** there is still no audience check (proposals-register P83).
+
 ### 4.2.1 `IdempotencyFilter` — REST write deduplication (SBDEV-2222, extended by SBDEV-3003)
 
 Wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuthenticationFilter.class)` so it runs **after** the JWT is validated and `SecurityContextHolder` is populated. ⚠ It does **not** run after authorization: `AuthorizationFilter` is last in the chain, so this filter executes **before** the `hasAnyAuthority("wms_user")` check on `/v3/**`. That ordering is why the `/v3` allow-list carries its own in-code auth gate (below).
 
-- Applies to non-GET `/rest/**` requests (skips `/rest/stockcount/**` and `/rest/transactionreport/**`), **plus an exact-match `/v3` allow-list** — currently the single entry `POST /v3/stockUnit/transferStock` (SBDEV-3003 Slice 2, mobile Move Stock). Exact match, never a `/v3` prefix: `AdminController` is mapped at `/v3` with 43 subclasses, so a prefix would enrol ~215 non-GET endpoints invisible to a mapping grep.
+- Applies to non-GET `/rest/**` requests (skips `/rest/stockcount/**` and `/rest/report/**`; the latter was the unmatched `/rest/transactionreport/**` until SBDEV-4114 ✓ merged(SBDEV-4114: #662 494d2216, 2026-11-11)), **plus an exact-match `/v3` allow-list** — currently the single entry `POST /v3/stockUnit/transferStock` (SBDEV-3003 Slice 2, mobile Move Stock). Exact match, never a `/v3` prefix: `AdminController` is mapped at `/v3` with 43 subclasses, so a prefix would enrol ~215 non-GET endpoints invisible to a mapping grep.
 - Rejects anonymous callers (defence-in-depth against filter-order regression). On `/rest/**` this gate is skipped when `app.idempotency.require-auth=false` (the shipped default, because `/rest/**` is `permitAll` and OMS may not send a JWT); on the `/v3` allow-list it is **unconditional in code**, since without it an anonymous POST routes to the landlord DB (no `rest_idempotency` there) and yields `42P01` → 500 instead of 401.
 - Skips dedup for oversized bodies (> `app.idempotency.max-body-bytes`, default 5 MB) — DoS guard.
 - **Auto-derives idempotency key** from `SHA-256(method + "|" + path + "|" + rawBodyBytes)` when no `Idempotency-Key` header is present (260520). An explicit header overrides the auto-derived key (back-compat for OMS callers). **On the `/v3` allow-list auto-derive is disabled and the request falls through undeduped instead** — a deliberate repeat Move Stock sends a byte-identical body, so a content-derived key would replay (and therefore silently drop) the real second move for the 7-day retention window.
@@ -211,6 +226,15 @@ Wired via `SecurityFilterChain.addFilterAfter(idempotencyFilter, BearerTokenAuth
 - On replay: returns cached 2xx response directly; evicts Caffeine `itemdata` cache for `/rest/sku/**` replays.
 - On handler exception: passes `SC_INTERNAL_SERVER_ERROR` to `persistResponse`, which deletes the claim row so OMS may retry.
 - Controlled by `app.idempotency.enforce=true` (`false` bypasses in dev). See [wms2-sysprop-catalog.md](../data-dictionary/wms2-sysprop-catalog.md) §4.6.
+
+### 4.2.2 Authorization after authentication — the layer this journey used to skip (added 2026-11-11)
+
+Authentication (§4.2) only proves the token is valid for the tenant's realm. What a caller may then do is decided in two places, both re-read on develop @ df30fa62:
+
+1. **Path floor — `SecurityConfiguration.filterChain`** (`SecurityConfiguration.java:146-190`): `/actuator/health/**` and `/actuator/info` are `permitAll` (`:146`); `/actuator/**` needs `ADMIN` or `wms_admin` (`:147`); a permitAll list (`:150-154`) holds `/`, `/v3`, `/v3/token`, `/error`, `/rest/**`, `/api/**`, the swagger-ui paths and `/api/public/**` (`/rest/**` is the internal WMS↔OMS surface); `/v3/adminAction/**` and six more matchers need `wms_user` (`:157-160`); `/v3/**`, `/putawayConfig/**` and the OpenAPI spec paths need `wms_user` (`:178`); everything else needs only a valid token (`:190`). Authorities come from `JwtAccessTokenCustomizer.extractRoles` (`:138-162`), which merges every `resource_access.*.roles` entry and every `groups` entry. **Keycloak is coarse — `wms_user` is the only business authority a normal user holds.**
+2. **Function gate — `FunctionGuardInterceptor`**, registered as a `MappedInterceptor` bean over `/**` (`WebConfig.java:90-93`) so it also sees Spring Data REST. A handler carrying `@RequiresFunction(...)` (234 sites, §3.7 of the role matrix) passes only if the caller's tenant-DB function set contains any listed function; a denial is HTTP 403 with the `X-Authz-Denied` header (`AuthzDenialWriter`, `Authority.java:150`). Controllers in `FunctionGuardInterceptor.GUARDED` (17 classes) fail closed on an unannotated handler; SDR handlers are evaluated by `SdrFunctionGuard` under a per-tenant mode (sysprop `WMS2_SDR_READ_GUARD_MODE`, absent ⇒ `OFF`). **Functions are fine-grained** — resolving them needs a `TenantContext`, i.e. the §4.1 headers, which is why `/actuator/**` stays on a Keycloak authority.
+
+13 handlers additionally carry `@PreAuthorize(Authority.IS_SB_ADMIN)`. Full inventory and history: [wms2-keycloak-role-matrix.md](./wms2-keycloak-role-matrix.md) (§1, §3.7, §6.1).
 
 ### 4.3 Service layer — transaction + routing
 
@@ -224,7 +248,7 @@ Hibernate asks `TenantIdentifierResolver.resolveCurrentTenantIdentifier()` on ea
 
 1. `TenantProfile profile = TenantContext.getCurrentTenant()` — from step 5.
 2. `String key = TenantKeyBuilder.buildKey(profile)` → `first4(tenantName) + "-" + facilityCode`.
-3. `tenantPools.computeIfAbsent(key, k -> createHikariPool(config))` — lazy create; first request for a tenant pays 200–1000 ms pool creation. Config source: `TenantDbConfigCache` (populated by `TenantConfigLoader`, refreshed every 5 min).
+3. `poolHolders.computeIfAbsent(key, k -> new PoolHolder(createHikariPool(config), …))` (`TenantDynamicRoutingDataSource.java:157-167`; was `tenantPools`) — lazy create; first request for a tenant pays 200–1000 ms pool creation. Config source: `TenantDbConfigCache` (populated by `TenantConfigLoader`, refreshed every 5 min).
 4. `lastAccess.put(key, now())` — input to `TenantPoolEvictor`.
 
 ---
@@ -246,6 +270,8 @@ See [wms2-transaction-osiv-boundary-map.md](./wms2-transaction-osiv-boundary-map
 ---
 
 ## 6. Token Refresh Loop
+
+> ⚠ unverified 2026-11-11: this section describes `keycloak.client.js` in the UI repos (outside the code of record); last verified 2026-07-03.
 
 The frontend keeps the bearer alive via a setInterval in `keycloak.client.js`:
 
@@ -278,7 +304,7 @@ Retry-inside-axios (step 4 in the journey) is the second layer: when a request c
 | "Tenant not found" on backend | §3.1 subdomain parsing + §4.1 `TenantFilter` lowercasing; check `localStorage.tenantKeycloakConfig` payload |
 | Data from the wrong tenant | §4.3 + [wms2-transaction-osiv-boundary-map.md](./wms2-transaction-osiv-boundary-map.md) §10 item 2 — bare `@Transactional` falling through to landlord |
 | Token refresh stops after a while | §6 — inspect `onAuthRefreshError` logs; check if `tokenUpdateInterval` got cleared by an unhandled exception |
-| New tenant added but not routable | §4.4 + 5-min `TenantConfigLoader` refresh cadence — hit `/v3/tenant/health` for the new tenant to force validation |
+| New tenant added but not routable | §4.4 + 5-min `TenantConfigLoader` refresh cadence — `POST /actuator/tenantpool` (`@Endpoint(id = "tenantpool")`, `TenantPoolEndpoint.java:24`) reloads the row and evicts the pool, per replica; `/v3/tenant/health` only validates the cache and does **not** refresh it (⚠ corrected 2026-11-11, see the topology doc §7) |
 | Mobile UI loops re-initialising Keycloak | §3.2 `window.__keycloakState` — confirm it's not reset by an outer mount hook |
 | OMS never receives a pick/cancel/ship notification | §5 post-commit drop on rollback; inspect `message` table |
 
@@ -290,7 +316,7 @@ Retry-inside-axios (step 4 in the journey) is the second layer: when a request c
 2. **Mobile UI Keycloak state must live on `window`.** Module-level state resets on Nuxt navigation and re-triggers init.
 3. **`initTenantAuth` makes a network call *before* Keycloak is up.** Goes to `/api/public/authConfig` — the one public endpoint. If that path is moved or protected, the whole app cannot bootstrap.
 4. **Axios interceptor reads tenant info from TWO places** (`store.selectedWarehouse` → localStorage fallback). If the store rehydration order is off, a request can go out with stale `facility_code`. §3.3.
-5. **Headers are lowercased on both sides.** `TenantFilter:40-48` lowercases. Don't compare against mixed-case values anywhere downstream.
+5. **Headers are lowercased on both sides.** `TenantFilter:40-49` lowercases (`:47`). Don't compare against mixed-case values anywhere downstream.
 6. **Public path bypass is prefix-based** (`/api/public/`). A new public endpoint that accidentally operates on tenant data falls through to landlord. Audit new routes.
 7. **Post-commit hooks drop silently on rollback.** OMS / label / audit callbacks only fire after commit; a rolled-back TX leaves no trace outside `message` / `message_archived` tables.
 8. **Token refresh interval lives on `window.__keycloakState.tokenUpdateInterval`.** An unhandled exception inside the interval callback can kill the loop without logging — tokens then expire silently until the next 401 triggers refresh via axios-retry.
@@ -311,6 +337,8 @@ Retry-inside-axios (step 4 in the journey) is the second layer: when a request c
 | Backend TenantContext | `v2/wms2-api/src/main/java/net/aim_ai/wms/landlord/config/TenantContext.java:18` |
 | Backend routing DS | `v2/wms2-api/src/main/java/net/aim_ai/wms/landlord/config/TenantDynamicRoutingDataSource.java` |
 | Backend multi-tenant JWT decoder | `v2/wms2-api/src/main/java/net/aim_ai/wms/landlord/config/MultiTenantJwtDecoder.java` |
+| Backend path rules | `v2/wms2-api/src/main/java/net/aim_ai/wms/SecurityConfiguration.java:146-190` |
+| Backend function gate | `v2/wms2-api/src/main/java/net/aim_ai/wms/security/FunctionGuardInterceptor.java`, registered at `WebConfig.java:90-93` |
 
 ---
 
@@ -333,5 +361,6 @@ Retry-inside-axios (step 4 in the journey) is the second layer: when a request c
 | 2026-04-19 | Frontend plugin chain (both UIs), backend `TenantFilter` → `MultiTenantJwtDecoder` → `TenantIdentifierResolver` → `TenantDynamicRoutingDataSource`, axios interceptor header contract, token refresh loop on `window.__keycloakState`, post-commit hook pattern | All file:line refs confirmed against source; cross-linked to tenant-routing + transaction architecture docs | Code read + accumulated evidence from prior doc sweeps |
 | 2026-06-14 | §4.2 `MultiTenantJwtDecoder` per-tenant decoder cache — confirmed body matches the merged 260610 hardening Phase B (`expireAfterWrite(24h)`, `maximumSize(200)`, GAP F fix, PR #41). Spot-check of §4.2 only, not a full doc re-sweep | Matches code; `last_verified` bumped | Doc-drift audit (verify-docs) |
 | 2026-07-03 | §3.1 diagram + §3.2 — updated for SBDEV-2390: both UIs now init with `onLoad: 'check-sso'` (was `login-required`) and gate `login()` through the `kc-redirect-guard.js` sessionStorage loop-breaker (`MAX_KC_REDIRECTS=2` → `/unknown-tenant?reason=auth`). Confirmed against branches `tasks/SBDEV-2390-pickpack-keycloak-refresh-loop` (wms2-web-ui PR #6, wms2-mobile-ui PR #6) | Diagram was stale (`login-required`); corrected + loop-breaker documented | Doc update (verify-docs follow-up) |
+| 2026-11-11 | **Backend half re-verified against `origin/develop` @ df30fa62 (wms2-api).** Read: `TenantFilter`, `TenantContext`, `TenantKeyBuilder`, `TenantIdentifierResolver`, `TenantDynamicRoutingDataSource`, `MultiTenantJwtDecoder` (cache 24h/200, issuer validation, fail-closed branch, WARN text), `IdempotencyFilter` (allow-list, 5 MB, require-auth=false default), `SecurityConfiguration`, `FunctionGuardInterceptor` + `WebConfig`, `TenantPoolEndpoint`, `TenantTransactional`, 43 `AdminController` subclasses. | §4.2 / §4.2.1 claims all confirmed (SBDEV-4075 and SBDEV-3003 text matches code). Corrected: `/api/public/` does not set a null context; `tenantPools` → `poolHolders`; jwtDecoders cache key is `tenantKey|issuer`; `/v3/tenant/health` does not force a refresh (`POST /actuator/tenantpool` does); added §4.2.2 (authorization layer was absent); §8 anchor `:40-48` → `:40-49`. **Not re-verified:** every wms2-web-ui / wms2-mobile-ui claim (§2 steps 1-4, §3, §6, §8 items 1-4 / 8-9), marked ⚠ in place. | Code read; Claude (executor) |
 
-**Re-verify every 60 days.** Next due: **2026-09-01** — this doc spans 3 projects; any plugin change or backend filter change invalidates sections here.
+**Re-verify every 60 days.** Next due: **2027-01-10** — this doc spans 3 projects; any plugin change or backend filter change invalidates sections here.

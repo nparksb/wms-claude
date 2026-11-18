@@ -34,3 +34,5 @@ appending a numbered section to a shared file, grep the existing labels first.**
 Corollary for any shared append-only file (`audit-access-invariants.sql`, sysprop seeds, migration
 directories): two branches will both append at EOF and both pick "the next number" from a stale view. Expect
 the conflict, and re-derive the number at merge rather than at authoring time.
+
+**Recurrence 2026-11-04 (SBDEV-4007 vs SBDEV-4002):** plan-time `git ls-tree` over every *remote* branch said V2.2.46 was free; a peer session (owl-76) had it in an **unpushed local commit**. Nam: 4002 keeps V2.2.46, 4007 → V2.2.47. Side effect: 4007's gate ITs installed its V2.2.46 into the **shared** Testcontainers postgres, so both sessions' ITs fail Flyway checksum validation until that container is recreated — coordinate before `docker rm`. **How to apply:** before writing a migration, also run `src/main/resources/db/check-migration-version-collision.sh V2.2.N` and `ListAgents` → ask peers working wms2-api; don't run ITs that apply a new migration until the number is confirmed.

@@ -10,8 +10,10 @@ Hub for **Flyway runtime, versioning, ownership and error traps**. Moved out of 
 - [[sbdev-2801-runtime-flyway-default-on]]: SBDEV-2801: runs every boot, every env
 - [[flyway-runbook-covers-dev-and-uat-via-env-flag]]: tenant runbook (--env required)
 - [[flyway-version-pick-sweep-all-remote-branches]]: pick versions: sweep ALL branches
+- [[flyway-collision-check-misses-peer-worktrees]]: remote sweep misses peer worktrees; use private Testcontainers
 - [[flyway-collision-sweep-cannot-catch-a-branch-pushed-later]]: sweep misses later branches
 - [[los-sysprop-description-varchar-255-aborts-migration]]: sysprop.description varchar(255)
 - [[wms2-tenant-object-ownership-blocks-flyway]]: ownership drift blocks it
 - [[wms2-flyway-migration-facts-corrected]]: 3 false header claims
 - [[flyway-error-message-contains-the-script-filename]]: errors quote filename: assert SQLSTATE
+- [[census-must-include-demo-tenants-and-datasets]]: pre-constraint census must cover demo tenants (is_demo) + demo-datasets fixtures

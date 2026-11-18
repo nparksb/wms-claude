@@ -6,9 +6,9 @@ version: v2
 scope: wms2-api
 owner: Nam Park
 created: 2026-07-12
-updated: 2026-07-19
-last_verified: 2026-07-19
-verified_against: wms2-api@feature/fresh-v2-db-base-refresh-and-provisioning 9ee6cff (SBDEV-2607 PR #79 — provisioning + client-config tools); base reorg on develop 43384c0 (PR #71)
+updated: 2026-11-11
+last_verified: 2026-11-11
+verified_against: wms2-api origin/develop df30fa62 (2026-11-11 re-verification); earlier: feature/fresh-v2-db-base-refresh-and-provisioning 9ee6cff (SBDEV-2607 PR #79), base reorg develop 43384c0 (PR #71)
 related:
   - "[[wms2-greenfield-db-provisioning]]"
   - "[[wms-database-migration-guide]]"
@@ -63,11 +63,12 @@ Everything lives under `v2/wms2-api/src/main/resources/db/`, reorganized (PR #71
 
 ```
 db/
-├── migration/                    # ← Path A: fresh-start. Small: base dump + future deltas.
+├── migration/                    # ← Path A: fresh-start. Tenant set = classpath:db/migration (what the app runs)
 │   ├── V2.2.00__base_v2_schema.sql   # schema+seed dump through the V2.1.16 watermark (UTC); includes los_sequencenumber seed
-│   └── V2.2.01+__*.sql               # ALL new post-cutover deltas go here from now on
+│   └── V2.2.01 … V2.2.50 __*.sql     # ALL post-cutover deltas; 51 files incl. the base dump, latest V2.2.50 (2026-11-11)
+├── landlord-migration/           # ← LANDLORD set = classpath:db/landlord-migration: V2.1.00 baseline, V2.1.01, V2.1.02 (independent history)
 └── v1-to-v2-onboarding/          # ← Path B: migration toolkit (NOT used to build a fresh DB)
-    ├── schema/                       # linear forward history V1.0.*→V2.1.16 (also the IT-harness source)
+    ├── schema/                       # linear forward history V1.0.01→V2.1.17 (32 files; bridge applies through V2.1.16; NOT used by the IT harness any more)
     ├── rollback/V1.2.99__…           # UTC rollback — MANUAL ONLY, kept out of any Flyway-scanned dir
     └── onboarding-tz-variants/       # per-source-TZ UTC script copies + the psql automation pipeline
         └── scripts/                  # 00-restore … 09-smoke, 99-rollback, _lib.sh, migration.env*
@@ -118,7 +119,9 @@ Before the reorg, greenfield had no clean tool (replaying the full v1→v2 linea
      --oms-tenant-id <id> --warehouse <CODE> --timezone <TZ> \
      --mobile-ui-url <mobile_url> --oms-api-base-url <oms_api_base>
    ```
-4. **Register the tenant** in the landlord DB (routing key = 2-char tenant + 2-char facility) so `TenantDynamicRoutingDataSource` can reach it — see `[[wms2-tenant-routing-datasource-topology]]`.
+4. **Register the tenant** in the landlord DB (routing key = `first4(tenantName) + "-" + facilityCode`, from the `X-Tenant-ID` and `facility_code` headers) so `TenantDynamicRoutingDataSource` can reach it — see `[[wms2-tenant-routing-datasource-topology]]`.
+
+> **Alternative to steps 1–4 (SBDEV-3868):** `PUT /landlord/tenants/{tenant}/warehouses/{warehouse}` on the running API (only when `rest.security.enabled=true`) creates the role + database, writes the landlord rows, applies the schema with the boot's Flyway configuration and fills the `CHANGE-ME-FOR-NEW-CLIENT` settings, idempotently, under advisory lock `TENANT_PROVISIONING` (100012). See `[[wms2-greenfield-db-provisioning]]` §4.
 
 ### Do NOT
 
@@ -127,7 +130,7 @@ Before the reorg, greenfield had no clean tool (replaying the full v1→v2 linea
 
 ### Maintaining the base dump
 
-When you re-export `V2.2.00` from a converted v2 reference DB, keep it Flyway-runnable: dump with `pg_dump --no-owner --no-privileges`, avoid `COPY … FROM stdin` (use `--inserts` / `--rows-per-insert=100`), and comment out pg_dump-16's `\restrict`/`\unrestrict` meta-commands. **If the reference DB was itself provisioned by Flyway, exclude its bookkeeping table** — `--exclude-table=public.flyway_schema_history` — or the dump re-creates a stale history that collides with a fresh `flyway migrate`. The exact `sed` sanitizer is in `db/migration/README.md`.
+⚠ **Decision needed (2026-11-11):** `V2.2.00` is applied and checksummed on live tenants, so an in-place re-export would fail Flyway `validate` there; the guidance below predates that and is only safe for a base dump no tenant has applied. When you re-export `V2.2.00` from a converted v2 reference DB, keep it Flyway-runnable: dump with `pg_dump --no-owner --no-privileges`, avoid `COPY … FROM stdin` (use `--inserts` / `--rows-per-insert=100`), and comment out pg_dump-16's `\restrict`/`\unrestrict` meta-commands. **If the reference DB was itself provisioned by Flyway, exclude its bookkeeping table** — `--exclude-table=public.flyway_schema_history` — or the dump re-creates a stale history that collides with a fresh `flyway migrate`. The exact `sed` sanitizer is in `db/migration/README.md`.
 
 ---
 
@@ -187,9 +190,9 @@ Don't substitute the TZ at runtime — generate a **committed, reviewed** varian
 ## 4. What the two paths share
 
 - **Watermark `V2.1.16`.** `db/v1-to-v2-onboarding/schema/` runs `V1.0.01 → V2.1.16`; `db/migration/V2.2.00` is a dump of exactly that endpoint. A converted v1 client and a fresh v2 DB therefore land at the **identical schema version**.
-- **One forward lane afterward.** From the watermark on, *all* new schema changes are `V2.2.x` deltas in **`db/migration/`** (check the highest existing `V2.2.*` first; never edit an applied migration). Both provisioning paths consume the same deltas.
-- **No runtime Flyway.** Provisioning is an operator step; the running service never migrates.
-- **The IT test harness** (`AppPostgresDBSetupExtension`, outbox ITs, `test/resources/flyway.conf`) builds test schemas from the **full linear history** at `classpath:db/v1-to-v2-onboarding/schema` — *not* from `db/migration/`. So keep that linear history clean and duplicate-free (this is why the rollback and NY variant scripts live outside `schema/`).
+- **One forward lane afterward.** From the watermark on, *all* new tenant schema changes are `V2.2.x` deltas in **`db/migration/`** (run `bash src/main/resources/db/check-migration-version-collision.sh` from inside the repo before naming one; `ls` misses unmerged branches; never edit an applied migration). Landlord DDL is `V2.1.x` in `db/landlord-migration/`. Both provisioning paths consume the same deltas.
+- **Runtime Flyway is ON.** `StartupFlywayMigrator` (via `StartupFlywayMigrationRunner`, `app.flyway.migrate-on-startup=true`) migrates the landlord first, then every active tenant DB, on every boot; out-of-order is enabled (`app.flyway.out-of-order=true`); tenants use `baselineOnMigrate(false)` so a DB with no `flyway_schema_history` is skipped until `db/backfill-flyway-history.sh` repairs it. Details in `[[wms-database-migration-guide]]` §4 and the correction banner at the top of this guide.
+- **The IT test harness** (`AppPostgresDBSetupExtension`, `postgres:14-alpine`) migrates `classpath:db/migration` (tenant) and `classpath:db/landlord-migration` (a second database, `wms_landlord_test`) — the same sets production runs (SBDEV-3239). It no longer builds from `db/v1-to-v2-onboarding/schema`; `PostgresTestHarnessPinTest` asserts that. (`src/test/resources/flyway.conf` still points at `db/v1-to-v2-onboarding/schema`, the harness does not use it; `StockHistoryClientIsolationIntegrationTest` only cites it in a comment.)
 - **Tenancy.** Either way, the last step is registering the tenant in the landlord DB so the routing key resolves — see `[[wms2-tenant-routing-datasource-topology]]`.
 
 ---
@@ -200,3 +203,11 @@ Don't substitute the TZ at runtime — generate a **committed, reviewed** varian
 - **Greenfield provisioning detail** (client-specific seed rows, tenant registration) → `[[wms2-greenfield-db-provisioning]]` (note: its "recommended consolidated baseline" is now *implemented* as `db/migration/V2.2.00`).
 - **UTC migration** — master plan `1-Projects/wms2/plan/260523-UTC-TIMEZONE-MIGRATION.md`; per-client runbooks `260527-hydra-…`, `260606-wineco-…`, `260628-shipitez-…`; SOP `2-Areas/wms-utc-timezone-migration/README.md`.
 - **In-repo READMEs (authoritative, closest to the scripts):** `db/migration/README.md`, `db/v1-to-v2-onboarding/README.md`, `db/v1-to-v2-onboarding/onboarding-tz-variants/scripts/README.md`.
+
+---
+
+## Verification log
+
+| Date | Scope | Result |
+|------|-------|--------|
+| 2026-11-11 | Directory layout and counts (tenant `V2.2.00`–`V2.2.50`, landlord `V2.1.00`–`V2.1.02`, `schema/` 32 files to `V2.1.17`), Flyway runtime behaviour, harness locations, routing key, provisioning endpoint, script names. Corrected the "No runtime Flyway" and harness bullets in §4 and the routing key in §2. Left the 2026-09-01 correction banner (dated production observation of `wh01_hydra_v2`) as is. | Code read at develop @ df30fa62; live DB not queried. Next due 2027-01-10. |
