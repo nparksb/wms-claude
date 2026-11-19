@@ -6,7 +6,7 @@ set +x; set -uo pipefail
 . "$(dirname "$0")/env.sh" || exit 2
 [ -n "$WMS_DEV_USER" ] && [ -n "$WMS_DEV_PASSWORD" ] || {
   echo "no credentials: see .claude/skills/wms-dev-probe/SKILL.md, Setup (run it in your own terminal)" >&2; exit 2; }
-CFG=$(curl -s --max-time 10 "$WMS_DEV_HOST/api/public/authConfig?key=$WMS_DEV_KEY")
+CFG=$(curl -q -s --max-time 10 "$WMS_DEV_HOST/api/public/authConfig?key=$WMS_DEV_KEY")
 jq -e '.authServerUrl and .realm and .clientId' >/dev/null 2>&1 <<<"$CFG" \
   || { echo "authConfig for '$WMS_DEV_KEY' failed: $(head -c 200 <<<"$CFG")" >&2; exit 1; }
 KC=$(jq -r .authServerUrl <<<"$CFG"); REALM=$(jq -r .realm <<<"$CFG"); CLIENT=$(jq -r .clientId <<<"$CFG")
@@ -22,7 +22,7 @@ ok = raw == raw.strip() and u.scheme == 'https' and u.port in (None, 443) and no
 sys.exit(0 if ok else 1)
 EOF
 [[ "$REALM" =~ ^[A-Za-z0-9_-]+$ ]] && [[ "$CLIENT" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "refusing: odd realm/client in authConfig" >&2; exit 2; }
-RESP=$(printf '%s' "$WMS_DEV_PASSWORD" | curl -s --max-time 15 -X POST "${KC%/}/realms/$REALM/protocol/openid-connect/token" \
+RESP=$(printf '%s' "$WMS_DEV_PASSWORD" | curl -q -s --max-time 15 -X POST "${KC%/}/realms/$REALM/protocol/openid-connect/token" \
   --data-urlencode grant_type=password --data-urlencode "client_id=$CLIENT" \
   --data-urlencode "username=$WMS_DEV_USER" --data-urlencode "password@-")
 TOK=$(jq -r '.access_token // empty' 2>/dev/null <<<"$RESP")

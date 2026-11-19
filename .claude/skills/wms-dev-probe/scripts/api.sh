@@ -25,10 +25,10 @@ call() {
   [ -z "${WMS_DEV_IF_MATCH:-}" ] || xtra+=(-H "If-Match: $WMS_DEV_IF_MATCH")
   [ -z "${WMS_DEV_HDR_OUT:-}" ] || xtra+=(-D "$WMS_DEV_HDR_OUT")
   if [ -n "$B" ]; then
-    printf '%s' "$B" | curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
+    printf '%s' "$B" | curl -q -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
       -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" -H 'Content-Type: application/json' --data-binary @- ${out[@]+"${out[@]}"} ${xtra[@]+"${xtra[@]}"}
   else
-    curl -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
+    curl -q -s --max-time 60 -w '\nHTTP %{http_code}\n' -X "$M" "$WMS_DEV_HOST$P" ${auth[@]+"${auth[@]}"} \
       -H "X-Tenant-ID: $WMS_DEV_TENANT" -H "facility_code: $WMS_DEV_FACILITY" ${out[@]+"${out[@]}"} ${xtra[@]+"${xtra[@]}"}
   fi
 }
