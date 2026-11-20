@@ -40,9 +40,10 @@
 # and a meter with an ERR that cannot name its series has none of its series counted;
 # lines of other metrics are skipped, and so are untracked wms2_authz_sdr_* meters, except one whose name starts
 # with a tracked meter's name, which is an ERR for that meter. Each meter gets at most one ERR row.
-# Micrometer creates a counter on its first increment. Residual blind spot: a build that never registers a meter looks the same as one that
-# never incremented it. A body cut short yet still well-formed is caught by its last sample: Micrometer writes
-# families in name order and the wms2_cron_* gauges sort after the SDR block, so a whole scrape ends past it.
+# Micrometer creates a counter on its first increment. Residual blind spot: a build that never registers a meter
+# looks the same as one that never incremented it. A body cut short yet still well-formed is caught by its last
+# sample: Micrometer writes families in name order and the wms2_cron_* gauges sort after the SDR block, so a whole
+# scrape ends past it.
 # Counts are written from the FIRST scrape, taken before any --control GET, so this run's own probe never shows;
 # the would_deny{none,index} row is still marked as the probe series, since earlier --control runs added to it.
 # Labels other than domainType/function (denied: controller, reason; path_collision: path, kept, shadowed;
@@ -57,7 +58,9 @@
 #       fails), except "control none index 0" when both scrapes, from one JVM, prove it added nothing;
 #       "control none index ERR" when /v3 was sent but its outcome is unknown (it may have counted);
 #       "control - - ERR" when /v3 was never sent. An interrupt (INT/TERM/HUP) after /v3 was sent still writes
-#       "control none index ERR" (exit 130/143/129); only a SIGKILL there leaves no control row.
+#       "control none index ERR" (exit 130/143/129). One that lands while the control row is being written is
+#       held until every row is written, then exits with that same code. Any other signal there (SIGKILL, or one
+#       this script does not trap, such as SIGQUIT or SIGUSR1) leaves no control row.
 # Rows go to the TSV FIRST, then to stdout; SIGPIPE is ignored, so a closed or vanished stdout reader cannot
 # cost a TSV row (it only loses the printed copy).
 set +x; set -uo pipefail
@@ -312,12 +315,12 @@ except Exception as e:                # fail closed with a reason instead of a t
 ' "$@"
 }
 
-FAIL=0; CTL_OK=0
+FAIL=0; CTL_OK=0; WFAIL=0   # WFAIL: a row could not be appended to the TSV
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ver=$(curl -q -s --max-time 10 "$HOST/api/public/version" | jq -r '.self.version // empty' 2>/dev/null); [[ "$ver" =~ ^[A-Za-z0-9._+-]{1,40}$ ]] || ver="(version unreadable)"
 row() {  # the TSV first (the record), then stdout best effort (the copy)
-  local l; l=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$ts" "$ver" "$@")
-  printf '%s\n' "$l" >> "$OUTF" || { echo "could not append to $OUTF" >&2; FAIL=1; }
+  local l; printf -v l '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$ts" "$ver" "$@"   # no $( ) fork: a child would not inherit a held trap
+  printf '%s\n' "$l" >> "$OUTF" || { echo "ERROR: could not append to $OUTF" >&2; FAIL=1; WFAIL=1; }
   printf '%s\n' "$l" 2>/dev/null || true
 }
 err() { echo "ERROR: $*" >&2; FAIL=1; }
@@ -342,6 +345,7 @@ ctl_interrupted() {  # $1 = exit code. Armed only between GET /v3 and the contro
   row control none index ERR "interrupted after GET /v3 was sent: it may have added 1 to would_deny{none,index}; this run wrote no counts"
   exit "$1"
 }
+PEND=       # an exit code held from a signal that landed during the control row (see the header)
 if [ $CONTROL -eq 1 ]; then
   c1=$(printf '%s' "$BODY1" | parse control)
   SENT=no    # no | 200 (counted if $TEN is in SHADOW) | zero (200, proven to add nothing) | unknown (may have counted)
@@ -367,7 +371,8 @@ if [ $CONTROL -eq 1 ]; then
       *) err "control: before/after count not readable ($(printf '%s\n' "$c1" | cut -f1)/$(printf '%s\n' "$c2" | cut -f1))";;
     esac
   fi
-  trap '' INT TERM HUP        # the control row is being written: an interrupt now must not add a second one
+  # the control row is being written: an interrupt now must not add a second one, and must not be lost either
+  trap 'PEND=130' INT; trap 'PEND=143' TERM; trap 'PEND=129' HUP
   if [ "$CTL_OK" = 1 ]; then row control none index 1 "this run's --control probe: would_deny{none,index} rose by exactly 1 in one JVM, consistent with +1 from this probe AFTER the counts below"
   elif [ "$SENT" = zero ]; then row control none index 0 "this run's GET /v3 answered 200 but would_deny{none,index} did not move in one JVM: the probe added nothing"
   elif [ "$SENT" = 200 ]; then row control none index 1 "this run's --control probe answered 200 (+1 AFTER the counts below if $TEN is in SHADOW) but the check failed (see stderr); the counts below are still valid"
@@ -385,4 +390,10 @@ while IFS=$'\t' read -r kind a b c d e; do
     *)    row - - - ERR "parser emitted an unknown line"; err "parser emitted an unknown line";;
   esac
 done <<<"$OUT"
+if [ -n "${PEND:-}" ]; then  # the signal code wins over FAIL=1; every ERROR above is still on stderr
+  if [ "$WFAIL" -ne 0 ]; then echo "interrupted while the control row was written; at least one row could NOT be written to $OUTF (see the ERROR above)" >&2
+  elif [ "$FAIL" -ne 0 ]; then echo "interrupted while the control row was written; every row was written, but an ERROR above also failed this run" >&2
+  else echo "interrupted while the control row was written; every row was still recorded" >&2; fi
+  exit "$PEND"
+fi
 exit $FAIL
