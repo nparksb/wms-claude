@@ -13,7 +13,7 @@
 #        That proves the counter is live, and is CONSISTENT with tenant $TEN being in SHADOW (OFF counts nothing,
 #        ENFORCE_RULED answers 403). It cannot prove it: the counter has no tenant tag, so another SHADOW tenant's
 #        /v3 landing in the same instant while ours counted nothing would look identical. A delta of 2: rerun.
-#        A passed control is written to the TSV as a "control" row (+1), so probe hits can be subtracted later.
+#        Every --control run writes a "control" row (see "--control rows" below), so probe hits can be subtracted.
 #   Every curl call starts with -q, so a ~/.curlrc (-v, --trace, -L) can neither log the token nor follow a redirect.
 #
 # ⚠ The counters carry domainType + function ONLY: no tenant, no user (SdrFunctionGuard). One UAT deployment
@@ -32,23 +32,41 @@
 # failed — a failed read is NEVER written as 0. A meter is written as 0 with note "absent" only when the scrape
 # is proven to be a whole wms2-api scrape (HTTP 200, ends in a newline, carries
 # application_ready_time_seconds{main_application_class="net.aim_ai.wms.StartApplication"} plus
-# process_start/uptime) and NO line in it mentions wms2_authz_sdr without parsing: Micrometer creates a counter
-# on its first increment. Residual blind spot: a build that never registers a meter looks the same as one that
-# never incremented it. A body cut short by the server yet still well-formed is not detectable here (curl
-# itself fails a short transfer).
+# process_start/uptime), EVERY line in it is a well-formed sample or HELP/TYPE comment (else nothing is recorded),
+# and NO line in it names a tracked meter without parsing. That means: a tracked name
+# anywhere but a sample line's own column-0 name or inside a parsed label value is an ERR; a "#" line naming one
+# must be exactly "# HELP <name> ..." or "# TYPE <name> counter" (else a sample may be joined to it: ERR), and a
+# meter so declared with no parsed sample is an ERR; a series that appears twice is an ERR (no copy is counted),
+# and a meter with an ERR that cannot name its series has none of its series counted;
+# lines of other metrics are skipped, and so are untracked wms2_authz_sdr_* meters, except one whose name starts
+# with a tracked meter's name, which is an ERR for that meter. Each meter gets at most one ERR row.
+# Micrometer creates a counter on its first increment. Residual blind spot: a build that never registers a meter looks the same as one that
+# never incremented it. A body cut short yet still well-formed is caught by its last sample: Micrometer writes
+# families in name order and the wms2_cron_* gauges sort after the SDR block, so a whole scrape ends past it.
 # Counts are written from the FIRST scrape, taken before any --control GET, so this run's own probe never shows;
 # the would_deny{none,index} row is still marked as the probe series, since earlier --control runs added to it.
 # Labels other than domainType/function (denied: controller, reason; path_collision: path, kept, shadowed;
 # mode_read_failed: exception) go into the note as key=value; an empty label value is written as (empty).
 # The first row (meter "jvm", count "-") says when the JVM (re)started: the window these counts cover. If UAT
 # ever runs more than one replica, every reading is per-pod; the control then fails on the start-time check.
-# Exit: 0 = every read succeeded (and, with --control, the control passed); 1 = any read/HTTP/auth failure or
-#       a failed control (rows from the first scrape are still written); 2 = setup (python3 >= 3.6 is required).
+# Exit: 0 = every counter read succeeded (and, with --control, the control passed). The version is best effort:
+#       an unreadable one is written as "(version unreadable)" and does not fail the run.
+#       1 = any counter read/HTTP/auth failure or a failed control (rows from the first scrape are still written);
+#       2 = setup (python3 >= 3.6 and jq are required).
+# --control rows: "control none index 1" when GET /v3 answered 200 (it counts in SHADOW even when the check then
+#       fails), except "control none index 0" when both scrapes, from one JVM, prove it added nothing;
+#       "control none index ERR" when /v3 was sent but its outcome is unknown (it may have counted);
+#       "control - - ERR" when /v3 was never sent. An interrupt (INT/TERM/HUP) after /v3 was sent still writes
+#       "control none index ERR" (exit 130/143/129); only a SIGKILL there leaves no control row.
+# Rows go to the TSV FIRST, then to stdout; SIGPIPE is ignored, so a closed or vanished stdout reader cannot
+# cost a TSV row (it only loses the printed copy).
 set +x; set -uo pipefail
+trap '' PIPE                                  # a reader that goes away must never kill the run before a TSV row lands
 . "$(dirname "$0")/env.sh" || exit 2          # helpers (mode_of, mkdir_secure) and $STATE only; env.sh skips the
                                              # DEV credentials for this script (keyed on its file name)
 command -v python3 >/dev/null 2>&1 && python3 -I -c 'import sys; sys.exit(sys.version_info < (3, 6))' 2>/dev/null \
   || { echo "python3 >= 3.6 is required (parses the Keycloak URL and the scrape)" >&2; exit 2; }
+command -v jq >/dev/null 2>&1 || { echo "jq is required (reads the Keycloak config and token)" >&2; exit 2; }
 HOST=https://wms-api.uat.sbo.li               # the ONLY WMS host this script talks to
 UCRED=$HOME/.config/wms-dev-probe/uat-credentials
 METERS="would_deny unruled denied allowed path_collision mode_read_failed"   # wms2_authz_sdr_<m>_total in the scrape
@@ -108,7 +126,10 @@ get() {  # $1 = path, one of a fixed two. Sets GET_BODY / GET_CODE. Returns 0 on
   GET_BODY=""; GET_CODE=refused
   case "$p" in /v3|/actuator/prometheus) ;; *) echo "refusing path $p" >&2; return 4;; esac
   GET_CODE=000
-  out=$(curl -q -s --max-time 30 -w '\n%{http_code}' -H "@$HDR" -H "X-Tenant-ID: $TEN" -H "facility_code: $FAC" "$HOST$p") || return 2
+  local acc="Accept: */*"
+  [ "$p" = /actuator/prometheus ] && acc="Accept: text/plain;version=0.0.4"   # the format parse() reads, not a default
+  out=$(curl -q -s --max-time 30 -w '\n%{http_code}' -H "@$HDR" -H "$acc" -H "X-Tenant-ID: $TEN" -H "facility_code: $FAC" \
+    "$HOST$p") || return 2
   case "$out" in *$'\n'*) GET_CODE=${out##*$'\n'}; GET_BODY=${out%$'\n'*};; *) GET_CODE=$out; GET_BODY="";; esac
   [[ "$GET_CODE" =~ ^[0-9]{3}$ ]] || GET_CODE=000      # no status line at all = transport failure, never a blank code
   case "$GET_CODE" in 200) return 0;; 000) return 2;; *) return 3;; esac
@@ -127,7 +148,8 @@ if mode == "control": meters = ["would_deny"]   # the control reads exactly one 
 try:
     text = sys.stdin.buffer.read().decode("utf-8", "replace")
     SAFE = re.compile(r"[A-Za-z0-9_./{}-]+\Z")
-    LINE = re.compile(r"wms2_authz_sdr_([a-z_]+?)_total(?:\{(.*)\})?[ \t]+(\S+)(?:[ \t]+-?\d+)?\Z")
+    NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]*")
+    LINE = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]*(?:\{(.*)\})?[ \t]+(\S+)(?:[ \t]+-?\d+)?\Z")
     LABEL = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)=\"((?:[^\"\\]|\\.)*)\"\s*(?:,|\Z)")
     def gauge(name):
         m = re.search(r"^" + name + r"(?:\{[^}\n]*\})?[ \t]+(\S+)[ \t]*$", text, re.M)
@@ -136,28 +158,83 @@ try:
         return v if v is not None and math.isfinite(v) and v >= 0 else None
     start, up = gauge("process_start_time_seconds"), gauge("process_uptime_seconds")
     app = re.search(r"^application_ready_time_seconds\{[^}\n]*main_application_class=\"net\.aim_ai\.wms\.StartApplication\"", text, re.M)
-    samples = [l for l in text.splitlines() if l and not l.startswith("#")]
-    last = re.match(r"[A-Za-z_:][A-Za-z0-9_:]*", samples[-1]) if samples else None
+    samples = [l for l in text.split("\n") if l and not l.startswith("#")]
+    last = NAME.match(samples[-1]) if samples else None
     # Micrometer writes metric families in name order, so a body cut before or inside the SDR block ends on a name
-    # that sorts before it. If that ordering ever changes this fails CLOSED (nothing recorded), never open.
-    if not last or last.group(0) <= "wms2_authz_sdr_~":
+    # that sorts before it. Families sort by BASE name, so the sample suffix is stripped first (wms2_authz_total is
+    # family wms2_authz, which sorts BEFORE the block). If that ordering ever changes this fails CLOSED.
+    fam = re.sub(r"_(total|info|count|sum|bucket|created)\Z", "", last.group(0)) if last else ""
+    if not fam or fam <= "wms2_authz_sdr_~":
         print("BAD\tscrape looks cut short: its last sample (" + (last.group(0) if last else "none") +
-              ") does not sort after the wms2_authz_sdr block"); sys.exit(0)
+              ") does not sort after the wms2_authz_sdr block (or no metric sorting after it is registered any more)"); sys.exit(0)
     if not text.endswith("\n") or not app or start is None or up is None:
         print("BAD\tnot a whole wms2-api scrape (needs a final newline, application_ready_time_seconds for "
               "net.aim_ai.wms.StartApplication, process_start_time_seconds and process_uptime_seconds)")
         sys.exit(0)
+    def wellformed(ln):               # one exposition line: a HELP/TYPE comment, or name{labels} value [timestamp]
+        if ln.startswith("#"): return re.fullmatch(r"# (HELP|TYPE) [A-Za-z_:][A-Za-z0-9_:]*( .*)?", ln) is not None
+        g = LINE.match(ln)
+        if not g: return False
+        raw, q = g.group(1) or "", 0
+        while q < len(raw):
+            lq = LABEL.match(raw, q)
+            if not lq: return False
+            q = lq.end()
+        try: float(g.group(2))
+        except ValueError: return False
+        return True
+    badl = [i for i, l in enumerate(text.split("\n")[:-1], 1) if l and not wellformed(l)]
+    if badl:
+        print("BAD\tnot a well-formed scrape: line " + str(badl[0]) + " is neither a sample nor a HELP/TYPE comment" +
+              (" (and %d more)" % (len(badl) - 1) if len(badl) > 1 else "")); sys.exit(0)
     series = []                       # ("ROW", meter, labels, count) | ("ERR", meter-or-None, message)
-    for ln in text.splitlines():
-        if "wms2_authz_sdr" not in ln or ln.lstrip().startswith("#"): continue
-        m = LINE.match(ln)            # anchored at column 0: an indented sample line is an ERR, never skipped
+    P = "wms2_authz_sdr_"
+    TRK = dict((x, P + x + "_total") for x in meters)
+    def stray(ln):                    # tracked meters named in ln anywhere but its own column-0 name or a label value
+        hits = [(h.start(), x) for x, full in TRK.items() for h in re.finditer(re.escape(full), ln)]
+        if not hits: return []
+        spans, m0 = [], LINE.match(ln)
+        if m0 and m0.group(1) is not None:
+            base, raw0, q0 = m0.start(1), m0.group(1), 0
+            while q0 < len(raw0):
+                lq = LABEL.match(raw0, q0)
+                if not lq: spans = []; break
+                spans.append((base + lq.start(2), base + lq.end(2))); q0 = lq.end()
+        out = set()
+        for i, x in hits:
+            if i == 0: continue           # the column-0 name is judged by the main loop (exact, near, or ERR)
+            if any(a <= i and i + len(TRK[x]) <= b for a, b in spans): continue
+            out.add(x)
+        return sorted(out)
+    declared = set()                  # tracked meters named in a HELP/TYPE line: each must yield a ROW or an ERR
+    for ln in text.split("\n"):
+        if "wms2_authz_sdr" not in ln: continue
+        if ln.lstrip().startswith("#"):   # a sample joined to its HELP/TYPE line must not vanish into the comment
+            named = [x for x, full in TRK.items() if full in ln]
+            declared.update(named)
+            c = re.fullmatch(r"# (HELP|TYPE) (\S+)(.*)", ln)
+            total = sum(ln.count(full) for full in TRK.values())
+            for x in named:
+                if not c or c.group(2) != TRK[x] or total != 1 or (c.group(1) == "TYPE" and c.group(3) != " counter"):
+                    series.append(("ERR", x, x + ": a HELP/TYPE line naming it is malformed (a sample may be joined to it)"))
+            continue
+        for x in stray(ln):           # a corrupted/joined/prefixed tracked name: never let that meter read "absent"
+            series.append(("ERR", x, x + ": its series name appears in a line outside a parseable name or label value"))
+        nm = NAME.match(ln)           # anchored at column 0: an indented sample line is an ERR, never skipped
+        if not nm:
+            series.append(("ERR", None, "a wms2_authz_sdr line: no readable metric name at column 0")); continue
+        name = nm.group(0)
+        if not name.startswith(P): continue                  # another metric; the text sits in one of its labels
+        rest = name[len(P):]
+        meter = next((x for x in meters if rest == x + "_total"), None)
+        if meter is None:
+            near = next((x for x in meters if rest.startswith(x)), None)
+            if near: series.append(("ERR", near, near + ": unexpected series name " + name))
+            continue                                         # else a meter this script does not track
+        m = LINE.match(ln)
         if not m:
-            g = re.search(r"wms2_authz_sdr_([a-z_]+?)_total", ln)
-            if g and g.group(1) not in meters: continue      # a meter this script does not track: not its problem
-            mt = g.group(1) if g else None
-            series.append(("ERR", mt, (mt or "a wms2_authz_sdr line") + ": unparseable series line")); continue
-        meter, raw, val = m.group(1), m.group(2) or "", m.group(3)
-        if meter not in meters: continue
+            series.append(("ERR", meter, meter + ": unparseable series line")); continue
+        raw, val = m.group(1) or "", m.group(2)
         labels, pos, why = {}, 0, None
         while pos < len(raw):
             lm = LABEL.match(raw, pos)
@@ -174,21 +251,52 @@ try:
             else:
                 try: f = float(val)
                 except ValueError: f = None
-                if f is not None and math.isfinite(f) and f >= 0: count = int(f)
-            if count is None: why = "count is not a finite non-negative number"
+                if f is not None and math.isfinite(f) and f >= 0 and f.is_integer(): count = int(f)
+            if count is None: why = "count is not a finite non-negative whole number"
+        if why and count is None and why.startswith("count"):  # labels parsed: keep the key, so no copy is counted
+            key = (meter, tuple(sorted(labels.items())))
+            series.append(("ERR", meter, meter + ": series {" + ",".join(a + "=" + b for a, b in key[1]) + "}: " + why, key))
+            continue
         if why: series.append(("ERR", meter, meter + ": " + why)); continue
         series.append(("ROW", meter, labels, count))
+    hit = set(s[1] for s in series)
+    for x in sorted(declared - hit):
+        series.append(("ERR", x, x + ": named in a HELP/TYPE line but no sample of it parsed"))
+    if any(s[0] == "ERR" and s[1] is None for s in series):
+        print("BAD\tthe scrape holds a wms2_authz_sdr line this parser cannot attribute to a meter"); sys.exit(0)
+    cnt, bad, badm = {}, set(), set() # a series that appears more than once: EVERY copy becomes one ERR, none a count
+    for s in series:
+        if s[0] == "ROW": k = (s[1], tuple(sorted(s[2].items()))); cnt[k] = cnt.get(k, 0) + 1
+        elif len(s) > 3: bad.add(s[3])    # a copy whose count failed: its ERR already names the series
+        else: badm.add(s[1])          # an ERR that cannot name its series might duplicate any of them: no row counts
+    deduped, done = [], set()
+    for s in series:
+        if s[0] == "ROW":
+            k = (s[1], tuple(sorted(s[2].items())))
+            if k in bad or s[1] in badm: continue
+            if cnt[k] > 1:
+                if k not in done:
+                    done.add(k)
+                    deduped.append(("ERR", s[1], s[1] + ": series {" + ",".join(a + "=" + b for a, b in k[1]) +
+                                    "} appears " + str(cnt[k]) + " times"))
+                continue
+        deduped.append(s)
+    series = deduped
     if mode == "control":
-        if any(s[0] == "ERR" and s[1] in (None, "would_deny") for s in series):
+        if any(s[0] == "ERR" and s[1] == "would_deny" for s in series):
             print("BAD\twould_deny is not provably readable in this scrape"); sys.exit(0)
         n = sum(s[3] for s in series if s[0] == "ROW" and s[1] == "would_deny"
                 and s[2].get("domainType") == "none" and s[2].get("function") == "index")
         print("OK\t%d\t%s" % (n, repr(start))); sys.exit(0)
     print("META\t%d\t%d" % (int(start), int(up)))
-    seen = set()
+    seen, nerr = set(), {}
+    for s in series:
+        if s[0] == "ERR": nerr[s[1]] = nerr.get(s[1], 0) + 1
     for s in series:
         if s[0] == "ERR":             # an errored meter is SEEN: it must never fall through to "absent, 0"
-            seen.add(s[1]); print("ERR\t%s\t%s" % (s[1] or "(unattributed)", s[2])); continue
+            if s[1] in seen and nerr.get(s[1], 0) == 0: continue   # one ERR row per meter: the first, with a tally
+            seen.add(s[1]); more = nerr[s[1]] - 1; nerr[s[1]] = 0
+            print("ERR\t%s\t%s" % (s[1], s[2] + (" (and %d more problem(s) with this meter)" % more if more else ""))); continue
         _, meter, labels, count = s
         if meter not in meters: continue
         seen.add(meter)
@@ -198,10 +306,7 @@ try:
         print("\t".join(["ROW", meter, labels.get("domainType", "-"), labels.get("function", "-"), str(count), note]))
     for meter in meters:
         if meter in seen: continue
-        if None in seen:              # an unattributable bad line might be this meter: never claim 0
-            print("ERR\t%s\t%s: not provably absent (the scrape held an unparseable wms2_authz_sdr line)" % (meter, meter))
-        else:
-            print("\t".join(["ROW", meter, "-", "-", "0", "absent: no series in this scrape (never incremented since the JVM started, or not registered by this build)"]))
+        print("\t".join(["ROW", meter, "-", "-", "0", "absent: no series in this scrape (never incremented since the JVM started, or not registered by this build)"]))
 except Exception as e:                # fail closed with a reason instead of a traceback
     print("BAD\tparser error: " + type(e).__name__)
 ' "$@"
@@ -210,7 +315,11 @@ except Exception as e:                # fail closed with a reason instead of a t
 FAIL=0; CTL_OK=0
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ver=$(curl -q -s --max-time 10 "$HOST/api/public/version" | jq -r '.self.version // empty' 2>/dev/null); [[ "$ver" =~ ^[A-Za-z0-9._+-]{1,40}$ ]] || ver="(version unreadable)"
-row() { if printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$ver" "$@" | tee -a "$OUTF"; then :; else echo "could not append to $OUTF" >&2; FAIL=1; fi; }
+row() {  # the TSV first (the record), then stdout best effort (the copy)
+  local l; l=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$ts" "$ver" "$@")
+  printf '%s\n' "$l" >> "$OUTF" || { echo "could not append to $OUTF" >&2; FAIL=1; }
+  printf '%s\n' "$l" 2>/dev/null || true
+}
 err() { echo "ERROR: $*" >&2; FAIL=1; }
 
 # scrape 1: the auth probe AND the source of every recorded count. Nothing is recorded until it is proven real.
@@ -228,11 +337,20 @@ OUT=$(printf '%s' "$BODY1" | parse rows $METERS)
 case "$OUT" in META$'\t'*) ;; BAD$'\t'*) echo "ERROR: $(printf '%s\n' "$OUT" | cut -f2) (nothing recorded)" >&2; exit 1;;
   *) echo "ERROR: parser gave no usable output (nothing recorded)" >&2; exit 1;; esac
 
+ctl_interrupted() {  # $1 = exit code. Armed only between GET /v3 and the control row.
+  trap '' INT TERM HUP
+  row control none index ERR "interrupted after GET /v3 was sent: it may have added 1 to would_deny{none,index}; this run wrote no counts"
+  exit "$1"
+}
 if [ $CONTROL -eq 1 ]; then
   c1=$(printf '%s' "$BODY1" | parse control)
-  case "$c1" in OK*) get /v3; rc=$?; v3code=$GET_CODE;; *) rc=5; v3code="not sent";; esac
+  SENT=no    # no | 200 (counted if $TEN is in SHADOW) | zero (200, proven to add nothing) | unknown (may have counted)
+  case "$c1" in OK*)   # from here an interrupt must still leave a control row (SIGKILL cannot be caught)
+      trap 'ctl_interrupted 130' INT; trap 'ctl_interrupted 143' TERM; trap 'ctl_interrupted 129' HUP
+      get /v3; rc=$?; v3code=$GET_CODE; if [ $rc -eq 0 ]; then SENT=200; else SENT=unknown; fi;;
+    *) rc=5; v3code="not sent";; esac
   if [ $rc -eq 5 ]; then err "control: the before-count is not readable ($(printf '%s\n' "$c1" | cut -f2)); GET /v3 not sent"
-  elif [ $rc -ne 0 ]; then err "control: GET /v3 failed (rc=$rc, HTTP $v3code): the positive control did not fire"
+  elif [ $rc -ne 0 ]; then err "control: GET /v3 did not answer 200 (rc=$rc, HTTP $v3code): the check cannot run, and the request may still have been counted"
   elif ! get /actuator/prometheus; then err "control: the after-scrape failed (HTTP $GET_CODE)"
   else
     c2=$(printf '%s' "$GET_BODY" | parse control)
@@ -240,15 +358,22 @@ if [ $CONTROL -eq 1 ]; then
       OK*:OK*)
         b=$(printf '%s' "$c1" | cut -f2); s1=$(printf '%s' "$c1" | cut -f3)
         a=$(printf '%s' "$c2" | cut -f2); s2=$(printf '%s' "$c2" | cut -f3)
+        d=$(python3 -I -c 'import sys; print(int(sys.argv[2]) - int(sys.argv[1]))' "$b" "$a" 2>/dev/null)  # exact: no 64-bit wrap
         if [ "$s1" != "$s2" ]; then err "control: the two scrapes came from different JVMs (start $s1 vs $s2): a restart, or more than one replica"
-        elif [ $((a - b)) -eq 1 ]; then CTL_OK=1; echo "control ok: would_deny{none,index} $b -> $a in one JVM (counter is live; consistent with tenant $TEN in SHADOW, which the untagged counter cannot prove)" >&2
-        elif [ $((a - b)) -eq 0 ]; then err "control: GET /v3 answered 200 but would_deny{none,index} stayed $b (tenant $TEN not in SHADOW, or counter not live)"
+        elif [ -z "$d" ]; then err "control: could not compute the delta ($b -> $a)"
+        elif [ "$d" = 1 ]; then CTL_OK=1; echo "control ok: would_deny{none,index} $b -> $a in one JVM (counter is live; consistent with tenant $TEN in SHADOW, which the untagged counter cannot prove)" >&2
+        elif [ "$d" = 0 ]; then SENT=zero; err "control: GET /v3 answered 200 but would_deny{none,index} stayed $b (tenant $TEN not in SHADOW, or counter not live)"
         else err "control: would_deny{none,index} moved $b -> $a, not by exactly 1 (a concurrent /v3 from another tenant?): rerun"; fi;;
       *) err "control: before/after count not readable ($(printf '%s\n' "$c1" | cut -f1)/$(printf '%s\n' "$c2" | cut -f1))";;
     esac
   fi
-  if [ "$CTL_OK" = 1 ]; then row control none index 1 "this run's --control probe: +1 to would_deny{none,index} AFTER the counts below"
-  else row control - - ERR "the --control check failed (see stderr); the counts below are still valid"; fi
+  trap '' INT TERM HUP        # the control row is being written: an interrupt now must not add a second one
+  if [ "$CTL_OK" = 1 ]; then row control none index 1 "this run's --control probe: would_deny{none,index} rose by exactly 1 in one JVM, consistent with +1 from this probe AFTER the counts below"
+  elif [ "$SENT" = zero ]; then row control none index 0 "this run's GET /v3 answered 200 but would_deny{none,index} did not move in one JVM: the probe added nothing"
+  elif [ "$SENT" = 200 ]; then row control none index 1 "this run's --control probe answered 200 (+1 AFTER the counts below if $TEN is in SHADOW) but the check failed (see stderr); the counts below are still valid"
+  elif [ "$SENT" = unknown ]; then row control none index ERR "this run's GET /v3 was sent but did not answer 200: it may have added 1 AFTER the counts below; the counts below are still valid"
+  else row control - - ERR "the --control check failed before GET /v3 was sent (see stderr); the counts below are still valid"; fi
+  trap - INT TERM HUP
 fi
 
 while IFS=$'\t' read -r kind a b c d e; do
